@@ -1,2 +1,2 @@
-# mongo-util
-Collection of MongoDB utilities
+# mongodump
+Basic mongodump written in Java
