@@ -50,6 +50,8 @@ public class MongoReplayFilter {
                         ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
                         channel.write(buffer);
                         written++;
+                    } else {
+                        System.out.println(opcode);
                     }
                 }
 

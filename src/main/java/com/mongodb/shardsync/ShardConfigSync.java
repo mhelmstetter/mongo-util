@@ -1,4 +1,4 @@
-package com.mongodb.util;
+package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.eq;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
@@ -7,7 +7,6 @@ import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -23,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoCommandException;
+import com.mongodb.ServerAddress;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -35,6 +35,7 @@ public class ShardConfigSync {
     
     private static Logger logger = LoggerFactory.getLogger(ShardConfigSync.class);
     
+    private static final String MONGODB_SRV_PREFIX = "mongodb+srv://";
     private final static Document LOCALE_SIMPLE = new Document("locale", "simple");
     
     private String sourceClusterUri;
@@ -58,18 +59,34 @@ public class ShardConfigSync {
     private List<ShardCollection> sourceCollections = new ArrayList<ShardCollection>();
     
     
-    public void run() {
+    public void run() throws InterruptedException {
         
         pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
         
         MongoClientURI source = new MongoClientURI(sourceClusterUri);
         sourceClient = new MongoClient(source);
+        List<ServerAddress> addrs = sourceClient.getServerAddressList();
         sourceClient.getDatabase("admin").runCommand(new Document("ping",1));
         sourceConfigDb = sourceClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
         
+        
+        boolean isSRVProtocol = destClusterUri.startsWith(MONGODB_SRV_PREFIX);
+        if (isSRVProtocol) {
+            throw new RuntimeException("mongodb+srv protocol not supported use standard mongodb protocol in connection string");
+        }
+        
         MongoClientURI dest = new MongoClientURI(destClusterUri);
+        
+        
+        // We need to ensure a consistent connection to only a single mongos
+        // assume that we will only use the first one in the list
+        if (dest.getHosts().size() > 1) {
+            throw new RuntimeException("Specify only a single destination mongos in the connection string");
+        }
+        
         destClient = new MongoClient(dest);
+        
         destClient.getDatabase("admin").runCommand(new Document("ping",1));
         destConfigDb = destClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
         
@@ -87,12 +104,25 @@ public class ShardConfigSync {
         
         stopBalancers();
         enableDestinationSharding();
+        
+        //Thread.sleep(1000);
+        //flushRouterConfig();
+        
         populateCollectionList(sourceConfigDb, sourceCollections);
         shardDestinationCollections();
+        
+        // try to workaround errors
+        //{ "code" : 118, "ok" : 0.0, "errmsg" : "Collection d1.foo3 is not sharded." }
+        //Thread.sleep(10000);
+        //flushRouterConfig();
+       
         createDestChunks();
+        
         if (! compareAndMoveChunks()) {
             throw new RuntimeException("chunks don't match");
         }
+        
+        flushRouterConfig();
         
     }
     
@@ -161,6 +191,7 @@ public class ShardConfigSync {
         for (Document sourceChunk : sourceChunks) {
             
             if (!destChunks.hasNext()) {
+                logger.error("No destination chunks found");
                 return false;
             }
             Document destChunk = destChunks.next();
@@ -219,31 +250,22 @@ public class ShardConfigSync {
             String sourceNs = sourceChunk.getString("ns");
             Document sourceMin = (Document)sourceChunk.get("min");
             Document sourceMax = (Document)sourceChunk.get("max");
-            String sourceShard = sourceChunk.getString("shard");
-            String mappedShard = sourceToDestShardMap.get(sourceShard);
+            
             
             String destNs = destChunk.getString("ns");
             Document destMin = (Document)destChunk.get("min");
             Document destMax = (Document)destChunk.get("max");
-            String destShard = destChunk.getString("shard");
             
-            if (!sourceNs.equals(lastNs) && lastNs != null) {
-                logger.debug(String.format("%s - chunks: %s, moved count: %s", lastNs, currentCount, movedCount));
-                currentCount = 0;
-                movedCount = 0;
-            }
             
-            if (! mappedShard.equals(destShard)) {
-                logger.debug(String.format("%s: moving chunk from %s to %s", destNs, destShard, mappedShard));
-                moveChunk(destNs, destMin, destMax, mappedShard);
-                movedCount++;
-            }
             
-            if (!sourceNs.equals(destNs) && !sourceMax.equals(destMax)) {
-                return false;
-            }
         }
         return true;
+    }
+    
+    // TODO - this needs to flush on all routers?
+    private void flushRouterConfig() {
+        Document flushRouterConfig = new Document("flushRouterConfig", true);
+        destClient.getDatabase("admin").runCommand(flushRouterConfig);
     }
     
     private void moveChunk(String namespace, Document min, Document max, String moveToShard) {
@@ -258,6 +280,7 @@ public class ShardConfigSync {
         shardsColl.find(eq("dropped", false)).sort(Sorts.ascending("_id")).into(list);
     }
     
+    // TODO
     private void populateMongosList(MongoDatabase db, List<Mongos> list) {
         MongoCollection<Mongos> mongosColl = db.getCollection("mongos", Mongos.class);
         

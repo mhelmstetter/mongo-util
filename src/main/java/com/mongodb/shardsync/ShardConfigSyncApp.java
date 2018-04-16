@@ -1,4 +1,4 @@
-package com.mongodb.util;
+package com.mongodb.shardsync;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;

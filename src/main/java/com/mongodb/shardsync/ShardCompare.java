@@ -1,4 +1,4 @@
-package com.mongodb.util;
+package com.mongodb.shardsync;
 
 public class ShardCompare {
     
