@@ -4,21 +4,22 @@ import static com.mongodb.client.model.Filters.eq;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.bson.Document;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
-import org.bson.types.MaxKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Lists;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoCommandException;
@@ -62,6 +63,8 @@ public class ShardConfigSync {
     
     private List<Mongos> destMongos = new ArrayList<Mongos>();
     private List<MongoClient> destMongoClients = new ArrayList<MongoClient>();
+    
+    private ExecutorService executor = Executors.newFixedThreadPool(32);
     
     public void run() throws InterruptedException {
         
@@ -148,46 +151,16 @@ public class ShardConfigSync {
     private void createDestChunks() {
         logger.debug("createDestChunks started");
         MongoCollection<Document> sourceChunksColl = sourceConfigDb.getCollection("chunks");
-        FindIterable<Document> sourceChunks = sourceChunksColl.find().sort(Sorts.ascending("ns", "min"));
+        List<Document> sourceChunks = new ArrayList<Document>();
+        sourceChunksColl.find().sort(Sorts.ascending("ns", "min")).into(sourceChunks);
         
-        Document splitCommand = new Document();
-        String lastNs = null;
-        int currentCount = 0;
+        List<List<Document>> sublists = Lists.partition(sourceChunks, 32);
         
-        for (Document chunk : sourceChunks) {
-            String ns = chunk.getString("ns");
-            
-            if (! ns.equals(lastNs) && lastNs != null) {
-                logger.debug(String.format("%s - created %s chunks", lastNs, currentCount));
-                currentCount = 0;
-            }
-            
-            Document max = (Document)chunk.get("max");
-            boolean maxKey = false;
-            for (Iterator i = max.values().iterator(); i.hasNext();) {
-                Object next = i.next();
-                if (next instanceof MaxKey) {
-                    maxKey = true;
-                    break;
-                }
-            }
-            
-            if (maxKey) {
-                continue;
-            }
-            
-            splitCommand.put("split", ns);
-            splitCommand.put("middle", max);
-            
-            try {
-                destClient.getDatabase("admin").runCommand(splitCommand);
-            } catch (MongoCommandException mce) {
-                logger.error(String.format("command error for namespace %s", ns), mce);
-            }
-            
-            lastNs = ns;
-            currentCount++;
+        for (List<Document> sublist : sublists) {
+            Runnable worker = new ChunkCreateWorker(sublist, destClient);
+            executor.execute(worker);
         }
+        
         logger.debug("createDestChunks complete");
     }
     
