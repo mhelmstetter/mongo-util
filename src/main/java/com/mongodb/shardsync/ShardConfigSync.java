@@ -41,6 +41,8 @@ public class ShardConfigSync {
     private String sourceClusterUri;
     
     private String destClusterUri;
+    private String destUsername;
+    private String destPassword;
     
     private boolean dropDestinationCollectionsIfExisting;
     
@@ -58,6 +60,8 @@ public class ShardConfigSync {
     
     private List<ShardCollection> sourceCollections = new ArrayList<ShardCollection>();
     
+    private List<Mongos> destMongos = new ArrayList<Mongos>();
+    private List<MongoClient> destMongoClients = new ArrayList<MongoClient>();
     
     public void run() throws InterruptedException {
         
@@ -65,6 +69,7 @@ public class ShardConfigSync {
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
         
         MongoClientURI source = new MongoClientURI(sourceClusterUri);
+        
         sourceClient = new MongoClient(source);
         List<ServerAddress> addrs = sourceClient.getServerAddressList();
         sourceClient.getDatabase("admin").runCommand(new Document("ping",1));
@@ -77,6 +82,8 @@ public class ShardConfigSync {
         }
         
         MongoClientURI dest = new MongoClientURI(destClusterUri);
+        this.destUsername = dest.getUsername();
+        this.destPassword = String.valueOf(dest.getPassword());
         
         
         // We need to ensure a consistent connection to only a single mongos
@@ -90,8 +97,11 @@ public class ShardConfigSync {
         destClient.getDatabase("admin").runCommand(new Document("ping",1));
         destConfigDb = destClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
         
+        
         populateShardList(sourceConfigDb, sourceShards);
         populateShardList(destConfigDb, destShards);
+        
+        populateMongosList(destConfigDb, destMongos);
         
         int index = 0;
         for (Iterator<Shard> i = sourceShards.iterator(); i.hasNext();) {
@@ -127,12 +137,14 @@ public class ShardConfigSync {
     }
     
     private void stopBalancers() {
+        logger.debug("stopBalancers started");
         sourceClient.getDatabase("admin").runCommand(new Document("balancerStop",1));
         destClient.getDatabase("admin").runCommand(new Document("balancerStop",1));
+        logger.debug("stopBalancers complete");
     }
     
     private void createDestChunks() {
-        
+        logger.debug("createDestChunks started");
         MongoCollection<Document> sourceChunksColl = sourceConfigDb.getCollection("chunks");
         FindIterable<Document> sourceChunks = sourceChunksColl.find().sort(Sorts.ascending("ns", "min"));
         
@@ -174,6 +186,7 @@ public class ShardConfigSync {
             lastNs = ns;
             currentCount++;
         }
+        logger.debug("createDestChunks complete");
     }
     
     private boolean compareAndMoveChunks() {
@@ -264,8 +277,13 @@ public class ShardConfigSync {
     
     // TODO - this needs to flush on all routers?
     private void flushRouterConfig() {
-        Document flushRouterConfig = new Document("flushRouterConfig", true);
-        destClient.getDatabase("admin").runCommand(flushRouterConfig);
+        logger.debug("flushRouterConfig()");
+        for (MongoClient client : destMongoClients) {
+            Document flushRouterConfig = new Document("flushRouterConfig", true);
+            logger.debug(String.format("flushRouterConfig for mongos %s", client.getAddress()));
+            client.getDatabase("admin").runCommand(flushRouterConfig);
+        }
+        
     }
     
     private void moveChunk(String namespace, Document min, Document max, String moveToShard) {
@@ -280,16 +298,20 @@ public class ShardConfigSync {
         shardsColl.find(eq("dropped", false)).sort(Sorts.ascending("_id")).into(list);
     }
     
-    // TODO
     private void populateMongosList(MongoDatabase db, List<Mongos> list) {
         MongoCollection<Mongos> mongosColl = db.getCollection("mongos", Mongos.class);
-        
-        LocalDateTime oneHourAgo = LocalDateTime.now().minusHours(1);
-        
-        mongosColl.find(eq("ping", false)).sort(Sorts.ascending("pint")).into(list);
+        //LocalDateTime oneHourAgo = LocalDateTime.now().minusHours(1);
+        mongosColl.find(eq("ping", false)).sort(Sorts.ascending("ping")).into(list);
+        for (Mongos mongos : destMongos) {
+            String uri = "mongodb://" + destUsername + ":" + destPassword + "@" + mongos.getId(); 
+            MongoClientURI clientUri = new MongoClientURI(uri);
+            MongoClient client = new MongoClient(clientUri);
+            destMongoClients.add(client);
+        }
     }
     
     private void shardDestinationCollections() {
+        logger.debug("shardDestinationCollections() started");
         for (ShardCollection sourceColl : sourceCollections) {
             Document shardCommand = new Document("shardCollection", sourceColl.getId());
             shardCommand.append("key", sourceColl.getKey());
@@ -312,8 +334,8 @@ public class ShardConfigSync {
                 //destClient.getDatabase("admin").runCommand(new Document("", ""));
                 logger.warn(String.format("Balancing is disabled for %s, this is not possible in Atlas", sourceColl.getId()));
             }
-            
         }
+        logger.debug("shardDestinationCollections() complete");
     }
     
     private void populateShardList(MongoDatabase db, List<Shard> list) {
@@ -323,6 +345,7 @@ public class ShardConfigSync {
     
     
     public void enableDestinationSharding() {
+        logger.debug("enableDestinationSharding()");
         MongoCollection<Document> databasesColl = sourceConfigDb.getCollection("databases");
         FindIterable<Document> databases = databasesColl.find(eq("partitioned", true));
         for (Document database : databases) {
@@ -339,6 +362,7 @@ public class ShardConfigSync {
                 }
             }
         }
+        logger.debug("enableDestinationSharding() complete");
     }
 
     public String getSourceClusterUri() {
