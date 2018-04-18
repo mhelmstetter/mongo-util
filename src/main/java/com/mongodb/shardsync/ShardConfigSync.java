@@ -65,6 +65,8 @@ public class ShardConfigSync {
     
     public void run() throws InterruptedException {
         
+        logger.debug("ShardConfigSync starting");
+        
         pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
         
