@@ -44,6 +44,15 @@
 								</transformer>
 							</transformers>
 							<createDependencyReducedPom>false</createDependencyReducedPom>
+							<filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <includes>
+                                        <include>**/*.properties</include>
+                                        <include>**/*.class</include>
+                                    </includes>
+                                </filter>
+                            </filters>
 						</configuration>
 					</execution>
 				</executions>
