@@ -11,8 +11,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import org.bson.Document;
 import org.bson.codecs.configuration.CodecRegistry;
@@ -22,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoClient;
+import com.mongodb.MongoClientOptions;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoCommandException;
 import com.mongodb.ServerAddress;
@@ -46,6 +45,7 @@ public class ShardConfigSync {
     private String destClusterUri;
     private String destUsername;
     private String destPassword;
+    private MongoClientOptions destOptions;
     
     private boolean dropDestinationCollectionsIfExisting;
     
@@ -96,6 +96,7 @@ public class ShardConfigSync {
         MongoClientURI dest = new MongoClientURI(destClusterUri);
         this.destUsername = dest.getUsername();
         this.destPassword = String.valueOf(dest.getPassword());
+        this.destOptions = dest.getOptions();
         
         
         // We need to ensure a consistent connection to only a single mongos
@@ -336,7 +337,8 @@ public class ShardConfigSync {
         mongosColl.find().sort(Sorts.ascending("ping")).into(list);
         for (Mongos mongos : destMongos) {
             String uri = "mongodb://" + destUsername + ":" + destPassword + "@" + mongos.getId(); 
-            MongoClientURI clientUri = new MongoClientURI(uri);
+            MongoClientOptions.Builder builder = new MongoClientOptions.Builder(destOptions);
+            MongoClientURI clientUri = new MongoClientURI(uri, builder);
             MongoClient client = new MongoClient(clientUri);
             destMongoClients.add(client);
         }
