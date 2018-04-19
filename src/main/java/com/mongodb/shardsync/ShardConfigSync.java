@@ -160,7 +160,10 @@ public class ShardConfigSync {
         String lastNs = null;
         int currentCount = 0;
 
-        for (Document chunk : sourceChunks) {
+        for (Iterator<Document> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
+            
+            Document chunk = sourceChunksIterator.next();
+            
             String ns = chunk.getString("ns");
 
             if (!ns.equals(lastNs) && lastNs != null) {
