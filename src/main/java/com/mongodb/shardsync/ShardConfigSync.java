@@ -70,13 +70,12 @@ public class ShardConfigSync {
     private  Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
     
     
-    private ExecutorService executor = Executors.newFixedThreadPool(32);
-    
     public ShardConfigSync() {
         logger.debug("ShardConfigSync starting");
     }
     
     public void init() {
+        
         pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
         
@@ -85,6 +84,7 @@ public class ShardConfigSync {
         sourceClient = new MongoClient(source);
         List<ServerAddress> addrs = sourceClient.getServerAddressList();
         sourceClient.getDatabase("admin").runCommand(new Document("ping",1));
+        logger.debug("Connected to source");
         sourceConfigDb = sourceClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
         
         
@@ -117,7 +117,7 @@ public class ShardConfigSync {
     }
     
     public void run() throws InterruptedException {
-        logger.debug("Starting sync/migration mode");
+        logger.debug("Starting sync/migration");
         int index = 0;
         for (Iterator<Shard> i = sourceShards.iterator(); i.hasNext();) {
             Shard sourceShard = i.next();
@@ -130,16 +130,8 @@ public class ShardConfigSync {
         stopBalancers();
         enableDestinationSharding();
         
-        //Thread.sleep(1000);
-        //flushRouterConfig();
-        
         populateCollectionList(sourceConfigDb, sourceCollections);
         shardDestinationCollections();
-        
-        // try to workaround errors
-        //{ "code" : 118, "ok" : 0.0, "errmsg" : "Collection d1.foo3 is not sharded." }
-        //Thread.sleep(10000);
-        //flushRouterConfig();
        
         createDestChunks();
         
@@ -285,6 +277,9 @@ public class ShardConfigSync {
                 MongoDatabase destDb = destClient.getDatabase(dbName);
                 MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
                 for (String collectionName : sourceCollectionNames) {
+                    if (collectionName.equals("system.profile")) {
+                        continue;
+                    }
                     long sourceCount = sourceDb.getCollection(collectionName).count();
                     long destCount = destDb.getCollection(collectionName).count();
                     if (sourceCount == destCount) {
@@ -312,16 +307,13 @@ public class ShardConfigSync {
         }
     }
     
-    
-    // TODO - this needs to flush on all routers?
-    private void flushRouterConfig() {
-        logger.debug("flushRouterConfig()");
+    public void flushRouterConfig() {
+        logger.debug(String.format("flushRouterConfig() for %s mongos routers", destMongoClients.size()));
         for (MongoClient client : destMongoClients) {
             Document flushRouterConfig = new Document("flushRouterConfig", true);
             logger.debug(String.format("flushRouterConfig for mongos %s", client.getAddress()));
             client.getDatabase("admin").runCommand(flushRouterConfig);
         }
-        
     }
     
     private void moveChunk(String namespace, Document min, Document max, String moveToShard) {
@@ -339,7 +331,9 @@ public class ShardConfigSync {
     private void populateMongosList(MongoDatabase db, List<Mongos> list) {
         MongoCollection<Mongos> mongosColl = db.getCollection("mongos", Mongos.class);
         //LocalDateTime oneHourAgo = LocalDateTime.now().minusHours(1);
-        mongosColl.find(eq("ping", false)).sort(Sorts.ascending("ping")).into(list);
+        
+        // TODO this needs to take into account "dead" mongos instances
+        mongosColl.find().sort(Sorts.ascending("ping")).into(list);
         for (Mongos mongos : destMongos) {
             String uri = "mongodb://" + destUsername + ":" + destPassword + "@" + mongos.getId(); 
             MongoClientURI clientUri = new MongoClientURI(uri);

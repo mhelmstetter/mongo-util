@@ -12,6 +12,7 @@ public class ShardConfigSyncApp {
 
     private final static String DROP_DEST = "dropDestinationCollectionsIfExisting";
     private final static String COLL_COUNTS = "compareCounts";
+    private final static String FLUSH_ROUTER = "flushRouter";
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -25,6 +26,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(DROP_DEST).create(DROP_DEST));
         options.addOption(OptionBuilder.withArgName("Compare counts only (do not sync/migrate)")
                 .withLongOpt(COLL_COUNTS).create(COLL_COUNTS));
+        options.addOption(OptionBuilder.withArgName("Flush router config on all mongos (do not sync/migrate)")
+                .withLongOpt(FLUSH_ROUTER).create(FLUSH_ROUTER));
 
         CommandLineParser parser = new GnuParser();
         CommandLine line = null;
@@ -58,6 +61,8 @@ public class ShardConfigSyncApp {
         sync.init();
         if (line.hasOption(COLL_COUNTS)) {
             sync.compareShardCounts();
+        } else if (line.hasOption(FLUSH_ROUTER)) {
+            sync.flushRouterConfig();
         } else {
             sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
             sync.run();
