@@ -1,7 +1,7 @@
 package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.gt;
+import static com.mongodb.client.model.Filters.ne;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
@@ -309,8 +309,8 @@ public class ShardConfigSync {
                     if (collectionName.equals("system.profile")) {
                         continue;
                     }
-                    long sourceCount = sourceDb.getCollection(collectionName).count(gt("_id", 0));
-                    long destCount = destDb.getCollection(collectionName).count(gt("_id", 0));
+                    long sourceCount = sourceDb.getCollection(collectionName).count(ne("_id", 0));
+                    long destCount = destDb.getCollection(collectionName).count(ne("_id", 0));
                     if (sourceCount == destCount) {
                         logger.debug(String.format("%s.%s count matches: %s", dbName, collectionName, sourceCount));
                     } else {
