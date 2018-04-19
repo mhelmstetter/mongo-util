@@ -114,7 +114,7 @@ public class ShardConfigSync {
         populateShardList(destConfigDb, destShards);
 
         populateMongosList(destConfigDb, destMongos);
-        
+
         int index = 0;
         for (Iterator<Shard> i = sourceShards.iterator(); i.hasNext();) {
             Shard sourceShard = i.next();
@@ -196,7 +196,7 @@ public class ShardConfigSync {
         }
         logger.debug("createDestChunks complete");
     }
-    
+
     public void compareChunks() {
         compareAndMoveChunks(false);
     }
@@ -212,6 +212,7 @@ public class ShardConfigSync {
         String lastNs = null;
         int currentCount = 0;
         int movedCount = 0;
+        int matchedCount = 0;
 
         for (Document sourceChunk : sourceChunks) {
 
@@ -231,35 +232,47 @@ public class ShardConfigSync {
             Document destMin = (Document) destChunk.get("min");
             Document destMax = (Document) destChunk.get("max");
             String destShard = destChunk.getString("shard");
-            
+
+            if (!sourceNs.equals(destNs)) {
+                logger.debug(String.format("Chunk mismatch sourceNs: %s, destNs: %s", sourceNs, destNs));
+                logger.debug(String.format("    sourceMin: %s", sourceMin));
+                logger.debug(String.format("    sourceMax: %s", sourceMax));
+                logger.debug(String.format("    destMin: %s", destMin));
+                logger.debug(String.format("    destMax: %s", destMax));
+                lastNs = sourceNs;
+                continue;
+            }
+
             if (!sourceMin.equals(destMin) || !sourceMax.equals(destMax)) {
                 logger.debug(String.format("Chunks do not match %s", sourceNs));
                 logger.debug(String.format("    sourceMin: %s", sourceMin));
                 logger.debug(String.format("    sourceMax: %s", sourceMax));
                 logger.debug(String.format("    destMin: %s", destMin));
                 logger.debug(String.format("    destMax: %s", destMax));
+                lastNs = sourceNs;
+                continue;
+            } else {
+                matchedCount++;
             }
 
             if (!sourceNs.equals(lastNs) && lastNs != null) {
-                logger.debug(String.format("%s - chunks: %s, moved count: %s", lastNs, currentCount, movedCount));
+                logger.debug(String.format("%s - chunks: %s, moved count: %s, matchedCount: %s", lastNs, currentCount,
+                        movedCount, matchedCount));
                 currentCount = 0;
                 movedCount = 0;
+                matchedCount = 0;
             }
 
-            if (!mappedShard.equals(destShard)) {
+            if (doMove && !mappedShard.equals(destShard)) {
                 logger.debug(String.format("%s: moving chunk from %s to %s", destNs, destShard, mappedShard));
                 if (doMove) {
                     moveChunk(destNs, destMin, destMax, mappedShard);
                 }
-                
+
                 movedCount++;
             }
-            
+
             lastNs = sourceNs;
-            if (!sourceNs.equals(destNs) && !sourceMax.equals(destMax)) {
-                return false;
-            }
-            
         }
         return true;
     }
@@ -272,7 +285,6 @@ public class ShardConfigSync {
         Document listDatabases = new Document("listDatabases", 1);
         Document sourceDatabases = sourceClient.getDatabase("admin").runCommand(listDatabases);
         Document destDatabases = destClient.getDatabase("admin").runCommand(listDatabases);
-
 
         List<Document> sourceDatabaseInfo = (List<Document>) sourceDatabases.get("databases");
         List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
@@ -312,7 +324,7 @@ public class ShardConfigSync {
         System.out.println(destDatabases);
 
     }
-    
+
     private void compareChunkCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
         String ns = sourceDb.getName() + "." + collectionName;
         MongoCollection<Document> sourceChunksColl = sourceConfigDb.getCollection("chunks");
@@ -320,7 +332,7 @@ public class ShardConfigSync {
 
         MongoCollection<Document> destChunksColl = destConfigDb.getCollection("chunks");
         Iterator<Document> destChunks = destChunksColl.find(eq("ns", ns)).sort(Sorts.ascending("ns", "min")).iterator();
-        
+
     }
 
     private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
