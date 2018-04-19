@@ -1,5 +1,9 @@
 # MongoDB Utilities
 
+ShardConfigSync
+---------------
+java -cp mongo-util.jar com.mongodb.shardsync.ShardConfigSyncApp -dropDestinationCollectionsIfExisting -s mongodb://admin:password@mongos-host:27017/?authSource=admin -d mongodb://admin:admin@mongos-host:27016/?ssl=true&authSource=admin
+
 MongoReplayFilter
 -----------------
 Download:
