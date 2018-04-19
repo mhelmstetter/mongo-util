@@ -11,6 +11,7 @@ import org.apache.commons.cli.Options;
 public class ShardConfigSyncApp {
 
     private final static String DROP_DEST = "dropDestinationCollectionsIfExisting";
+    private final static String COLL_COUNTS = "compareCounts";
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -22,6 +23,8 @@ public class ShardConfigSyncApp {
                 .isRequired(true).create("d"));
         options.addOption(OptionBuilder.withArgName("Drop destination collections if existing")
                 .withLongOpt(DROP_DEST).create(DROP_DEST));
+        options.addOption(OptionBuilder.withArgName("Compare counts only (do not sync/migrate)")
+                .withLongOpt(COLL_COUNTS).create(COLL_COUNTS));
 
         CommandLineParser parser = new GnuParser();
         CommandLine line = null;
@@ -52,8 +55,14 @@ public class ShardConfigSyncApp {
         ShardConfigSync sync = new ShardConfigSync();
         sync.setSourceClusterUri(line.getOptionValue("s"));
         sync.setDestClusterUri(line.getOptionValue("d"));
-        sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
-        sync.run();
+        sync.init();
+        if (line.hasOption(COLL_COUNTS)) {
+            sync.compareShardCounts();
+        } else {
+            sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
+            sync.run();
+        }
+        
         // String[] fileNames = line.getOptionValues("f");
         // client.setEndpointUrl(line.getOptionValue("u"));
 

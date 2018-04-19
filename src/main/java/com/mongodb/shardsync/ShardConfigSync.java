@@ -4,13 +4,13 @@ import static com.mongodb.client.model.Filters.eq;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -28,6 +28,7 @@ import com.mongodb.ServerAddress;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Shard;
@@ -65,12 +66,17 @@ public class ShardConfigSync {
     private List<Mongos> destMongos = new ArrayList<Mongos>();
     private List<MongoClient> destMongoClients = new ArrayList<MongoClient>();
     
+    private  Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
+    private  Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
+    
+    
     private ExecutorService executor = Executors.newFixedThreadPool(32);
     
-    public void run() throws InterruptedException {
-        
+    public ShardConfigSync() {
         logger.debug("ShardConfigSync starting");
-        
+    }
+    
+    public void init() {
         pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
         
@@ -108,7 +114,10 @@ public class ShardConfigSync {
         populateShardList(destConfigDb, destShards);
         
         populateMongosList(destConfigDb, destMongos);
-        
+    }
+    
+    public void run() throws InterruptedException {
+        logger.debug("Starting sync/migration mode");
         int index = 0;
         for (Iterator<Shard> i = sourceShards.iterator(); i.hasNext();) {
             Shard sourceShard = i.next();
@@ -139,7 +148,6 @@ public class ShardConfigSync {
         }
         
         flushRouterConfig();
-        
     }
     
     private void stopBalancers() {
@@ -215,7 +223,6 @@ public class ShardConfigSync {
             }
             Document destChunk = destChunks.next();
             
-            
             String sourceNs = sourceChunk.getString("ns");
             Document sourceMin = (Document)sourceChunk.get("min");
             Document sourceMax = (Document)sourceChunk.get("max");
@@ -246,40 +253,65 @@ public class ShardConfigSync {
         return true;
     }
     
-    private boolean compareShardCounts() {
+    public void compareShardCounts() {
         
-        MongoCollection<Document> sourceChunksColl = sourceConfigDb.getCollection("chunks");
-        FindIterable<Document> sourceChunks = sourceChunksColl.find().sort(Sorts.ascending("ns", "min"));
+        logger.debug("Starting compareShardCounts mode");
         
-        MongoCollection<Document> destChunksColl = destConfigDb.getCollection("chunks");
-        Iterator<Document> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min")).iterator();
+        Document listDatabases = new Document("listDatabases", 1);
+        Document listCollections = new Document("listCollections", 1);
+        Document sourceDatabases = sourceClient.getDatabase("admin").runCommand(listDatabases);
+        Document destDatabases = destClient.getDatabase("admin").runCommand(listDatabases);
         
-        String lastNs = null;
-        int currentCount = 0;
-        int movedCount = 0;
+        // Document{{databases=[Document{{name=POCDB, sizeOnDisk=1.2316008448E10, empty=false, 
+        //        shards=Document{{sh_0=7.346323456E9, sh_1=455692288, sh_2=4.513992704E9}}}}, 
+        // Document{{name=d1, sizeOnDisk=6.408466432E9, empty=false, 
+        //        shards=Document{{sh_0=2.24260096E9, sh_1=2.08175104E9, sh_2=2.084114432E9}}}}, 
+        // Document{{name=xyz, sizeOnDisk=12288, empty=false, shards=Document{{sh_1=12288}}}}, Document{{name=admin, sizeOnDisk=196608.0, empty=false}}, Document{{name=config, sizeOnDisk=2760704.0, empty=false}}], totalSize=1.872744448E10, totalSizeMb=17859, ok=1.0}}
         
-        for (Document sourceChunk : sourceChunks) {
-            
-            if (!destChunks.hasNext()) {
-                return false;
+        
+        List<Document> sourceDatabaseInfo = (List<Document>)sourceDatabases.get("databases");
+        List<Document> destDatabaseInfo = (List<Document>)destDatabases.get("databases");
+        
+        populateDbMap(sourceDatabaseInfo, sourceDbInfoMap);
+        populateDbMap(destDatabaseInfo, destDbInfoMap);
+        
+        for (Document sourceInfo : sourceDatabaseInfo) {
+            String dbName = sourceInfo.getString("name");
+            Document destInfo = destDbInfoMap.get(dbName);
+            if (destInfo != null) {
+                logger.debug(String.format("Found matching database %s", dbName));
+                
+                MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
+                MongoDatabase destDb = destClient.getDatabase(dbName);
+                MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
+                for (String collectionName : sourceCollectionNames) {
+                    long sourceCount = sourceDb.getCollection(collectionName).count();
+                    long destCount = destDb.getCollection(collectionName).count();
+                    if (sourceCount == destCount) {
+                        logger.debug(String.format("%s.%s count matches: %s", dbName, collectionName, sourceCount));
+                    } else {
+                        logger.warn(String.format("%s.%s count MISMATCH - source: %s, dest: %s", dbName, collectionName, sourceCount, destCount));
+                    }
+                }
+                
+                Document sourceCollections = sourceClient.getDatabase("admin").runCommand(listCollections);
+                Object cursor = sourceCollections.get("cursor");
+                System.out.println(sourceCollections);
+                
+            } else {
+                logger.warn(String.format("Destination db not found, name: %s", dbName));
             }
-            Document destChunk = destChunks.next();
-            
-            
-            String sourceNs = sourceChunk.getString("ns");
-            Document sourceMin = (Document)sourceChunk.get("min");
-            Document sourceMax = (Document)sourceChunk.get("max");
-            
-            
-            String destNs = destChunk.getString("ns");
-            Document destMin = (Document)destChunk.get("min");
-            Document destMax = (Document)destChunk.get("max");
-            
-            
-            
         }
-        return true;
+        System.out.println(destDatabases);
+        
     }
+    
+    private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
+        for (Document dbInfo : dbInfoList) {
+            databaseMap.put(dbInfo.getString("name"), dbInfo);
+        }
+    }
+    
     
     // TODO - this needs to flush on all routers?
     private void flushRouterConfig() {
