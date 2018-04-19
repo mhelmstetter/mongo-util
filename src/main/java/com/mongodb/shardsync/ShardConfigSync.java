@@ -23,6 +23,7 @@ import com.mongodb.MongoClient;
 import com.mongodb.MongoClientOptions;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoCommandException;
+import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
@@ -313,7 +314,12 @@ public class ShardConfigSync {
         for (MongoClient client : destMongoClients) {
             Document flushRouterConfig = new Document("flushRouterConfig", true);
             logger.debug(String.format("flushRouterConfig for mongos %s", client.getAddress()));
-            client.getDatabase("admin").runCommand(flushRouterConfig);
+            try {
+                client.getDatabase("admin").runCommand(flushRouterConfig);
+            } catch (MongoTimeoutException timeout) {
+                logger.debug("Timeout connecting", timeout);
+            }
+            
         }
     }
     
@@ -339,6 +345,7 @@ public class ShardConfigSync {
             String uri = "mongodb://" + destUsername + ":" + destPassword + "@" + mongos.getId(); 
             MongoClientOptions.Builder builder = new MongoClientOptions.Builder(destOptions);
             MongoClientURI clientUri = new MongoClientURI(uri, builder);
+            logger.debug("mongos: " + clientUri);
             MongoClient client = new MongoClient(clientUri);
             destMongoClients.add(client);
         }
