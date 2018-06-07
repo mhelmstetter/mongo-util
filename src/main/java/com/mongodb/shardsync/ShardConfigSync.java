@@ -35,6 +35,7 @@ import com.mongodb.model.Mongos;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardCollection;
 
+// TODO - look at https://github.com/10gen/scripts-and-snippets/blob/master/mongod/recreate-splits.js
 public class ShardConfigSync {
 
     private static Logger logger = LoggerFactory.getLogger(ShardConfigSync.class);
