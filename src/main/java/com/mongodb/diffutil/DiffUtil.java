@@ -76,18 +76,7 @@ public class DiffUtil {
         sourceClient.getDatabase("admin").runCommand(new Document("ping", 1));
         logger.debug("Connected to source");
 
-        boolean isSRVProtocol = destClusterUri.startsWith(MONGODB_SRV_PREFIX);
-        if (isSRVProtocol) {
-            throw new RuntimeException(
-                    "mongodb+srv protocol not supported use standard mongodb protocol in connection string");
-        }
         MongoClientURI dest = new MongoClientURI(destClusterUri);
-
-        // We need to ensure a consistent connection to only a single mongos
-        // assume that we will only use the first one in the list
-        if (dest.getHosts().size() > 1) {
-            throw new RuntimeException("Specify only a single destination mongos in the connection string");
-        }
 
         destClient = new MongoClient(dest);
         destClient.getDatabase("admin").runCommand(new Document("ping", 1));
