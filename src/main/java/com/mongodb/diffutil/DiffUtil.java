@@ -206,7 +206,16 @@ public class DiffUtil {
     }
 
     private void hashChunk(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
-        logger.debug(String.format("Starting collection: %s.%s", sourceDb.getName(), collectionName));
+        
+        
+        long sourceCount = sourceDb.getCollection(collectionName).count();
+        long destCount = destDb.getCollection(collectionName).count();
+        logger.debug(String.format("Starting collection: %s.%s - %d documents", sourceDb.getName(), collectionName, sourceCount));
+        if (sourceCount != destCount) {
+            logger.warn(String.format("%s.%s Count MISMATCH - source: %s, dest: %s", sourceDb.getName(), collectionName,
+                    sourceCount, destCount));
+        }
+        
         MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName, RawBsonDocument.class);
         MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName, RawBsonDocument.class);
 
@@ -218,7 +227,10 @@ public class DiffUtil {
         byte[] sourceBytes = null;
         byte[] destBytes = null;
         long matches = 0;
+        long keysMisordered = 0;
         long failures = 0;
+        long total = 0;
+        long lastReport = System.currentTimeMillis();
         while (sourceCursor.hasNext()) {
             sourceDoc = sourceCursor.next();
             if (destCursor.hasNext()) {
@@ -235,7 +247,7 @@ public class DiffUtil {
 
                     if (sourceDoc.equals(destDoc)) {
                         logger.debug("Docs equal but hashes don't match, id: " + id);
-                        matches++;
+                        keysMisordered++;
                     } else {
                         logger.debug("Hashes and docs don't match, id: " + id);
                         failures++;
@@ -250,11 +262,18 @@ public class DiffUtil {
                 boolean xx = compareDocuments(sourceDoc, destDoc);
                 failures++;
             }
+            total++;
+            long now = System.currentTimeMillis();
+            long elapsedSinceLastReport = now - lastReport;
+            if (elapsedSinceLastReport >= 30000) {
+                logger.debug(String.format("%d percent complete", total/sourceCount));
+                lastReport = now;
+            }
 
         }
 
-        logger.debug(String.format("%s.%s complete matches: %d, failures: %d", sourceDb.getName(), collectionName,
-                matches, failures));
+        logger.debug(String.format("%s.%s complete matches: %d, outOfOrderKeys: %s, failures: %d", sourceDb.getName(), collectionName,
+                matches, keysMisordered, failures));
 
     }
 
