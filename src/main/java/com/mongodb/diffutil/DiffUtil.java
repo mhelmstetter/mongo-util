@@ -206,7 +206,7 @@ public class DiffUtil {
     }
 
     private void hashChunk(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
-
+        logger.debug(String.format("Starting collection: %s.%s"), sourceDb.getName(), collectionName);
         MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName, RawBsonDocument.class);
         MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName, RawBsonDocument.class);
 
@@ -225,6 +225,7 @@ public class DiffUtil {
                 destDoc = destCursor.next();
             } else {
                 logger.error("counts don't match!!!!!");
+                break;
             }
             sourceBytes = sourceDoc.getByteBuffer().array();
             destBytes = destDoc.getByteBuffer().array();
