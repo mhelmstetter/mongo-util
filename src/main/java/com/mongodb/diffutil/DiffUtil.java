@@ -206,7 +206,7 @@ public class DiffUtil {
     }
 
     private void hashChunk(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
-        logger.debug(String.format("Starting collection: %s.%s"), sourceDb.getName(), collectionName);
+        logger.debug(String.format("Starting collection: %s.%s", sourceDb.getName(), collectionName));
         MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName, RawBsonDocument.class);
         MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName, RawBsonDocument.class);
 
