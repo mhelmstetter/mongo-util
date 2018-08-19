@@ -1,0 +1,9 @@
+*.class
+*.timestamp
+/target/
+.project
+.classpath
+.settings
+/bin/*
+!/bin/mongo-util.jar
+

@@ -5,14 +5,19 @@ import static com.mongodb.client.model.Filters.ne;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
+import org.apache.commons.exec.ExecuteException;
 import org.bson.Document;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
@@ -24,6 +29,7 @@ import com.mongodb.MongoClient;
 import com.mongodb.MongoClientOptions;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoCommandException;
+import com.mongodb.MongoCredential;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.FindIterable;
@@ -32,8 +38,10 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.model.Mongos;
+import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardCollection;
+import com.mongodb.mongomirror.MongoMirrorRunner;
 
 // TODO - look at https://github.com/10gen/scripts-and-snippets/blob/master/mongod/recreate-splits.js
 public class ShardConfigSync {
@@ -53,7 +61,10 @@ public class ShardConfigSync {
     private boolean dropDestinationCollectionsIfExisting;
     private boolean doChunkCounts;
 
+    private MongoClientURI sourceMongoClientURI;
     private MongoClient sourceClient;
+
+    private MongoClientURI destMongoClientURI;
     private MongoClient destClient;
 
     private MongoDatabase sourceConfigDb;
@@ -61,8 +72,8 @@ public class ShardConfigSync {
 
     CodecRegistry pojoCodecRegistry;
 
-    private List<Shard> sourceShards = new ArrayList<Shard>();
-    private List<Shard> destShards = new ArrayList<Shard>();
+    private Map<String, Shard> sourceShards = new HashMap<String, Shard>();
+    private Map<String, Shard> destShards = new HashMap<String, Shard>();
     private Map<String, String> sourceToDestShardMap = new HashMap<String, String>();
 
     private List<ShardCollection> sourceCollections = new ArrayList<ShardCollection>();
@@ -72,6 +83,14 @@ public class ShardConfigSync {
 
     private Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
     private Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
+    
+    String[] namespaceFilterList;
+    private Set<Namespace> namespaceFilters = new HashSet<Namespace>();
+    private Set<String> databaseFilters = new HashSet<String>();
+    
+    private String[] shardMap;
+    
+    private File mongomirrorBinary;
 
     public ShardConfigSync() {
         logger.debug("ShardConfigSync starting");
@@ -82,9 +101,10 @@ public class ShardConfigSync {
         pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
 
-        MongoClientURI source = new MongoClientURI(sourceClusterUri);
-
-        sourceClient = new MongoClient(source);
+        sourceMongoClientURI = new MongoClientURI(sourceClusterUri);
+        sourceClient = new MongoClient(sourceMongoClientURI);
+        
+        
         List<ServerAddress> addrs = sourceClient.getServerAddressList();
         sourceClient.getDatabase("admin").runCommand(new Document("ping", 1));
         logger.debug("Connected to source");
@@ -96,18 +116,21 @@ public class ShardConfigSync {
                     "mongodb+srv protocol not supported use standard mongodb protocol in connection string");
         }
 
-        MongoClientURI dest = new MongoClientURI(destClusterUri);
-        this.destUsername = dest.getUsername();
-        this.destPassword = String.valueOf(dest.getPassword());
-        this.destOptions = dest.getOptions();
+        destMongoClientURI = new MongoClientURI(destClusterUri);
+        this.destUsername = destMongoClientURI.getUsername();
+        if (destUsername != null) {
+            this.destPassword = String.valueOf(destMongoClientURI.getPassword());
+        }
+        
+        this.destOptions = destMongoClientURI.getOptions();
 
         // We need to ensure a consistent connection to only a single mongos
         // assume that we will only use the first one in the list
-        if (dest.getHosts().size() > 1) {
+        if (destMongoClientURI.getHosts().size() > 1) {
             throw new RuntimeException("Specify only a single destination mongos in the connection string");
         }
 
-        destClient = new MongoClient(dest);
+        destClient = new MongoClient(destMongoClientURI);
 
         destClient.getDatabase("admin").runCommand(new Document("ping", 1));
         destConfigDb = destClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
@@ -116,19 +139,37 @@ public class ShardConfigSync {
         populateShardList(destConfigDb, destShards);
 
         populateMongosList(destConfigDb, destMongos);
-
-        int index = 0;
-        for (Iterator<Shard> i = sourceShards.iterator(); i.hasNext();) {
-            Shard sourceShard = i.next();
-            Shard destShard = destShards.get(index);
-            logger.debug(sourceShard.getId() + " ==> " + destShard.getId());
-            sourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
-            index++;
+        
+        initializeShardMappings();
+        
+    }
+    
+    private void initializeShardMappings() {
+        if (this.shardMap != null) {
+            // shardMap is for doing an uneven shard mapping, e.g. 10 shards on source
+            // down to 5 shards on destination
+            logger.debug("Custom n:m shard mapping");
+            for (String mapping : shardMap) {
+                String[] mappings = mapping.split("\\|");
+                logger.debug(mappings[0] + " ==> " + mappings[1]);
+                sourceToDestShardMap.put(mappings[0], mappings[1]);
+            }
+        } else {
+            logger.debug("Default 1:1 shard mapping");
+            // default, just match up the shards 1:1
+            int index = 0;
+            for (Iterator<Shard> i = sourceShards.values().iterator(); i.hasNext();) {
+                Shard sourceShard = i.next();
+                Shard destShard = destShards.get(index);
+                logger.debug(sourceShard.getId() + " ==> " + destShard.getId());
+                sourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
+                index++;
+            }
         }
     }
 
-    public void run() throws InterruptedException {
-        logger.debug("Starting sync/migration");
+    public void migrateMetadata() throws InterruptedException {
+        logger.debug("Starting metadata sync/migration");
 
         stopBalancers();
         // TODO disableAutoSplit !!!!
@@ -156,7 +197,7 @@ public class ShardConfigSync {
     private void createDestChunks() {
         logger.debug("createDestChunks started");
         MongoCollection<Document> sourceChunksColl = sourceConfigDb.getCollection("chunks");
-        FindIterable<Document> sourceChunks = sourceChunksColl.find().sort(Sorts.ascending("ns", "min"));
+        FindIterable<Document> sourceChunks = sourceChunksColl.find().sort(Sorts.ascending("ns", "max"));
 
         Document splitCommand = new Document();
         String lastNs = null;
@@ -167,9 +208,14 @@ public class ShardConfigSync {
             Document chunk = sourceChunksIterator.next();
             
             String ns = chunk.getString("ns");
+            Namespace sourceNs = new Namespace(ns);
+            
+            if (! namespaceFilters.contains(sourceNs) && !databaseFilters.contains(sourceNs.getDatabaseName())) {
+                continue;
+            }
 
             if (!ns.equals(lastNs) && lastNs != null) {
-                logger.debug(String.format("%s - created %s chunks", lastNs, currentCount));
+                logger.debug(String.format("%s - created %s chunks", lastNs, ++currentCount));
                 currentCount = 0;
             }
 
@@ -207,71 +253,56 @@ public class ShardConfigSync {
     }
 
     private boolean compareAndMoveChunks(boolean doMove) {
-
+        
+        logger.debug("Reading destination chunks");
+        Map<String, String> destChunkMap = new HashMap<String, String>();
+        MongoCollection<Document> destChunksColl = destConfigDb.getCollection("chunks");
+        FindIterable<Document> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min"));
+       
+        for (Document destChunk : destChunks) {
+            String id  = destChunk.getString("_id");
+            String shard = destChunk.getString("shard");
+            destChunkMap.put(id, shard);
+        }
+        logger.debug("Done reading destination chunks, count = " + destChunkMap.size());
+        
+        
         MongoCollection<Document> sourceChunksColl = sourceConfigDb.getCollection("chunks");
         FindIterable<Document> sourceChunks = sourceChunksColl.find().sort(Sorts.ascending("ns", "min"));
-
-        MongoCollection<Document> destChunksColl = destConfigDb.getCollection("chunks");
-        Iterator<Document> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min")).iterator();
 
         String lastNs = null;
         int currentCount = 0;
         int movedCount = 0;
+        int mismatchedCount = 0;
         int matchedCount = 0;
 
         for (Document sourceChunk : sourceChunks) {
 
-            if (!destChunks.hasNext()) {
-                logger.error("No destination chunks found");
-                return false;
-            }
-            Document destChunk = destChunks.next();
-
             String sourceNs = sourceChunk.getString("ns");
+            Namespace sourceNamespace = new Namespace(sourceNs);
+            
+            if (! namespaceFilters.contains(sourceNamespace) && !databaseFilters.contains(sourceNamespace.getDatabaseName())) {
+                continue;
+            }
+            
             Document sourceMin = (Document) sourceChunk.get("min");
             Document sourceMax = (Document) sourceChunk.get("max");
             String sourceShard = sourceChunk.getString("shard");
             String mappedShard = sourceToDestShardMap.get(sourceShard);
-
-            String destNs = destChunk.getString("ns");
-            Document destMin = (Document) destChunk.get("min");
-            Document destMax = (Document) destChunk.get("max");
-            String destShard = destChunk.getString("shard");
-
-            if (!sourceNs.equals(destNs)) {
-                logger.debug(String.format("Chunk mismatch sourceNs: %s, destNs: %s", sourceNs, destNs));
-                logger.debug(String.format("    sourceMin: %s", sourceMin));
-                logger.debug(String.format("    sourceMax: %s", sourceMax));
-                logger.debug(String.format("    destMin: %s", destMin));
-                logger.debug(String.format("    destMax: %s", destMax));
-                lastNs = sourceNs;
+            String sourceId = sourceChunk.getString("_id");
+            
+            String destShard = destChunkMap.get(sourceId);
+            
+            if (destShard == null) {
+                logger.error("Chunk with _id " + sourceId + " not found on destination");
                 continue;
             }
-
-            if (!sourceMin.equals(destMin) || !sourceMax.equals(destMax)) {
-                logger.debug(String.format("Chunks do not match %s", sourceNs));
-                logger.debug(String.format("    sourceMin: %s", sourceMin));
-                logger.debug(String.format("    sourceMax: %s", sourceMax));
-                logger.debug(String.format("    destMin: %s", destMin));
-                logger.debug(String.format("    destMax: %s", destMax));
-                lastNs = sourceNs;
-                continue;
-            } else {
-                matchedCount++;
-            }
-
-            if (!sourceNs.equals(lastNs) && lastNs != null) {
-                logger.debug(String.format("%s - chunks: %s, moved count: %s, matchedCount: %s", lastNs, currentCount,
-                        movedCount, matchedCount));
-                currentCount = 0;
-                movedCount = 0;
-                matchedCount = 0;
-            }
+            
 
             if (doMove && !mappedShard.equals(destShard)) {
-                logger.debug(String.format("%s: moving chunk from %s to %s", destNs, destShard, mappedShard));
+                logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
                 if (doMove) {
-                    moveChunk(destNs, destMin, destMax, mappedShard);
+                    moveChunk(sourceNs, sourceMin, sourceMax, mappedShard);
                 }
 
                 movedCount++;
@@ -307,7 +338,7 @@ public class ShardConfigSync {
                 MongoDatabase destDb = destClient.getDatabase(dbName);
                 MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
                 for (String collectionName : sourceCollectionNames) {
-                    if (collectionName.equals("system.profile")) {
+                    if (collectionName.equals("system.profile") || collectionName.equals("system.keys")) {
                         continue;
                     }
                     long sourceCount = sourceDb.getCollection(collectionName).count(ne("_id", 0));
@@ -330,6 +361,7 @@ public class ShardConfigSync {
 
     }
 
+    // TODO - this is incomplete
     private void compareChunkCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
         String ns = sourceDb.getName() + "." + collectionName;
         MongoCollection<Document> sourceChunksColl = sourceConfigDb.getCollection("chunks");
@@ -350,8 +382,9 @@ public class ShardConfigSync {
         logger.debug(String.format("flushRouterConfig() for %s mongos routers", destMongoClients.size()));
         for (MongoClient client : destMongoClients) {
             Document flushRouterConfig = new Document("flushRouterConfig", true);
-            logger.debug(String.format("flushRouterConfig for mongos %s", client.getAddress()));
+            
             try {
+                logger.debug(String.format("flushRouterConfig for mongos %s", client.getAddress()));
                 client.getDatabase("admin").runCommand(flushRouterConfig);
             } catch (MongoTimeoutException timeout) {
                 logger.debug("Timeout connecting", timeout);
@@ -378,7 +411,12 @@ public class ShardConfigSync {
         // TODO this needs to take into account "dead" mongos instances
         mongosColl.find().sort(Sorts.ascending("ping")).into(list);
         for (Mongos mongos : destMongos) {
-            String uri = "mongodb://" + destUsername + ":" + destPassword + "@" + mongos.getId();
+            String uri = null;
+            if (destUsername != null && destPassword != null) {
+                uri = "mongodb://" + destUsername + ":" + destPassword + "@" + mongos.getId();
+            } else {
+                uri = "mongodb://" + mongos.getId();
+            }
             MongoClientOptions.Builder builder = new MongoClientOptions.Builder(destOptions);
             MongoClientURI clientUri = new MongoClientURI(uri, builder);
             logger.debug("mongos: " + clientUri);
@@ -390,6 +428,14 @@ public class ShardConfigSync {
     private void shardDestinationCollections() {
         logger.debug("shardDestinationCollections() started");
         for (ShardCollection sourceColl : sourceCollections) {
+            
+            Namespace ns = sourceColl.getNamespace();
+            
+            if (! namespaceFilters.contains(ns) && !databaseFilters.contains(ns.getDatabaseName())) {
+                logger.debug("Namespace " + ns + " filtered, not sharding on destination");
+                continue;
+            }
+            
             Document shardCommand = new Document("shardCollection", sourceColl.getId());
             shardCommand.append("key", sourceColl.getKey());
             shardCommand.append("unique", sourceColl.isUnique());
@@ -399,7 +445,7 @@ public class ShardConfigSync {
             try {
                 destClient.getDatabase("admin").runCommand(shardCommand);
             } catch (MongoCommandException mce) {
-                if (dropDestinationCollectionsIfExisting && mce.getCode() == 20) {
+                if (mce.getCode() == 20) {
                     logger.debug(String.format("Sharding already enabled for %s", sourceColl.getId()));
                 } else {
                     throw mce;
@@ -418,30 +464,62 @@ public class ShardConfigSync {
         logger.debug("shardDestinationCollections() complete");
     }
 
-    private void populateShardList(MongoDatabase db, List<Shard> list) {
+    private void populateShardList(MongoDatabase db, Map<String, Shard> shardMap) {
         MongoCollection<Shard> shardsColl = db.getCollection("shards", Shard.class);
-        shardsColl.find().sort(Sorts.ascending("_id")).into(list);
+        FindIterable<Shard> shards = shardsColl.find().sort(Sorts.ascending("_id"));
+        for (Shard sh : shards) {
+            shardMap.put(sh.getId(), sh);
+        }
     }
 
     public void enableDestinationSharding() {
         logger.debug("enableDestinationSharding()");
         MongoCollection<Document> databasesColl = sourceConfigDb.getCollection("databases");
         FindIterable<Document> databases = databasesColl.find(eq("partitioned", true));
-        for (Document database : databases) {
+        List<Document> databasesList = new ArrayList<Document>();
+        databases.into(databasesList);
+        for (Document database : databasesList) {
             String databaseName = database.getString("_id");
-            try {
+            
+            if (!databaseFilters.contains(databaseName)) {
+                logger.debug("Database " + databaseName + " filtered, not sharding on destination");
+                continue;
+            }
+            
+            Document dest = destConfigDb.getCollection("databases").find(new Document("_id", databaseName)).first();
+            if (dest == null || !dest.getBoolean("partitioned", false)) {
                 destClient.getDatabase("admin").runCommand(new Document("enableSharding", databaseName));
-            } catch (MongoCommandException mce) {
-                if (dropDestinationCollectionsIfExisting && mce.getCode() == 23) {
+            } else {
+                if (dropDestinationCollectionsIfExisting) {
                     logger.debug(String.format("Destination database %s exists, dropping", databaseName));
                     destClient.dropDatabase(databaseName);
                     destClient.getDatabase("admin").runCommand(new Document("enableSharding", databaseName));
                 } else {
-                    throw mce;
+                    logger.debug(String.format("Sharding already enabled for destination database %s", databaseName));
                 }
             }
         }
         logger.debug("enableDestinationSharding() complete");
+    }
+    
+    public void dropDestinationDatabases() {
+        logger.debug("dropDestinationDatabases()");
+        MongoCollection<Document> databasesColl = destConfigDb.getCollection("databases");
+        FindIterable<Document> databases = databasesColl.find();
+        List<Document> databasesList = new ArrayList<Document>();
+        databases.into(databasesList);
+        for (Document database : databasesList) {
+            String databaseName = database.getString("_id");
+            
+            if (!databaseFilters.contains(databaseName)) {
+                logger.debug("Database " + databaseName + " filtered, not sharding on destination");
+                continue;
+            }
+            
+            logger.debug(String.format("Destination database %s exists, dropping", databaseName));
+            destClient.dropDatabase(databaseName);
+        }
+        logger.debug("dropDestinationDatabases() complete");
     }
 
     public String getSourceClusterUri() {
@@ -470,5 +548,77 @@ public class ShardConfigSync {
 
     public void setDoChunkCounts(boolean doChunkCounts) {
         this.doChunkCounts = doChunkCounts;
+    }
+    
+    public void setNamespaceFilters(String[] namespaceFilterList) {
+        this.namespaceFilterList = namespaceFilterList;
+        for (String nsStr : namespaceFilterList) {
+            if (nsStr.contains("\\.")) {
+                Namespace ns = new Namespace(nsStr);
+                namespaceFilters.add(ns);
+                databaseFilters.add(ns.getDatabaseName());
+            } else {
+                databaseFilters.add(nsStr);
+            }
+        }
+    }
+    
+    public void setShardMappings(String[] shardMap) {
+        this.shardMap = shardMap;
+    }
+
+    public void mongomirror() throws ExecuteException, IOException {
+        
+        if (dropDestinationCollectionsIfExisting) {
+            dropDestinationDatabases();
+        }
+        
+        for (Shard sourceShard : sourceShards.values()) {
+            MongoMirrorRunner mongomirror = new MongoMirrorRunner();
+            
+            // Source setup
+            mongomirror.setSourceHost(sourceShard.getHost());
+            mongomirror.setSourceUsername(sourceMongoClientURI.getUsername());
+            if (sourceMongoClientURI.getPassword() != null) {
+                mongomirror.setSourcePassword(String.valueOf(sourceMongoClientURI.getPassword()));
+            }
+            MongoCredential sourceCredentials = sourceMongoClientURI.getCredentials();
+            if (sourceCredentials != null) {
+                mongomirror.setSourceAuthenticationDatabase(sourceCredentials.getSource());
+            }
+            if (sourceMongoClientURI.getOptions().getSslContext() != null) {
+                mongomirror.setSourceSsl(true);
+            }
+            
+            // Destination setup
+            String destShardId = sourceToDestShardMap.get(sourceShard.getId());
+            Shard destShard = destShards.get(destShardId);
+            mongomirror.setDestinationHost(destShard.getHost());
+            mongomirror.setDestinationUsername(destMongoClientURI.getUsername());
+            if (destMongoClientURI.getPassword() != null) {
+                mongomirror.setDestinationPassword(String.valueOf(destMongoClientURI.getPassword()));
+            }
+            MongoCredential destCredentials = destMongoClientURI.getCredentials();
+            if (destCredentials != null) {
+                mongomirror.setDestinationAuthenticationDatabase(destCredentials.getSource());
+            }
+            if (destMongoClientURI.getOptions().getSslContext() == null) {
+                mongomirror.setDestinationNoSSL(true);
+            }
+            
+            
+            String nsFilter = String.join(",", namespaceFilterList);
+            mongomirror.setNamespaceFilter(nsFilter);
+            mongomirror.setDrop(dropDestinationCollectionsIfExisting);
+            mongomirror.setMongomirrorBinary(mongomirrorBinary);
+            mongomirror.setBookmarkFile(sourceShard.getId() + ".timestamp");
+            mongomirror.execute();
+            
+        }
+        
+    }
+
+    public void setMongomirrorBinary(String binaryPath) {
+        this.mongomirrorBinary = new File(binaryPath);
     }
 }

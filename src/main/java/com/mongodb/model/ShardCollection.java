@@ -33,6 +33,7 @@ import org.bson.types.ObjectId;
 public class ShardCollection {
 
     private String id;
+    private Namespace namespace;
     private ObjectId lastmodEpoch;
     private Date lastmod;
     private boolean dropped;
@@ -47,6 +48,11 @@ public class ShardCollection {
 
     public void setId(String id) {
         this.id = id;
+        this.namespace = new Namespace(id);
+    }
+    
+    public Namespace getNamespace() {
+        return namespace;
     }
 
     public ObjectId getLastmodEpoch() {

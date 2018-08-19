@@ -16,8 +16,9 @@ public class ShardConfigSyncApp {
     private final static String COLL_COUNTS = "compareCounts";
     private final static String CHUNK_COUNTS = "chunkCounts";
     private final static String FLUSH_ROUTER = "flushRouter";
-    private final static String MIGRATE = "migrate";
+    private final static String SYNC_METADATA = "syncMetadata";
     private final static String COMPARE_CHUNKS = "compareChunks";
+    private final static String MONGO_MIRROR = "mongomirror";
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -37,8 +38,16 @@ public class ShardConfigSyncApp {
                 .withLongOpt(FLUSH_ROUTER).create(FLUSH_ROUTER));
         options.addOption(OptionBuilder.withArgName("Compare all shard chunks (do not sync/migrate)")
                 .withLongOpt(COMPARE_CHUNKS).create(COMPARE_CHUNKS));
-        options.addOption(OptionBuilder.withArgName("Migrate/sync config data")
-                .withLongOpt(MIGRATE).create(MIGRATE));
+        options.addOption(OptionBuilder.withArgName("Synchronize shard metadata")
+                .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
+        options.addOption(OptionBuilder.withArgName("Execute mongomirror(s)")
+                .withLongOpt(MONGO_MIRROR).create(MONGO_MIRROR));
+        options.addOption(OptionBuilder.withArgName("Namespace filter").hasArgs().withLongOpt("filter")
+                .isRequired(false).create("f"));
+        options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArgs().withLongOpt("mongomirrorBinary")
+                .isRequired(false).create("p"));
+        options.addOption(OptionBuilder.withArgName("Shard mapping").hasArgs().withLongOpt("shardMap")
+                .isRequired(false).create("m"));
 
         CommandLineParser parser = new GnuParser();
         CommandLine line = null;
@@ -69,18 +78,38 @@ public class ShardConfigSyncApp {
         ShardConfigSync sync = new ShardConfigSync();
         sync.setSourceClusterUri(line.getOptionValue("s"));
         sync.setDestClusterUri(line.getOptionValue("d"));
+        sync.setNamespaceFilters(line.getOptionValues("f"));
+        sync.setShardMappings(line.getOptionValues("m"));
+        sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
         sync.init();
+        boolean actionFound = false;
         if (line.hasOption(COLL_COUNTS)) {
+            actionFound = true;
             sync.setDoChunkCounts(line.hasOption(CHUNK_COUNTS));
             sync.compareShardCounts();
         } else if (line.hasOption(FLUSH_ROUTER)) {
+            actionFound = true;
             sync.flushRouterConfig();
         } else if (line.hasOption(COMPARE_CHUNKS)) {
+            actionFound = true;
             sync.compareChunks();
-        } else if (line.hasOption(MIGRATE)) {
+        } else if (line.hasOption(SYNC_METADATA)) {
+            actionFound = true;
+            sync.migrateMetadata();
+        }
+        
+        if (line.hasOption(MONGO_MIRROR)) {
+            actionFound = true;
+            if (!line.hasOption("p")) {
+                System.out.println("mongomirrorPath required");
+                printHelpAndExit(options);
+            }
+            sync.setMongomirrorBinary(line.getOptionValue("p"));
             sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
-            sync.run();
-        } else {
+            sync.mongomirror();
+        }
+        
+        if (! actionFound) {
             System.out.println("Missing action");
             printHelpAndExit(options);
         }
