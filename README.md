@@ -2,7 +2,31 @@
 
 ShardConfigSync
 ---------------
-java -cp mongo-util.jar com.mongodb.shardsync.ShardConfigSyncApp -dropDestinationCollectionsIfExisting -s mongodb://admin:password@mongos-host:27017/?authSource=admin -d mongodb://admin:admin@mongos-host:27016/?ssl=true&authSource=admin
+Sync shard metadata
+
+```
+java -cp mongo-util.jar com.mongodb.shardsync.ShardConfigSyncApp \
+    -s mongodb://admin:mypassword@source:27017/?authSource=admin \
+    -d mongodb://destination1:27017 \
+    -f db1 -f db2 \
+    -m sh_0|shard_A -m sh_1|shard_A -m sh_2|shard_B -m sh_3|shard_B \
+    -p /Users/mh/go/src/github.com/10gen/mongomirror/build/mongomirror \
+    -dropDestinationCollectionsIfExisting \
+    -syncMetadata
+```
+
+Run mongomirror process for each shard
+
+```
+java -cp mongo-util.jar com.mongodb.shardsync.ShardConfigSyncApp \
+    -s mongodb://admin:mypassword@source:27017/?authSource=admin \
+    -d mongodb://destination1:27017 \
+    -f db1 -f db2 \
+    -m sh_0|shard_A -m sh_1|shard_A -m sh_2|shard_B -m sh_3|shard_B \
+    -p /Users/mh/go/src/github.com/10gen/mongomirror/build/mongomirror \
+    -dropDestinationCollectionsIfExisting \
+    -mongomirror
+```
 
 MongoReplayFilter
 -----------------

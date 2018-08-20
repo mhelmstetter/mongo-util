@@ -18,6 +18,7 @@ import java.util.Set;
 import java.util.TreeMap;
 
 import org.apache.commons.exec.ExecuteException;
+import org.apache.commons.lang3.StringUtils;
 import org.bson.Document;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
@@ -417,6 +418,7 @@ public class ShardConfigSync {
             } else {
                 uri = "mongodb://" + mongos.getId();
             }
+            
             MongoClientOptions.Builder builder = new MongoClientOptions.Builder(destOptions);
             MongoClientURI clientUri = new MongoClientURI(uri, builder);
             logger.debug("mongos: " + clientUri);
@@ -504,21 +506,50 @@ public class ShardConfigSync {
     
     public void dropDestinationDatabases() {
         logger.debug("dropDestinationDatabases()");
-        MongoCollection<Document> databasesColl = destConfigDb.getCollection("databases");
+        MongoCollection<Document> databasesColl = sourceConfigDb.getCollection("databases");
         FindIterable<Document> databases = databasesColl.find();
-        List<Document> databasesList = new ArrayList<Document>();
-        databases.into(databasesList);
-        for (Document database : databasesList) {
+        List<String> databasesList = new ArrayList<String>();
+        
+        for (Document database : databases) {
             String databaseName = database.getString("_id");
             
             if (!databaseFilters.contains(databaseName)) {
                 logger.debug("Database " + databaseName + " filtered, not sharding on destination");
                 continue;
+            } else {
+                databasesList.add(databaseName);
+            }
+        }
+            
+            
+        for (Shard destShard : destShards.values()) {
+            MongoClientOptions.Builder builder = MongoClientOptions.builder();
+            if (destMongoClientURI.getOptions().isSslEnabled()) {
+                builder.sslEnabled(true);
+            }
+            MongoClientOptions options = builder
+                    .serverSelectionTimeout(60000)
+                    .build();
+            List<ServerAddress> mongoHosts = new ArrayList<ServerAddress>();
+            String hostList = StringUtils.substringAfter(destShard.getHost(), "/");
+            String[] hosts = hostList.split(",");
+            for (String host : hosts) {
+                mongoHosts.add(new ServerAddress(host));
+            }
+            MongoClient c = null;
+            if (destMongoClientURI.getCredentials() != null) {
+                c = new MongoClient(mongoHosts, destMongoClientURI.getCredentials(), options);
+            } else {
+                c = new MongoClient(mongoHosts, options);
             }
             
-            logger.debug(String.format("Destination database %s exists, dropping", databaseName));
-            destClient.dropDatabase(databaseName);
-        }
+            for (String dbName : databasesList) {
+                logger.debug("Dropping " + dbName + " on " + destShard.getHost());
+                c.dropDatabase(dbName);
+            }
+            c.close();
+        }            
+        
         logger.debug("dropDestinationDatabases() complete");
     }
 
@@ -570,7 +601,7 @@ public class ShardConfigSync {
     public void mongomirror() throws ExecuteException, IOException {
         
         if (dropDestinationCollectionsIfExisting) {
-            dropDestinationDatabases();
+           dropDestinationDatabases();
         }
         
         for (Shard sourceShard : sourceShards.values()) {
@@ -602,18 +633,33 @@ public class ShardConfigSync {
             if (destCredentials != null) {
                 mongomirror.setDestinationAuthenticationDatabase(destCredentials.getSource());
             }
-            if (destMongoClientURI.getOptions().getSslContext() == null) {
+            if (! destMongoClientURI.getOptions().isSslEnabled()) {
                 mongomirror.setDestinationNoSSL(true);
             }
             
             
             String nsFilter = String.join(",", namespaceFilterList);
             mongomirror.setNamespaceFilter(nsFilter);
-            mongomirror.setDrop(dropDestinationCollectionsIfExisting);
+            
+//            if (dropDestinationCollectionsIfExisting) {
+//                if (! destShard.isMongomirrorDropped()) {
+//                    // for n:m shard mapping, only set drop on the first mongomiirror that we start,
+//                    // since there will be multiple mongomirrors pointing to the same destination
+//                    // and we would drop data that had started to copy
+//                    mongomirror.setDrop(dropDestinationCollectionsIfExisting);
+//                    destShard.setMongomirrorDropped(true);
+//                }
+//            }
+            
             mongomirror.setMongomirrorBinary(mongomirrorBinary);
             mongomirror.setBookmarkFile(sourceShard.getId() + ".timestamp");
             mongomirror.execute();
-            
+            try {
+                Thread.sleep(10000);
+            } catch (InterruptedException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
         }
         
     }

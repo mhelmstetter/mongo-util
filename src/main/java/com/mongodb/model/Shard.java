@@ -5,6 +5,9 @@ public class Shard {
     private String id;
     private String host;
     private int state;
+    
+    // internal property only used by sync process
+    private boolean mongomirrorDropped;
 
     public String getId() {
         return id;
@@ -28,6 +31,14 @@ public class Shard {
 
     public void setState(int state) {
         this.state = state;
+    }
+
+    public boolean isMongomirrorDropped() {
+        return mongomirrorDropped;
+    }
+
+    public void setMongomirrorDropped(boolean mongomirrorDropped) {
+        this.mongomirrorDropped = mongomirrorDropped;
     }
 
 }
