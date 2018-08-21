@@ -290,6 +290,9 @@ public class ShardConfigSync {
             Document sourceMax = (Document) sourceChunk.get("max");
             String sourceShard = sourceChunk.getString("shard");
             String mappedShard = sourceToDestShardMap.get(sourceShard);
+            if (mappedShard == null) {
+                throw new IllegalArgumentException("No destination shard mapping found for source shard: " + sourceShard);
+            }
             String sourceId = sourceChunk.getString("_id");
             
             String destShard = destChunkMap.get(sourceId);
@@ -605,7 +608,7 @@ public class ShardConfigSync {
         }
         
         for (Shard sourceShard : sourceShards.values()) {
-            MongoMirrorRunner mongomirror = new MongoMirrorRunner();
+            MongoMirrorRunner mongomirror = new MongoMirrorRunner(sourceShard.getId());
             
             // Source setup
             mongomirror.setSourceHost(sourceShard.getHost());

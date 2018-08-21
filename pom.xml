@@ -10,7 +10,8 @@
 		<jpa.version>2.0.0</jpa.version>
 		<junit.version>4.11</junit.version>
 		<hibernate.version>4.1.9.Final</hibernate.version>
-		<slf4j.version>1.7.1</slf4j.version>
+		<slf4j.version>1.7.5</slf4j.version>
+		<logback.version>1.2.3</logback.version>
 		<aspectj.version>1.6.12</aspectj.version>
 		<jodatime.version>2.3</jodatime.version>
 		<spring.data.mongo.version>1.2.1.RELEASE</spring.data.mongo.version>
@@ -93,20 +94,38 @@
 		</dependency>
 		<dependency>
 			<groupId>org.slf4j</groupId>
-			<artifactId>slf4j-log4j12</artifactId>
+			<artifactId>slf4j-api</artifactId>
 			<version>${slf4j.version}</version>
-			<scope>compile</scope>
 		</dependency>
+		<dependency>
+			<groupId>ch.qos.logback</groupId>
+			<artifactId>logback-classic</artifactId>
+			<version>${logback.version}</version>
+		</dependency>
+		<dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-core</artifactId>
+            <version>${logback.version}</version>
+        </dependency>
+		
+
 		<dependency>
 			<groupId>com.googlecode.lanterna</groupId>
 			<artifactId>lanterna</artifactId>
 			<version>3.0.0</version>
 		</dependency>
+		<!-- 
+		<dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-core</artifactId>
+            <version>${logback.version}</version>
+        </dependency>
 		<dependency>
 			<groupId>de.vandermeer</groupId>
 			<artifactId>asciitable</artifactId>
 			<version>0.3.2</version>
 		</dependency>
+		 -->
 		<dependency>
 			<groupId>org.apache.commons</groupId>
 			<artifactId>commons-exec</artifactId>

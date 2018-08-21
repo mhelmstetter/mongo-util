@@ -1,13 +1,23 @@
 package com.mongodb.mongomirror;
 
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
 
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecuteResultHandler;
 import org.apache.commons.exec.DefaultExecutor;
 import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.exec.ExecuteResultHandler;
+import org.apache.commons.exec.LogOutputStream;
+import org.apache.commons.exec.PumpStreamHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.FileAppender;
 
 public class MongoMirrorRunner {
     
@@ -35,6 +45,31 @@ public class MongoMirrorRunner {
     private String namespaceFilter;
     private String bookmarkFile;
 
+    private String id;
+    
+    private Logger logger;
+    
+    public MongoMirrorRunner(String id) {
+        this.id = id;
+        //logger = LoggerFactory.getLogger(this.getClass().getName() + "." + id);
+        
+        this.logger = LoggerFactory.getLogger(id + "." + this.getClass().getName());
+        
+        LoggerContext context = (LoggerContext)LoggerFactory.getILoggerFactory();
+        
+        FileAppender<ILoggingEvent> file = new FileAppender<ILoggingEvent>();
+        file.setName("FileLogger." + id);
+        file.setFile("/tmp/" + id + ".log");
+        file.setContext(context);
+        file.setAppend(true);
+        
+        //Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
+        
+        
+        
+        //this.logger = context.getLogger(MongoMirrorRunner.class);
+        
+    }
    
     public void execute() throws ExecuteException, IOException {
         
@@ -60,9 +95,11 @@ public class MongoMirrorRunner {
         addArg("filter", namespaceFilter);
         addArg("bookmarkFile", bookmarkFile);
         
+        PumpStreamHandler psh = new PumpStreamHandler(new ExecBasicLogHandler(id));
         
         DefaultExecutor executor = new DefaultExecutor();
         executor.setExitValue(1);
+        executor.setStreamHandler(psh);
         executor.execute(cmdLine, executeResultHandler);
     }
     
@@ -84,13 +121,6 @@ public class MongoMirrorRunner {
         this.mongomirrorBinary = mongomirrorBinary;
     }
     
-    public static void main(String[] args) throws Exception {
-        MongoMirrorRunner mongoMirror = new MongoMirrorRunner();
-        mongoMirror.setMongomirrorBinary(new File("/Users/mh/go/src/github.com/10gen/mongomirror/build/mongomirror"));
-        mongoMirror.execute();
-
-    }
-
     public File getMongomirrorBinary() {
         return mongomirrorBinary;
     }
@@ -161,6 +191,49 @@ public class MongoMirrorRunner {
 
     public void setSourceSsl(Boolean sourceSsl) {
         this.sourceSsl = sourceSsl;
+    }
+    
+    class ExecBasicLogHandler extends LogOutputStream {
+       
+        private PrintWriter writer;
+        
+        public ExecBasicLogHandler(String id) throws IOException {
+            super();
+            writer = new PrintWriter(new FileWriter(new File(id + ".log")));
+        }
+
+
+        protected void processLine(String line) {
+            writer.println(line);
+            writer.flush();
+        }
+
+
+        @Override
+        protected void processLine(String line, int logLevel) {
+            writer.println(line);
+            writer.flush();
+        }
+    }
+    
+    class ExecLogHandler extends LogOutputStream {
+        private Logger log;
+
+        public ExecLogHandler(Logger log) {
+            super();
+            this.log = log;
+        }
+
+
+        protected void processLine(String line) {
+            log.debug(line);
+        }
+
+
+        @Override
+        protected void processLine(String line, int logLevel) {
+            log.debug(line);
+        }
     }
 
 }
