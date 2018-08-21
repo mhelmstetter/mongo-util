@@ -85,7 +85,8 @@ public class ShardConfigSync {
     private Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
     private Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
     
-    String[] namespaceFilterList;
+    private boolean filtered = false;
+    private String[] namespaceFilterList;
     private Set<Namespace> namespaceFilters = new HashSet<Namespace>();
     private Set<String> databaseFilters = new HashSet<String>();
     
@@ -211,7 +212,7 @@ public class ShardConfigSync {
             String ns = chunk.getString("ns");
             Namespace sourceNs = new Namespace(ns);
             
-            if (! namespaceFilters.contains(sourceNs) && !databaseFilters.contains(sourceNs.getDatabaseName())) {
+            if (filtered && ! namespaceFilters.contains(sourceNs) && !databaseFilters.contains(sourceNs.getDatabaseName())) {
                 continue;
             }
 
@@ -282,7 +283,7 @@ public class ShardConfigSync {
             String sourceNs = sourceChunk.getString("ns");
             Namespace sourceNamespace = new Namespace(sourceNs);
             
-            if (! namespaceFilters.contains(sourceNamespace) && !databaseFilters.contains(sourceNamespace.getDatabaseName())) {
+            if (filtered && ! namespaceFilters.contains(sourceNamespace) && !databaseFilters.contains(sourceNamespace.getDatabaseName())) {
                 continue;
             }
             
@@ -436,7 +437,7 @@ public class ShardConfigSync {
             
             Namespace ns = sourceColl.getNamespace();
             
-            if (! namespaceFilters.contains(ns) && !databaseFilters.contains(ns.getDatabaseName())) {
+            if (filtered && ! namespaceFilters.contains(ns) && !databaseFilters.contains(ns.getDatabaseName())) {
                 logger.debug("Namespace " + ns + " filtered, not sharding on destination");
                 continue;
             }
@@ -485,8 +486,13 @@ public class ShardConfigSync {
         databases.into(databasesList);
         for (Document database : databasesList) {
             String databaseName = database.getString("_id");
+            String primary = database.getString("primary");
+            String mappedPrimary = sourceToDestShardMap.get(primary);
+            if (mappedPrimary == null) {
+                throw new IllegalArgumentException("Shard mapping not found for shard " + primary);
+            }
             
-            if (!databaseFilters.contains(databaseName)) {
+            if (filtered && !databaseFilters.contains(databaseName)) {
                 logger.debug("Database " + databaseName + " filtered, not sharding on destination");
                 continue;
             }
@@ -503,6 +509,16 @@ public class ShardConfigSync {
                     logger.debug(String.format("Sharding already enabled for destination database %s", databaseName));
                 }
             }
+            
+            dest = destConfigDb.getCollection("databases").find(new Document("_id", databaseName)).first();
+            String destPrimary = dest.getString("primary");
+            if (mappedPrimary.equals(destPrimary)) {
+                logger.debug("Primary shard already matches for database: " + databaseName);
+            } else {
+                logger.debug("movePrimary for database: " + databaseName + " from " + destPrimary + " to " + mappedPrimary);
+                destClient.getDatabase("admin").runCommand(new Document("movePrimary", databaseName).append("to", mappedPrimary));
+            }
+            
         }
         logger.debug("enableDestinationSharding() complete");
     }
@@ -516,7 +532,7 @@ public class ShardConfigSync {
         for (Document database : databases) {
             String databaseName = database.getString("_id");
             
-            if (!databaseFilters.contains(databaseName)) {
+            if (filtered && !databaseFilters.contains(databaseName)) {
                 logger.debug("Database " + databaseName + " filtered, not sharding on destination");
                 continue;
             } else {
@@ -586,6 +602,10 @@ public class ShardConfigSync {
     
     public void setNamespaceFilters(String[] namespaceFilterList) {
         this.namespaceFilterList = namespaceFilterList;
+        if (namespaceFilterList == null) {
+            return;
+        }
+        filtered = true;
         for (String nsStr : namespaceFilterList) {
             if (nsStr.contains("\\.")) {
                 Namespace ns = new Namespace(nsStr);
@@ -641,8 +661,11 @@ public class ShardConfigSync {
             }
             
             
-            String nsFilter = String.join(",", namespaceFilterList);
-            mongomirror.setNamespaceFilter(nsFilter);
+            if (namespaceFilterList != null) {
+                String nsFilter = String.join(",", namespaceFilterList);
+                mongomirror.setNamespaceFilter(nsFilter);
+            }
+            
             
 //            if (dropDestinationCollectionsIfExisting) {
 //                if (! destShard.isMongomirrorDropped()) {
