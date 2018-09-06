@@ -23,7 +23,7 @@ public class StatsUtil {
     private String groupField;
     
     DescriptiveStatistics sizeStats = new DescriptiveStatistics();
-    private Map<Object, DescriptiveStatistics> statsMap = new TreeMap<Object, DescriptiveStatistics>();
+    private Map<BsonValue, DescriptiveStatistics> statsMap = new TreeMap<BsonValue, DescriptiveStatistics>();
     
     private MongoClient client;
 
@@ -68,8 +68,8 @@ public class StatsUtil {
             }
         }
         
-        for (Map.Entry<Object, DescriptiveStatistics> entry : statsMap.entrySet()) {
-            printStats(entry.getKey().toString(), entry.getValue());
+        for (Map.Entry<BsonValue, DescriptiveStatistics> entry : statsMap.entrySet()) {
+            printStats(entry.getKey().asString().getValue(), entry.getValue());
         }
         
         
