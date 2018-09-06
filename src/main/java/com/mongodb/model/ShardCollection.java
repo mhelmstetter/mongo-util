@@ -111,4 +111,9 @@ public class ShardCollection {
         this.noBalance = noBalance;
     }
 
+    @Override
+    public String toString() {
+        return id;
+    }
+
 }

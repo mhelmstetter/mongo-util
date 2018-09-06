@@ -19,6 +19,7 @@ public class ShardConfigSyncApp {
     private final static String SYNC_METADATA = "syncMetadata";
     private final static String COMPARE_CHUNKS = "compareChunks";
     private final static String MONGO_MIRROR = "mongomirror";
+    private final static String SHARD_COLLECTIONS = "shardCollections";
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -40,6 +41,12 @@ public class ShardConfigSyncApp {
                 .withLongOpt(COMPARE_CHUNKS).create(COMPARE_CHUNKS));
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata")
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
+        
+        options.addOption(OptionBuilder.withArgName("Shard destination collections")
+                .withLongOpt(SHARD_COLLECTIONS).create(SHARD_COLLECTIONS));
+        
+        
+        
         options.addOption(OptionBuilder.withArgName("Execute mongomirror(s)")
                 .withLongOpt(MONGO_MIRROR).create(MONGO_MIRROR));
         options.addOption(OptionBuilder.withArgName("Namespace filter").hasArgs().withLongOpt("filter")
@@ -48,6 +55,23 @@ public class ShardConfigSyncApp {
                 .isRequired(false).create("p"));
         options.addOption(OptionBuilder.withArgName("Shard mapping").hasArgs().withLongOpt("shardMap")
                 .isRequired(false).create("m"));
+        
+        options.addOption(OptionBuilder.withArgName("Diff chunks").hasArgs().withLongOpt("diffChunks")
+                .isRequired(false).create("z"));
+        
+        options.addOption(OptionBuilder.withArgName("Sleep millis").hasArg().withLongOpt("sleepMillis")
+                .isRequired(false).create("x"));
+        
+        options.addOption(OptionBuilder.withArgName("numParallelCollections").hasArg().withLongOpt("numParallelCollections")
+                .isRequired(false).create("y"));
+        
+        options.addOption(OptionBuilder.withArgName("shardToRs").withLongOpt("shardToRs")
+                .isRequired(false).create("r"));
+        
+        options.addOption(OptionBuilder.withArgName("diffShardKeys [sync|diff]").withLongOpt("diffShardKeys")
+                .isRequired(false).hasArg().create("k"));
+        
+        
 
         CommandLineParser parser = new GnuParser();
         CommandLine line = null;
@@ -81,6 +105,9 @@ public class ShardConfigSyncApp {
         sync.setNamespaceFilters(line.getOptionValues("f"));
         sync.setShardMappings(line.getOptionValues("m"));
         sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
+        sync.setSleepMillis(line.getOptionValue("x"));
+        sync.setNumParallelCollections(line.getOptionValue("y"));
+        
         sync.init();
         boolean actionFound = false;
         if (line.hasOption(COLL_COUNTS)) {
@@ -96,7 +123,18 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(SYNC_METADATA)) {
             actionFound = true;
             sync.migrateMetadata();
-        }
+        }  else if (line.hasOption(SHARD_COLLECTIONS)) {
+            actionFound = true;
+            sync.doSharding();
+        }  else if (line.hasOption("z")) {
+            actionFound = true;
+            sync.diffChunks(line.getOptionValue("z"));
+        } else if (line.hasOption("k")) {
+            String opt = line.getOptionValue("k");
+            boolean doSync = opt.equals("sync");
+            actionFound = true;
+            sync.diffShardedCollections(doSync);
+        } 
         
         if (line.hasOption(MONGO_MIRROR)) {
             actionFound = true;
@@ -107,6 +145,17 @@ public class ShardConfigSyncApp {
             sync.setMongomirrorBinary(line.getOptionValue("p"));
             sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
             sync.mongomirror();
+        }
+        
+        if (line.hasOption("r")) {
+            actionFound = true;
+            if (!line.hasOption("p")) {
+                System.out.println("mongomirrorPath required");
+                printHelpAndExit(options);
+            }
+            sync.setMongomirrorBinary(line.getOptionValue("p"));
+            sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
+            sync.shardToRs();
         }
         
         if (! actionFound) {

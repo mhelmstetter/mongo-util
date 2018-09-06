@@ -17,6 +17,11 @@ public class Namespace {
             collectionName = m.group(2);
         }
     }
+    
+    public Namespace(String dbName, String collectionName) {
+        this.databaseName = dbName;
+        this.collectionName = collectionName;
+    }
 
     public String getDatabaseName() {
         return databaseName;

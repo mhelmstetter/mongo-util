@@ -35,7 +35,6 @@ import com.mongodb.client.model.Sorts;
 import com.mongodb.model.ShardCollection;
 import com.mongodb.util.CodecUtils;
 
-// TODO - look at https://github.com/10gen/scripts-and-snippets/blob/master/mongod/recreate-splits.js
 public class DiffUtil {
 
     private static Logger logger = LoggerFactory.getLogger(DiffUtil.class);

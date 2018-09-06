@@ -2,6 +2,7 @@ package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.ne;
+import static com.mongodb.client.model.Filters.regex;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
@@ -35,6 +36,7 @@ import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Sorts;
@@ -77,7 +79,8 @@ public class ShardConfigSync {
     private Map<String, Shard> destShards = new HashMap<String, Shard>();
     private Map<String, String> sourceToDestShardMap = new HashMap<String, String>();
 
-    private List<ShardCollection> sourceCollections = new ArrayList<ShardCollection>();
+    private Map<String, ShardCollection> sourceCollections = new TreeMap<String, ShardCollection>();
+    private Map<String, ShardCollection> destCollections = new TreeMap<String, ShardCollection>();
 
     private List<Mongos> destMongos = new ArrayList<Mongos>();
     private List<MongoClient> destMongoClients = new ArrayList<MongoClient>();
@@ -94,8 +97,17 @@ public class ShardConfigSync {
     
     private File mongomirrorBinary;
 
+    private long sleepMillis;
+    
+    private String  numParallelCollections;
+    
+    List<Document> pipeline = new ArrayList<Document>();
+
     public ShardConfigSync() {
         logger.debug("ShardConfigSync starting");
+        String aggregate = "{$count: \"count\"}";
+        Document doc = Document.parse(aggregate);
+        pipeline.add(doc);
     }
 
     public void init() {
@@ -128,9 +140,9 @@ public class ShardConfigSync {
 
         // We need to ensure a consistent connection to only a single mongos
         // assume that we will only use the first one in the list
-        if (destMongoClientURI.getHosts().size() > 1) {
-            throw new RuntimeException("Specify only a single destination mongos in the connection string");
-        }
+        //if (destMongoClientURI.getHosts().size() > 1) {
+        //    throw new RuntimeException("Specify only a single destination mongos in the connection string");
+        //}
 
         destClient = new MongoClient(destMongoClientURI);
 
@@ -163,11 +175,26 @@ public class ShardConfigSync {
             for (Iterator<Shard> i = sourceShards.values().iterator(); i.hasNext();) {
                 Shard sourceShard = i.next();
                 Shard destShard = destShards.get(index);
-                logger.debug(sourceShard.getId() + " ==> " + destShard.getId());
-                sourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
+                if (destShard != null) {
+                    logger.debug(sourceShard.getId() + " ==> " + destShard.getId());
+                    sourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
+                }
+                
                 index++;
             }
         }
+    }
+    
+    public void doSharding() {
+       
+        logger.debug("Starting metadata sync/migration");
+
+        //stopBalancers();
+        // TODO disableAutoSplit !!!!
+        //enableDestinationSharding();
+
+        populateCollectionList(sourceConfigDb, sourceCollections);
+        shardDestinationCollections();
     }
 
     public void migrateMetadata() throws InterruptedException {
@@ -251,7 +278,51 @@ public class ShardConfigSync {
     }
 
     public void compareChunks() {
-        compareAndMoveChunks(false);
+        compareAndMoveChunks(true);
+    }
+    
+    public void diffChunks(String dbName) {
+        
+        Map<String, Document> sourceChunkMap = new HashMap<String, Document>();
+        MongoCollection<Document> sourceChunksColl = sourceConfigDb.getCollection("chunks");
+        FindIterable<Document> sourceChunks = sourceChunksColl.find(regex("ns", "^" + dbName + "\\.")).sort(Sorts.ascending("ns", "min"));
+        for (Document sourceChunk : sourceChunks) {
+            String id  = sourceChunk.getString("_id");
+            sourceChunkMap.put(id, sourceChunk);
+        }
+        logger.debug("Done reading source chunks, count = " + sourceChunkMap.size());
+        
+        
+        
+        logger.debug("Reading destination chunks");
+        Map<String, Document> destChunkMap = new HashMap<String, Document>();
+        MongoCollection<Document> destChunksColl = destConfigDb.getCollection("chunks");
+        FindIterable<Document> destChunks = destChunksColl.find(regex("ns", "^" + dbName + "\\.")).sort(Sorts.ascending("ns", "min"));
+       
+        for (Document destChunk : destChunks) {
+            String id  = destChunk.getString("_id");
+            destChunkMap.put(id, destChunk);
+            
+            Document sourceChunk = sourceChunkMap.get(id);
+            if (sourceChunk == null) {
+                logger.debug("Source chunk not found: " + id);
+                continue;
+            }
+            String sourceShard = sourceChunk.getString("shard");
+            String mappedShard = sourceToDestShardMap.get(sourceShard);
+            if (mappedShard == null) {
+                throw new IllegalArgumentException("No destination shard mapping found for source shard: " + sourceShard);
+            }
+            
+            String destShard = destChunk.getString("shard");
+            if (! destShard.equals(mappedShard)) {
+                logger.warn("Chunk on wrong shard: " + id);
+            }
+            
+            
+        }
+        logger.debug("Done reading destination chunks, count = " + destChunkMap.size());
+        
     }
 
     private boolean compareAndMoveChunks(boolean doMove) {
@@ -311,6 +382,8 @@ public class ShardConfigSync {
                 }
 
                 movedCount++;
+            } else if (!doMove) {
+                // compare only
             }
 
             lastNs = sourceNs;
@@ -335,6 +408,12 @@ public class ShardConfigSync {
 
         for (Document sourceInfo : sourceDatabaseInfo) {
             String dbName = sourceInfo.getString("name");
+            
+            if (filtered && !databaseFilters.contains(dbName)) {
+                logger.debug("Ignore " + dbName + " for compare, filtered");
+                continue;
+            }
+            
             Document destInfo = destDbInfoMap.get(dbName);
             if (destInfo != null) {
                 logger.debug(String.format("Found matching database %s", dbName));
@@ -343,27 +422,51 @@ public class ShardConfigSync {
                 MongoDatabase destDb = destClient.getDatabase(dbName);
                 MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
                 for (String collectionName : sourceCollectionNames) {
-                    if (collectionName.equals("system.profile") || collectionName.equals("system.keys")) {
+                    if (collectionName.startsWith("system.")) {
                         continue;
                     }
-                    long sourceCount = sourceDb.getCollection(collectionName).count(ne("_id", 0));
-                    long destCount = destDb.getCollection(collectionName).count(ne("_id", 0));
-                    if (sourceCount == destCount) {
-                        logger.debug(String.format("%s.%s count matches: %s", dbName, collectionName, sourceCount));
-                    } else {
-                        logger.warn(String.format("%s.%s count MISMATCH - source: %s, dest: %s", dbName, collectionName,
-                                sourceCount, destCount));
-                        if (doChunkCounts) {
-                            compareChunkCounts(sourceDb, destDb, collectionName);
-                        }
+                    
+                    boolean firstTry = doCounts(sourceDb, destDb, collectionName);
+                    
+                    if (! firstTry) {
+                        doCounts(sourceDb, destDb, collectionName);
                     }
                 }
             } else {
                 logger.warn(String.format("Destination db not found, name: %s", dbName));
             }
         }
-        System.out.println(destDatabases);
-
+    }
+    
+    
+    
+    private boolean doCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
+        String dbName = sourceDb.getName();
+        Document sourceResult = sourceDb.getCollection(collectionName).aggregate(pipeline).first();
+        Document destResult = destDb.getCollection(collectionName).aggregate(pipeline).first();
+        
+        Number sourceCount = null;
+        Number destCount = null;
+        
+        if  (sourceResult != null) {
+            sourceCount = (Number)sourceResult.get("count");
+        }
+        if (destResult != null) {
+            destCount = (Number)destResult.get("count");
+        }
+        
+        
+        if (sourceCount == null && destCount == null) {
+            logger.debug(String.format("%s.%s count matches: %s", dbName, collectionName, 0));
+            return true;
+        } else if (sourceCount != null && sourceCount.equals(destCount)) {
+            logger.debug(String.format("%s.%s count matches: %s", dbName, collectionName, sourceCount));
+            return true;
+        } else {
+            logger.warn(String.format("%s.%s count MISMATCH - source: %s, dest: %s", dbName, collectionName,
+                    sourceCount, destCount));
+            return false;
+        }
     }
 
     // TODO - this is incomplete
@@ -401,12 +504,20 @@ public class ShardConfigSync {
         Document moveChunkCmd = new Document("moveChunk", namespace);
         moveChunkCmd.append("bounds", Arrays.asList(min, max));
         moveChunkCmd.append("to", moveToShard);
-        destClient.getDatabase("admin").runCommand(moveChunkCmd);
+        try {
+            destClient.getDatabase("admin").runCommand(moveChunkCmd);
+        } catch (MongoCommandException mce) {
+            logger.warn("moveChunk error", mce);
+        }
+        
     }
 
-    private void populateCollectionList(MongoDatabase db, List<ShardCollection> list) {
+    private void populateCollectionList(MongoDatabase db, Map<String, ShardCollection> map) {
         MongoCollection<ShardCollection> shardsColl = db.getCollection("collections", ShardCollection.class);
-        shardsColl.find(eq("dropped", false)).sort(Sorts.ascending("_id")).into(list);
+        FindIterable<ShardCollection> collections = shardsColl.find(eq("dropped", false)).sort(Sorts.ascending("_id"));
+        for (ShardCollection c : collections) {
+            map.put(c.getId(), c);
+        }
     }
 
     private void populateMongosList(MongoDatabase db, List<Mongos> list) {
@@ -431,9 +542,9 @@ public class ShardConfigSync {
         }
     }
 
-    private void shardDestinationCollections() {
+    public void shardDestinationCollections() {
         logger.debug("shardDestinationCollections() started");
-        for (ShardCollection sourceColl : sourceCollections) {
+        for (ShardCollection sourceColl : sourceCollections.values()) {
             
             Namespace ns = sourceColl.getNamespace();
             
@@ -441,22 +552,42 @@ public class ShardConfigSync {
                 logger.debug("Namespace " + ns + " filtered, not sharding on destination");
                 continue;
             }
-            
-            Document shardCommand = new Document("shardCollection", sourceColl.getId());
-            shardCommand.append("key", sourceColl.getKey());
-            shardCommand.append("unique", sourceColl.isUnique());
-            if (sourceColl.getDefaultCollation() != null) {
-                shardCommand.append("collation", LOCALE_SIMPLE);
-            }
-            try {
-                destClient.getDatabase("admin").runCommand(shardCommand);
-            } catch (MongoCommandException mce) {
-                if (mce.getCode() == 20) {
-                    logger.debug(String.format("Sharding already enabled for %s", sourceColl.getId()));
-                } else {
-                    throw mce;
-                }
-            }
+//            MongoCursor<Document> cursor = sourceClient.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName()).listIndexes().iterator();
+//            while (cursor.hasNext()) {
+//                Document index = cursor.next();
+//                logger.debug("existing index: " + index);
+//                Document key = (Document)index.get("key");
+//                if (key.equals(sourceColl.getKey())) {
+//                    Document createIndexCommand = new Document("createIndexes", ns.getCollectionName());
+//                    ArrayList<Document> indexes = new ArrayList<Document>();
+//                    createIndexCommand.append("indexes", indexes);
+//                    Document indexSpec = new Document("key", sourceColl.getKey());
+//                    if (index.getBoolean("unique") != null) {
+//                        indexSpec.append("unique", index.getBoolean("unique").booleanValue());
+//                    }
+//                    if (index.getBoolean("sparse") != null) {
+//                        indexSpec.append("sparse", index.getBoolean("sparse"));
+//                    }
+//                    
+//                    indexSpec.append("name", index.getString("name"));
+//                    indexes.add(indexSpec);
+//                    if (sourceColl.getDefaultCollation() != null) {
+//                        indexSpec.append("collation", LOCALE_SIMPLE);
+//                    }
+//                    try {
+//                        Document result = destClient.getDatabase(ns.getDatabaseName()).runCommand(createIndexCommand);
+//                        System.out.println("*** " + result);
+//                    } catch (MongoCommandException mce) {
+//                        if (mce.getCode() == 85) {
+//                            logger.debug("already exists");
+//                        } else {
+//                            logger.warn("Failed to create index", mce);
+//                        }
+//                    }
+//                }
+//            }
+//            
+            shardCollection(sourceColl);
 
             if (sourceColl.isNoBalance()) {
                 // TODO there is no disableBalancing command so this is not
@@ -469,12 +600,79 @@ public class ShardConfigSync {
         }
         logger.debug("shardDestinationCollections() complete");
     }
+    
+    /**
+     * Take the sourceColl as a "template" to shard on the destination side
+     * @param sourceColl
+     */
+    private Document shardCollection(ShardCollection sourceColl) {
+        Document shardCommand = new Document("shardCollection", sourceColl.getId());
+        shardCommand.append("key", sourceColl.getKey());
+        
+        // apparently unique is not always correct here, there are cases where unique is false
+        // here but the underlying index is unique
+        shardCommand.append("unique", sourceColl.isUnique());
+        if (sourceColl.getDefaultCollation() != null) {
+            shardCommand.append("collation", LOCALE_SIMPLE);
+        }
+        
+        Document result = null;
+        try {
+            result = destClient.getDatabase("admin").runCommand(shardCommand);
+        } catch (MongoCommandException mce) {
+            if (mce.getCode() == 20) {
+                logger.debug(String.format("Sharding already enabled for %s", sourceColl.getId()));
+            } else {
+                throw mce;
+            }
+        }
+        return result;
+    }
 
     private void populateShardList(MongoDatabase db, Map<String, Shard> shardMap) {
         MongoCollection<Shard> shardsColl = db.getCollection("shards", Shard.class);
         FindIterable<Shard> shards = shardsColl.find().sort(Sorts.ascending("_id"));
         for (Shard sh : shards) {
             shardMap.put(sh.getId(), sh);
+        }
+    }
+    
+    /**
+     * 
+     * @param sync - THIS WILL shard on the dest side if not in sync
+     */
+    public void diffShardedCollections(boolean sync) {
+        logger.debug("diffShardedCollections()");
+        populateCollectionList(sourceConfigDb, sourceCollections);
+        populateCollectionList(destConfigDb, destCollections);
+        
+        for (ShardCollection sourceColl : sourceCollections.values()) {
+            
+            Namespace ns = sourceColl.getNamespace();
+            if (filtered && ! namespaceFilters.contains(ns) && !databaseFilters.contains(ns.getDatabaseName())) {
+                //logger.debug("Namespace " + ns + " filtered, not sharding on destination");
+                continue;
+            }
+            
+            ShardCollection destCollection = destCollections.get(sourceColl.getId());
+            
+            if (destCollection == null) {
+                logger.debug("Destination collection not found: " + sourceColl.getId() + " sourceKey:" + sourceColl.getKey());
+                if (sync) {
+                    try {
+                        Document result = shardCollection(sourceColl);
+                        logger.debug("Sharded: " + result);
+                    } catch (MongoCommandException mce) {
+                        logger.error("Error sharding", mce);
+                    }
+                }
+            } else {
+                if (sourceColl.getKey().equals(destCollection.getKey())) {
+                    logger.debug("Shard key match for " + sourceColl);
+                } else {
+                    logger.warn("Shard key MISMATCH for " + sourceColl + " sourceKey:" + sourceColl.getKey() + " destKey:" + destCollection.getKey());
+                }
+            }
         }
     }
 
@@ -620,12 +818,90 @@ public class ShardConfigSync {
     public void setShardMappings(String[] shardMap) {
         this.shardMap = shardMap;
     }
+    
+    public void shardToRs() throws ExecuteException, IOException {
+        
+        // Don't drop for mirror because mongomirror seems to not create indexes with the unique option!!!
+        
+        //if (dropDestinationCollectionsIfExisting) {
+        //   dropDestinationDatabases();
+        //}
+        
+        for (Shard sourceShard : sourceShards.values()) {
+            MongoMirrorRunner mongomirror = new MongoMirrorRunner(sourceShard.getId());
+            
+            // Source setup
+            mongomirror.setSourceHost(sourceShard.getHost());
+            mongomirror.setSourceUsername(sourceMongoClientURI.getUsername());
+            if (sourceMongoClientURI.getPassword() != null) {
+                mongomirror.setSourcePassword(String.valueOf(sourceMongoClientURI.getPassword()));
+            }
+            MongoCredential sourceCredentials = sourceMongoClientURI.getCredentials();
+            if (sourceCredentials != null) {
+                mongomirror.setSourceAuthenticationDatabase(sourceCredentials.getSource());
+            }
+            if (sourceMongoClientURI.getOptions().getSslContext() != null) {
+                mongomirror.setSourceSsl(true);
+            }
+            
+            
+            String setName = destClient.getReplicaSetStatus().getName();
+            
+            
+            //destMongoClientURI.getCredentials().getSource();
+            String host = destClient.getAddress().getHost();
+            
+            mongomirror.setDestinationHost(setName + "/" + host);
+            mongomirror.setDestinationUsername(destMongoClientURI.getUsername());
+            if (destMongoClientURI.getPassword() != null) {
+                mongomirror.setDestinationPassword(String.valueOf(destMongoClientURI.getPassword()));
+            }
+            MongoCredential destCredentials = destMongoClientURI.getCredentials();
+            if (destCredentials != null) {
+                mongomirror.setDestinationAuthenticationDatabase(destCredentials.getSource());
+            }
+            if (! destMongoClientURI.getOptions().isSslEnabled()) {
+                mongomirror.setDestinationNoSSL(true);
+            }
+            
+            
+            if (namespaceFilterList != null) {
+                String nsFilter = String.join(",", namespaceFilterList);
+                mongomirror.setNamespaceFilter(nsFilter);
+            }
+            
+            
+//            if (dropDestinationCollectionsIfExisting) {
+//                if (! destShard.isMongomirrorDropped()) {
+//                    // for n:m shard mapping, only set drop on the first mongomiirror that we start,
+//                    // since there will be multiple mongomirrors pointing to the same destination
+//                    // and we would drop data that had started to copy
+//                    mongomirror.setDrop(dropDestinationCollectionsIfExisting);
+//                    destShard.setMongomirrorDropped(true);
+//                }
+//            }
+            
+            mongomirror.setMongomirrorBinary(mongomirrorBinary);
+            mongomirror.setBookmarkFile(sourceShard.getId() + ".timestamp");
+            mongomirror.setNumParallelCollections(numParallelCollections);
+            mongomirror.execute();
+            try {
+                Thread.sleep(sleepMillis);
+            } catch (InterruptedException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        }
+        
+    }
 
     public void mongomirror() throws ExecuteException, IOException {
         
-        if (dropDestinationCollectionsIfExisting) {
-           dropDestinationDatabases();
-        }
+        // Don't drop for mirror because mongomirror seems to not create indexes with the unique option!!!
+        
+        //if (dropDestinationCollectionsIfExisting) {
+        //   dropDestinationDatabases();
+        //}
         
         for (Shard sourceShard : sourceShards.values()) {
             MongoMirrorRunner mongomirror = new MongoMirrorRunner(sourceShard.getId());
@@ -679,9 +955,10 @@ public class ShardConfigSync {
             
             mongomirror.setMongomirrorBinary(mongomirrorBinary);
             mongomirror.setBookmarkFile(sourceShard.getId() + ".timestamp");
+            mongomirror.setNumParallelCollections(numParallelCollections);
             mongomirror.execute();
             try {
-                Thread.sleep(10000);
+                Thread.sleep(sleepMillis);
             } catch (InterruptedException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
@@ -692,5 +969,15 @@ public class ShardConfigSync {
 
     public void setMongomirrorBinary(String binaryPath) {
         this.mongomirrorBinary = new File(binaryPath);
+    }
+
+    public void setSleepMillis(String optionValue) {
+        if (optionValue != null) {
+            this.sleepMillis = Long.parseLong(optionValue);
+        }
+    }
+
+    public void setNumParallelCollections(String numParallelCollections) {
+        this.numParallelCollections = numParallelCollections;
     }
 }

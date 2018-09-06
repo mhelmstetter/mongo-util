@@ -44,6 +44,8 @@ public class MongoMirrorRunner {
     private Boolean destinationNoSSL;
     private String namespaceFilter;
     private String bookmarkFile;
+    
+    private String numParallelCollections;
 
     private String id;
     
@@ -94,6 +96,11 @@ public class MongoMirrorRunner {
         addArg("drop", drop);
         addArg("filter", namespaceFilter);
         addArg("bookmarkFile", bookmarkFile);
+        addArg("numParallelCollections", numParallelCollections);
+        
+        // Can't do this in Atlas, user does not have permissions
+        //addArg("preserveUUIDs", true);
+        
         
         PumpStreamHandler psh = new PumpStreamHandler(new ExecBasicLogHandler(id));
         
@@ -234,6 +241,10 @@ public class MongoMirrorRunner {
         protected void processLine(String line, int logLevel) {
             log.debug(line);
         }
+    }
+
+    public void setNumParallelCollections(String numParallelCollections) {
+        this.numParallelCollections = numParallelCollections;
     }
 
 }
