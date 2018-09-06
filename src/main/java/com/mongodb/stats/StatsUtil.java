@@ -5,6 +5,7 @@ import java.util.TreeMap;
 
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import org.bson.BsonDocument;
+import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 
@@ -60,19 +61,28 @@ public class StatsUtil {
             sizeStats.addValue(size);
             
             BsonValue groupKey = getNested(groupField, doc);
+            if (groupKey == null) {
+                groupKey = new BsonString("null");
+            }
             DescriptiveStatistics value = statsMap.get(groupKey);
             if (value == null) {
                 value = new DescriptiveStatistics();
-                value.addValue(size);
                 statsMap.put(groupKey, value);
             }
+            value.addValue(size);
         }
         
+        System.out.println(String.format("%20s %6s %6s %6s %6s", "Value", "Avg", "Max", "p95", "Total"));
+        System.out.println(String.format("%20s %6s %6s %6s %6s", header(20), header(6), header(6), header(6), header(6)));
         for (Map.Entry<BsonValue, DescriptiveStatistics> entry : statsMap.entrySet()) {
             printStats(entry.getKey().asString().getValue(), entry.getValue());
         }
         
         
+    }
+    
+    private static String header(int n) {
+        return new String(new char[n]).replace("\0", "=");
     }
     
     private static BsonValue getNested(String key, BsonDocument doc) {
@@ -93,8 +103,7 @@ public class StatsUtil {
         double max = sizeStats.getMax();
         double p95 = sizeStats.getPercentile(95);
         double total = sizeStats.getSum();
-        
-        System.out.println(String.format("%20s: Avg: %6.0f, max: %6.0f, 95p: %6.0f, total: %6.0f", key, avg, max, p95, total));
+        System.out.println(String.format("%20s %6.0f %6.0f %6.0f %6.0f", key, avg, max, p95, total));
     }
 
 }
