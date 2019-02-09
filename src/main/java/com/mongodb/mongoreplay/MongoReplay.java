@@ -229,7 +229,7 @@ public class MongoReplay {
                         Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
                         commandDoc.remove("shardVersion");
                         processCommand(commandDoc, databaseName);
-                        System.out.println(commandDoc);
+                        //System.out.println(commandDoc);
                     } else if (opcode == 2011) {
                         ignored++;
                     }
