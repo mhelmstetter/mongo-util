@@ -1,0 +1,14 @@
+2018-08-22T15:52:49.925-0400	***** ParseNamespaceFilter db1
+2018-08-22T15:52:49.940-0400	zzzzzz Attempting initial sync from: world:28107
+2018-08-22T15:52:49.942-0400	[{db1 }]
+2018-08-22T15:52:49.942-0400	[{db1 }]
+2018-08-22T15:52:49.944-0400	Index builds completed.
+2018-08-22T15:52:49.944-0400	Initial sync from world:28107 completed at oplog timestamp: 6592635487800786946
+2018-08-22T15:52:49.945-0400	Current lag from source: 0s
+2018-08-22T15:52:49.945-0400	Tailing the oplog
+2018-08-22T15:52:59.947-0400	Waiting for new oplog entries to apply.
+2018-08-22T15:53:10.256-0400	Current lag from source: 0s
+2018-08-22T15:53:20.270-0400	Current lag from source: 0s
+2018-08-22T15:53:30.265-0400	Current lag from source: 0s
+2018-08-22T15:53:40.253-0400	Current lag from source: 0s
+2018-08-22T15:53:50.258-0400	Current lag from source: 0s
