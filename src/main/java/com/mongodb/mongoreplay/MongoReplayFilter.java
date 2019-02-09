@@ -196,11 +196,6 @@ public class MongoReplayFilter {
                         Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
                         
                         Document queryCommand = (Document)commandDoc.get("$query");
-                        if (queryCommand != null) {
-                            System.out.println("$query: " + queryCommand);
-                        } else {
-                            System.out.println("**" + commandDoc);
-                        }
                         
                         commandDoc.remove("shardVersion");
                         commandDoc.remove("projection");
@@ -210,7 +205,7 @@ public class MongoReplayFilter {
                             List<Document> updates = (List<Document>)commandDoc.get("updates");
                             for (Document updateDoc : updates) {
                                 Document query = (Document)updateDoc.get("q");
-                                System.out.println(commandDoc.get("update") + " " + query);
+                                //System.out.println(commandDoc.get("update") + " " + query);
                                 
                                 if (removeUpdateFields != null) {
                                     for (String fieldName : removeUpdateFields) {
@@ -265,7 +260,7 @@ public class MongoReplayFilter {
                     } else if (opcode == 2011) {
                         
                         Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
-                        System.out.println("doc: " + commandDoc);
+                        //System.out.println("doc: " + commandDoc);
                     }
                 }
 
