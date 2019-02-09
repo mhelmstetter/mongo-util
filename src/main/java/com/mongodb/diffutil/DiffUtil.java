@@ -39,9 +39,6 @@ public class DiffUtil {
 
     private static Logger logger = LoggerFactory.getLogger(DiffUtil.class);
 
-    private static final String MONGODB_SRV_PREFIX = "mongodb+srv://";
-    private final static Document LOCALE_SIMPLE = new Document("locale", "simple");
-
     private String sourceClusterUri;
 
     private String destClusterUri;
@@ -64,6 +61,7 @@ public class DiffUtil {
         logger.debug("DiffUtil starting");
     }
 
+    @SuppressWarnings("unchecked")
     public void init() {
         pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
@@ -91,44 +89,6 @@ public class DiffUtil {
         populateDbMap(destDatabaseInfo, destDbInfoMap);
     }
 
-    // @SuppressWarnings("unchecked")
-    // public void compareShardCounts() {
-    //
-    // logger.debug("Starting compareShardCounts mode");
-    //
-    // for (String dbName : sourceDbInfoMap.keySet()) {
-    // Document destInfo = destDbInfoMap.get(dbName);
-    // if (destInfo != null) {
-    // logger.debug(String.format("Found matching database %s", dbName));
-    //
-    // MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
-    // MongoDatabase destDb = destClient.getDatabase(dbName);
-    // MongoIterable<String> sourceCollectionNames =
-    // sourceDb.listCollectionNames();
-    // for (String collectionName : sourceCollectionNames) {
-    // if (dbName.equals("admin") || dbName.equals("local") ||
-    // collectionName.equals("system.profile")) {
-    // continue;
-    // }
-    //
-    // long sourceCount = sourceDb.getCollection(collectionName).count();
-    // long destCount = destDb.getCollection(collectionName).count();
-    // if (sourceCount == destCount) {
-    // logger.debug(String.format("%s.%s count matches: %s", dbName,
-    // collectionName, sourceCount));
-    // } else {
-    // logger.warn(String.format("%s.%s count MISMATCH - source: %s, dest: %s",
-    // dbName, collectionName,
-    // sourceCount, destCount));
-    // }
-    // compareChunks(sourceDb, destDb, collectionName);
-    // }
-    // } else {
-    // logger.warn(String.format("Destination db not found, name: %s", dbName));
-    // }
-    // }
-    // }
-
     public void compareChunks() {
         logger.debug("Starting chunkCounts mode");
 
@@ -152,43 +112,7 @@ public class DiffUtil {
 
     }
 
-    // public void compareChunks(MongoDatabase sourceDb, MongoDatabase destDb,
-    // String collectionName) {
-    // long sourceTotal = 0;
-    // long destTotal = 0;
-    // String dbName = sourceDb.getName();
-    // String ns = dbName + "." + collectionName;
-    // List<Document> splitPoints = splitVector(ns);
-    // if (splitPoints.isEmpty()) {
-    // return;
-    // }
-    // Document lastSplitPoint = null;
-    // Document query = null;
-    // for (Document splitPoint : splitPoints) {
-    //
-    // if (lastSplitPoint == null) {
-    // query = new Document("_id", new Document("$lte", splitPoint));
-    // } else {
-    // Document rhs = new Document("$gt", lastSplitPoint.get("_id"));
-    // rhs.append("$lte", splitPoint.get("_id"));
-    // query = new Document("_id", rhs);
-    // }
-    // long[] counts = doCount(sourceDb, destDb, collectionName, query);
-    // hashChunk(sourceDb, destDb, collectionName, query);
-    // sourceTotal += counts[0];
-    // destTotal += counts[1];
-    // lastSplitPoint = splitPoint;
-    // }
-    // // last chunk
-    // query = new Document("_id", new Document("$gte",
-    // lastSplitPoint.get("_id")));
-    // long[] counts = doCount(sourceDb, destDb, collectionName, query);
-    // sourceTotal += counts[0];
-    // destTotal += counts[1];
-    //
-    // logger.debug(String.format("%s.%s sourceTotal: %s, destTotal: %s",
-    // dbName, collectionName, sourceTotal, destTotal));
-    // }
+    
 
     private long[] doCount(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName, Document query) {
         logger.debug("auery: " + query);
@@ -276,6 +200,14 @@ public class DiffUtil {
 
     }
 
+    /**
+     * This comparison handles the (very) special case that we could have (usually due to some client/driver bug)
+     * 2 documents that differ only by the order of their fields.
+     * 
+     * @param sourceDoc
+     * @param destDoc
+     * @return
+     */
     private boolean compareDocuments(RawBsonDocument sourceDoc, RawBsonDocument destDoc) {
         Object id = sourceDoc.get("_id");
         Set<String> sourceKeys = sourceDoc.keySet();

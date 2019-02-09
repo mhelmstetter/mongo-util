@@ -7,7 +7,10 @@ import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.BsonValue;
+import org.bson.Document;
 import org.bson.RawBsonDocument;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
@@ -15,8 +18,11 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.shardsync.ShardConfigSync;
 
 public class StatsUtil {
+    
+    private static Logger logger = LoggerFactory.getLogger(StatsUtil.class);
     
     private String mongoUri;
     private String database;
@@ -49,9 +55,21 @@ public class StatsUtil {
         client = new MongoClient(source);
     }
     
+    public void getIndexes() {
+      MongoCursor<Document> cursor = client.getDatabase(database).getCollection(collection).listIndexes().iterator();
+      while (cursor.hasNext()) {
+          Document index = cursor.next();
+          logger.debug("existing index: " + index);
+          Document key = (Document)index.get("key");
+      }
+    }
+    
     public void stats() {
         MongoDatabase db = client.getDatabase(database);
         MongoCollection<RawBsonDocument> mongoCollection = db.getCollection(collection, RawBsonDocument.class);
+        
+        getIndexes();
+        
         FindIterable<RawBsonDocument> findIterable = mongoCollection.find();
         findIterable.noCursorTimeout(true);
         MongoCursor<RawBsonDocument> cursor = findIterable.iterator();
@@ -72,12 +90,11 @@ public class StatsUtil {
             value.addValue(size);
         }
         
-        System.out.println(String.format("%20s %6s %6s %6s %6s", "Value", "Avg", "Max", "p95", "Total"));
-        System.out.println(String.format("%20s %6s %6s %6s %6s", header(20), header(6), header(6), header(6), header(6)));
+        System.out.println(String.format("%20s %6s %6s %6s %10s", "Value", "Avg", "Max", "p95", "Total"));
+        System.out.println(String.format("%20s %6s %6s %6s %10s", header(20), header(6), header(6), header(6), header(10)));
         for (Map.Entry<BsonValue, DescriptiveStatistics> entry : statsMap.entrySet()) {
             printStats(entry.getKey().asString().getValue(), entry.getValue());
         }
-        
         
     }
     
@@ -103,7 +120,7 @@ public class StatsUtil {
         double max = sizeStats.getMax();
         double p95 = sizeStats.getPercentile(95);
         double total = sizeStats.getSum();
-        System.out.println(String.format("%20s %6.0f %6.0f %6.0f %6.0f", key, avg, max, p95, total));
+        System.out.println(String.format("%20s %6.0f %6.0f %6.0f %10.0f", key, avg, max, p95, total));
     }
 
 }

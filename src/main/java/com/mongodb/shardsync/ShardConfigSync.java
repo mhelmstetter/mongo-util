@@ -1,7 +1,6 @@
 package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.regex;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
@@ -36,7 +35,6 @@ import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Sorts;
@@ -112,6 +110,7 @@ public class ShardConfigSync {
 
     public void init() {
 
+        logger.debug("Start init()");
         pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
 
@@ -148,8 +147,11 @@ public class ShardConfigSync {
 
         destClient.getDatabase("admin").runCommand(new Document("ping", 1));
         destConfigDb = destClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
-
+        
+        logger.debug("populateShardList sourceShards");
         populateShardList(sourceConfigDb, sourceShards);
+        
+        logger.debug("populateShardList destShards");
         populateShardList(destConfigDb, destShards);
 
         populateMongosList(destConfigDb, destMongos);
@@ -170,6 +172,7 @@ public class ShardConfigSync {
             }
         } else {
             logger.debug("Default 1:1 shard mapping");
+            logger.debug("Source shard count: " + sourceShards.size());
             // default, just match up the shards 1:1
             int index = 0;
             for (Iterator<Shard> i = sourceShards.values().iterator(); i.hasNext();) {
@@ -540,6 +543,7 @@ public class ShardConfigSync {
             MongoClient client = new MongoClient(clientUri);
             destMongoClients.add(client);
         }
+        logger.debug("populateMongosList complete, " + destMongoClients.size() + " destMongoClients added");
     }
 
     public void shardDestinationCollections() {
@@ -630,11 +634,13 @@ public class ShardConfigSync {
     }
 
     private void populateShardList(MongoDatabase db, Map<String, Shard> shardMap) {
+        
         MongoCollection<Shard> shardsColl = db.getCollection("shards", Shard.class);
         FindIterable<Shard> shards = shardsColl.find().sort(Sorts.ascending("_id"));
         for (Shard sh : shards) {
             shardMap.put(sh.getId(), sh);
         }
+        logger.debug("populateShardList complete, " + shardMap.size() + " shards added");
     }
     
     /**
@@ -827,7 +833,10 @@ public class ShardConfigSync {
         //   dropDestinationDatabases();
         //}
         
+        logger.debug("shardToRs() starting");
+        
         for (Shard sourceShard : sourceShards.values()) {
+            logger.debug("sourceShard: " + sourceShard.getId());
             MongoMirrorRunner mongomirror = new MongoMirrorRunner(sourceShard.getId());
             
             // Source setup
