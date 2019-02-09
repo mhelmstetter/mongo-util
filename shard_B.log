@@ -1,0 +1,18 @@
+2018-08-22T15:52:49.925-0400	***** ParseNamespaceFilter db1
+2018-08-22T15:52:49.940-0400	zzzzzz Attempting initial sync from: world:28117
+2018-08-22T15:52:49.942-0400	[{db1 }]
+2018-08-22T15:52:49.943-0400	[{db1 }]
+2018-08-22T15:52:49.946-0400	Creating collection db1.c1
+2018-08-22T15:52:50.015-0400	Copying documents to collection db1.c1
+2018-08-22T15:52:50.991-0400	Copied 34508 documents to db1.c1
+2018-08-22T15:52:50.992-0400	createIndexes for collection: `db1.c1`, finished in 204.399µs
+2018-08-22T15:52:50.992-0400	Index builds completed.
+2018-08-22T15:52:50.992-0400	Initial sync from world:28117 completed at oplog timestamp: 6592635444851115787
+2018-08-22T15:52:50.995-0400	Current lag from source: 0s
+2018-08-22T15:52:50.995-0400	Tailing the oplog
+2018-08-22T15:53:01.992-0400	Current lag from source: 0s
+2018-08-22T15:53:11.145-0400	Current lag from source: 0s
+2018-08-22T15:53:21.991-0400	Current lag from source: 0s
+2018-08-22T15:53:31.120-0400	Current lag from source: 0s
+2018-08-22T15:53:41.995-0400	Current lag from source: 0s
+2018-08-22T15:53:51.119-0400	Current lag from source: 0s
