@@ -39,7 +39,6 @@ public class ReplayTask implements Callable<ReplayResult> {
         ReplayResult replayResult = null;
         try {
             Document commandResult = null;
-            System.out.println(commandDoc.toJson());
             if (command.isRead()) {
                 commandResult = mongoClient.getDatabase(dbName).runCommand(commandDoc, ReadPreference.secondary());
             } else {
