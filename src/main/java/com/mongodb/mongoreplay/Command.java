@@ -4,13 +4,13 @@ import static com.mongodb.mongoreplay.CommandType.READ;
 import static com.mongodb.mongoreplay.CommandType.WRITE;
 
 public enum Command {
-    
+
     FIND(READ),
-    
-    INSERT(WRITE), UPDATE(WRITE), GETMORE(WRITE), AGGREGATE(READ);
-    
+
+    INSERT(WRITE), UPDATE(WRITE), GETMORE(WRITE), AGGREGATE(READ), DELETE(WRITE);
+
     private CommandType commandType;
-    
+
     private Command(CommandType commandType) {
         this.commandType = commandType;
     }
@@ -18,7 +18,7 @@ public enum Command {
     public CommandType getCommandType() {
         return commandType;
     }
-    
+
     public boolean isRead() {
         return commandType == READ;
     }

@@ -44,20 +44,19 @@ public class MongoReplay extends AbstractMongoReplayUtil {
             Document predicates = null;
             if (result.getCommand() == Command.FIND) {
                 collName = commandDoc.getString("find");
-                result.setCollName(collName);
                 predicates = (Document) commandDoc.get("filter");
                 if (predicates != null) {
                     shape = ShapeUtil.getShape(predicates);
                 }
             } else if (result.getCommand() == Command.UPDATE) {
                 collName = commandDoc.getString("update");
-                result.setCollName(collName);
                 List<Document> updates = (List<Document>)commandDoc.get("updates");
                 if (updates != null && updates.size() > 0) {
                     Document first = updates.get(0);
-                    System.out.println(commandDoc);
+                    Document query = (Document)first.get("q");
+                    shape = ShapeUtil.getShape(query);
                 }
-                
+                //System.out.println(commandDoc);
             }
 
             if (shape != null) {
