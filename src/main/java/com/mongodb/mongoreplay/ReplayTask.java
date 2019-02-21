@@ -8,46 +8,52 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoClient;
 import com.mongodb.ReadPreference;
-import com.mongodb.util.Monitor;
 import com.mongodb.util.TimedEvent;
 
-public class ReplayTask implements Callable<Object> {
+public class ReplayTask implements Callable<ReplayResult> {
 
     private TimedEvent event;
     private Monitor monitor;
     private MongoClient mongoClient;
     private Document commandDoc;
     private String dbName;
-    private CommandType commandType;
+    private Command command;
 
     protected static final Logger logger = LoggerFactory.getLogger(ReplayTask.class);
 
-    public ReplayTask(Monitor monitor, MongoClient mongoClient, Document commandDoc, CommandType commandType, String dbName) {
+    public ReplayTask(Monitor monitor, MongoClient mongoClient, Document commandDoc, Command command, String dbName) {
         this.monitor = monitor;
         this.mongoClient = mongoClient;
         this.commandDoc = commandDoc;
         this.dbName = dbName;
-        this.commandType = commandType;
+        this.command = command;
+        if (command == null) {
+            System.out.println();
+        }
     }
 
     @Override
-    public Object call() {
+    public ReplayResult call() {
 
         event = new TimedEvent();
+        ReplayResult replayResult = null;
         try {
-            Document result = null;
-            if (commandType.equals(CommandType.READ)) {
-                result = mongoClient.getDatabase(dbName).runCommand(commandDoc, ReadPreference.secondary());
+            Document commandResult = null;
+            System.out.println(commandDoc.toJson());
+            if (command.isRead()) {
+                commandResult = mongoClient.getDatabase(dbName).runCommand(commandDoc, ReadPreference.secondary());
             } else {
-                result = mongoClient.getDatabase(dbName).runCommand(commandDoc);
+                commandResult = mongoClient.getDatabase(dbName).runCommand(commandDoc);
             }
-            
-            Number ok = (Number)result.get("ok");
+            long duration = event.stop();
+            Number ok = (Number)commandResult.get("ok");
             //logger.debug("result: " + result);
             if (ok.equals(1.0)) {
                 event.incrementCount();
+                replayResult = new ReplayResult(commandDoc, dbName, command, duration, true);
             } else {
                 event.incrementError(1);
+                replayResult = new ReplayResult(commandDoc, dbName, command, duration, true);
             }
             
             
@@ -57,6 +63,6 @@ public class ReplayTask implements Callable<Object> {
         }
 
         monitor.add(event);
-        return null;
+        return replayResult;
     }
 }
