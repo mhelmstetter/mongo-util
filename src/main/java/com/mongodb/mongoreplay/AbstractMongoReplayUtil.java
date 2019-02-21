@@ -45,6 +45,7 @@ import com.mongodb.MongoClientURI;
 import com.mongodb.ReadPreference;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ClusterType;
+import com.mongodb.util.CallerBlocksPolicy;
 
 public abstract class AbstractMongoReplayUtil {
 
@@ -57,6 +58,8 @@ public abstract class AbstractMongoReplayUtil {
 
     private int threads = 8;
     private int queueSize = 1000000;
+    
+    private final static int ONE_MINUTE = 60 * 1000;
 
     private Monitor monitor;
 
@@ -86,7 +89,11 @@ public abstract class AbstractMongoReplayUtil {
         MongoClientURI connectionString = new MongoClientURI(mongoUriStr);
         mongoClient = new MongoClient(connectionString);
         readPreference = mongoClient.getMongoClientOptions().getReadPreference();
-        Document result = mongoClient.getDatabase("admin").runCommand(new Document("ismaster", 1));
+        int seedListSize = mongoClient.getAllAddress().size();
+        if (seedListSize == 1) {
+            logger.warn("Only 1 host specified in seedlist");
+        }
+        mongoClient.getDatabase("admin").runCommand(new Document("ismaster", 1));
         
         
         Method method = Mongo.class.getDeclaredMethod("getClusterDescription");
@@ -96,7 +103,7 @@ public abstract class AbstractMongoReplayUtil {
         logger.debug("Connected: " + readPreference + " " + clusterType);
         
         workQueue = new ArrayBlockingQueue<Runnable>(queueSize);
-        pool = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue);
+        pool = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5));
         pool.prestartAllCoreThreads();
 
         monitor = new Monitor(Thread.currentThread());
@@ -258,17 +265,14 @@ public abstract class AbstractMongoReplayUtil {
         //System.out.println(commandDoc);
         Command command = null;
         if (commandDoc.containsKey("$query")) {
-            // TODO check this
-            command = Command.FIND;
-            
             Document queryDoc = (Document)commandDoc.get("$query");
             commandDoc = queryDoc;
         } else if (commandDoc.containsKey("query")) {
-            // TODO check this
-            command = Command.FIND;
             Document queryDoc = (Document)commandDoc.get("query");
             commandDoc = queryDoc;
-        } else if (commandDoc.containsKey("find")) {
+        }
+        
+        if (commandDoc.containsKey("find")) {
             command = Command.FIND;
         }  else if (commandDoc.containsKey("insert")) {
             command = Command.INSERT;
@@ -281,9 +285,16 @@ public abstract class AbstractMongoReplayUtil {
             return;
         }  else if (commandDoc.containsKey("aggregate")) {
             command = Command.AGGREGATE;
+            List<Document> stages = (List<Document>)commandDoc.get("pipeline");
+            if (stages != null) {
+                for (Document stage : stages) {
+                    if (stage.containsKey("$mergeCursors")) {
+                        return;
+                    }
+                }
+                
+            }
             commandDoc.remove("fromRouter");
-            // TODO temp hack
-            return;
         } else {
             logger.warn("ignored command: " + commandDoc);
             ignored++;
