@@ -37,8 +37,6 @@ import org.slf4j.LoggerFactory;
  */
 public class CallerBlocksPolicy implements RejectedExecutionHandler {
 
-    protected static final Logger logger = LoggerFactory.getLogger(CallerBlocksPolicy.class);
-
     private final long maxWait;
 
     /**
@@ -54,14 +52,8 @@ public class CallerBlocksPolicy implements RejectedExecutionHandler {
         if (!executor.isShutdown()) {
             try {
                 BlockingQueue<Runnable> queue = executor.getQueue();
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Attempting to queue task execution for " + this.maxWait + " milliseconds");
-                }
                 if (!queue.offer(r, this.maxWait, TimeUnit.MILLISECONDS)) {
                     throw new RejectedExecutionException("Max wait time expired to queue task");
-                }
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Task execution queued");
                 }
             }
             catch (InterruptedException e) {
