@@ -263,21 +263,13 @@ public abstract class AbstractMongoReplayUtil {
             
             Document queryDoc = (Document)commandDoc.get("$query");
             commandDoc = queryDoc;
-            
-            return;
-            
         } else if (commandDoc.containsKey("query")) {
             // TODO check this
             command = Command.FIND;
             Document queryDoc = (Document)commandDoc.get("query");
             commandDoc = queryDoc;
-            
-            return;
         } else if (commandDoc.containsKey("find")) {
             command = Command.FIND;
-            
-            return;
-            
         }  else if (commandDoc.containsKey("insert")) {
             command = Command.INSERT;
         }  else if (commandDoc.containsKey("update")) {
@@ -290,6 +282,7 @@ public abstract class AbstractMongoReplayUtil {
         }  else if (commandDoc.containsKey("aggregate")) {
             command = Command.AGGREGATE;
             commandDoc.remove("fromRouter");
+            // TODO temp hack
             return;
         } else {
             logger.warn("ignored command: " + commandDoc);
