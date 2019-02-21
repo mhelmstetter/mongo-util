@@ -16,7 +16,7 @@
  * The use of the Apache License does not indicate that this project is
  * affiliated with the Apache Software Foundation.
  */
-package com.mongodb.util;
+package com.mongodb.mongoreplay;
 
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -24,10 +24,10 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * @author Michael Blakeley, michael.blakeley@marklogic.com
- * 
- */
+import com.mongodb.util.TimedEvent;
+import com.mongodb.util.Timer;
+
+
 public class Monitor extends Thread {
     
     public static final int displayMillis = 15000;
@@ -54,11 +54,6 @@ public class Monitor extends Thread {
     private int lastSkipped = 0;
 
     private long lastCount = 0;
-
-    @SuppressWarnings("unused")
-    private Monitor() {
-        // avoid no-argument constructors
-    }
 
     /**
      * @param _c
