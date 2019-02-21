@@ -68,7 +68,7 @@ public abstract class AbstractMongoReplayUtil {
     private MongoClient mongoClient;
     ClusterType clusterType;
     
-    private ReadPreference readPref;
+    private ReadPreference readPreference;
 
 
     private int limit = Integer.MAX_VALUE;
@@ -85,7 +85,7 @@ public abstract class AbstractMongoReplayUtil {
         logger.debug("mongoUriStr: " + mongoUriStr);
         MongoClientURI connectionString = new MongoClientURI(mongoUriStr);
         mongoClient = new MongoClient(connectionString);
-        readPref = mongoClient.getMongoClientOptions().getReadPreference();
+        readPreference = mongoClient.getMongoClientOptions().getReadPreference();
         Document result = mongoClient.getDatabase("admin").runCommand(new Document("ismaster", 1));
         
         
@@ -93,7 +93,7 @@ public abstract class AbstractMongoReplayUtil {
         method.setAccessible(true);
         ClusterDescription cd = (ClusterDescription)method.invoke(mongoClient);
         this.clusterType = cd.getType();
-        logger.debug("Connected: " + readPref + " " + clusterType);
+        logger.debug("Connected: " + readPreference + " " + clusterType);
         
         workQueue = new ArrayBlockingQueue<Runnable>(queueSize);
         pool = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue);
@@ -290,7 +290,7 @@ public abstract class AbstractMongoReplayUtil {
             return;
         }
 
-        futures.add(pool.submit(new ReplayTask(monitor, mongoClient, commandDoc, command, databaseName)));
+        futures.add(pool.submit(new ReplayTask(monitor, mongoClient, commandDoc, command, databaseName, readPreference)));
     }
 
     @SuppressWarnings("static-access")

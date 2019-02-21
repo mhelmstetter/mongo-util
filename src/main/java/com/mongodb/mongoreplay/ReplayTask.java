@@ -18,18 +18,17 @@ public class ReplayTask implements Callable<ReplayResult> {
     private Document commandDoc;
     private String dbName;
     private Command command;
+    private ReadPreference readPreference;
 
     protected static final Logger logger = LoggerFactory.getLogger(ReplayTask.class);
 
-    public ReplayTask(Monitor monitor, MongoClient mongoClient, Document commandDoc, Command command, String dbName) {
+    public ReplayTask(Monitor monitor, MongoClient mongoClient, Document commandDoc, Command command, String dbName, ReadPreference readPreference) {
         this.monitor = monitor;
         this.mongoClient = mongoClient;
         this.commandDoc = commandDoc;
         this.dbName = dbName;
         this.command = command;
-        if (command == null) {
-            System.out.println();
-        }
+        this.readPreference = readPreference;
     }
 
     @Override
@@ -40,7 +39,7 @@ public class ReplayTask implements Callable<ReplayResult> {
         try {
             Document commandResult = null;
             if (command.isRead()) {
-                commandResult = mongoClient.getDatabase(dbName).runCommand(commandDoc, ReadPreference.secondary());
+                commandResult = mongoClient.getDatabase(dbName).runCommand(commandDoc, readPreference);
             } else {
                 commandResult = mongoClient.getDatabase(dbName).runCommand(commandDoc);
             }
