@@ -9,8 +9,11 @@ import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Future;
@@ -55,6 +58,7 @@ public abstract class AbstractMongoReplayUtil {
 
     protected String[] fileNames;
     protected String[] removeUpdateFields;
+    private Set<String> ignoredCollections = new HashSet<String>();
 
     private int threads = 8;
     private int queueSize = 1000000;
@@ -164,6 +168,10 @@ public abstract class AbstractMongoReplayUtil {
             Thread.interrupted();
         }
     }
+    
+    private boolean ignoreOp(String dbName, String collName) {
+        return false;
+    }
 
     public void replayFile(String filename) throws FileNotFoundException, DataFormatException {
 
@@ -209,25 +217,28 @@ public abstract class AbstractMongoReplayUtil {
                     int headerOpcode = bsonInput.readInt32();
 
                     if (opcode == 2004) {
-
                         int flags = bsonInput.readInt32();
                         String collectionName = bsonInput.readCString();
-                        if (collectionName.equals("admin.$cmd") || collectionName.equals("local.$cmd")) {
+                        String databaseName = StringUtils.substringBefore(collectionName, ".$cmd");
+                        if (databaseName.equals("local") || databaseName.equals("admin")) {
                             continue;
                         }
+                        if (ignoredCollections.contains(collectionName)) {
+                            continue;
+                        }
+                        
                         int nskip = bsonInput.readInt32();
                         int nreturn = bsonInput.readInt32();
                         
                         Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
                         
-                        String databaseName = StringUtils.substringBefore(collectionName, ".$cmd");
+                        
                         processCommand(commandDoc, databaseName);
 
                         written++;
 
                     } else if (opcode == 2010) {
                         int p1 = bsonInput.getPosition();
-                        
                         String databaseName = bsonInput.readCString();
                         if (databaseName.equals("local") || databaseName.equals("admin")) {
                             continue;
@@ -242,7 +253,7 @@ public abstract class AbstractMongoReplayUtil {
                         commandDoc.remove("shardVersion");
                         processCommand(commandDoc, databaseName);
                         //System.out.println(commandDoc);
-                    } else if (opcode == 2011) {
+                    } else {
                         ignored++;
                     }
                 }
@@ -264,6 +275,7 @@ public abstract class AbstractMongoReplayUtil {
     private void processCommand(Document commandDoc, String databaseName) {
         //System.out.println(commandDoc);
         Command command = null;
+        String collName = null;
         if (commandDoc.containsKey("$query")) {
             Document queryDoc = (Document)commandDoc.get("$query");
             commandDoc = queryDoc;
@@ -274,10 +286,21 @@ public abstract class AbstractMongoReplayUtil {
         
         if (commandDoc.containsKey("find")) {
             command = Command.FIND;
+            collName = commandDoc.getString("find");
         }  else if (commandDoc.containsKey("insert")) {
             command = Command.INSERT;
         }  else if (commandDoc.containsKey("update")) {
             command = Command.UPDATE;
+            collName = commandDoc.getString("update");
+            List<Document> updates = (List<Document>)commandDoc.get("updates");
+            for (Document updateDoc : updates) {
+                Document query = (Document)updateDoc.get("q");
+                if (removeUpdateFields != null) {
+                    for (String fieldName : removeUpdateFields) {
+                        query.remove(fieldName);
+                    }
+                }
+            }
         }  else if (commandDoc.containsKey("getMore")) {
             command = Command.GETMORE;
             getMoreCount++;
@@ -295,8 +318,16 @@ public abstract class AbstractMongoReplayUtil {
                 
             }
             commandDoc.remove("fromRouter");
+        } else if (commandDoc.containsKey("delete")) {
+            command = Command.DELETE;
+            collName = commandDoc.getString("delete");
         } else {
             logger.warn("ignored command: " + commandDoc);
+            ignored++;
+            return;
+        }
+        
+        if (ignoredCollections.contains(collName)) {
             ignored++;
             return;
         }
@@ -320,6 +351,8 @@ public abstract class AbstractMongoReplayUtil {
                 OptionBuilder.withArgName("play back target mongo uri").hasArg().withLongOpt("host").isRequired().create("h"));
 
         options.addOption(OptionBuilder.withArgName("# threads").hasArgs().withLongOpt("threads").create("t"));
+        
+        options.addOption(OptionBuilder.withArgName("ignore collection").hasArgs().withLongOpt("ingoreColl").create("c"));
         
         CommandLineParser parser = new GnuParser();
         CommandLine line = null;
@@ -349,12 +382,12 @@ public abstract class AbstractMongoReplayUtil {
         CommandLine line = initializeAndParseCommandLineOptions(args);
 
         this.fileNames = line.getOptionValues("f");
-        this.removeUpdateFields = line.getOptionValues("u");
+        String[] x = line.getOptionValues("u");
+        this.removeUpdateFields = x;
         String limitStr = line.getOptionValue("l");
 
         String mongoUriStr = line.getOptionValue("h");
        
-        setRemoveUpdateFields(removeUpdateFields);
         setMongoUriStr(mongoUriStr);
 
         String threadsStr = line.getOptionValue("t");
@@ -367,6 +400,11 @@ public abstract class AbstractMongoReplayUtil {
             int limit = Integer.parseInt(limitStr);
             setLimit(limit);
         }
+        
+        if (line.hasOption("c")) {
+            ignoredCollections.addAll(Arrays.asList(line.getOptionValues("c")));
+        }
+        
     }
 
     private static void printHelpAndExit(Options options) {

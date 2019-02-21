@@ -6,7 +6,6 @@ public class ReplayResult {
     
     private Document commandDoc;
     private String dbName;
-    private String collName;
     private Command command;
     private boolean success;
     private double duration;
@@ -39,21 +38,6 @@ public class ReplayResult {
     public boolean isSuccess() {
         return success;
     }
-
-
-    public String getCollName() {
-        return collName;
-    }
-
-
-    public void setCollName(String collName) {
-        this.collName = collName;
-    }
-    
-    public String getNamespace() {
-        return dbName + "." + collName;
-    }
-
 
     public double getDuration() {
         return duration;
