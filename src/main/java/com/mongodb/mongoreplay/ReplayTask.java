@@ -54,11 +54,12 @@ public class ReplayTask implements Callable<ReplayResult> {
             Number ok = (Number) commandResult.get("ok");
             // logger.debug("result: " + result);
             if (ok.equals(1.0)) {
-                // event.incrementCount();
+                monitor.incrementEventCount();
                 replayResult = new ReplayResult(queryShape, dbName, collectionName, command, duration, true);
             } else {
                 // event.incrementError(1);
                 replayResult = new ReplayResult(queryShape, dbName, collectionName, command, duration, true);
+                monitor.incrementErrorCount();
             }
 
         } catch (Exception e) {

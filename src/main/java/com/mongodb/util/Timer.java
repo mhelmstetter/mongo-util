@@ -22,6 +22,7 @@ package com.mongodb.util;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /*
  * @author Michael Blakeley <michael.blakeley@marklogic.com>
@@ -43,9 +44,7 @@ public class Timer {
     public static final int NANOSECONDS_PER_SECOND = NANOSECONDS_PER_MILLISECOND
             * MILLISECONDS_PER_SECOND;
 
-    private volatile long errors = 0;
-
-    private volatile long bytes = 0;
+    private volatile AtomicInteger errors;
 
     private long duration = -1;
 
@@ -53,74 +52,18 @@ public class Timer {
 
     private long start;
 
-    private volatile long eventCount;
+    private volatile AtomicInteger eventCount;
 
     public Timer() {
         start = System.nanoTime();
-        eventCount = 0;
-    }
-
-    public void add(TimedEvent event) {
-        add(event, true);
-    }
-
-    public void add(TimedEvent event, boolean _keepEvent) {
-        // in case the user forgot to call stop(): note that bytes won't be
-        // counted!
-        event.stop();
-        synchronized (events) {
-            bytes += event.getBytes();
-            if (event.isError()) {
-                errors += event.getErrorCount();
-            }
-            if (_keepEvent) {
-                events.add(event);
-            }
-            eventCount += event.getCount();
-        }
-    }
-
-    /**
-     * @param _timer
-     */
-    public void add(Timer _timer) {
-        add(_timer, true);
-    }
-
-    /**
-     * @param _timer
-     * @param _keep
-     */
-    public void add(Timer _timer, boolean _keep) {
-        _timer.stop();
-        synchronized (events) {
-            bytes += _timer.getBytes();
-            errors += _timer.getErrorCount();
-            if (_keep) {
-                events.addAll(_timer.events);
-            }
-            eventCount += _timer.eventCount;
-        }
+        eventCount = new AtomicInteger(0);
+        errors = new AtomicInteger(0);
     }
 
     /**
      * @return
      */
-    public long getBytes() {
-        return bytes;
-    }
-
-    /**
-     * @return
-     */
-    public long getEventCount() {
-        return eventCount;
-    }
-
-    /**
-     * @return
-     */
-    public long getSuccessfulEventCount() {
+    public AtomicInteger getEventCount() {
         return eventCount;
     }
 
@@ -128,7 +71,7 @@ public class Timer {
      * @return
      */
     public long getErrorCount() {
-        return errors;
+        return errors.get();
     }
 
     /**
@@ -141,61 +84,6 @@ public class Timer {
         return duration;
     }
 
-    /**
-     * @return
-     */
-    public long getMeanOfEvents() {
-        if (eventCount < 1)
-            return 0;
-
-        long sum = 0;
-        for (int i = 0; i < eventCount; i++) {
-            sum += events.get(i).getDuration();
-        }
-
-        return Math.round((double) sum / eventCount);
-    }
-
-    /**
-     * @return
-     */
-    public long getPercentileDuration(int p) {
-        if (eventCount < 1)
-            return 0;
-
-        double size = eventCount;
-        Comparator<TimedEvent> c = new TimedEventDurationComparator();
-        Collections.sort(events, c);
-        int pidx = (int) (p * size * .01);
-        return events.get(pidx).getDuration();
-    }
-
-    /**
-     * @return
-     */
-    public long getMaxDuration() {
-        long max = 0;
-        for (int i = 0; i < eventCount; i++)
-            max = Math.max(max, events.get(i).getDuration());
-        return max;
-    }
-
-    /**
-     * @return
-     */
-    public long getMinDuration() {
-        long min = Integer.MAX_VALUE;
-        for (int i = 0; i < eventCount; i++)
-            min = Math.min(min, events.get(i).getDuration());
-        return min;
-    }
-
-    /**
-     * @return
-     */
-    public long getMeanOverall() {
-        return getDuration() / eventCount;
-    }
 
     /**
      * @return
@@ -204,21 +92,10 @@ public class Timer {
         return start;
     }
 
-    /**
-     * @return
-     */
-    public long getKiloBytes() {
-        return (long) ((double) bytes / BYTES_PER_KILOBYTE);
-    }
-
-    public double getKilobytesPerSecond() {
-        return ((double) bytes / BYTES_PER_KILOBYTE)
-                / getDurationSeconds();
-    }
 
     public double getEventsPerSecond() {
         // events per second
-        return eventCount / getDurationSeconds();
+        return eventCount.get() / getDurationSeconds();
     }
 
     /**
@@ -243,14 +120,11 @@ public class Timer {
      * 
      */
     public void incrementEventCount() {
-        eventCount++;
+        eventCount.incrementAndGet();
     }
-
-    /**
-     * @param count
-     */
-    public void incrementEventCount(int count) {
-        eventCount += count;
+    
+    public void incrementErrorCount() {
+        errors.incrementAndGet();
     }
 
     /**
@@ -271,26 +145,8 @@ public class Timer {
                 / ((double) NANOSECONDS_PER_SECOND);
     }
 
-    public String getProgressMessage(boolean rawValues) {
-        return (rawValues ? getBytes() + " B in " + getDurationSeconds()
-                + " s, " : "")
-                + Math.round(getEventsPerSecond())
-                + " tps";
-                //+ Math.round(getKilobytesPerSecond()) + " kB/s";
-    }
-
-    /**
-     * @return
-     */
     public String getProgressMessage() {
-        return getProgressMessage(false);
-    }
-
-    /**
-     * @return
-     */
-    public int getBytesPerSecond() {
-        return (int) (bytes / getDurationSeconds());
+        return Math.round(getEventsPerSecond()) + " tps";
     }
 
 }
