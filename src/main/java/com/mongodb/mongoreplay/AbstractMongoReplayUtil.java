@@ -49,6 +49,7 @@ import com.mongodb.ReadPreference;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ClusterType;
 import com.mongodb.util.CallerBlocksPolicy;
+import com.mongodb.util.ShapeUtil;
 
 public abstract class AbstractMongoReplayUtil {
 
@@ -61,7 +62,7 @@ public abstract class AbstractMongoReplayUtil {
     private Set<String> ignoredCollections = new HashSet<String>();
 
     private int threads = 8;
-    private int queueSize = 1000000;
+    private int queueSize = 250000;
     
     private final static int ONE_MINUTE = 60 * 1000;
 
@@ -181,8 +182,6 @@ public abstract class AbstractMongoReplayUtil {
         BSONDecoder decoder = new BasicBSONDecoder();
         
         try {
-
-            int i = 0;
             while (inputStream.available() > 0) {
 
                 if (count >= limit) {
@@ -231,10 +230,7 @@ public abstract class AbstractMongoReplayUtil {
                         int nreturn = bsonInput.readInt32();
                         
                         Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
-                        
-                        
                         processCommand(commandDoc, databaseName);
-
                         written++;
 
                     } else if (opcode == 2010) {
@@ -243,12 +239,7 @@ public abstract class AbstractMongoReplayUtil {
                         if (databaseName.equals("local") || databaseName.equals("admin")) {
                             continue;
                         }
-                        int p2 = bsonInput.getPosition();
-                        
                         String command = bsonInput.readCString();
-                        //p1 = bsonInput.getPosition();
-                        //int commandLen = p1 - p2;
-                        
                         Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
                         commandDoc.remove("shardVersion");
                         processCommand(commandDoc, databaseName);
@@ -276,6 +267,8 @@ public abstract class AbstractMongoReplayUtil {
         //System.out.println(commandDoc);
         Command command = null;
         String collName = null;
+        Set<String> shape = null;
+        String shapeStr = null;
         if (commandDoc.containsKey("$query")) {
             Document queryDoc = (Document)commandDoc.get("$query");
             commandDoc = queryDoc;
@@ -287,6 +280,8 @@ public abstract class AbstractMongoReplayUtil {
         if (commandDoc.containsKey("find")) {
             command = Command.FIND;
             collName = commandDoc.getString("find");
+            Document predicates = (Document) commandDoc.get("filter");
+            shape = ShapeUtil.getShape(predicates);
         }  else if (commandDoc.containsKey("insert")) {
             command = Command.INSERT;
         }  else if (commandDoc.containsKey("update")) {
@@ -295,6 +290,7 @@ public abstract class AbstractMongoReplayUtil {
             List<Document> updates = (List<Document>)commandDoc.get("updates");
             for (Document updateDoc : updates) {
                 Document query = (Document)updateDoc.get("q");
+                shape = ShapeUtil.getShape(query);
                 if (removeUpdateFields != null) {
                     for (String fieldName : removeUpdateFields) {
                         query.remove(fieldName);
@@ -331,8 +327,12 @@ public abstract class AbstractMongoReplayUtil {
             ignored++;
             return;
         }
+        
+        if (shape != null) {
+            shapeStr = shape.toString();
+        }
 
-        futures.add(pool.submit(new ReplayTask(monitor, mongoClient, commandDoc, command, databaseName, readPreference)));
+        futures.add(pool.submit(new ReplayTask(monitor, mongoClient, commandDoc, command, databaseName, collName, readPreference, shapeStr)));
     }
 
     @SuppressWarnings("static-access")
