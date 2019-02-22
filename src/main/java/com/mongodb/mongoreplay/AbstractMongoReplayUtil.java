@@ -283,13 +283,18 @@ public abstract class AbstractMongoReplayUtil {
                                 if (commandDoc != null && commandDoc.containsKey("insert")) {
                                     commandDoc.put("documents", Arrays.asList(d1));
                                     processCommand(commandDoc, databaseName);
+                                } else if (commandDoc != null && commandDoc.containsKey("update")) {
+                                    commandDoc.put("updates", Arrays.asList(d1));
+                                    processCommand(commandDoc, databaseName);
+                                } else if (commandDoc != null && commandDoc.containsKey("delete")) {
+                                    commandDoc.put("deletes", Arrays.asList(d1));
+                                    processCommand(commandDoc, databaseName);
+                                } else {
+                                    logger.debug("wtf: " + commandDoc);
                                 }
                                 
                                 moreSections = messageLength > bsonInput.getPosition();
                             }
-                            
-                            
-                            // 
                         }
                             
                     } else {
