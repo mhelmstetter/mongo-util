@@ -245,6 +245,7 @@ public abstract class AbstractMongoReplayUtil {
                         processCommand(commandDoc, databaseName);
                         //System.out.println(commandDoc);
                     } else {
+                        logger.warn("ignored opcode: " + opcode);
                         ignored++;
                     }
                 }
