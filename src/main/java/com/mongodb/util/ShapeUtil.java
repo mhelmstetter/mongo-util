@@ -16,10 +16,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collector;
 
-import org.bson.BSONObject;
-import org.bson.BasicBSONObject;
 import org.bson.Document;
-import org.bson.types.BasicBSONList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,7 +48,7 @@ public class ShapeUtil {
     public static Set<String> getShape(final Document predicateDoc) {
 
         if (predicateDoc == null) {
-            System.out.println();
+            return null;
         }
         TreeSet<String> predicates = new TreeSet<String>();
 
@@ -62,6 +59,7 @@ public class ShapeUtil {
 
     public static Document predicateDocToShapeRecursive(final Document pPredicateDoc,
             Set<String> predicates) {
+        
         final Document shapePredicate = new Document();
         for (final Map.Entry<String, Object> entry : pPredicateDoc.entrySet()) {
             final String key = entry.getKey();
