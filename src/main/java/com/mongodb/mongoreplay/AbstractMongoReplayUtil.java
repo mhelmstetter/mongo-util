@@ -268,6 +268,9 @@ public abstract class AbstractMongoReplayUtil {
                                 commandDoc.remove("$readPreference");
                                 
                                 if (! moreSections) {
+//                                    if (commandDoc.containsKey("count")) {
+//                                        System.out.println();
+//                                    }
                                     processCommand(commandDoc, databaseName);
                                 }
                                 
@@ -334,10 +337,13 @@ public abstract class AbstractMongoReplayUtil {
         if (commandDoc.containsKey("$query")) {
             Document queryDoc = (Document)commandDoc.get("$query");
             commandDoc = queryDoc;
-        } else if (commandDoc.containsKey("query")) {
-            Document queryDoc = (Document)commandDoc.get("query");
-            commandDoc = queryDoc;
         }
+// do we need to unwrap here? one case is count() which should not
+// be unwrapped. What are the other cases if any?
+//        else if (commandDoc.containsKey("query")) {
+//            Document queryDoc = (Document)commandDoc.get("query");
+//            commandDoc = queryDoc;
+//        }
         
         if (commandDoc.containsKey("find")) {
             command = Command.FIND;
@@ -381,6 +387,12 @@ public abstract class AbstractMongoReplayUtil {
         } else if (commandDoc.containsKey("delete")) {
             command = Command.DELETE;
             collName = commandDoc.getString("delete");
+        } else if (commandDoc.containsKey("count")) {
+            command = Command.COUNT;
+            collName = commandDoc.getString("count");
+        } else if (commandDoc.containsKey("findandmodify")) {
+            command = Command.FIND_AND_MODIFY;
+            collName = commandDoc.getString("findandmodify");
         } else {
             logger.warn("ignored command: " + commandDoc);
             ignored++;
