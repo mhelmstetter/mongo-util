@@ -12,7 +12,7 @@ import com.mongodb.util.TimedEvent;
 
 public class ReplayTask implements Callable<ReplayResult> {
 
-    private TimedEvent event;
+    //private TimedEvent event;
     private Monitor monitor;
     private MongoClient mongoClient;
     private Document commandDoc;
@@ -34,7 +34,8 @@ public class ReplayTask implements Callable<ReplayResult> {
     @Override
     public ReplayResult call() {
 
-        event = new TimedEvent();
+        //event = new TimedEvent();
+        long start = System.nanoTime();
         ReplayResult replayResult = null;
         try {
             Document commandResult = null;
@@ -43,24 +44,25 @@ public class ReplayTask implements Callable<ReplayResult> {
             } else {
                 commandResult = mongoClient.getDatabase(dbName).runCommand(commandDoc);
             }
-            long duration = event.stop();
+            long duration = System.nanoTime() - start;
+            //long duration = event.stop();
             Number ok = (Number)commandResult.get("ok");
             //logger.debug("result: " + result);
             if (ok.equals(1.0)) {
-                event.incrementCount();
+                //event.incrementCount();
                 replayResult = new ReplayResult(commandDoc, dbName, command, duration, true);
             } else {
-                event.incrementError(1);
+                //event.incrementError(1);
                 replayResult = new ReplayResult(commandDoc, dbName, command, duration, true);
             }
             
             
         } catch (Exception e) {
             e.printStackTrace();
-            event.incrementError(1);
+            //event.incrementError(1);
         }
 
-        monitor.add(event);
+        //monitor.add(event);
         return replayResult;
     }
 }
