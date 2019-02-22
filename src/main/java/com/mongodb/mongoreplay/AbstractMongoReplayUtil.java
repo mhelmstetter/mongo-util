@@ -257,11 +257,19 @@ public abstract class AbstractMongoReplayUtil {
                                 commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
                                 
                                 moreSections = messageLength > bsonInput.getPosition();
-    
+                                
                                 databaseName = commandDoc.getString("$db");
+                                if (databaseName.equals("local") || databaseName.equals("admin")) {
+                                    continue;
+                                }
+                                
                                 commandDoc.remove("lsid");
                                 commandDoc.remove("$db");
                                 commandDoc.remove("$readPreference");
+                                
+                                if (! moreSections) {
+                                    processCommand(commandDoc, databaseName);
+                                }
                                 
                             } else {
                                 //logger.warn("ignored OP_MSG having Section kind 1");
