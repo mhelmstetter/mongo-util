@@ -307,6 +307,7 @@ public abstract class AbstractMongoReplayUtil {
             List<Document> stages = (List<Document>)commandDoc.get("pipeline");
             if (stages != null) {
                 for (Document stage : stages) {
+                    // this will actually crash mongod on OSX
                     if (stage.containsKey("$mergeCursors")) {
                         return;
                     }

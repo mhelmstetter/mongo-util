@@ -39,8 +39,6 @@ public class Monitor extends Thread {
 
     private static long lastDisplayMillis = 0;
 
-    //private volatile String lastUri;
-
     private boolean running = true;
 
     
@@ -72,8 +70,8 @@ public class Monitor extends Thread {
             monitor();
             // successful exit
             timer.stop();
-            logger.info("replayed " + timer.getSuccessfulEventCount()
-                    + " records ok (" + timer.getProgressMessage(true)
+            logger.info("replayed " + timer.getEventCount()
+                    + " records ok (" + timer.getProgressMessage()
                     + "), with " + timer.getErrorCount() + " error(s)");
         } catch (Throwable t) {
             logger.error("fatal error", t);
@@ -123,13 +121,13 @@ public class Monitor extends Thread {
                 lastDisplayMillis = currentMillis;
                 lastSkipped = totalSkipped;
                 // events include errors
-                lastCount = timer.getEventCount();
-                logger.info("inserted record " + timer.getEventCount()
+                lastCount = timer.getEventCount().get();
+                logger.info("replayed record " + timer.getEventCount()
                          + " ("
                         + timer.getProgressMessage() + "), with "
                         + timer.getErrorCount() + " error(s) "
                         + pool.getActiveCount() + " active threads");
-                logger.trace("thread count: core="
+                logger.info("thread count: core="
                         + pool.getCorePoolSize() + ", active="
                         + pool.getActiveCount());
                 
@@ -170,21 +168,29 @@ public class Monitor extends Thread {
         halt();
     }
 
-    /**
-     * @param _uri
-     * @param _event
-     */
-    public synchronized void add(TimedEvent _event) {
-        timer.add(_event, false);
-    }
+//    /**
+//     * @param _uri
+//     * @param _event
+//     */
+//    public synchronized void add(TimedEvent _event) {
+//        timer.add(_event, false);
+//    }
 
+    public void incrementEventCount() {
+        timer.incrementEventCount();
+    }
     
+    public void incrementErrorCount() {
+        timer.incrementErrorCount();
+    }
+    
+
 
     /**
      * @return
      */
     public long getEventCount() {
-        return timer.getEventCount();
+        return timer.getEventCount().get();
     }
 
 
@@ -204,15 +210,15 @@ public class Monitor extends Thread {
         this.pool = pool;
     }
 
-    /**
-     * @param _msg
-     */
-    public synchronized void resetTimer(String _msg) {
-        timer.stop();
-        logger.info(_msg + " " + timer.getSuccessfulEventCount()
-                + " records ok (" + timer.getProgressMessage(true)
-                + "), with " + timer.getErrorCount() + " error(s)");
-        timer = new Timer();
-    }
+//    /**
+//     * @param _msg
+//     */
+//    public synchronized void resetTimer(String _msg) {
+//        timer.stop();
+//        logger.info(_msg + " " + timer.getSuccessfulEventCount()
+//                + " records ok (" + timer.getProgressMessage(true)
+//                + "), with " + timer.getErrorCount() + " error(s)");
+//        timer = new Timer();
+//    }
 
 }
