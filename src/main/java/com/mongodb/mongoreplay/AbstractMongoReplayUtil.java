@@ -34,6 +34,7 @@ import org.bson.BSONObject;
 import org.bson.BasicBSONDecoder;
 import org.bson.BasicBSONEncoder;
 import org.bson.BsonBinaryReader;
+import org.bson.BsonType;
 import org.bson.ByteBufNIO;
 import org.bson.Document;
 import org.bson.codecs.DecoderContext;
@@ -244,8 +245,57 @@ public abstract class AbstractMongoReplayUtil {
                         commandDoc.remove("shardVersion");
                         processCommand(commandDoc, databaseName);
                         //System.out.println(commandDoc);
+                    } else if (opcode == 2013) {  // OP_MSG
+                        int flags = bsonInput.readInt32();
+                        Document commandDoc = null;
+                        String databaseName = null;
+                        boolean moreSections = true;
+                        while (moreSections) {
+                            byte kindByte = bsonInput.readByte();
+                            
+                            if (kindByte == 0) {
+                                commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
+                                
+                                moreSections = messageLength > bsonInput.getPosition();
+    
+                                databaseName = commandDoc.getString("$db");
+                                commandDoc.remove("lsid");
+                                commandDoc.remove("$db");
+                                commandDoc.remove("$readPreference");
+                                
+                            } else {
+                                //logger.warn("ignored OP_MSG having Section kind 1");
+                                //ignored++;
+                                int p0 = bsonInput.getPosition();
+                                int size = bsonInput.readInt32();
+                                String seq = bsonInput.readCString();
+                                int p1 = bsonInput.getPosition();
+                                int remaining = size - (p1 - p0);
+                                
+                                byte[] mb = new byte[remaining];
+                                
+                                bsonInput.readBytes(mb);
+                                
+                                BsonBinaryReader r2 = new BsonBinaryReader(ByteBuffer.wrap(mb));
+                                Document d1 = new DocumentCodec().decode(r2, DecoderContext.builder().build());
+                                //System.out.println("**" + d1);
+                                
+                                if (commandDoc != null && commandDoc.containsKey("insert")) {
+                                    commandDoc.put("documents", Arrays.asList(d1));
+                                    processCommand(commandDoc, databaseName);
+                                }
+                                //TODO there can be more after this (I think), e.g. multi-insert
+                                
+                                moreSections = messageLength > bsonInput.getPosition();
+                                System.out.println("moreSections: " + moreSections);
+                            }
+                            
+                            
+                            // 
+                        }
+                            
                     } else {
-                        logger.warn("ignored opcode: " + opcode);
+                        //logger.warn("ignored opcode: " + opcode);
                         ignored++;
                     }
                 }
