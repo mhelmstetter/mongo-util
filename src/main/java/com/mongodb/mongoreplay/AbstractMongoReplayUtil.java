@@ -333,6 +333,7 @@ public abstract class AbstractMongoReplayUtil {
             shape = ShapeUtil.getShape(predicates);
         }  else if (commandDoc.containsKey("insert")) {
             command = Command.INSERT;
+            collName = commandDoc.getString("insert");
         }  else if (commandDoc.containsKey("update")) {
             command = Command.UPDATE;
             collName = commandDoc.getString("update");
