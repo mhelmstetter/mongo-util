@@ -284,10 +284,8 @@ public abstract class AbstractMongoReplayUtil {
                                     commandDoc.put("documents", Arrays.asList(d1));
                                     processCommand(commandDoc, databaseName);
                                 }
-                                //TODO there can be more after this (I think), e.g. multi-insert
                                 
                                 moreSections = messageLength > bsonInput.getPosition();
-                                System.out.println("moreSections: " + moreSections);
                             }
                             
                             
