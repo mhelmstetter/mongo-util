@@ -4,24 +4,21 @@ import org.bson.Document;
 
 public class ReplayResult {
     
-    private Document commandDoc;
     private String dbName;
+    private String collectionName;
     private Command command;
     private boolean success;
     private double duration;
+    private String queryShape;
     
     
-    public ReplayResult(Document commandDoc, String dbName, Command command, long duration, boolean success) {
-        this.commandDoc = commandDoc;
+    public ReplayResult(String queryShape, String dbName, String collectionName, Command command, long duration, boolean success) {
+        this.queryShape = queryShape;
         this.dbName = dbName;
+        this.collectionName = collectionName;
         this.command = command;
         this.success = success;
         this.duration = duration;
-    }
-
-
-    public Document getCommandDoc() {
-        return commandDoc;
     }
 
 
@@ -41,6 +38,16 @@ public class ReplayResult {
 
     public double getDuration() {
         return duration;
+    }
+
+
+    public String getQueryShape() {
+        return queryShape;
+    }
+
+
+    public String getCollectionName() {
+        return collectionName;
     }
 
 }

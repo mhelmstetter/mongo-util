@@ -3,17 +3,12 @@ package com.mongodb.mongoreplay;
 import java.io.FileNotFoundException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.zip.DataFormatException;
 
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
-import org.bson.Document;
-
-import com.mongodb.util.ShapeUtil;
 
 public class MongoReplay extends AbstractMongoReplayUtil {
 
@@ -37,33 +32,9 @@ public class MongoReplay extends AbstractMongoReplayUtil {
                 logger.error("Error getting future", e);
             }
 
-            Set<String> shape = null;
-            String shapeStr = null;
-            String collName = null;
-            Document commandDoc = result.getCommandDoc();
-            Document predicates = null;
-            if (result.getCommand() == Command.FIND) {
-                collName = commandDoc.getString("find");
-                predicates = (Document) commandDoc.get("filter");
-                if (predicates != null) {
-                    shape = ShapeUtil.getShape(predicates);
-                }
-            } else if (result.getCommand() == Command.UPDATE) {
-                collName = commandDoc.getString("update");
-                List<Document> updates = (List<Document>)commandDoc.get("updates");
-                if (updates != null && updates.size() > 0) {
-                    Document first = updates.get(0);
-                    Document query = (Document)first.get("q");
-                    shape = ShapeUtil.getShape(query);
-                }
-                //System.out.println(commandDoc);
-            }
+            
 
-            if (shape != null) {
-                shapeStr = shape.toString();
-            }
-
-            AccumulatorKey key = new AccumulatorKey(result.getDbName(), collName, result.getCommand(), shapeStr);
+            AccumulatorKey key = new AccumulatorKey(result.getDbName(), result.getCollectionName(), result.getCommand(), result.getQueryShape());
             DescriptiveStatistics stats = accumulators.get(key);
             if (stats == null) {
                 stats = new DescriptiveStatistics();

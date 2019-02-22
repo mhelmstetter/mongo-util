@@ -12,29 +12,34 @@ import com.mongodb.util.TimedEvent;
 
 public class ReplayTask implements Callable<ReplayResult> {
 
-    //private TimedEvent event;
+    // private TimedEvent event;
     private Monitor monitor;
     private MongoClient mongoClient;
     private Document commandDoc;
     private String dbName;
+    private String collectionName;
     private Command command;
     private ReadPreference readPreference;
+    private String queryShape;
 
     protected static final Logger logger = LoggerFactory.getLogger(ReplayTask.class);
 
-    public ReplayTask(Monitor monitor, MongoClient mongoClient, Document commandDoc, Command command, String dbName, ReadPreference readPreference) {
+    public ReplayTask(Monitor monitor, MongoClient mongoClient, Document commandDoc, Command command, String dbName,
+            String collectionName, ReadPreference readPreference, String queryShape) {
         this.monitor = monitor;
         this.mongoClient = mongoClient;
         this.commandDoc = commandDoc;
         this.dbName = dbName;
+        this.collectionName = collectionName;
         this.command = command;
         this.readPreference = readPreference;
+        this.queryShape = queryShape;
     }
 
     @Override
     public ReplayResult call() {
 
-        //event = new TimedEvent();
+        // event = new TimedEvent();
         long start = System.nanoTime();
         ReplayResult replayResult = null;
         try {
@@ -45,24 +50,23 @@ public class ReplayTask implements Callable<ReplayResult> {
                 commandResult = mongoClient.getDatabase(dbName).runCommand(commandDoc);
             }
             long duration = System.nanoTime() - start;
-            //long duration = event.stop();
-            Number ok = (Number)commandResult.get("ok");
-            //logger.debug("result: " + result);
+            // long duration = event.stop();
+            Number ok = (Number) commandResult.get("ok");
+            // logger.debug("result: " + result);
             if (ok.equals(1.0)) {
-                //event.incrementCount();
-                replayResult = new ReplayResult(commandDoc, dbName, command, duration, true);
+                // event.incrementCount();
+                replayResult = new ReplayResult(queryShape, dbName, collectionName, command, duration, true);
             } else {
-                //event.incrementError(1);
-                replayResult = new ReplayResult(commandDoc, dbName, command, duration, true);
+                // event.incrementError(1);
+                replayResult = new ReplayResult(queryShape, dbName, collectionName, command, duration, true);
             }
-            
-            
+
         } catch (Exception e) {
             e.printStackTrace();
-            //event.incrementError(1);
+            // event.incrementError(1);
         }
 
-        //monitor.add(event);
+        // monitor.add(event);
         return replayResult;
     }
 }
