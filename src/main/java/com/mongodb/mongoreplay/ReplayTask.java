@@ -45,7 +45,8 @@ public class ReplayTask implements Callable<ReplayResult> {
         try {
             Document commandResult = null;
             if (command.isRead()) {
-                commandResult = mongoClient.getDatabase(dbName).runCommand(commandDoc, readPreference);
+
+                 commandResult = mongoClient.getDatabase(dbName).runCommand(commandDoc, readPreference);
             } else {
                 commandResult = mongoClient.getDatabase(dbName).runCommand(commandDoc);
             }
@@ -63,8 +64,8 @@ public class ReplayTask implements Callable<ReplayResult> {
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
-            // event.incrementError(1);
+            logger.error("Error executing task", e);
+            monitor.incrementErrorCount();
         }
 
         // monitor.add(event);

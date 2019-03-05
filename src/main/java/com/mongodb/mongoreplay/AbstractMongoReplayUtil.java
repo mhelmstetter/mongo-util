@@ -9,6 +9,10 @@ import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -34,7 +38,6 @@ import org.bson.BSONObject;
 import org.bson.BasicBSONDecoder;
 import org.bson.BasicBSONEncoder;
 import org.bson.BsonBinaryReader;
-import org.bson.BsonType;
 import org.bson.ByteBufNIO;
 import org.bson.Document;
 import org.bson.codecs.DecoderContext;
@@ -55,6 +58,9 @@ import com.mongodb.util.ShapeUtil;
 public abstract class AbstractMongoReplayUtil {
 
     protected static final Logger logger = LoggerFactory.getLogger(AbstractMongoReplayUtil.class);
+    
+    private final static long unixToInternal = 62135596800L;
+    private final static long internalToUnix = -unixToInternal;
 
     private final BasicBSONEncoder encoder;
 
@@ -85,6 +91,9 @@ public abstract class AbstractMongoReplayUtil {
     int written = 0;
     int ignored = 0;
     int getMoreCount = 0;
+    
+    private BSONObject fistSeen;
+    private BSONObject lastSeen;
 
     public AbstractMongoReplayUtil() {
         this.encoder = new BasicBSONEncoder();
@@ -176,10 +185,8 @@ public abstract class AbstractMongoReplayUtil {
     }
 
     public void replayFile(String filename) throws FileNotFoundException, DataFormatException {
-
         File file = new File(filename);
         InputStream inputStream = new BufferedInputStream(new FileInputStream(file));
-
         BSONDecoder decoder = new BasicBSONDecoder();
         
         try {
@@ -197,6 +204,10 @@ public abstract class AbstractMongoReplayUtil {
                 BSONObject raw = (BSONObject) obj.get("rawop");
                 if (raw == null) {
                     continue;
+                }
+                lastSeen = (BSONObject) obj.get("seen");
+                if (count == 0) {
+                    fistSeen = lastSeen;
                 }
                 byte[] bytes = (byte[]) raw.get("body");
 
@@ -244,7 +255,6 @@ public abstract class AbstractMongoReplayUtil {
                         Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
                         commandDoc.remove("shardVersion");
                         processCommand(commandDoc, databaseName);
-                        //System.out.println(commandDoc);
                     } else if (opcode == 2013) {  // OP_MSG
                         int flags = bsonInput.readInt32();
                         Document commandDoc = null;
@@ -289,7 +299,6 @@ public abstract class AbstractMongoReplayUtil {
                                 
                                 BsonBinaryReader r2 = new BsonBinaryReader(ByteBuffer.wrap(mb));
                                 Document d1 = new DocumentCodec().decode(r2, DecoderContext.builder().build());
-                                //System.out.println("**" + d1);
                                 
                                 if (commandDoc != null && commandDoc.containsKey("insert")) {
                                     commandDoc.put("documents", Arrays.asList(d1));
@@ -326,6 +335,8 @@ public abstract class AbstractMongoReplayUtil {
         }
         logger.debug(String.format("%s objects read, %s filtered objects written, %s ignored", count, written, ignored));
         logger.debug(String.format("%s getMore", getMoreCount));
+        logger.debug(String.format("first event: %s", convertSeen(fistSeen)));
+        logger.debug(String.format("last event: %s", convertSeen(lastSeen)));
     }
     
     private void processCommand(Document commandDoc, String databaseName) {
@@ -378,6 +389,7 @@ public abstract class AbstractMongoReplayUtil {
                 for (Document stage : stages) {
                     // this will actually crash mongod on OSX
                     if (stage.containsKey("$mergeCursors")) {
+                        ignored++;
                         return;
                     }
                 }
@@ -507,6 +519,12 @@ public abstract class AbstractMongoReplayUtil {
 
     public void setMongoUriStr(String mongoUriStr) {
         this.mongoUriStr = mongoUriStr;
+    }
+    
+    private static ZonedDateTime convertSeen(BSONObject seen) {
+        Long sec = (Long)seen.get("sec");
+        Long t = (sec + internalToUnix) * 1000;
+        return ZonedDateTime.ofInstant(Instant.ofEpochMilli(t), ZoneId.of("UTC"));
     }
 
 }
