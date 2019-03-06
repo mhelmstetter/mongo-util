@@ -16,9 +16,9 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.DataFormatException;
@@ -111,7 +111,9 @@ public abstract class AbstractMongoReplayUtil {
         this.clusterType = cd.getType();
         logger.debug("Connected: " + readPreference + " " + clusterType);
         
-        workQueue = new ArrayBlockingQueue<Runnable>(queueSize);
+        //workQueue = new ArrayBlockingQueue<Runnable>(queueSize);
+        workQueue = new LinkedBlockingQueue<Runnable>(queueSize);
+        
         pool = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5));
         pool.prestartAllCoreThreads();
 
