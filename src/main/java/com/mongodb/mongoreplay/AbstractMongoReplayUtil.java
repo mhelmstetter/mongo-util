@@ -324,6 +324,9 @@ public abstract class AbstractMongoReplayUtil {
                 }
 
                 count++;
+                if ((count % 100000) == 0) {
+                    logger.debug("workQueue size " + workQueue.size());
+                }
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -419,7 +422,7 @@ public abstract class AbstractMongoReplayUtil {
         if (shape != null) {
             shapeStr = shape.toString();
         }
-
+        
         futures.add(pool.submit(new ReplayTask(monitor, mongoClient, commandDoc, command, databaseName, collName, readPreference, shapeStr)));
     }
 
