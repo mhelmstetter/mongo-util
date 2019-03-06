@@ -8,9 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.nio.ByteBuffer;
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.Arrays;
@@ -32,17 +30,11 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
-import org.apache.commons.lang.StringUtils;
 import org.bson.BSONDecoder;
 import org.bson.BSONObject;
 import org.bson.BasicBSONDecoder;
 import org.bson.BasicBSONEncoder;
-import org.bson.BsonBinaryReader;
-import org.bson.ByteBufNIO;
 import org.bson.Document;
-import org.bson.codecs.DecoderContext;
-import org.bson.codecs.DocumentCodec;
-import org.bson.io.ByteBufferBsonInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,7 +45,6 @@ import com.mongodb.ReadPreference;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ClusterType;
 import com.mongodb.util.CallerBlocksPolicy;
-import com.mongodb.util.ShapeUtil;
 
 public abstract class AbstractMongoReplayUtil {
 
@@ -65,25 +56,25 @@ public abstract class AbstractMongoReplayUtil {
     private final BasicBSONEncoder encoder;
 
     protected String[] fileNames;
-    protected String[] removeUpdateFields;
-    private Set<String> ignoredCollections = new HashSet<String>();
+    protected static String[] removeUpdateFields;
+    private static Set<String> ignoredCollections = new HashSet<String>();
 
     private int threads = 8;
     private int queueSize = 250000;
     
     private final static int ONE_MINUTE = 60 * 1000;
 
-    private Monitor monitor;
+    private static Monitor monitor;
 
     private ThreadPoolExecutor pool = null;
     private BlockingQueue<Runnable> workQueue;
     List<Future<ReplayResult>> futures = new LinkedList<Future<ReplayResult>>();
 
     private String mongoUriStr;
-    private MongoClient mongoClient;
+    private static MongoClient mongoClient;
     ClusterType clusterType;
     
-    private ReadPreference readPreference;
+    private static ReadPreference readPreference;
 
 
     private int limit = Integer.MAX_VALUE;
@@ -92,18 +83,11 @@ public abstract class AbstractMongoReplayUtil {
     int ignored = 0;
     int getMoreCount = 0;
     
-    private BSONObject fistSeen;
+    private BSONObject firstSeen;
     private BSONObject lastSeen;
     
-    private DocumentCodec documentCodec;
-    private DecoderContext decoderContext;
-    
-    
-
     public AbstractMongoReplayUtil() {
         this.encoder = new BasicBSONEncoder();
-        documentCodec = new DocumentCodec();
-        decoderContext = DecoderContext.builder().build();
     }
 
     public void init() throws NoSuchMethodException, SecurityException, IllegalAccessException, IllegalArgumentException, InvocationTargetException {
@@ -186,10 +170,6 @@ public abstract class AbstractMongoReplayUtil {
             Thread.interrupted();
         }
     }
-    
-    private boolean ignoreOp(String dbName, String collName) {
-        return false;
-    }
 
     public void replayFile(String filename) throws FileNotFoundException, DataFormatException {
         File file = new File(filename);
@@ -214,121 +194,11 @@ public abstract class AbstractMongoReplayUtil {
                 }
                 lastSeen = (BSONObject) obj.get("seen");
                 if (count == 0) {
-                    fistSeen = lastSeen;
+                    firstSeen = lastSeen;
                 }
-                byte[] bytes = (byte[]) raw.get("body");
-
-                if (bytes.length == 0) {
-                    continue;
-                }
-
-                BSONObject header = (BSONObject) raw.get("header");
-
-                if (header != null) {
-                    int opcode = (Integer) header.get("opcode");
-                    ByteBufferBsonInput bsonInput = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(bytes)));
-                    BsonBinaryReader reader = new BsonBinaryReader(bsonInput);
-
-                    int messageLength = bsonInput.readInt32();
-                    int requestId = bsonInput.readInt32();
-                    int responseTo = bsonInput.readInt32();
-                    int headerOpcode = bsonInput.readInt32();
-
-                    if (opcode == 2004) {
-                        int flags = bsonInput.readInt32();
-                        String collectionName = bsonInput.readCString();
-                        String databaseName = StringUtils.substringBefore(collectionName, ".$cmd");
-                        if (databaseName.equals("local") || databaseName.equals("admin")) {
-                            continue;
-                        }
-                        if (ignoredCollections.contains(collectionName)) {
-                            continue;
-                        }
-                        
-                        int nskip = bsonInput.readInt32();
-                        int nreturn = bsonInput.readInt32();
-                        
-                        Document commandDoc = documentCodec.decode(reader, decoderContext);
-                        processCommand(commandDoc, databaseName);
-                        written++;
-
-                    } else if (opcode == 2010) {
-                        int p1 = bsonInput.getPosition();
-                        String databaseName = bsonInput.readCString();
-                        if (databaseName.equals("local") || databaseName.equals("admin")) {
-                            continue;
-                        }
-                        String command = bsonInput.readCString();
-                        Document commandDoc = documentCodec.decode(reader, decoderContext);
-                        commandDoc.remove("shardVersion");
-                        processCommand(commandDoc, databaseName);
-                    } else if (opcode == 2013) {  // OP_MSG
-                        int flags = bsonInput.readInt32();
-                        Document commandDoc = null;
-                        String databaseName = null;
-                        boolean moreSections = true;
-                        while (moreSections) {
-                            byte kindByte = bsonInput.readByte();
-                            
-                            if (kindByte == 0) {
-                                commandDoc = documentCodec.decode(reader, decoderContext);
-                                
-                                moreSections = messageLength > bsonInput.getPosition();
-                                
-                                databaseName = commandDoc.getString("$db");
-                                if (databaseName.equals("local") || databaseName.equals("admin")) {
-                                    continue;
-                                }
-                                
-                                commandDoc.remove("lsid");
-                                commandDoc.remove("$db");
-                                commandDoc.remove("$readPreference");
-                                
-                                if (! moreSections) {
-//                                    if (commandDoc.containsKey("count")) {
-//                                        System.out.println();
-//                                    }
-                                    processCommand(commandDoc, databaseName);
-                                }
-                                
-                            } else {
-                                //logger.warn("ignored OP_MSG having Section kind 1");
-                                //ignored++;
-                                int p0 = bsonInput.getPosition();
-                                int size = bsonInput.readInt32();
-                                String seq = bsonInput.readCString();
-                                int p1 = bsonInput.getPosition();
-                                int remaining = size - (p1 - p0);
-                                
-                                byte[] mb = new byte[remaining];
-                                
-                                bsonInput.readBytes(mb);
-                                
-                                BsonBinaryReader r2 = new BsonBinaryReader(ByteBuffer.wrap(mb));
-                                Document d1 = documentCodec.decode(r2, decoderContext);
-                                
-                                if (commandDoc != null && commandDoc.containsKey("insert")) {
-                                    commandDoc.put("documents", Arrays.asList(d1));
-                                    processCommand(commandDoc, databaseName);
-                                } else if (commandDoc != null && commandDoc.containsKey("update")) {
-                                    commandDoc.put("updates", Arrays.asList(d1));
-                                    processCommand(commandDoc, databaseName);
-                                } else if (commandDoc != null && commandDoc.containsKey("delete")) {
-                                    commandDoc.put("deletes", Arrays.asList(d1));
-                                    processCommand(commandDoc, databaseName);
-                                } else {
-                                    logger.debug("wtf: " + commandDoc);
-                                }
-                                
-                                moreSections = messageLength > bsonInput.getPosition();
-                            }
-                        }
-                            
-                    } else {
-                        //logger.warn("ignored opcode: " + opcode);
-                        ignored++;
-                    }
-                }
+                
+                RawReplayTask rawTask = new RawReplayTask(monitor, mongoClient, readPreference, ignoredCollections, removeUpdateFields, raw);
+                pool.submit(rawTask);
 
                 count++;
                 if ((count % 100000) == 0) {
@@ -345,93 +215,13 @@ public abstract class AbstractMongoReplayUtil {
         }
         logger.debug(String.format("%s objects read, %s filtered objects written, %s ignored", count, written, ignored));
         logger.debug(String.format("%s getMore", getMoreCount));
-        logger.debug(String.format("first event: %s", convertSeen(fistSeen)));
+        logger.debug(String.format("first event: %s", convertSeen(firstSeen)));
         logger.debug(String.format("last event: %s", convertSeen(lastSeen)));
     }
     
-    private void processCommand(Document commandDoc, String databaseName) {
-        //System.out.println(commandDoc);
-        Command command = null;
-        String collName = null;
-        Set<String> shape = null;
-        String shapeStr = null;
-        if (commandDoc.containsKey("$query")) {
-            Document queryDoc = (Document)commandDoc.get("$query");
-            commandDoc = queryDoc;
-        }
-// do we need to unwrap here? one case is count() which should not
-// be unwrapped. What are the other cases if any?
-//        else if (commandDoc.containsKey("query")) {
-//            Document queryDoc = (Document)commandDoc.get("query");
-//            commandDoc = queryDoc;
-//        }
-        
-        if (commandDoc.containsKey("find")) {
-            command = Command.FIND;
-            collName = commandDoc.getString("find");
-            Document predicates = (Document) commandDoc.get("filter");
-            shape = ShapeUtil.getShape(predicates);
-        }  else if (commandDoc.containsKey("insert")) {
-            command = Command.INSERT;
-            collName = commandDoc.getString("insert");
-        }  else if (commandDoc.containsKey("update")) {
-            command = Command.UPDATE;
-            collName = commandDoc.getString("update");
-            List<Document> updates = (List<Document>)commandDoc.get("updates");
-            for (Document updateDoc : updates) {
-                Document query = (Document)updateDoc.get("q");
-                shape = ShapeUtil.getShape(query);
-                if (removeUpdateFields != null) {
-                    for (String fieldName : removeUpdateFields) {
-                        query.remove(fieldName);
-                    }
-                }
-            }
-        }  else if (commandDoc.containsKey("getMore")) {
-            command = Command.GETMORE;
-            getMoreCount++;
-            ignored++;
-            return;
-        }  else if (commandDoc.containsKey("aggregate")) {
-            command = Command.AGGREGATE;
-            List<Document> stages = (List<Document>)commandDoc.get("pipeline");
-            if (stages != null) {
-                for (Document stage : stages) {
-                    // this will actually crash mongod on OSX
-                    if (stage.containsKey("$mergeCursors")) {
-                        ignored++;
-                        return;
-                    }
-                }
-                
-            }
-            commandDoc.remove("fromRouter");
-        } else if (commandDoc.containsKey("delete")) {
-            command = Command.DELETE;
-            collName = commandDoc.getString("delete");
-        } else if (commandDoc.containsKey("count")) {
-            command = Command.COUNT;
-            collName = commandDoc.getString("count");
-        } else if (commandDoc.containsKey("findandmodify")) {
-            command = Command.FIND_AND_MODIFY;
-            collName = commandDoc.getString("findandmodify");
-        } else {
-            logger.warn("ignored command: " + commandDoc);
-            ignored++;
-            return;
-        }
-        
-        if (ignoredCollections.contains(collName)) {
-            ignored++;
-            return;
-        }
-        
-        if (shape != null) {
-            shapeStr = shape.toString();
-        }
-        
-        futures.add(pool.submit(new ReplayTask(monitor, mongoClient, commandDoc, command, databaseName, collName, readPreference, shapeStr)));
-    }
+
+    
+
 
     @SuppressWarnings("static-access")
     protected static CommandLine initializeAndParseCommandLineOptions(String[] args) {
