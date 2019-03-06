@@ -94,9 +94,16 @@ public abstract class AbstractMongoReplayUtil {
     
     private BSONObject fistSeen;
     private BSONObject lastSeen;
+    
+    private DocumentCodec documentCodec;
+    private DecoderContext decoderContext;
+    
+    
 
     public AbstractMongoReplayUtil() {
         this.encoder = new BasicBSONEncoder();
+        documentCodec = new DocumentCodec();
+        decoderContext = DecoderContext.builder().build();
     }
 
     public void init() throws NoSuchMethodException, SecurityException, IllegalAccessException, IllegalArgumentException, InvocationTargetException {
@@ -241,7 +248,7 @@ public abstract class AbstractMongoReplayUtil {
                         int nskip = bsonInput.readInt32();
                         int nreturn = bsonInput.readInt32();
                         
-                        Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
+                        Document commandDoc = documentCodec.decode(reader, decoderContext);
                         processCommand(commandDoc, databaseName);
                         written++;
 
@@ -252,7 +259,7 @@ public abstract class AbstractMongoReplayUtil {
                             continue;
                         }
                         String command = bsonInput.readCString();
-                        Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
+                        Document commandDoc = documentCodec.decode(reader, decoderContext);
                         commandDoc.remove("shardVersion");
                         processCommand(commandDoc, databaseName);
                     } else if (opcode == 2013) {  // OP_MSG
@@ -264,7 +271,7 @@ public abstract class AbstractMongoReplayUtil {
                             byte kindByte = bsonInput.readByte();
                             
                             if (kindByte == 0) {
-                                commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
+                                commandDoc = documentCodec.decode(reader, decoderContext);
                                 
                                 moreSections = messageLength > bsonInput.getPosition();
                                 
@@ -298,7 +305,7 @@ public abstract class AbstractMongoReplayUtil {
                                 bsonInput.readBytes(mb);
                                 
                                 BsonBinaryReader r2 = new BsonBinaryReader(ByteBuffer.wrap(mb));
-                                Document d1 = new DocumentCodec().decode(r2, DecoderContext.builder().build());
+                                Document d1 = documentCodec.decode(r2, decoderContext);
                                 
                                 if (commandDoc != null && commandDoc.containsKey("insert")) {
                                     commandDoc.put("documents", Arrays.asList(d1));
