@@ -114,8 +114,9 @@ public abstract class AbstractMongoReplayUtil {
         //workQueue = new ArrayBlockingQueue<Runnable>(queueSize);
         workQueue = new LinkedBlockingQueue<Runnable>(queueSize);
         
-        pool = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5));
-        pool.prestartAllCoreThreads();
+        pool = new ThreadPoolExecutor(0, 1, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5, threads));
+        
+        //pool.prestartAllCoreThreads();
 
         monitor = new Monitor(Thread.currentThread());
         monitor.setPool(pool);
