@@ -38,12 +38,13 @@ import org.slf4j.LoggerFactory;
 public class CallerBlocksPolicy implements RejectedExecutionHandler {
 
     private final long maxWait;
+    private int threads;
 
     /**
      * @param maxWait The maximum time to wait for a queue slot to be
      * available, in milliseconds.
      */
-    public CallerBlocksPolicy(long maxWait) {
+    public CallerBlocksPolicy(long maxWait, int threads) {
         this.maxWait = maxWait;
     }
 
@@ -51,6 +52,10 @@ public class CallerBlocksPolicy implements RejectedExecutionHandler {
     public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
         if (!executor.isShutdown()) {
             try {
+                int current = executor.getMaximumPoolSize();
+                if (current < threads) {
+                    executor.setCorePoolSize(threads);
+                }
                 BlockingQueue<Runnable> queue = executor.getQueue();
                 if (!queue.offer(r, this.maxWait, TimeUnit.MILLISECONDS)) {
                     throw new RejectedExecutionException("Max wait time expired to queue task");
