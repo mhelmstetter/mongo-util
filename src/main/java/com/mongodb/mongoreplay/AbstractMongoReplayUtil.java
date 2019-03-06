@@ -86,8 +86,11 @@ public abstract class AbstractMongoReplayUtil {
     private BSONObject firstSeen;
     private BSONObject lastSeen;
     
+    private Set<Integer> opcodeWhitelist = new HashSet<Integer>();
+    
     public AbstractMongoReplayUtil() {
         this.encoder = new BasicBSONEncoder();
+        opcodeWhitelist.addAll(Arrays.asList(2004, 2010, 2013));
     }
 
     public void init() throws NoSuchMethodException, SecurityException, IllegalAccessException, IllegalArgumentException, InvocationTargetException {
@@ -189,9 +192,16 @@ public abstract class AbstractMongoReplayUtil {
                 }
 
                 BSONObject raw = (BSONObject) obj.get("rawop");
+                
                 if (raw == null) {
                     continue;
                 }
+                BSONObject header = (BSONObject) raw.get("header");
+                int opcode = (Integer) header.get("opcode");
+                if (! opcodeWhitelist.contains(opcode)) {
+                    continue;
+                }
+                
                 lastSeen = (BSONObject) obj.get("seen");
                 if (count == 0) {
                     firstSeen = lastSeen;

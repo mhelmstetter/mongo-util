@@ -160,7 +160,7 @@ public class RawReplayTask implements Callable<ReplayResult> {
                 }
                     
             } else {
-                //logger.warn("ignored opcode: " + opcode);
+                logger.warn("ignored opcode: " + opcode);
                 //ignored++;
                 ignore = true;
             }
@@ -279,7 +279,7 @@ public class RawReplayTask implements Callable<ReplayResult> {
                 replayResult = new ReplayResult(queryShape, databaseName, collectionName, command, duration, true);
             } else {
                 // event.incrementError(1);
-                replayResult = new ReplayResult(queryShape, databaseName, collectionName, command, duration, true);
+                replayResult = new ReplayResult(queryShape, databaseName, collectionName, command, duration, false);
                 monitor.incrementErrorCount();
             }
 
