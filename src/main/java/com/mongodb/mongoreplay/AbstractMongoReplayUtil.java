@@ -88,6 +88,8 @@ public abstract class AbstractMongoReplayUtil {
     
     private Set<Integer> opcodeWhitelist = new HashSet<Integer>();
     
+    private Set<Long> seenConnections = new HashSet<Long>();
+    
     public AbstractMongoReplayUtil() {
         this.encoder = new BasicBSONEncoder();
         opcodeWhitelist.addAll(Arrays.asList(2004, 2010, 2013));
@@ -114,7 +116,7 @@ public abstract class AbstractMongoReplayUtil {
         //workQueue = new ArrayBlockingQueue<Runnable>(queueSize);
         workQueue = new LinkedBlockingQueue<Runnable>(queueSize);
         
-        pool = new ThreadPoolExecutor(0, 1, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5, threads));
+        pool = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5));
         
         //pool.prestartAllCoreThreads();
 
@@ -205,6 +207,9 @@ public abstract class AbstractMongoReplayUtil {
                     continue;
                 }
                 
+                Long seenconnectionnum = (Long)obj.get("seenconnectionnum");
+                seenConnections.add(seenconnectionnum);
+                
                 lastSeen = (BSONObject) obj.get("seen");
                 if (count == 0) {
                     firstSeen = lastSeen;
@@ -216,6 +221,7 @@ public abstract class AbstractMongoReplayUtil {
                 count++;
                 if ((count % 100000) == 0) {
                     logger.debug("workQueue size " + workQueue.size());
+                    logger.debug("seenConnections: " + seenConnections.size());
                 }
             }
         } catch (IOException e) {
