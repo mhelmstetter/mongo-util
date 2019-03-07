@@ -51,6 +51,10 @@ public class CallerBlocksPolicy implements RejectedExecutionHandler {
     public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
         if (!executor.isShutdown()) {
             try {
+                PausableThreadPoolExecutor ex = (PausableThreadPoolExecutor)executor;
+                if (ex.isPaused()) {
+                    ex.resume();
+                }
                 BlockingQueue<Runnable> queue = executor.getQueue();
                 if (!queue.offer(r, this.maxWait, TimeUnit.MILLISECONDS)) {
                     throw new RejectedExecutionException("Max wait time expired to queue task");
