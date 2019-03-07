@@ -262,6 +262,8 @@ public abstract class AbstractMongoReplayUtil {
 
         options.addOption(OptionBuilder.withArgName("# threads").hasArgs().withLongOpt("threads").create("t"));
         
+        options.addOption(OptionBuilder.withArgName("queue size").hasArgs().withLongOpt("threads").create("q"));
+        
         options.addOption(OptionBuilder.withArgName("ignore collection").hasArgs().withLongOpt("ingoreColl").create("c"));
         
         CommandLineParser parser = new GnuParser();
@@ -315,6 +317,16 @@ public abstract class AbstractMongoReplayUtil {
             ignoredCollections.addAll(Arrays.asList(line.getOptionValues("c")));
         }
         
+        String qStr = line.getOptionValue("q");
+        if (qStr != null) {
+            int q = Integer.parseInt(qStr);
+            setQueueSize(q);
+        }
+        
+    }
+
+    private void setQueueSize(int q) {
+        this.queueSize = q;
     }
 
     private static void printHelpAndExit(Options options) {
