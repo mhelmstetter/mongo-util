@@ -169,9 +169,7 @@ public class RawReplayTask implements Callable<ReplayResult> {
     
     private void processCommand(String databaseName) {
         //System.out.println(commandDoc);
-        String collName = null;
         Set<String> shape = null;
-        String shapeStr = null;
         if (commandDoc.containsKey("$query")) {
             Document queryDoc = (Document)commandDoc.get("$query");
             commandDoc = queryDoc;
@@ -185,15 +183,15 @@ public class RawReplayTask implements Callable<ReplayResult> {
         
         if (commandDoc.containsKey("find")) {
             command = Command.FIND;
-            collName = commandDoc.getString("find");
+            collectionName = commandDoc.getString("find");
             Document predicates = (Document) commandDoc.get("filter");
             shape = ShapeUtil.getShape(predicates);
         }  else if (commandDoc.containsKey("insert")) {
             command = Command.INSERT;
-            collName = commandDoc.getString("insert");
+            collectionName = commandDoc.getString("insert");
         }  else if (commandDoc.containsKey("update")) {
             command = Command.UPDATE;
-            collName = commandDoc.getString("update");
+            collectionName = commandDoc.getString("update");
             List<Document> updates = (List<Document>)commandDoc.get("updates");
             for (Document updateDoc : updates) {
                 Document query = (Document)updateDoc.get("q");
@@ -226,13 +224,13 @@ public class RawReplayTask implements Callable<ReplayResult> {
             commandDoc.remove("fromRouter");
         } else if (commandDoc.containsKey("delete")) {
             command = Command.DELETE;
-            collName = commandDoc.getString("delete");
+            collectionName = commandDoc.getString("delete");
         } else if (commandDoc.containsKey("count")) {
             command = Command.COUNT;
-            collName = commandDoc.getString("count");
+            collectionName = commandDoc.getString("count");
         } else if (commandDoc.containsKey("findandmodify")) {
             command = Command.FIND_AND_MODIFY;
-            collName = commandDoc.getString("findandmodify");
+            collectionName = commandDoc.getString("findandmodify");
         } else {
             logger.warn("ignored command: " + commandDoc);
             //ignored++;
@@ -240,14 +238,14 @@ public class RawReplayTask implements Callable<ReplayResult> {
             return;
         }
         
-        if (ignoredCollections.contains(collName)) {
+        if (ignoredCollections.contains(collectionName)) {
             //ignored++;
             ignore = true;
             return;
         }
         
         if (shape != null) {
-            shapeStr = shape.toString();
+            queryShape = shape.toString();
         }
     }
 
