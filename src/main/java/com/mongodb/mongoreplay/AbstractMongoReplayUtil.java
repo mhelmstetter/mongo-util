@@ -45,6 +45,7 @@ import com.mongodb.ReadPreference;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ClusterType;
 import com.mongodb.util.CallerBlocksPolicy;
+import com.mongodb.util.PausableThreadPoolExecutor;
 
 public abstract class AbstractMongoReplayUtil {
 
@@ -66,7 +67,7 @@ public abstract class AbstractMongoReplayUtil {
 
     private static Monitor monitor;
 
-    private ThreadPoolExecutor pool = null;
+    private PausableThreadPoolExecutor pool = null;
     private BlockingQueue<Runnable> workQueue;
     List<Future<ReplayResult>> futures = new LinkedList<Future<ReplayResult>>();
 
@@ -116,7 +117,9 @@ public abstract class AbstractMongoReplayUtil {
         //workQueue = new ArrayBlockingQueue<Runnable>(queueSize);
         workQueue = new LinkedBlockingQueue<Runnable>(queueSize);
         
-        pool = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5));
+        pool = new PausableThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5));
+        pool.pause();
+        
         
         //pool.prestartAllCoreThreads();
 
