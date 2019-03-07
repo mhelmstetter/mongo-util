@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.util.TimedEvent;
+import com.mongodb.util.PausableThreadPoolExecutor;
 import com.mongodb.util.Timer;
 
 
@@ -43,7 +43,7 @@ public class Monitor extends Thread {
 
     
 
-    private ThreadPoolExecutor pool;
+    private PausableThreadPoolExecutor pool;
 
     private int totalSkipped = 0;
 
@@ -108,6 +108,7 @@ public class Monitor extends Thread {
 
         // if anything goes wrong, the futuretask knows how to stop us
         // hence, we do nothing with the pool in this loop
+        int count = 0;
         logger.trace("looping every " + sleepMillis);
         while (running && !isInterrupted()) {
             // try to avoid thread starvation
@@ -126,10 +127,16 @@ public class Monitor extends Thread {
                          + " ("
                         + timer.getProgressMessage() + "), with "
                         + timer.getErrorCount() + " error(s) "
-                        + pool.getActiveCount() + " active threads");
+                        + pool.getActiveCount() + " active threads, " + pool.getQueue().size() + " queued tasks");
                 logger.info("thread count: core="
                         + pool.getCorePoolSize() + ", active="
                         + pool.getActiveCount());
+                
+                // hack, resume pool as it may never get full
+                if (count >= 2 && pool.isPaused()) {
+                    logger.debug("pool is paused, resuming");
+                    pool.resume();
+                }
                 
                 
             }
@@ -139,6 +146,7 @@ public class Monitor extends Thread {
             } catch (InterruptedException e) {
                 // interrupt status will be reset below
             }
+            count++;
         }
         if (isInterrupted()) {
             interrupted();
@@ -206,7 +214,7 @@ public class Monitor extends Thread {
         return pool;
     }
 
-    public void setPool(ThreadPoolExecutor pool) {
+    public void setPool(PausableThreadPoolExecutor pool) {
         this.pool = pool;
     }
 

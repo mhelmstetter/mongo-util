@@ -31,7 +31,10 @@ public class MongoReplay extends AbstractMongoReplayUtil {
             } catch (InterruptedException | ExecutionException e) {
                 logger.error("Error getting future", e);
             }
-
+            
+            if (result == null) {
+                continue;
+            }
             
 
             AccumulatorKey key = new AccumulatorKey(result.getDbName(), result.getCollectionName(), result.getCommand(), result.getQueryShape());
@@ -44,6 +47,10 @@ public class MongoReplay extends AbstractMongoReplayUtil {
 
         }
         logger.debug("DONE processing results");
+        if (pool.isPaused()) {
+            logger.debug("pool is paused, resuming");
+            pool.resume();
+        }
         close();
 
         int maxNamespaceLen = 0;

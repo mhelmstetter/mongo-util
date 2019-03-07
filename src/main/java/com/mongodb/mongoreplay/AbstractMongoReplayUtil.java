@@ -67,7 +67,7 @@ public abstract class AbstractMongoReplayUtil {
 
     private static Monitor monitor;
 
-    private PausableThreadPoolExecutor pool = null;
+    protected PausableThreadPoolExecutor pool = null;
     private BlockingQueue<Runnable> workQueue;
     List<Future<ReplayResult>> futures = new LinkedList<Future<ReplayResult>>();
 
@@ -219,13 +219,13 @@ public abstract class AbstractMongoReplayUtil {
                 }
                 
                 RawReplayTask rawTask = new RawReplayTask(monitor, mongoClient, readPreference, ignoredCollections, removeUpdateFields, raw);
-                pool.submit(rawTask);
+                futures.add(pool.submit(rawTask));
 
                 count++;
-                if ((count % 100000) == 0) {
-                    logger.debug("workQueue size " + workQueue.size());
-                    //logger.debug("seenConnections: " + seenConnections.size());
-                }
+//                if ((count % 100000) == 0) {
+//                    logger.debug("workQueue size " + workQueue.size());
+//                    //logger.debug("seenConnections: " + seenConnections.size());
+//                }
             }
         } catch (IOException e) {
             e.printStackTrace();
