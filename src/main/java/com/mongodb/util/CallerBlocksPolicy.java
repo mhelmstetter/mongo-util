@@ -36,6 +36,8 @@ import org.slf4j.LoggerFactory;
  *
  */
 public class CallerBlocksPolicy implements RejectedExecutionHandler {
+    
+    protected static final Logger logger = LoggerFactory.getLogger(CallerBlocksPolicy.class);
 
     private final long maxWait;
 
@@ -53,6 +55,7 @@ public class CallerBlocksPolicy implements RejectedExecutionHandler {
             try {
                 PausableThreadPoolExecutor ex = (PausableThreadPoolExecutor)executor;
                 if (ex.isPaused()) {
+                    logger.debug("**** RESUME ****");
                     ex.resume();
                 }
                 BlockingQueue<Runnable> queue = executor.getQueue();
