@@ -19,7 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoClient;
-import com.mongodb.ReadPreference;
+import com.mongodb.WriteConcern;
 import com.mongodb.util.ShapeUtil;
 
 public class RawReplayTask implements Callable<ReplayResult> {
@@ -31,10 +31,10 @@ public class RawReplayTask implements Callable<ReplayResult> {
     private String databaseName;
     private String collectionName;
     private Command command;
-    private ReadPreference readPreference;
     private String queryShape;
-    private Set<String> ignoredCollections = new HashSet<String>();
-    protected String[] removeUpdateFields;
+    
+    private ReplayOptions replayOptions;
+    
     private BSONObject raw;
     private boolean ignore = false;
     
@@ -43,12 +43,10 @@ public class RawReplayTask implements Callable<ReplayResult> {
 
     protected static final Logger logger = LoggerFactory.getLogger(RawReplayTask.class);
 
-    public RawReplayTask(Monitor monitor, MongoClient mongoClient, ReadPreference readPreference, Set<String> ignoredCollections, String[] removeUpdateFields, BSONObject raw) {
+    public RawReplayTask(Monitor monitor, MongoClient mongoClient, ReplayOptions replayOptions, BSONObject raw) {
         this.monitor = monitor;
         this.mongoClient = mongoClient;
-        this.ignoredCollections = ignoredCollections;
-        this.removeUpdateFields = removeUpdateFields;
-        this.readPreference = readPreference;
+        this.replayOptions = replayOptions;
         this.raw = raw;
     }
     
@@ -78,7 +76,7 @@ public class RawReplayTask implements Callable<ReplayResult> {
                 if (databaseName.equals("local") || databaseName.equals("admin")) {
                     return;
                 }
-                if (ignoredCollections.contains(collectionName)) {
+                if (replayOptions.getIgnoredCollections().contains(collectionName)) {
                     return;
                 }
                 
@@ -196,8 +194,8 @@ public class RawReplayTask implements Callable<ReplayResult> {
             for (Document updateDoc : updates) {
                 Document query = (Document)updateDoc.get("q");
                 shape = ShapeUtil.getShape(query);
-                if (removeUpdateFields != null) {
-                    for (String fieldName : removeUpdateFields) {
+                if (replayOptions.getRemoveUpdateFields() != null) {
+                    for (String fieldName : replayOptions.getRemoveUpdateFields()) {
                         query.remove(fieldName);
                     }
                 }
@@ -238,7 +236,7 @@ public class RawReplayTask implements Callable<ReplayResult> {
             return;
         }
         
-        if (ignoredCollections.contains(collectionName)) {
+        if (replayOptions.getIgnoredCollections().contains(collectionName)) {
             //ignored++;
             ignore = true;
             return;
@@ -264,8 +262,10 @@ public class RawReplayTask implements Callable<ReplayResult> {
             Document commandResult = null;
             if (command.isRead()) {
 
-                 commandResult = mongoClient.getDatabase(databaseName).runCommand(commandDoc, readPreference);
+                 commandResult = mongoClient.getDatabase(databaseName).runCommand(commandDoc, mongoClient.getReadPreference());
             } else {
+                
+                commandDoc.put("writeConcern", replayOptions.getWriteConcern());
                 commandResult = mongoClient.getDatabase(databaseName).runCommand(commandDoc);
             }
             long duration = System.nanoTime() - start;
