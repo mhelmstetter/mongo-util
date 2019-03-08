@@ -75,9 +75,6 @@ public abstract class AbstractMongoReplayUtil {
     private static MongoClient mongoClient;
     ClusterType clusterType;
     
-    private static ReadPreference readPreference;
-
-
     private int limit = Integer.MAX_VALUE;
     int count = 0;
     int written = 0;
@@ -88,6 +85,8 @@ public abstract class AbstractMongoReplayUtil {
     private BSONObject lastSeen;
     
     private Set<Integer> opcodeWhitelist = new HashSet<Integer>();
+    
+    private ReplayOptions replayOptions;
     
     //private Set<Long> seenConnections = new HashSet<Long>();
     
@@ -100,19 +99,21 @@ public abstract class AbstractMongoReplayUtil {
         logger.debug("mongoUriStr: " + mongoUriStr);
         MongoClientURI connectionString = new MongoClientURI(mongoUriStr);
         mongoClient = new MongoClient(connectionString);
-        readPreference = mongoClient.getMongoClientOptions().getReadPreference();
+        //readPreference = mongoClient.getMongoClientOptions().getReadPreference();
+        
+        replayOptions.setWriteConcern(mongoClient.getWriteConcern().asDocument());
+        
         int seedListSize = mongoClient.getAllAddress().size();
         if (seedListSize == 1) {
             logger.warn("Only 1 host specified in seedlist");
         }
         mongoClient.getDatabase("admin").runCommand(new Document("ismaster", 1));
         
-        
         Method method = Mongo.class.getDeclaredMethod("getClusterDescription");
         method.setAccessible(true);
         ClusterDescription cd = (ClusterDescription)method.invoke(mongoClient);
         this.clusterType = cd.getType();
-        logger.debug("Connected: " + readPreference + " " + clusterType);
+        logger.debug("Connected: " + clusterType);
         
         //workQueue = new ArrayBlockingQueue<Runnable>(queueSize);
         workQueue = new LinkedBlockingQueue<Runnable>(queueSize);
@@ -218,7 +219,7 @@ public abstract class AbstractMongoReplayUtil {
                     firstSeen = lastSeen;
                 }
                 
-                RawReplayTask rawTask = new RawReplayTask(monitor, mongoClient, readPreference, ignoredCollections, removeUpdateFields, raw);
+                RawReplayTask rawTask = new RawReplayTask(monitor, mongoClient, replayOptions, raw);
                 futures.add(pool.submit(rawTask));
 
                 count++;
@@ -292,10 +293,13 @@ public abstract class AbstractMongoReplayUtil {
     
     protected void parseArgs(String args[]) {
         CommandLine line = initializeAndParseCommandLineOptions(args);
+        
+        this.replayOptions = new ReplayOptions();
+        replayOptions.setIgnoredCollections(ignoredCollections);
 
         this.fileNames = line.getOptionValues("f");
         String[] x = line.getOptionValues("u");
-        this.removeUpdateFields = x;
+        replayOptions.setRemoveUpdateFields(x);
         String limitStr = line.getOptionValue("l");
 
         String mongoUriStr = line.getOptionValue("h");
