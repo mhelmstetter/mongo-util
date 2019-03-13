@@ -37,7 +37,6 @@ public class ConnStormRunnable extends Thread {
                 e.printStackTrace();
             }
             mongoClient.close();
-            System.out.println("Runner done!");
         }
 
     }
