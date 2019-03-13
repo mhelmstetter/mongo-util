@@ -2,7 +2,6 @@ package com.mongodb.mongoreplay;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -19,7 +18,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoClient;
-import com.mongodb.WriteConcern;
+import com.mongodb.ReadConcern;
+import com.mongodb.ReadConcernLevel;
 import com.mongodb.util.ShapeUtil;
 
 public class RawReplayTask implements Callable<ReplayResult> {
@@ -261,8 +261,12 @@ public class RawReplayTask implements Callable<ReplayResult> {
         try {
             Document commandResult = null;
             if (command.isRead()) {
-
-                 commandResult = mongoClient.getDatabase(databaseName).runCommand(commandDoc, mongoClient.getReadPreference());
+                 
+                if (replayOptions.getReadConcern() != null) {
+                    commandDoc.put("readConcern", replayOptions.getReadConcern());
+                }
+                commandResult = mongoClient.getDatabase(databaseName).runCommand(commandDoc, mongoClient.getReadPreference());
+                 
             } else {
                 
                 commandDoc.put("writeConcern", replayOptions.getWriteConcern());
