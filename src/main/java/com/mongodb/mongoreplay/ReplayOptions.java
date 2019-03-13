@@ -4,6 +4,9 @@ import java.util.HashSet;
 import java.util.Set;
 
 import org.bson.BsonDocument;
+import org.bson.BsonString;
+
+import com.mongodb.ReadConcernLevel;
 
 public class ReplayOptions {
     
@@ -11,6 +14,10 @@ public class ReplayOptions {
     protected String[] removeUpdateFields;
     
     private BsonDocument writeConcern;
+    
+    private BsonDocument readConcernDocument;
+    
+    // readConcern: { level: "majority" }
 
     public Set<String> getIgnoredCollections() {
         return ignoredCollections;
@@ -34,6 +41,15 @@ public class ReplayOptions {
 
     public void setWriteConcern(BsonDocument writeConcern) {
         this.writeConcern = writeConcern;
+    }
+    
+    public void setReadConcernLevel(ReadConcernLevel level) {
+        this.readConcernDocument = new BsonDocument();
+        readConcernDocument.put("level", new BsonString(level.getValue()));
+    }
+
+    public BsonDocument getReadConcern() {
+        return readConcernDocument;
     }
     
     
