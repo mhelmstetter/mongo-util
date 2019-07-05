@@ -12,7 +12,8 @@ public class Attacker {
  
     public static void main(String... args) throws Exception {
         MongoClientURI uri = new MongoClientURI(args[0]);
-        for (int i = 0; i < 64; i++) {
+        int threads = Integer.parseInt(args[1]);
+        for (int i = 0; i < threads; i++) {
             DdosThread thread = new DdosThread(uri);
             thread.start();
         } 
@@ -32,7 +33,7 @@ public class Attacker {
  
         @Override 
         public void run() { 
-            while (running.get()) {
+            //while (running.get()) {
                 try { 
                     attack(); 
                 } catch (Exception e) {
@@ -40,7 +41,7 @@ public class Attacker {
                 } 
  
  
-            } 
+            //} 
         } 
  
         public void attack() throws Exception {

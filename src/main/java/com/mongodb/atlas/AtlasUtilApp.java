@@ -60,9 +60,9 @@ public class AtlasUtilApp {
         
         AtlasUtil util = new AtlasUtil(line.getOptionValue("u"), line.getOptionValue("k"), "mongodb://localhost:27017/atlasMetrics");
         
-        util.getClusters(line.getOptionValue("g"));
-        // PROD
-        //util.getMeasurements("");
+        //util.getClusters(line.getOptionValue("g"));
+        
+        util.getMeasurements(line.getOptionValue("g"));
     }
 
 }

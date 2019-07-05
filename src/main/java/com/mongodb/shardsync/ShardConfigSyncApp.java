@@ -13,6 +13,7 @@ public class ShardConfigSyncApp {
     private static Options options;
 
     private final static String DROP_DEST = "dropDestinationCollectionsIfExisting";
+    private final static String NON_PRIVILEGED = "nonPrivileged";
     private final static String COLL_COUNTS = "compareCounts";
     private final static String CHUNK_COUNTS = "chunkCounts";
     private final static String FLUSH_ROUTER = "flushRouter";
@@ -20,6 +21,7 @@ public class ShardConfigSyncApp {
     private final static String COMPARE_CHUNKS = "compareChunks";
     private final static String MONGO_MIRROR = "mongomirror";
     private final static String SHARD_COLLECTIONS = "shardCollections";
+    private final static String CLEANUP_ORPHANS = "cleanupOrphans";
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -31,6 +33,8 @@ public class ShardConfigSyncApp {
                 .isRequired(true).create("d"));
         options.addOption(OptionBuilder.withArgName("Drop destination collections if existing")
                 .withLongOpt(DROP_DEST).create(DROP_DEST));
+        options.addOption(OptionBuilder.withArgName("Non-privileged mode, create chunks using splitChunk")
+                .withLongOpt(NON_PRIVILEGED).create(NON_PRIVILEGED));
         options.addOption(OptionBuilder.withArgName("Compare counts only (do not sync/migrate)")
                 .withLongOpt(COLL_COUNTS).create(COLL_COUNTS));
         options.addOption(OptionBuilder.withArgName("Show chunk counts when collection counts differ")
@@ -41,6 +45,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(COMPARE_CHUNKS).create(COMPARE_CHUNKS));
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata")
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
+        options.addOption(OptionBuilder.withArgName("Cleanup source orphans")
+                .withLongOpt(CLEANUP_ORPHANS).create(CLEANUP_ORPHANS));
         
         options.addOption(OptionBuilder.withArgName("Shard destination collections")
                 .withLongOpt(SHARD_COLLECTIONS).create(SHARD_COLLECTIONS));
@@ -104,6 +110,7 @@ public class ShardConfigSyncApp {
         sync.setDestClusterUri(line.getOptionValue("d"));
         sync.setNamespaceFilters(line.getOptionValues("f"));
         sync.setShardMappings(line.getOptionValues("m"));
+        sync.setNonPrivilegedMode(line.hasOption(NON_PRIVILEGED));
         sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
         sync.setSleepMillis(line.getOptionValue("x"));
         sync.setNumParallelCollections(line.getOptionValue("y"));
@@ -134,7 +141,10 @@ public class ShardConfigSyncApp {
             boolean doSync = opt.equals("sync");
             actionFound = true;
             sync.diffShardedCollections(doSync);
-        } 
+        }  else if (line.hasOption(CLEANUP_ORPHANS)) {
+            actionFound = true;
+            sync.cleanupOrphans();
+        }
         
         if (line.hasOption(MONGO_MIRROR)) {
             actionFound = true;

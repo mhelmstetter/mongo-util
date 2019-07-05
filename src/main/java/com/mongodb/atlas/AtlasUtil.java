@@ -57,18 +57,12 @@ public class AtlasUtil {
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
 
         MongoClientURI source = new MongoClientURI(mongoUri);
-
-//        mongoClient = new MongoClient(source);
-//        List<ServerAddress> addrs = mongoClient.getServerAddressList();
-//        mongoClient.getDatabase("admin").runCommand(new Document("ping", 1));
-//        logger.debug("Connected to source");
     }
 
     public List<Cluster> getClusters(String groupId) throws IOException {
 
         Call<ClustersResult> callSync = service.getClusters(groupId);
         Response<ClustersResult> response = callSync.execute();
-        System.out.println(response);
         ClustersResult clusters = response.body();
         return clusters.getClusters();
     }
@@ -77,7 +71,6 @@ public class AtlasUtil {
 
         Call<Cluster> callSync = service.getCluster(groupId, clusterName);
         Response<Cluster> response = callSync.execute();
-        //System.out.println(response);
         Cluster cluster = response.body();
         return cluster;
     }
@@ -85,11 +78,34 @@ public class AtlasUtil {
     public List<com.mongodb.atlas.model.Process> getProcesses(String groupId) throws IOException {
 
         Call<ProcessesResult> callSync = service.getProcesses(groupId);
+        
+        
         Response<ProcessesResult> response = callSync.execute();
-        System.out.println(response);
+        
         ProcessesResult procs = response.body();
-
-        return procs.getProcesses();
+        
+        int total = procs.getTotalCount();
+        
+        List<com.mongodb.atlas.model.Process> procList = procs.getProcesses();
+        if (total > procList.size()) {
+            List<com.mongodb.atlas.model.Process> result = new ArrayList<com.mongodb.atlas.model.Process>();
+            result.addAll(procList);
+            int processed = procList.size();
+            int pageNum = 2;
+            while (processed < total) {
+                callSync = service.getProcesses(groupId, pageNum++);
+                response = callSync.execute();
+                procs = response.body();
+                procList = procs.getProcesses();
+                processed += procList.size();
+                result.addAll(procList);
+            }
+            return result;
+            
+        } else {
+            return procList; 
+        }
+        
     }
 
     public void getMeasurements(String groupId, String hostId) throws IOException {
@@ -240,8 +256,6 @@ public class AtlasUtil {
             System.out.println(value);
         }
         
-        
-
     }
 
 }

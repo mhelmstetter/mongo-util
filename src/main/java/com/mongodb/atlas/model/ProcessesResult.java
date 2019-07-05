@@ -12,4 +12,8 @@ public class ProcessesResult {
         return results;
     }
 
+    public Integer getTotalCount() {
+        return totalCount;
+    }
+
 }

@@ -47,26 +47,8 @@ public class AtlasServiceGenerator {
                 .addInterceptor(new AuthenticationCacheInterceptor(authCache))
                 .build();
         
-//        //if (token != null) {
-//            httpClient.interceptors().clear();
-//            httpClient.addInterceptor(chain -> {
-//                Request original = chain.request();
-//                Request.Builder builder1 = original.newBuilder().
-//                        //.header("Authorization", token);
-//                        .authenticator(new CachingAuthenticatorDecorator(authenticator, authCache))
-//                        .addInterceptor(new AuthenticationCacheInterceptor(authCache));
-//                
-//                Request request = builder1.build();
-//                return chain.proceed(request);
-//            });
-//            builder.client(httpClient.build());
-        
             builder.client(client);
             retrofit = builder.build();
-        //}
-            
-            
-            
         return retrofit.create(serviceClass);
     }
 

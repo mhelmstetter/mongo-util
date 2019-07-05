@@ -9,6 +9,7 @@ import com.mongodb.atlas.model.ProcessesResult;
 import retrofit2.Call;
 import retrofit2.http.GET;
 import retrofit2.http.Path;
+import retrofit2.http.Query;
 
 public interface AtlasApi {
     
@@ -20,6 +21,9 @@ public interface AtlasApi {
     
     @GET("groups/{groupId}/processes")
     Call<ProcessesResult> getProcesses(@Path("groupId") String groupId);
+    
+    @GET("groups/{groupId}/processes")
+    Call<ProcessesResult> getProcesses(@Path("groupId") String groupId, @Query("pageNum") Integer pageNum);
     
     @GET("groups/{groupId}/processes/{hostId}/measurements?granularity=PT1M&period=P2D&&m=CACHE_BYTES_READ_INTO&m=CACHE_BYTES_WRITTEN_FROM")
     Call<MeasurementsResult> getMeasurements(@Path("groupId") String groupId, @Path("hostId") String hostId);
