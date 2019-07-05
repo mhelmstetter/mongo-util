@@ -12,8 +12,7 @@ public class Attacker {
  
     public static void main(String... args) throws Exception {
         MongoClientURI uri = new MongoClientURI(args[0]);
-        int threads = Integer.parseInt(args[1]);
-        for (int i = 0; i < threads; i++) {
+        for (int i = 0; i < 64; i++) {
             DdosThread thread = new DdosThread(uri);
             thread.start();
         } 

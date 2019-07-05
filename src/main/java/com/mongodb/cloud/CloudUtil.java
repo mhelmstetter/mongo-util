@@ -67,7 +67,7 @@ public class CloudUtil {
 
         Call<ClustersResult> callSync = service.getClusters(groupId);
         Response<ClustersResult> response = callSync.execute();
-        System.out.println(response);
+        //System.out.println(response);
         ClustersResult clusters = response.body();
         return clusters.getClusters();
     }

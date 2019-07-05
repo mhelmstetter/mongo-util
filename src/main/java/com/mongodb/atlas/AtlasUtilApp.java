@@ -60,9 +60,15 @@ public class AtlasUtilApp {
         
         AtlasUtil util = new AtlasUtil(line.getOptionValue("u"), line.getOptionValue("k"), "mongodb://localhost:27017/atlasMetrics");
         
+<<<<<<< HEAD
         //util.getClusters(line.getOptionValue("g"));
         
         util.getMeasurements(line.getOptionValue("g"));
+=======
+        util.getClusters(line.getOptionValue("g"));
+        // PROD
+        //util.getMeasurements("");
+>>>>>>> branch 'master' of https://github.com/mhelmstetter/mongo-util.git
     }
 
 }
