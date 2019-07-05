@@ -47,31 +47,9 @@ public class AtlasServiceGenerator {
                 .addInterceptor(new AuthenticationCacheInterceptor(authCache))
                 .build();
         
-<<<<<<< HEAD
             builder.client(client);
             retrofit = builder.build();
-=======
-//        //if (token != null) {
-//            httpClient.interceptors().clear();
-//            httpClient.addInterceptor(chain -> {
-//                Request original = chain.request();
-//                Request.Builder builder1 = original.newBuilder().
-//                        //.header("Authorization", token);
-//                        .authenticator(new CachingAuthenticatorDecorator(authenticator, authCache))
-//                        .addInterceptor(new AuthenticationCacheInterceptor(authCache));
-//                
-//                Request request = builder1.build();
-//                return chain.proceed(request);
-//            });
-//            builder.client(httpClient.build());
-        
-            builder.client(client);
-            retrofit = builder.build();
-        //}
-            
-            
-            
->>>>>>> branch 'master' of https://github.com/mhelmstetter/mongo-util.git
+
         return retrofit.create(serviceClass);
     }
 
