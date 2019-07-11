@@ -136,7 +136,7 @@ public class ShardConfigSync {
         logger.debug("Starting metadata sync/migration");
 
         stopBalancers();
-        checkAutosplit();
+        //checkAutosplit();
         enableDestinationSharding();
 
         sourceShard.populateCollectionList();
