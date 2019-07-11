@@ -647,7 +647,7 @@ public class ShardConfigSync {
         databases.into(databasesList);
         for (Document database : databasesList) {
             String databaseName = database.getString("_id");
-            if (databaseName.equals("admin") || databaseName.equals("system")) {
+            if (databaseName.equals("admin") || databaseName.equals("system") || databaseName.contains("$")) {
                 continue;
             }
             String primary = database.getString("primary");
