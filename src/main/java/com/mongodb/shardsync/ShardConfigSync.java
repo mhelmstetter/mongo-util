@@ -647,6 +647,9 @@ public class ShardConfigSync {
         databases.into(databasesList);
         for (Document database : databasesList) {
             String databaseName = database.getString("_id");
+            if (databaseName.equals("admin")) {
+                continue;
+            }
             String primary = database.getString("primary");
             String mappedPrimary = sourceToDestShardMap.get(primary);
             logger.debug("database: " + databaseName + ", primary: " + primary + ", mappedPrimary: " + mappedPrimary);
