@@ -649,9 +649,10 @@ public class ShardConfigSync {
             String databaseName = database.getString("_id");
             String primary = database.getString("primary");
             String mappedPrimary = sourceToDestShardMap.get(primary);
-            if (mappedPrimary == null) {
-                throw new IllegalArgumentException("Shard mapping not found for shard " + primary);
-            }
+            logger.debug("database: " + databaseName + ", primary: " + primary + ", mappedPrimary: " + mappedPrimary);
+//            if (mappedPrimary == null) {
+//                throw new IllegalArgumentException("Shard mapping not found for shard " + primary);
+//            }
             
             if (filtered && !databaseFilters.contains(databaseName)) {
                 logger.debug("Database " + databaseName + " filtered, not sharding on destination");
