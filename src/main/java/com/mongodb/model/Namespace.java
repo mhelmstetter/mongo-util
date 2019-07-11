@@ -30,6 +30,10 @@ public class Namespace {
     public String getCollectionName() {
         return collectionName;
     }
+    
+    public String getNamespace() {
+        return databaseName + "." + collectionName;
+    }
 
     public String toString() {
         return databaseName + "." + collectionName;

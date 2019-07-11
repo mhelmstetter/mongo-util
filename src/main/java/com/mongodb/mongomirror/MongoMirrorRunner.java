@@ -15,10 +15,6 @@ import org.apache.commons.exec.PumpStreamHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.FileAppender;
-
 public class MongoMirrorRunner {
     
     private File mongomirrorBinary;
@@ -53,28 +49,29 @@ public class MongoMirrorRunner {
     
     public MongoMirrorRunner(String id) {
         this.id = id;
-        //logger = LoggerFactory.getLogger(this.getClass().getName() + "." + id);
+        logger = LoggerFactory.getLogger(this.getClass().getName() + "." + id);
         
-        this.logger = LoggerFactory.getLogger(id + "." + this.getClass().getName());
-        
-        LoggerContext context = (LoggerContext)LoggerFactory.getILoggerFactory();
-        
-        FileAppender<ILoggingEvent> file = new FileAppender<ILoggingEvent>();
-        file.setName("FileLogger." + id);
-        file.setFile("/tmp/" + id + ".log");
-        file.setContext(context);
-        file.setAppend(true);
-        
-        //Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
-        
-        
-        
-        //this.logger = context.getLogger(MongoMirrorRunner.class);
+//        this.logger = LoggerFactory.getLogger(id + "." + this.getClass().getName());
+//        
+//        LoggerContext context = (LoggerContext)LoggerFactory.getILoggerFactory();
+//        
+//        FileAppender<ILoggingEvent> file = new FileAppender<ILoggingEvent>();
+//        file.setName("FileLogger." + id);
+//        file.setFile("/tmp/" + id + ".log");
+//        file.setContext(context);
+//        file.setAppend(true);
+//        
+//        //Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
+//        
+//        
+//        
+//        //this.logger = context.getLogger(MongoMirrorRunner.class);
         
     }
    
     public void execute() throws ExecuteException, IOException {
         
+        logger.debug("execute() start id: " + id);
         executeResultHandler = new DefaultExecuteResultHandler();
         cmdLine = new CommandLine(mongomirrorBinary);
         
@@ -101,12 +98,12 @@ public class MongoMirrorRunner {
         // Can't do this in Atlas, user does not have permissions
         //addArg("preserveUUIDs", true);
         
-        
         PumpStreamHandler psh = new PumpStreamHandler(new ExecBasicLogHandler(id));
         
         DefaultExecutor executor = new DefaultExecutor();
         executor.setExitValue(1);
         executor.setStreamHandler(psh);
+        logger.debug("executor.execute id: " + id + " cmdLine: " + cmdLine);
         executor.execute(cmdLine, executeResultHandler);
     }
     
@@ -121,8 +118,6 @@ public class MongoMirrorRunner {
             cmdLine.addArgument("--" + argName);
         }
     }
-    
-    
 
     public void setMongomirrorBinary(File mongomirrorBinary) {
         this.mongomirrorBinary = mongomirrorBinary;

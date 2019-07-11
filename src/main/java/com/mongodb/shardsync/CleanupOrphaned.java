@@ -18,19 +18,19 @@ public class CleanupOrphaned {
     
     private static Logger logger = LoggerFactory.getLogger(CleanupOrphaned.class);
     
-    private List<MongoClient> clients;
-    private Map<String, ShardCollection> collectionsMap;
-    private Map<String, Shard> shardsMap;
+//    private List<MongoClient> clients;
+//    private Map<String, ShardCollection> collectionsMap;
+//    private Map<String, Shard> shardsMap;
     
-    public CleanupOrphaned(List<MongoClient> clients, Map<String, Shard> shardsMap, Map<String, ShardCollection> collectionsMap) {
-        this.clients = clients;
-        this.shardsMap = shardsMap;
-        this.collectionsMap = collectionsMap;
+    private ShardClient shardClient;
+    
+    public CleanupOrphaned(ShardClient shardClient) {
+        this.shardClient = shardClient;
     }
     
     public void cleanupOrphans() {
-        ExecutorService executor = Executors.newFixedThreadPool(shardsMap.size());
-        for (MongoClient client : clients) {
+        ExecutorService executor = Executors.newFixedThreadPool(shardClient.getShardsMap().size());
+        for (MongoClient client : shardClient.getMongosMongoClients()) {
             Runnable worker = new CleanupOrphanedWorker(client);
             executor.execute(worker);
         }
@@ -51,7 +51,7 @@ public class CleanupOrphaned {
         
         public void run() {
             MongoDatabase db = client.getDatabase("admin");
-            for (ShardCollection coll : collectionsMap.values()) {
+            for (ShardCollection coll : shardClient.getCollectionsMap().values()) {
                 
                 logger.debug("cleanupOrphaned: " + coll.getNamespace() + " on " + client.getConnectPoint());
                 
