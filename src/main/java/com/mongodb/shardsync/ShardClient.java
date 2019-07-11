@@ -278,6 +278,31 @@ public class ShardClient {
     public MongoCredential getCredentials() {
         return mongoClientURI.getCredentials();
     }
+
+    public void checkAutosplit() {
+        logger.debug(String.format("checkAutosplit() for %s mongos routers", mongosMongoClients.size()));
+        for (MongoClient client : mongosMongoClients) {
+            Document getCmdLine = new Document("getCmdLineOpts", true);
+            Boolean autoSplit = null;
+            try {
+                //logger.debug(String.format("flushRouterConfig for mongos %s", client.getAddress()));
+                Document result = adminCommand(getCmdLine);
+                Document parsed = (Document)result.get("parsed");
+                Document sharding = (Document)parsed.get("sharding");
+                if (sharding != null) {
+                    sharding.getBoolean("autoSplit");
+                }
+                if (autoSplit != null && autoSplit == false) {
+                    logger.debug("autoSplit disabled for " + client.getAddress());
+                } else {
+                    logger.warn("autoSplit NOT disabled for " + client.getAddress());
+                }
+            } catch (MongoTimeoutException timeout) {
+                logger.debug("Timeout connecting", timeout);
+            }
+        }
+        
+    }
     
     
 

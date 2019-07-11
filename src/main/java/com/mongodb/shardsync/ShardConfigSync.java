@@ -136,7 +136,7 @@ public class ShardConfigSync {
         logger.debug("Starting metadata sync/migration");
 
         stopBalancers();
-        // TODO disableAutoSplit !!!!
+        checkAutosplit();
         enableDestinationSharding();
 
         sourceShard.populateCollectionList();
@@ -162,6 +162,10 @@ public class ShardConfigSync {
         sourceShard.stopBalancer();
         destShard.stopBalancer();
         logger.debug("stopBalancers complete");
+    }
+    
+    private void checkAutosplit() {
+         sourceShard.checkAutosplit();
     }
 
     /**
