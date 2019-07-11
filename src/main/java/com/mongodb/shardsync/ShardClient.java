@@ -292,7 +292,7 @@ public class ShardClient {
                 if (sharding != null) {
                     sharding.getBoolean("autoSplit");
                 }
-                if (autoSplit != null && autoSplit == false) {
+                if (autoSplit != null && !autoSplit) {
                     logger.debug("autoSplit disabled for " + client.getAddress());
                 } else {
                     logger.warn("autoSplit NOT disabled for " + client.getAddress());
