@@ -124,7 +124,11 @@ public class ShardClient {
         // LocalDateTime oneHourAgo = LocalDateTime.now().minusHours(1);
 
         // TODO this needs to take into account "dead" mongos instances
-        mongosColl.find().sort(Sorts.ascending("ping")).into(mongosList);
+        int limit = 9999;
+        if (name.equals("source")) {
+            limit = 5;
+        }
+        mongosColl.find().sort(Sorts.ascending("ping")).limit(limit).into(mongosList);
         for (Mongos mongos : mongosList) {
             String uri = null;
             if (username != null && password != null) {
