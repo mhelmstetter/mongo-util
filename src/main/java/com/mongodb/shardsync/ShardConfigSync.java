@@ -49,7 +49,8 @@ public class ShardConfigSync {
     private String destClusterUri;
     
 
-    private boolean dropDestinationCollectionsIfExisting;
+    private boolean dropDestDbs;
+    private boolean dropDestDbsAndConfigMetadata;
     private boolean nonPrivilegedMode = false;
     private boolean doChunkCounts;
     
@@ -196,7 +197,7 @@ public class ShardConfigSync {
             }
             
             //TODO make this configurable
-            if (! dropDestinationCollectionsIfExisting) {
+            if (! dropDestDbs) {
                 long count = destChunksColl.countDocuments(new Document("_id", chunk.get("_id")));
                 if (count > 0) {
                     continue;
@@ -662,10 +663,18 @@ public class ShardConfigSync {
                 continue;
             }
             
-            if (dropDestinationCollectionsIfExisting) {
-                logger.debug(String.format("Destination database %s exists, dropping", databaseName));
-                destShard.getMongoClient().dropDatabase(databaseName);
-            }
+//            // this will drop on the shards AND kill the config metadata
+//            if (dropDestDbsAndConfigMetadata) {
+//                logger.debug(String.format("dropDestDbsAndConfigMetadata, dropping database %s on all dest shards and dropping config metadata", databaseName));
+//                destShard.getMongoClient().dropDatabase(databaseName);
+//            }
+//            
+//            // drop on the shards, keep config metadata
+//            if (dropDestDbs) {
+//                logger.debug(String.format("dropDestDbs, dropping database %s on all dest shards, keep config metadata", databaseName));
+//                destShard.dropDatabase(databaseName);
+//            }
+            
             
             Document dest = destShard.getConfigDb().getCollection("databases").find(new Document("_id", databaseName)).first();
             if (database.getBoolean("partitioned", true)) {
@@ -699,8 +708,12 @@ public class ShardConfigSync {
         logger.debug("enableDestinationSharding() complete");
     }
     
+    /**
+     * Drop based on config.databases
+     */
     public void dropDestinationDatabases() {
         logger.debug("dropDestinationDatabases()");
+        destShard.populateShardMongoClients();
         MongoCollection<Document> databasesColl = sourceShard.getDatabasesCollection();
         FindIterable<Document> databases = databasesColl.find();
         List<String> databasesList = new ArrayList<String>();
@@ -709,7 +722,7 @@ public class ShardConfigSync {
             String databaseName = database.getString("_id");
             
             if (filtered && !databaseFilters.contains(databaseName)) {
-                logger.debug("Database " + databaseName + " filtered, not sharding on destination");
+                logger.debug("Database " + databaseName + " filtered, not dropping on destination");
                 continue;
             } else {
                 databasesList.add(databaseName);
@@ -719,11 +732,41 @@ public class ShardConfigSync {
         logger.debug("dropDestinationDatabases() complete");
     }
     
+    public void dropDestinationDatabasesAndConfigMetadata() {
+        logger.debug("dropDestinationDatabasesAndConfigMetadata()");
+        destShard.populateShardMongoClients();
+        MongoCollection<Document> databasesColl = sourceShard.getDatabasesCollection();
+        FindIterable<Document> databases = databasesColl.find();
+        List<String> databasesList = new ArrayList<String>();
+        
+        for (Document database : databases) {
+            String databaseName = database.getString("_id");
+            
+            if (filtered && !databaseFilters.contains(databaseName)) {
+                logger.debug("Database " + databaseName + " filtered, not dropping on destination");
+                continue;
+            } else {
+                databasesList.add(databaseName);
+            }
+        }
+        destShard.dropDatabasesAndConfigMetadata(databasesList);
+        logger.debug("dropDestinationDatabasesAndConfigMetadata() complete");
+        
+    }
+    
     public void cleanupOrphans() {
         logger.debug("cleanupOrphans()");
         sourceShard.populateCollectionList();
         sourceShard.populateShardMongoClients();
         CleanupOrphaned cleaner = new CleanupOrphaned(sourceShard);
+        cleaner.cleanupOrphans();
+    }
+    
+    public void cleanupOrphansDest() {
+        logger.debug("cleanupOrphansDest()");
+        destShard.populateCollectionList();
+        destShard.populateShardMongoClients();
+        CleanupOrphaned cleaner = new CleanupOrphaned(destShard);
         cleaner.cleanupOrphans();
     }
 
@@ -743,12 +786,12 @@ public class ShardConfigSync {
         this.destClusterUri = destClusterUri;
     }
 
-    public boolean isDropDestinationCollectionsIfExisting() {
-        return dropDestinationCollectionsIfExisting;
+    public boolean isDropDestDbs() {
+        return dropDestDbs;
     }
 
-    public void setDropDestinationCollectionsIfExisting(boolean dropDestinationCollectionsIfExisting) {
-        this.dropDestinationCollectionsIfExisting = dropDestinationCollectionsIfExisting;
+    public void setDropDestDbs(boolean dropDestinationCollectionsIfExisting) {
+        this.dropDestDbs = dropDestinationCollectionsIfExisting;
     }
 
     public void setDoChunkCounts(boolean doChunkCounts) {
@@ -924,5 +967,9 @@ public class ShardConfigSync {
 
     public void flushRouterConfig() {
         destShard.flushRouterConfig();
+    }
+
+    public void setDropDestDbsAndConfigMetadata(boolean dropDestinationConfigMetadata) {
+        this.dropDestDbsAndConfigMetadata = dropDestinationConfigMetadata;
     }
 }

@@ -139,7 +139,7 @@ public class ShardClient {
             MongoClient client = new MongoClient(clientUri);
             mongosMongoClients.add(client);
         }
-        logger.debug("populateMongosList complete, " + mongosMongoClients.size() + " mongosMongoClients added");
+        logger.debug(name + " populateMongosList complete, " + mongosMongoClients.size() + " mongosMongoClients added");
     }
     
     public void populateCollectionList() {
@@ -168,17 +168,40 @@ public class ShardClient {
             MongoClient client = new MongoClient(clientUri);
             
             client.getDatabase("admin").runCommand(new Document("ping", 1));
-            logger.debug("Connected to shard host: " + host);
+            logger.debug(name + " connected to shard host: " + host);
             shardMongoClients.add(client);
         }
     }
     
+    /**
+     * This will drop the db on each shard, config data will NOT be touched
+     * @param dbName
+     */
+    public void dropDatabase(String dbName) {
+        for (MongoClient c : shardMongoClients) {
+            logger.debug(name + " dropping " + dbName + " on " + c.getConnectPoint());
+            c.dropDatabase(dbName);
+        }
+    }
+    
+    /**
+     * This will drop the db on each shard, config data will NOT be touched
+     * @param dbName
+     */
     public void dropDatabases(List<String> databasesList) {
         for (MongoClient c : shardMongoClients) {
             for (String dbName : databasesList) {
-                logger.debug("Dropping " + dbName + " on " + c.getConnectPoint());
+                logger.debug(name + " dropping " + dbName + " on " + c.getConnectPoint());
                 c.dropDatabase(dbName);
             }
+        }
+    }
+    
+    public void dropDatabasesAndConfigMetadata(List<String> databasesList) {
+        MongoClient c = mongosMongoClients.get(0);
+        for (String dbName : databasesList) {
+            logger.debug(name + " dropping " + dbName + " using mongos " + c.getConnectPoint());
+            c.dropDatabase(dbName);
         }
     }
     

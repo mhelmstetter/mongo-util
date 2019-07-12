@@ -27,7 +27,8 @@ public class ShardConfigSyncApp {
     private final static String DEST_URI = "dest";
     private final static String MONGOMIRROR_BINARY = "mongomirrorBinary";
 
-    private final static String DROP_DEST = "dropDestinationCollectionsIfExisting";
+    private final static String DROP_DEST_DBS = "dropDestDbs";
+    private final static String DROP_DEST_DBS_AND_CONFIG_METADATA = "dropDestDbsAndConfigMeta";
     private final static String NON_PRIVILEGED = "nonPrivileged";
     private final static String COLL_COUNTS = "compareCounts";
     private final static String CHUNK_COUNTS = "chunkCounts";
@@ -37,6 +38,7 @@ public class ShardConfigSyncApp {
     private final static String MONGO_MIRROR = "mongomirror";
     private final static String SHARD_COLLECTIONS = "shardCollections";
     private final static String CLEANUP_ORPHANS = "cleanupOrphans";
+    private final static String CLEANUP_ORPHANS_DEST = "cleanupOrphansDest";
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -48,8 +50,10 @@ public class ShardConfigSyncApp {
                 .isRequired(false).create("s"));
         options.addOption(OptionBuilder.withArgName("Destination cluster connection uri").hasArgs().withLongOpt(DEST_URI)
                 .isRequired(false).create("d"));
-        options.addOption(OptionBuilder.withArgName("Drop destination collections if existing")
-                .withLongOpt(DROP_DEST).create(DROP_DEST));
+        options.addOption(OptionBuilder.withArgName("Drop destination databases, but preserve config metadata")
+                .withLongOpt(DROP_DEST_DBS).create(DROP_DEST_DBS));
+        options.addOption(OptionBuilder.withArgName("Drop destination databasea AND config metadata (collections, databases, chunks)")
+                .withLongOpt(DROP_DEST_DBS_AND_CONFIG_METADATA).create(DROP_DEST_DBS_AND_CONFIG_METADATA));
         options.addOption(OptionBuilder.withArgName("Non-privileged mode, create chunks using splitChunk")
                 .withLongOpt(NON_PRIVILEGED).create(NON_PRIVILEGED));
         options.addOption(OptionBuilder.withArgName("Compare counts only (do not sync/migrate)")
@@ -64,6 +68,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
         options.addOption(OptionBuilder.withArgName("Cleanup source orphans")
                 .withLongOpt(CLEANUP_ORPHANS).create(CLEANUP_ORPHANS));
+        options.addOption(OptionBuilder.withArgName("Cleanup destination orphans")
+                .withLongOpt(CLEANUP_ORPHANS_DEST).create(CLEANUP_ORPHANS_DEST));
         
         options.addOption(OptionBuilder.withArgName("Shard destination collections")
                 .withLongOpt(SHARD_COLLECTIONS).create(SHARD_COLLECTIONS));
@@ -157,7 +163,8 @@ public class ShardConfigSyncApp {
         sync.setNamespaceFilters(line.getOptionValues("f"));
         sync.setShardMappings(line.getOptionValues("m"));
         sync.setNonPrivilegedMode(line.hasOption(NON_PRIVILEGED));
-        sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
+        sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
+        sync.setDropDestDbsAndConfigMetadata(line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA));
         sync.setSleepMillis(line.getOptionValue("x"));
         sync.setNumParallelCollections(line.getOptionValue("y"));
         
@@ -190,7 +197,17 @@ public class ShardConfigSyncApp {
         }  else if (line.hasOption(CLEANUP_ORPHANS)) {
             actionFound = true;
             sync.cleanupOrphans();
+        }  else if (line.hasOption(CLEANUP_ORPHANS_DEST)) {
+            actionFound = true;
+            sync.cleanupOrphansDest();
+        } else if (line.hasOption(DROP_DEST_DBS)) {
+            actionFound = true;
+            sync.dropDestinationDatabases();
+        } else if (line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA)) {
+            actionFound = true;
+            sync.dropDestinationDatabasesAndConfigMetadata();
         }
+        // 
         
         // MONGOMIRROR_BINARY
         if (line.hasOption(MONGO_MIRROR)) {
@@ -203,7 +220,7 @@ public class ShardConfigSyncApp {
                 printHelpAndExit();
             }
             sync.setMongomirrorBinary(mongoMirrorPath);
-            sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
+            sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
             sync.mongomirror();
         }
         
@@ -214,7 +231,7 @@ public class ShardConfigSyncApp {
                 printHelpAndExit();
             }
             sync.setMongomirrorBinary(line.getOptionValue("p"));
-            sync.setDropDestinationCollectionsIfExisting(line.hasOption(DROP_DEST));
+            sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
             sync.shardToRs();
         }
         
