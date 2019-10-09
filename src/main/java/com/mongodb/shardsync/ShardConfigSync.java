@@ -261,6 +261,9 @@ public class ShardConfigSync {
             if (filtered && ! namespaceFilters.contains(sourceNs) && !databaseFilters.contains(sourceNs.getDatabaseName())) {
                 continue;
             }
+            if (sourceNs.getDatabaseName().equals("config")) {
+                continue;
+            }
             
             String sourceShardName = chunk.getString("shard");
             String mappedShard = sourceToDestShardMap.get(sourceShardName);
@@ -537,6 +540,9 @@ public class ShardConfigSync {
                 logger.debug("Namespace " + ns + " filtered, not sharding on destination");
                 continue;
             }
+            if (ns.getDatabaseName().equals("config")) {
+                continue;
+            }
             
             destColls.replaceOne(new Document("_id", sourceColl.getId()), sourceColl, options);
         }
@@ -553,6 +559,9 @@ public class ShardConfigSync {
             
             if (filtered && ! namespaceFilters.contains(ns) && !databaseFilters.contains(ns.getDatabaseName())) {
                 logger.debug("Namespace " + ns + " filtered, not sharding on destination");
+                continue;
+            }
+            if (ns.getDatabaseName().equals("config")) {
                 continue;
             }
             shardCollection(sourceColl);

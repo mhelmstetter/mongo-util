@@ -52,7 +52,7 @@ public class ShardConfigSyncApp {
                 .isRequired(false).create("d"));
         options.addOption(OptionBuilder.withArgName("Drop destination databases, but preserve config metadata")
                 .withLongOpt(DROP_DEST_DBS).create(DROP_DEST_DBS));
-        options.addOption(OptionBuilder.withArgName("Drop destination databasea AND config metadata (collections, databases, chunks)")
+        options.addOption(OptionBuilder.withArgName("Drop destination databases AND config metadata (collections, databases, chunks)")
                 .withLongOpt(DROP_DEST_DBS_AND_CONFIG_METADATA).create(DROP_DEST_DBS_AND_CONFIG_METADATA));
         options.addOption(OptionBuilder.withArgName("Non-privileged mode, create chunks using splitChunk")
                 .withLongOpt(NON_PRIVILEGED).create(NON_PRIVILEGED));
