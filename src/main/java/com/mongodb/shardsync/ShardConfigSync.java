@@ -79,6 +79,9 @@ public class ShardConfigSync {
     
     private String destVersion;
     private List<Integer> destVersionArray;
+    
+    private boolean sslAllowInvalidHostnames;
+    private boolean sslAllowInvalidCertificates;
 
     public ShardConfigSync() {
         logger.debug("ShardConfigSync starting");
@@ -129,7 +132,7 @@ public class ShardConfigSync {
         // TODO disableAutoSplit !!!!
         //enableDestinationSharding();
 
-        sourceShard.populateCollectionList();
+        sourceShard.populateCollectionsMap();
         shardDestinationCollections();
     }
 
@@ -140,7 +143,7 @@ public class ShardConfigSync {
         //checkAutosplit();
         enableDestinationSharding();
 
-        sourceShard.populateCollectionList();
+        sourceShard.populateCollectionsMap();
         shardDestinationCollections();
         
         if (nonPrivilegedMode) {
@@ -612,8 +615,8 @@ public class ShardConfigSync {
      */
     public void diffShardedCollections(boolean sync) {
         logger.debug("diffShardedCollections()");
-        sourceShard.populateCollectionList();
-        destShard.populateCollectionList();
+        sourceShard.populateCollectionsMap();
+        destShard.populateCollectionsMap();
         
         for (ShardCollection sourceColl : sourceShard.getCollectionsMap().values()) {
             
@@ -765,7 +768,7 @@ public class ShardConfigSync {
     
     public void cleanupOrphans() {
         logger.debug("cleanupOrphans()");
-        sourceShard.populateCollectionList();
+        sourceShard.populateCollectionsMap();
         sourceShard.populateShardMongoClients();
         CleanupOrphaned cleaner = new CleanupOrphaned(sourceShard);
         cleaner.cleanupOrphans();
@@ -773,7 +776,7 @@ public class ShardConfigSync {
     
     public void cleanupOrphansDest() {
         logger.debug("cleanupOrphansDest()");
-        destShard.populateCollectionList();
+        destShard.populateCollectionsMap();
         destShard.populateShardMongoClients();
         CleanupOrphaned cleaner = new CleanupOrphaned(destShard);
         cleaner.cleanupOrphans();
@@ -945,6 +948,11 @@ public class ShardConfigSync {
             mongomirror.setMongomirrorBinary(mongomirrorBinary);
             mongomirror.setBookmarkFile(source.getId() + ".timestamp");
             mongomirror.setNumParallelCollections(numParallelCollections);
+            
+            if (destShard.isVersion36OrLater()) {
+                logger.debug("Version 3.6 or later, setting preserveUUIDs true");
+                mongomirror.setPreserveUUIDs(true);
+            }
             mongomirror.execute();
             try {
                 Thread.sleep(sleepMillis);
@@ -980,5 +988,13 @@ public class ShardConfigSync {
 
     public void setDropDestDbsAndConfigMetadata(boolean dropDestinationConfigMetadata) {
         this.dropDestDbsAndConfigMetadata = dropDestinationConfigMetadata;
+    }
+
+    public void setSslAllowInvalidHostnames(boolean sslAllowInvalidHostnames) {
+        this.sslAllowInvalidHostnames = sslAllowInvalidHostnames;
+    }
+
+    public void setSslAllowInvalidCertificates(boolean sslAllowInvalidCertificates) {
+        this.sslAllowInvalidCertificates = sslAllowInvalidCertificates;
     }
 }

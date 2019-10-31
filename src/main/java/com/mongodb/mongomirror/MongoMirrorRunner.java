@@ -38,6 +38,9 @@ public class MongoMirrorRunner {
     private String readPreference;
     private Boolean drop;
     private Boolean destinationNoSSL;
+    private Boolean preserveUUIDs;
+    private Boolean sslAllowInvalidCertificates;
+    private Boolean sslAllowInvalidHostnames;
     private String namespaceFilter;
     private String bookmarkFile;
     
@@ -90,6 +93,8 @@ public class MongoMirrorRunner {
         
         addArg("readPreference", readPreference);
         addArg("destinationNoSSL", destinationNoSSL);
+        addArg("preserveUUIDs", preserveUUIDs);
+        
         addArg("drop", drop);
         addArg("filter", namespaceFilter);
         addArg("bookmarkFile", bookmarkFile);
@@ -240,6 +245,14 @@ public class MongoMirrorRunner {
 
     public void setNumParallelCollections(String numParallelCollections) {
         this.numParallelCollections = numParallelCollections;
+    }
+
+    public Boolean getPreserveUUIDs() {
+        return preserveUUIDs;
+    }
+
+    public void setPreserveUUIDs(Boolean preserveUUIDs) {
+        this.preserveUUIDs = preserveUUIDs;
     }
 
 }

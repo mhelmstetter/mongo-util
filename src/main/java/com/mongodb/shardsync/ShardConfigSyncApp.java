@@ -30,6 +30,8 @@ public class ShardConfigSyncApp {
     private final static String DROP_DEST_DBS = "dropDestDbs";
     private final static String DROP_DEST_DBS_AND_CONFIG_METADATA = "dropDestDbsAndConfigMeta";
     private final static String NON_PRIVILEGED = "nonPrivileged";
+    private final static String PRESERVE_UUIDS = "preserveUUIDs";
+    
     private final static String COLL_COUNTS = "compareCounts";
     private final static String CHUNK_COUNTS = "chunkCounts";
     private final static String FLUSH_ROUTER = "flushRouter";
@@ -39,7 +41,10 @@ public class ShardConfigSyncApp {
     private final static String SHARD_COLLECTIONS = "shardCollections";
     private final static String CLEANUP_ORPHANS = "cleanupOrphans";
     private final static String CLEANUP_ORPHANS_DEST = "cleanupOrphansDest";
-
+    
+    private final static String SSL_ALLOW_INVALID_HOSTNAMES = "sslAllowInvalidHostnames";
+    private final static String SSL_ALLOW_INVALID_CERTS = "sslAllowInvalidCertificates";
+    
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
         options = new Options();
@@ -73,6 +78,15 @@ public class ShardConfigSyncApp {
         
         options.addOption(OptionBuilder.withArgName("Shard destination collections")
                 .withLongOpt(SHARD_COLLECTIONS).create(SHARD_COLLECTIONS));
+        
+        options.addOption(OptionBuilder.withArgName("ssl allow invalid hostnames")
+                .withLongOpt(SSL_ALLOW_INVALID_HOSTNAMES).create(SSL_ALLOW_INVALID_HOSTNAMES));
+        options.addOption(OptionBuilder.withArgName("ssl allow invalid certificates")
+                .withLongOpt(SSL_ALLOW_INVALID_CERTS).create(SSL_ALLOW_INVALID_CERTS));
+        
+        options.addOption(OptionBuilder.withArgName("preserve UUIDs")
+                .withLongOpt(PRESERVE_UUIDS).create(PRESERVE_UUIDS));
+        
         
         
         
@@ -167,6 +181,9 @@ public class ShardConfigSyncApp {
         sync.setDropDestDbsAndConfigMetadata(line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA));
         sync.setSleepMillis(line.getOptionValue("x"));
         sync.setNumParallelCollections(line.getOptionValue("y"));
+        
+        sync.setSslAllowInvalidCertificates(line.hasOption(SSL_ALLOW_INVALID_CERTS));
+        sync.setSslAllowInvalidHostnames(line.hasOption(SSL_ALLOW_INVALID_HOSTNAMES));
         
         sync.init();
         boolean actionFound = false;

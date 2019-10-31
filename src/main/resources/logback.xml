@@ -16,8 +16,9 @@
 
   <logger name="com.mongodb.diffutil" level="DEBUG"/>
   <logger name="com.mongodb.shardsync" level="DEBUG" additivity="true"/>
+  <logger name="com.mongodb.mongosync" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.mongostat" level="DEBUG" additivity="false"/>
-  <logger name="com.mongodb.mongomirror" level="DEBUG" additivity="true"/>
+  <logger name="com.mongodb.mongomirror" level="DEBUG" additivity="false"/>
   <logger name="com.mongodb.internal" level="DEBUG"  additivity="false"/>
   
   <logger name="com.mongodb.mongoreplay" level="DEBUG"/>

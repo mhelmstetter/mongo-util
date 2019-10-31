@@ -1,10 +1,13 @@
 package com.mongodb.model;
 
+import org.bson.BsonTimestamp;
+
 public class Shard {
 
     private String id;
     private String host;
     private int state;
+    private ShardTimestamp syncStartTimestamp;
     
     // internal property only used by sync process
     private boolean mongomirrorDropped;
@@ -39,6 +42,14 @@ public class Shard {
 
     public void setMongomirrorDropped(boolean mongomirrorDropped) {
         this.mongomirrorDropped = mongomirrorDropped;
+    }
+
+    public ShardTimestamp getSyncStartTimestamp() {
+        return syncStartTimestamp;
+    }
+
+    public void setSyncStartTimestamp(ShardTimestamp syncStartTimestamp) {
+        this.syncStartTimestamp = syncStartTimestamp;
     }
 
 }

@@ -50,13 +50,9 @@ public final class CodecUtils {
     return Hex.encodeHexString(d.digest());
   }
 
-  public static byte[] md5(final String pV) {
+  public static byte[] md5(final byte[] pV) {
     final MessageDigest d = sCache.get();
-    try {
-      d.update(pV.getBytes(ENCODING));
-    } catch (final UnsupportedEncodingException e) {
-      throw new IllegalArgumentException(e);
-    }
+    d.update(pV);
     return d.digest();
   }
 
