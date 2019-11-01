@@ -2,6 +2,8 @@ package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.regex;
+import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 import java.io.File;
 import java.io.IOException;
@@ -18,11 +20,15 @@ import java.util.TreeMap;
 import org.apache.commons.exec.ExecuteException;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
+import org.bson.UuidRepresentation;
 import org.bson.codecs.DocumentCodec;
+import org.bson.codecs.UuidCodecProvider;
+import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.types.MaxKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.MongoClient;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoCredential;
 import com.mongodb.MongoException;
@@ -84,6 +90,10 @@ public class ShardConfigSync {
     
     private boolean sslAllowInvalidHostnames;
     private boolean sslAllowInvalidCertificates;
+    
+    CodecRegistry registry = fromRegistries(fromProviders(new UuidCodecProvider(UuidRepresentation.STANDARD)),
+            MongoClient.getDefaultCodecRegistry());
+    DocumentCodec documentCodec = new DocumentCodec(registry);
 
     public ShardConfigSync() {
         logger.debug("ShardConfigSync starting");
@@ -290,8 +300,8 @@ public class ShardConfigSync {
 //                    destConfigDb.getCollection("chunks").insertOne(chunk);
 //                }
                 
-                // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
-                RawBsonDocument rawDoc = new RawBsonDocument(chunk, new DocumentCodec());
+             // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
+                RawBsonDocument rawDoc = new RawBsonDocument(chunk, documentCodec);
                 destShard.getChunksCollectionRaw().insertOne(rawDoc);
                 
                 
@@ -556,7 +566,7 @@ public class ShardConfigSync {
             }
             
             // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
-            RawBsonDocument rawDoc = new RawBsonDocument(sourceColl, new DocumentCodec());
+            RawBsonDocument rawDoc = new RawBsonDocument(sourceColl, documentCodec);
             destColls.replaceOne(new Document("_id", nsStr), rawDoc, options);
         }
         
