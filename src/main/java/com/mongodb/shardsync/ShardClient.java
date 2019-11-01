@@ -1,8 +1,9 @@
 package com.mongodb.shardsync;
 
-import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.in;
+import static com.mongodb.client.model.Filters.regex;
 import static com.mongodb.client.model.Projections.include;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
@@ -28,6 +29,7 @@ import org.slf4j.LoggerFactory;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientOptions;
 import com.mongodb.MongoClientURI;
+import com.mongodb.MongoCommandException;
 import com.mongodb.MongoCredential;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
@@ -39,7 +41,6 @@ import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Shard;
-import com.mongodb.model.ShardCollection;
 
 /**
  * This class encapsulates the client related objects needed for each source and
@@ -241,13 +242,25 @@ public class ShardClient {
             }
         }
     }
+    
+    private void dropForce(String dbName) {
+        MongoClient c = mongosMongoClients.get(0);
+        c.getDatabase("config").getCollection("collections").deleteOne(eq("_id", dbName));
+        c.getDatabase("config").getCollection("chunks").deleteMany(regex("ns", "^" + dbName + "\\."));
+    }
 
     public void dropDatabasesAndConfigMetadata(List<String> databasesList) {
         MongoClient c = mongosMongoClients.get(0);
         for (String dbName : databasesList) {
             if (! dbName.equals("admin")) {
                 logger.debug(name + " dropping " + dbName + " using mongos " + c.getConnectPoint());
-                c.dropDatabase(dbName);
+                try {
+                    c.dropDatabase(dbName);
+                } catch (MongoCommandException mce) {
+                    logger.debug("Drop failed, brute forcing.");
+                    dropForce(dbName);
+                }
+               
             }
         }
     }
