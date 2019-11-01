@@ -72,7 +72,7 @@ public class ShardClient {
     private List<Mongos> mongosList = new ArrayList<Mongos>();
     private List<MongoClient> mongosMongoClients = new ArrayList<MongoClient>();
 
-    private Map<String, ShardCollection> collectionsMap = new TreeMap<String, ShardCollection>();
+    private Map<String, Document> collectionsMap = new TreeMap<String, Document>();
 
     private Map<String, MongoClient> shardMongoClients = new TreeMap<String, MongoClient>();
 
@@ -163,16 +163,17 @@ public class ShardClient {
      */
     public void populateCollectionsMap(Set<String> namespaces) {
         logger.debug("Starting populateCollectionsMap()");
-        MongoCollection<ShardCollection> shardsColl = configDb.getCollection("collections", ShardCollection.class);
+        MongoCollection<Document> shardsColl = configDb.getCollection("collections");
         Bson filter = null;
         if (namespaces == null || namespaces.isEmpty()) {
             filter = eq("dropped", false);
         } else {
             filter = and(eq("dropped", false), in("_id", namespaces));
         }
-        FindIterable<ShardCollection> colls = shardsColl.find(filter).sort(Sorts.ascending("_id"));
-        for (ShardCollection c : colls) {
-            collectionsMap.put(c.getId(), c);
+        FindIterable<Document> colls = shardsColl.find(filter).sort(Sorts.ascending("_id"));
+        for (Document c : colls) {
+            String id = (String)c.get("_id");
+            collectionsMap.put(id, c);
         }
         logger.debug(String.format("Finished populateCollectionsMap(), %s collections loaded from config server", collectionsMap.size()));
     }
@@ -271,6 +272,10 @@ public class ShardClient {
     public MongoCollection<Document> getChunksCollection() {
         return configDb.getCollection("chunks");
     }
+    
+    public MongoCollection<RawBsonDocument> getChunksCollectionRaw() {
+        return configDb.getCollection("chunks", RawBsonDocument.class);
+    }
 
     public MongoCollection<Document> getDatabasesCollection() {
         return configDb.getCollection("databases");
@@ -334,7 +339,7 @@ public class ShardClient {
         return shardsMap;
     }
 
-    public Map<String, ShardCollection> getCollectionsMap() {
+    public Map<String, Document> getCollectionsMap() {
         return collectionsMap;
     }
 

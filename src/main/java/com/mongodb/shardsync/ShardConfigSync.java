@@ -17,6 +17,8 @@ import java.util.TreeMap;
 
 import org.apache.commons.exec.ExecuteException;
 import org.bson.Document;
+import org.bson.RawBsonDocument;
+import org.bson.codecs.DocumentCodec;
 import org.bson.types.MaxKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -270,7 +272,7 @@ public class ShardConfigSync {
             
             String sourceShardName = chunk.getString("shard");
             String mappedShard = sourceToDestShardMap.get(sourceShardName);
-            ShardCollection coll = sourceShard.getCollectionsMap().get(sourceNs.getNamespace());
+            //ShardCollection coll = sourceShard.getCollectionsMap().get(sourceNs.getNamespace());
             chunk.append("shard", mappedShard);
             //chunk.append("lastmod", chunk.get("lastmod"));
             //chunk.append("lastmodEpoch", chunk.get("lastmodEpoch"));
@@ -287,7 +289,10 @@ public class ShardConfigSync {
 //                } else {
 //                    destConfigDb.getCollection("chunks").insertOne(chunk);
 //                }
-                destShard.getChunksCollection().insertOne(chunk);
+                
+                // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
+                RawBsonDocument rawDoc = new RawBsonDocument(chunk, new DocumentCodec());
+                destShard.getChunksCollectionRaw().insertOne(rawDoc);
                 
                 
             } catch (MongoException mce) {
@@ -532,12 +537,15 @@ public class ShardConfigSync {
     private void shardDestinationCollectionsUsingInsert() {
         logger.debug("shardDestinationCollectionsUsingInsert(), privileged mode");
         
-        MongoCollection<ShardCollection> destColls = destShard.getConfigDb().getCollection("collections", ShardCollection.class);
+        MongoCollection<RawBsonDocument> destColls = destShard.getConfigDb().getCollection("collections", RawBsonDocument.class);
         ReplaceOptions options = new ReplaceOptions().upsert(true);
         
-        for (ShardCollection sourceColl : sourceShard.getCollectionsMap().values()) {
+        
+        
+        for (Document sourceColl : sourceShard.getCollectionsMap().values()) {
             
-            Namespace ns = sourceColl.getNamespace();
+            String nsStr = (String)sourceColl.get("_id");
+            Namespace ns = new Namespace(nsStr);
             
             if (filtered && ! namespaceFilters.contains(ns) && !databaseFilters.contains(ns.getDatabaseName())) {
                 logger.debug("Namespace " + ns + " filtered, not sharding on destination");
@@ -547,7 +555,9 @@ public class ShardConfigSync {
                 continue;
             }
             
-            destColls.replaceOne(new Document("_id", sourceColl.getId()), sourceColl, options);
+            // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
+            RawBsonDocument rawDoc = new RawBsonDocument(sourceColl, new DocumentCodec());
+            destColls.replaceOne(new Document("_id", nsStr), rawDoc, options);
         }
         
         logger.debug("shardDestinationCollectionsUsingInsert() complete");
@@ -556,9 +566,10 @@ public class ShardConfigSync {
     private void shardDestinationCollectionsUsingShardCommand() {
         logger.debug("shardDestinationCollectionsUsingShardCommand(), non-privileged mode");
         
-        for (ShardCollection sourceColl : sourceShard.getCollectionsMap().values()) {
+        for (Document sourceColl : sourceShard.getCollectionsMap().values()) {
             
-            Namespace ns = sourceColl.getNamespace();
+            String nsStr = (String)sourceColl.get("_id");
+            Namespace ns = new Namespace(nsStr);
             
             if (filtered && ! namespaceFilters.contains(ns) && !databaseFilters.contains(ns.getDatabaseName())) {
                 logger.debug("Namespace " + ns + " filtered, not sharding on destination");
@@ -569,13 +580,13 @@ public class ShardConfigSync {
             }
             shardCollection(sourceColl);
 
-            if (sourceColl.isNoBalance()) {
+            if ((boolean)sourceColl.get("noBalance")) {
                 // TODO there is no disableBalancing command so this is not
                 // possible in Atlas
                 // destClient.getDatabase("admin").runCommand(new Document("",
                 // ""));
                 logger.warn(String.format("Balancing is disabled for %s, this is not possible in Atlas",
-                        sourceColl.getId()));
+                        nsStr));
             }
         }
         logger.debug("shardDestinationCollectionsUsingShardCommand() complete");
@@ -609,6 +620,32 @@ public class ShardConfigSync {
         return result;
     }
     
+    private Document shardCollection(Document sourceColl) {
+        Document shardCommand = new Document("shardCollection", sourceColl.get("_id"));
+        shardCommand.append("key", sourceColl.get("key"));
+        
+        // apparently unique is not always correct here, there are cases where unique is false
+        // here but the underlying index is unique
+        shardCommand.append("unique", sourceColl.get("unique"));
+        
+        // TODO fixme!!!
+//        if (sourceColl.getDefaultCollation() != null) {
+//            shardCommand.append("collation", LOCALE_SIMPLE);
+//        }
+        
+        Document result = null;
+        try {
+            result = destShard.adminCommand(shardCommand);
+        } catch (MongoCommandException mce) {
+            if (mce.getCode() == 20) {
+                logger.debug(String.format("Sharding already enabled for %s", sourceColl.get("_id")));
+            } else {
+                throw mce;
+            }
+        }
+        return result;
+    }
+    
     /**
      * 
      * @param sync - THIS WILL shard on the dest side if not in sync
@@ -618,18 +655,19 @@ public class ShardConfigSync {
         sourceShard.populateCollectionsMap();
         destShard.populateCollectionsMap();
         
-        for (ShardCollection sourceColl : sourceShard.getCollectionsMap().values()) {
+        for (Document sourceColl : sourceShard.getCollectionsMap().values()) {
             
-            Namespace ns = sourceColl.getNamespace();
+            String nsStr = (String)sourceColl.get("_id");
+            Namespace ns = new Namespace(nsStr);
             if (filtered && ! namespaceFilters.contains(ns) && !databaseFilters.contains(ns.getDatabaseName())) {
                 //logger.debug("Namespace " + ns + " filtered, not sharding on destination");
                 continue;
             }
             
-            ShardCollection destCollection = destShard.getCollectionsMap().get(sourceColl.getId());
+            Document destCollection = destShard.getCollectionsMap().get(sourceColl.get("_id"));
             
             if (destCollection == null) {
-                logger.debug("Destination collection not found: " + sourceColl.getId() + " sourceKey:" + sourceColl.getKey());
+                logger.debug("Destination collection not found: " + sourceColl.get("_id") + " sourceKey:" + sourceColl.get("key"));
                 if (sync) {
                     try {
                         Document result = shardCollection(sourceColl);
@@ -639,10 +677,10 @@ public class ShardConfigSync {
                     }
                 }
             } else {
-                if (sourceColl.getKey().equals(destCollection.getKey())) {
+                if (sourceColl.get("key").equals(destCollection.get("key"))) {
                     logger.debug("Shard key match for " + sourceColl);
                 } else {
-                    logger.warn("Shard key MISMATCH for " + sourceColl + " sourceKey:" + sourceColl.getKey() + " destKey:" + destCollection.getKey());
+                    logger.warn("Shard key MISMATCH for " + sourceColl + " sourceKey:" + sourceColl.get("key") + " destKey:" + destCollection.get("key"));
                 }
             }
         }

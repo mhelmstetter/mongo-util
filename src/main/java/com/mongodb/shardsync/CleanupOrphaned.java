@@ -51,11 +51,11 @@ public class CleanupOrphaned {
         
         public void run() {
             MongoDatabase db = client.getDatabase("admin");
-            for (ShardCollection coll : shardClient.getCollectionsMap().values()) {
+            for (Document coll : shardClient.getCollectionsMap().values()) {
                 
-                logger.debug("cleanupOrphaned: " + coll.getNamespace() + " on " + client.getConnectPoint());
+                logger.debug("cleanupOrphaned: " + coll.get("_id") + " on " + client.getConnectPoint());
                 
-                Document command = new Document("cleanupOrphaned", coll.getNamespace().toString());
+                Document command = new Document("cleanupOrphaned", (String)coll.get("_id"));
                 
                 Document result = null;
                 Document nextKey = null;
