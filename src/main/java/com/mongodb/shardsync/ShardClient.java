@@ -232,8 +232,11 @@ public class ShardClient {
     public void dropDatabases(List<String> databasesList) {
         for (MongoClient c : shardMongoClients.values()) {
             for (String dbName : databasesList) {
-                logger.debug(name + " dropping " + dbName + " on " + c.getConnectPoint());
-                c.dropDatabase(dbName);
+                if (! dbName.equals("admin")) {
+                    logger.debug(name + " dropping " + dbName + " on " + c.getConnectPoint());
+                    c.dropDatabase(dbName);
+                }
+                
             }
         }
     }
@@ -241,8 +244,10 @@ public class ShardClient {
     public void dropDatabasesAndConfigMetadata(List<String> databasesList) {
         MongoClient c = mongosMongoClients.get(0);
         for (String dbName : databasesList) {
-            logger.debug(name + " dropping " + dbName + " using mongos " + c.getConnectPoint());
-            c.dropDatabase(dbName);
+            if (! dbName.equals("admin")) {
+                logger.debug(name + " dropping " + dbName + " using mongos " + c.getConnectPoint());
+                c.dropDatabase(dbName);
+            }
         }
     }
     
