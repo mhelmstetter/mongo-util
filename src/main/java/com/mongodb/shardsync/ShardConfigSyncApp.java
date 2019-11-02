@@ -44,6 +44,8 @@ public class ShardConfigSyncApp {
     
     private final static String SSL_ALLOW_INVALID_HOSTNAMES = "sslAllowInvalidHostnames";
     private final static String SSL_ALLOW_INVALID_CERTS = "sslAllowInvalidCertificates";
+
+    private static final String SHARD_MAP = "shardMap";
     
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -96,7 +98,7 @@ public class ShardConfigSyncApp {
                 .isRequired(false).create("f"));
         options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArgs().withLongOpt(MONGOMIRROR_BINARY)
                 .isRequired(false).create("p"));
-        options.addOption(OptionBuilder.withArgName("Shard mapping").hasArgs().withLongOpt("shardMap")
+        options.addOption(OptionBuilder.withArgName("Shard mapping").hasArgs().withLongOpt(SHARD_MAP)
                 .isRequired(false).create("m"));
         
         options.addOption(OptionBuilder.withArgName("Diff chunks").hasArgs().withLongOpt("diffChunks")
@@ -174,8 +176,15 @@ public class ShardConfigSyncApp {
             printHelpAndExit();
         }
         
+        String shardMaps = configFileProps.getProperty(SHARD_MAP);
+        if (shardMaps != null) {
+            sync.setShardMappings(shardMaps.split(","));
+        } else {
+            sync.setShardMappings(line.getOptionValues("m"));
+        }
+        
         sync.setNamespaceFilters(line.getOptionValues("f"));
-        sync.setShardMappings(line.getOptionValues("m"));
+        
         sync.setNonPrivilegedMode(line.hasOption(NON_PRIVILEGED));
         sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
         sync.setDropDestDbsAndConfigMetadata(line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA));
