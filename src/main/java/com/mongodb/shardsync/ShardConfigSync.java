@@ -91,10 +91,9 @@ public class ShardConfigSync {
     private boolean sslAllowInvalidHostnames;
     private boolean sslAllowInvalidCertificates;
     
-//    CodecRegistry registry = fromRegistries(fromProviders(new UuidCodecProvider(UuidRepresentation.STANDARD)),
-//            MongoClient.getDefaultCodecRegistry());
-//    DocumentCodec documentCodec = new DocumentCodec(registry);
-    DocumentCodec documentCodec = new DocumentCodec();
+    CodecRegistry registry = fromRegistries(fromProviders(new UuidCodecProvider(UuidRepresentation.STANDARD)),
+            MongoClient.getDefaultCodecRegistry());
+    DocumentCodec documentCodec = new DocumentCodec(registry);
 
     public ShardConfigSync() {
         logger.debug("ShardConfigSync starting");
