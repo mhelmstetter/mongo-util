@@ -79,9 +79,8 @@ public class ShardClient {
 
     public ShardClient(String name, String clusterUri) {
         this.name = name;
-        this.mongoClientURI = new MongoClientURI(clusterUri);
-        
         logger.debug(String.format("%s client, uri: %s", name, clusterUri));
+        this.mongoClientURI = new MongoClientURI(clusterUri);
 
         this.username = mongoClientURI.getUsername();
         if (username != null) {
