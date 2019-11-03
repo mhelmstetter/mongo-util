@@ -2,6 +2,7 @@ package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.regex;
+import static com.mongodb.client.model.Filters.exists;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
@@ -130,7 +131,6 @@ public class ShardConfigSync {
                     logger.debug(sourceShard.getId() + " ==> " + destShard.getId());
                     sourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
                 }
-                
                 index++;
             }
         }
@@ -162,8 +162,8 @@ public class ShardConfigSync {
             createDestChunksUsingSplitCommand();
         } else {
             createDestChunksUsingInsert();
+            createShardTagsUsingInsert();
         }
-        
 
         if (!compareAndMoveChunks(true)) {
             throw new RuntimeException("chunks don't match");
@@ -253,6 +253,46 @@ public class ShardConfigSync {
         logger.debug("createDestChunksUsingSplitCommand complete");
     }
     
+    @SuppressWarnings("unchecked")
+    private void createShardTagsUsingInsert() {
+        logger.debug("createShardTagsUsingInsert started");
+        
+        MongoCollection<Document> sourceShardsColl = sourceShard.getShardsCollection();
+        FindIterable<Document> sourceShards = sourceShardsColl.find(exists("tags.0"));
+        for (Iterator<Document> it = sourceShards.iterator(); it.hasNext();) {
+            Document shard = it.next();
+            String sourceShardName = shard.getString("_id");
+            String mappedShard = sourceToDestShardMap.get(sourceShardName);
+            List<String> tags = (List<String>)shard.get("tags");
+            
+            for (String tag : tags) {
+                Document command = new Document("addShardToZone", mappedShard).append("zone", tag);
+                logger.debug(String.format("addShardToZone('%s', '%s')", mappedShard, tag));
+                destShard.adminCommand(command);
+            }
+        }
+        
+        MongoCollection<Document> sourceTagsColl = sourceShard.getTagsCollection();
+        FindIterable<Document> sourceTags = sourceTagsColl.find().sort(Sorts.ascending("ns", "min"));
+        
+        for (Iterator<Document> it = sourceTags.iterator(); it.hasNext();) {
+            
+            Document tag = it.next();
+            logger.trace("tag: " + tag);
+            String ns = tag.getString("ns");
+            Namespace sourceNs = new Namespace(ns);
+            if (filtered && ! namespaceFilters.contains(sourceNs) && !databaseFilters.contains(sourceNs.getDatabaseName())) {
+                continue;
+            }
+            
+            Document command = new Document("updateZoneKeyRange", ns);
+            command.append("min", tag.get("min"));
+            command.append("max", tag.get("max"));
+            command.append("zone", tag.get("tag"));
+            destShard.adminCommand(command);
+        }
+        logger.debug("createShardTagsUsingInsert complete");
+    }
     
     /**
      * Alternative to createDestChunksUsingSplitCommand(). Preferred approach for
@@ -265,13 +305,11 @@ public class ShardConfigSync {
 
         String lastNs = null;
         int currentCount = 0;
-        
 
         for (Iterator<Document> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
             
             Document chunk = sourceChunksIterator.next();
             String ns = chunk.getString("ns");
-            String chunkId = chunk.getString("_id");
             Namespace sourceNs = new Namespace(ns);
             if (filtered && ! namespaceFilters.contains(sourceNs) && !databaseFilters.contains(sourceNs.getDatabaseName())) {
                 continue;
@@ -282,10 +320,7 @@ public class ShardConfigSync {
             
             String sourceShardName = chunk.getString("shard");
             String mappedShard = sourceToDestShardMap.get(sourceShardName);
-            //ShardCollection coll = sourceShard.getCollectionsMap().get(sourceNs.getNamespace());
             chunk.append("shard", mappedShard);
-            //chunk.append("lastmod", chunk.get("lastmod"));
-            //chunk.append("lastmodEpoch", chunk.get("lastmodEpoch"));
             
             if (!ns.equals(lastNs) && lastNs != null) {
                 logger.debug(String.format("%s - created %s chunks", lastNs, ++currentCount));
@@ -293,17 +328,10 @@ public class ShardConfigSync {
             }
 
             try {
-//                if ((lastNs == null || lastNs != ns) &&  chunkId.contains("MinKey")) {
-//                    System.out.println();
-//                    destConfigDb.getCollection("chunks").replaceOne(new Document("_id", chunkId), chunk);
-//                } else {
-//                    destConfigDb.getCollection("chunks").insertOne(chunk);
-//                }
                 
-             // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
+                // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
                 RawBsonDocument rawDoc = new RawBsonDocument(chunk, documentCodec);
                 destShard.getChunksCollectionRaw().insertOne(rawDoc);
-                
                 
             } catch (MongoException mce) {
                 logger.error(String.format("command error for namespace %s", ns), mce);
@@ -722,19 +750,6 @@ public class ShardConfigSync {
                 logger.debug("Database " + databaseName + " filtered, not sharding on destination");
                 continue;
             }
-            
-//            // this will drop on the shards AND kill the config metadata
-//            if (dropDestDbsAndConfigMetadata) {
-//                logger.debug(String.format("dropDestDbsAndConfigMetadata, dropping database %s on all dest shards and dropping config metadata", databaseName));
-//                destShard.getMongoClient().dropDatabase(databaseName);
-//            }
-//            
-//            // drop on the shards, keep config metadata
-//            if (dropDestDbs) {
-//                logger.debug(String.format("dropDestDbs, dropping database %s on all dest shards, keep config metadata", databaseName));
-//                destShard.dropDatabase(databaseName);
-//            }
-            
             
             Document dest = destShard.getConfigDb().getCollection("databases").find(new Document("_id", databaseName)).first();
             if (database.getBoolean("partitioned", true)) {

@@ -39,6 +39,7 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.result.DeleteResult;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Shard;
 
@@ -244,8 +245,14 @@ public class ShardClient {
     
     private void dropForce(String dbName) {
         MongoClient c = mongosMongoClients.get(0);
-        c.getDatabase("config").getCollection("collections").deleteOne(eq("_id", dbName));
-        c.getDatabase("config").getCollection("chunks").deleteMany(regex("ns", "^" + dbName + "\\."));
+        DeleteResult r = c.getDatabase("config").getCollection("collections").deleteMany(regex("_id", "^" + dbName + "\\."));
+        logger.debug(String.format("Force deleted %s config.collections documents", r.getDeletedCount()));
+        r = c.getDatabase("config").getCollection("chunks").deleteMany(regex("ns", "^" + dbName + "\\."));
+        logger.debug(String.format("Force deleted %s config.chunks documents", r.getDeletedCount()));
+    }
+    
+    public void addShardToZone(String shardId, String zone) {
+        MongoClient c = mongosMongoClients.get(0);
     }
 
     public void dropDatabasesAndConfigMetadata(List<String> databasesList) {
@@ -279,6 +286,14 @@ public class ShardClient {
 
     public static Number getCollectionCount(MongoDatabase db, String collectionName) {
         return getCollectionCount(db, db.getCollection(collectionName, RawBsonDocument.class));
+    }
+    
+    public MongoCollection<Document> getShardsCollection() {
+        return configDb.getCollection("shards");
+    }
+    
+    public MongoCollection<Document> getTagsCollection() {
+        return configDb.getCollection("tags");
     }
 
     public MongoCollection<Document> getChunksCollection() {
