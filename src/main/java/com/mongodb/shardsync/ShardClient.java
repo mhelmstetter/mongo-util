@@ -250,10 +250,6 @@ public class ShardClient {
         r = c.getDatabase("config").getCollection("chunks").deleteMany(regex("ns", "^" + dbName + "\\."));
         logger.debug(String.format("Force deleted %s config.chunks documents", r.getDeletedCount()));
     }
-    
-    public void addShardToZone(String shardId, String zone) {
-        MongoClient c = mongosMongoClients.get(0);
-    }
 
     public void dropDatabasesAndConfigMetadata(List<String> databasesList) {
         MongoClient c = mongosMongoClients.get(0);
@@ -312,6 +308,10 @@ public class ShardClient {
         String tmpName = "tmp_ShardConfigSync_" + System.currentTimeMillis();
         mongoClient.getDatabase(databaseName).createCollection(tmpName);
         mongoClient.getDatabase(databaseName).getCollection(tmpName).drop();
+    }
+    
+    public MongoIterable<String> listDatabaseNames() {
+        return this.mongoClient.listDatabaseNames();
     }
 
     public MongoIterable<String> listCollectionNames(String databaseName) {
