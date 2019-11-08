@@ -64,7 +64,7 @@ public class MongoReplayFilter {
 
     @SuppressWarnings({ "unused", "unchecked" })
     public void filterFile(String filename) throws FileNotFoundException, DataFormatException {
-
+        logger.debug("filterFile: " + filename);
         File file = new File(filename);
         InputStream inputStream = new BufferedInputStream(new FileInputStream(file));
 
@@ -115,11 +115,30 @@ public class MongoReplayFilter {
                     int responseTo = bsonInput.readInt32();
                     int headerOpcode = bsonInput.readInt32();
                     
+                    logger.debug("opcode: " + opcode + ", headerOpcode: " + headerOpcode);
+                    
                     // https://github.com/mongodb/specifications/blob/master/source/compression/OP_COMPRESSED.rst
                     if (opcode == 2012) {
-                        // TODO this is broken
-                        //obj = readCompressedOp(bsonInput, messageLength);
-                        continue;
+                        
+                        opcode = bsonInput.readInt32();
+                        // Dumb hack, just double count the compressed / uncompressed opcode
+                        incrementOpcodeSeenCount(opcode);
+                        int uncompressedSize = bsonInput.readInt32();
+                        byte compressorId = bsonInput.readByte();
+                        
+                        logger.debug("compressorId: " + compressorId);
+                        
+                        
+                        int position = bsonInput.getPosition();
+                        int remaining = messageLength - position;
+                        
+                        byte[] compressed = new byte[remaining];
+                        
+                        bsonInput.readBytes(compressed);
+                        byte[] uncompressed = Snappy.uncompress(compressed);
+                        
+                        //bsonInput = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(bytes)));
+                        obj = decoder.readObject(uncompressed);
                     }
 
                     if (opcode == 2004) {
@@ -274,22 +293,6 @@ public class MongoReplayFilter {
         System.err.println(String.format("%s objects read, %s filtered objects written", count, written));
     }
     
-    private BSONObject readCompressedOp(ByteBufferBsonInput bsonInput, int messageLength) throws IOException {
-        int originalOpcode = bsonInput.readInt32();
-        // Dumb hack, just double count the compressed / uncompressed opcode
-        incrementOpcodeSeenCount(originalOpcode);
-        int uncompressedSize = bsonInput.readInt32();
-        //int originalOpcode = bsonInput.readInt32();
-        byte compressorId = bsonInput.readByte();
-        
-        int position = bsonInput.getPosition();
-        int remaining = messageLength - position;
-        
-        byte[] compressed = new byte[remaining];
-        bsonInput.readBytes(compressed);
-        byte[] uncompressed = Snappy.uncompress(compressed);
-        return decoder.readObject(uncompressed);
-    }
 
     private void logCounts() {
         for (Map.Entry<Integer, Integer> entry : opcodeSeenCounters.entrySet()) {
