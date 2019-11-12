@@ -62,6 +62,8 @@ public class ShardConfigSync {
     private boolean dropDestDbsAndConfigMetadata;
     private boolean nonPrivilegedMode = false;
     private boolean doChunkCounts;
+    private boolean preserveUUIDs;
+    private boolean tailOnly;
     
     private ShardClient sourceShard;
     private ShardClient destShard;
@@ -1016,6 +1018,9 @@ public class ShardConfigSync {
                 logger.debug("Version 3.6 or later, setting preserveUUIDs true");
                 mongomirror.setPreserveUUIDs(true);
             }
+            if (tailOnly) {
+               mongomirror.setTailOnly(tailOnly);
+            }
             mongomirror.execute();
             try {
                 Thread.sleep(sleepMillis);
@@ -1059,5 +1064,13 @@ public class ShardConfigSync {
 
     public void setSslAllowInvalidCertificates(boolean sslAllowInvalidCertificates) {
         this.sslAllowInvalidCertificates = sslAllowInvalidCertificates;
+    }
+
+    public void setPreserveUUIDs(boolean preserveUUIDs) {
+        this.preserveUUIDs = preserveUUIDs;
+    }
+
+    public void setTailOnly(boolean tailOnly) {
+        this.tailOnly = tailOnly;
     }
 }

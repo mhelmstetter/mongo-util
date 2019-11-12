@@ -39,6 +39,7 @@ public class MongoMirrorRunner {
     private Boolean drop;
     private Boolean destinationNoSSL;
     private Boolean preserveUUIDs;
+    private Boolean tailOnly;
     private Boolean sslAllowInvalidCertificates;
     private Boolean sslAllowInvalidHostnames;
     private String namespaceFilter;
@@ -94,6 +95,7 @@ public class MongoMirrorRunner {
         addArg("readPreference", readPreference);
         addArg("destinationNoSSL", destinationNoSSL);
         addArg("preserveUUIDs", preserveUUIDs);
+        addArg("tailOnly", tailOnly);
         
         addArg("drop", drop);
         addArg("filter", namespaceFilter);
@@ -253,6 +255,10 @@ public class MongoMirrorRunner {
 
     public void setPreserveUUIDs(Boolean preserveUUIDs) {
         this.preserveUUIDs = preserveUUIDs;
+    }
+
+    public void setTailOnly(Boolean tailOnly) {
+        this.tailOnly = tailOnly;
     }
 
 }

@@ -32,11 +32,7 @@ public class MongoStat {
             logger.debug("isMaster: " + isMaster);
             mongoClients.add(client);
             
-            Document databases = client.getDatabase("admin").runCommand(new Document("listDatabases", 1));
-            logger.debug("databases: " + databases);
-            
             ServerStatus status = new ServerStatus();
-            status.setDatabases(databases);
             serverStatuses.add(status);
         }
         

@@ -93,16 +93,4 @@ public class ServerStatus {
                 totalInserts, totalQueries, totalUpdates, totalDeletes, totalCacheBytesRead/1024/1024);
     }
 
-    public void setDatabases(Document databases) {
-        this.databases = databases;
-        List<Document> dbList = (List<Document>)databases.get("databases");
-        double total = 0;
-        for (Document dbDoc : dbList) {
-            Double size = (Double)dbDoc.get("sizeOnDisk");
-            total += size;
-        }
-        System.out.printf("%,.2f %n", total/1024/1024);
-        
-    }
-
 }
