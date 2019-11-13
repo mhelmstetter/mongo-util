@@ -177,7 +177,12 @@ public class ShardConfigSync {
     private void stopBalancers() {
         
         logger.debug("stopBalancers started");
-        sourceShard.stopBalancer();
+        try {
+            sourceShard.stopBalancer();
+        } catch (MongoCommandException mce) {
+            logger.error("Could not stop balancer on source shard: " + mce.getMessage());
+        }
+        
         destShard.stopBalancer();
         logger.debug("stopBalancers complete");
     }

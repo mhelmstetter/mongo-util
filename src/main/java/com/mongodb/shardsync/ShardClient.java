@@ -9,6 +9,7 @@ import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,7 +73,7 @@ public class ShardClient {
     private MongoClientOptions mongoClientOptions;
 
     private List<Mongos> mongosList = new ArrayList<Mongos>();
-    private List<MongoClient> mongosMongoClients = new ArrayList<MongoClient>();
+    private Map<String, MongoClient> mongosMongoClients = new TreeMap<String, MongoClient>();
 
     private Map<String, Document> collectionsMap = new TreeMap<String, Document>();
 
@@ -153,7 +154,7 @@ public class ShardClient {
             MongoClientURI clientUri = new MongoClientURI(uri, builder);
             logger.debug(name + " mongos: " + clientUri);
             MongoClient client = new MongoClient(clientUri);
-            mongosMongoClients.add(client);
+            mongosMongoClients.put(mongos.getId(), client);
         }
         logger.debug(name + " populateMongosList complete, " + mongosMongoClients.size() + " mongosMongoClients added");
     }
@@ -244,20 +245,18 @@ public class ShardClient {
     }
     
     private void dropForce(String dbName) {
-        MongoClient c = mongosMongoClients.get(0);
-        DeleteResult r = c.getDatabase("config").getCollection("collections").deleteMany(regex("_id", "^" + dbName + "\\."));
+        DeleteResult r = mongoClient.getDatabase("config").getCollection("collections").deleteMany(regex("_id", "^" + dbName + "\\."));
         logger.debug(String.format("Force deleted %s config.collections documents", r.getDeletedCount()));
-        r = c.getDatabase("config").getCollection("chunks").deleteMany(regex("ns", "^" + dbName + "\\."));
+        r = mongoClient.getDatabase("config").getCollection("chunks").deleteMany(regex("ns", "^" + dbName + "\\."));
         logger.debug(String.format("Force deleted %s config.chunks documents", r.getDeletedCount()));
     }
 
     public void dropDatabasesAndConfigMetadata(List<String> databasesList) {
-        MongoClient c = mongosMongoClients.get(0);
         for (String dbName : databasesList) {
             if (! dbName.equals("admin")) {
-                logger.debug(name + " dropping " + dbName + " using mongos " + c.getConnectPoint());
+                logger.debug(name + " dropping " + dbName);
                 try {
-                    c.dropDatabase(dbName);
+                    mongoClient.dropDatabase(dbName);
                 } catch (MongoCommandException mce) {
                     logger.debug("Drop failed, brute forcing.");
                     dropForce(dbName);
@@ -320,11 +319,12 @@ public class ShardClient {
 
     public void flushRouterConfig() {
         logger.debug(String.format("flushRouterConfig() for %s mongos routers", mongosMongoClients.size()));
-        for (MongoClient client : mongosMongoClients) {
+        for (Map.Entry<String, MongoClient> entry : mongosMongoClients.entrySet()) {
+            MongoClient client = entry.getValue();
             Document flushRouterConfig = new Document("flushRouterConfig", true);
 
             try {
-                logger.debug(String.format("flushRouterConfig for mongos %s", client.getAddress()));
+                logger.debug(String.format("flushRouterConfig for mongos %s", entry.getKey()));
                 client.getDatabase("admin").runCommand(flushRouterConfig);
             } catch (MongoTimeoutException timeout) {
                 logger.debug("Timeout connecting", timeout);
@@ -390,8 +390,8 @@ public class ShardClient {
         return mongoClientOptions;
     }
 
-    public List<MongoClient> getMongosMongoClients() {
-        return mongosMongoClients;
+    public Collection<MongoClient> getMongosMongoClients() {
+        return mongosMongoClients.values();
     }
     
     public MongoClient getShardMongoClient(String shardId) {
@@ -408,7 +408,8 @@ public class ShardClient {
 
     public void checkAutosplit() {
         logger.debug(String.format("checkAutosplit() for %s mongos routers", mongosMongoClients.size()));
-        for (MongoClient client : mongosMongoClients) {
+        for (Map.Entry<String, MongoClient> entry : mongosMongoClients.entrySet()) {
+            MongoClient client = entry.getValue();
             Document getCmdLine = new Document("getCmdLineOpts", true);
             Boolean autoSplit = null;
             try {
@@ -421,9 +422,9 @@ public class ShardClient {
                     sharding.getBoolean("autoSplit");
                 }
                 if (autoSplit != null && !autoSplit) {
-                    logger.debug("autoSplit disabled for " + client.getAddress());
+                    logger.debug("autoSplit disabled for " + entry.getKey());
                 } else {
-                    logger.warn("autoSplit NOT disabled for " + client.getAddress());
+                    logger.warn("autoSplit NOT disabled for " + entry.getKey());
                 }
             } catch (MongoTimeoutException timeout) {
                 logger.debug("Timeout connecting", timeout);

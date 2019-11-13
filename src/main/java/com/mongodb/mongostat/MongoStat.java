@@ -1,6 +1,7 @@
 package com.mongodb.mongostat;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 import org.bson.Document;
@@ -9,6 +10,8 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
+import com.mongodb.MongoCommandException;
+import com.mongodb.shardsync.ShardClient;
 
 public class MongoStat {
     
@@ -30,7 +33,27 @@ public class MongoStat {
             MongoClient client = new MongoClient(new MongoClientURI(uri));
             Document isMaster = client.getDatabase("admin").runCommand(new Document("isMaster", 1));
             logger.debug("isMaster: " + isMaster);
-            mongoClients.add(client);
+            
+            boolean isMongos = false;
+            try {
+                Document isDbGridResponse = client.getDatabase("admin").runCommand(new Document("isdbgrid", 1));
+                Object isDbGrid = isDbGridResponse.get("isdbgrid");
+                if (isDbGrid != null) {
+                    isMongos = true;
+                }
+            } catch (MongoCommandException mce) {
+            }
+            
+            if (isMongos) {
+                ShardClient sourceShardClient = new ShardClient("source", uri);
+                sourceShardClient.populateShardMongoClients();
+                Collection<MongoClient> clients = sourceShardClient.getShardMongoClients().values();
+                for (MongoClient c : clients) {
+                    mongoClients.add(c);
+                }
+            } else {
+                mongoClients.add(client);
+            }
             
             ServerStatus status = new ServerStatus();
             serverStatuses.add(status);

@@ -1,5 +1,8 @@
 package com.mongodb.mongoreplay;
 
+import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -8,6 +11,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.util.Arrays;
 import java.util.List;
@@ -34,15 +38,19 @@ import org.bson.BsonWriter;
 import org.bson.BsonWriterSettings;
 import org.bson.ByteBufNIO;
 import org.bson.Document;
+import org.bson.UuidRepresentation;
 import org.bson.codecs.DecoderContext;
 import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.EncoderContext;
+import org.bson.codecs.UuidCodecProvider;
+import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.io.BasicOutputBuffer;
 import org.bson.io.ByteBufferBsonInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xerial.snappy.Snappy;
 
+import com.mongodb.MongoClient;
 import com.mongodb.mongoreplay.opcodes.MessageHeader;
 
 /**
@@ -55,6 +63,10 @@ public class MongoReplayFilter {
 
     private final BasicBSONEncoder encoder;
     private final BSONDecoder decoder;
+    
+    CodecRegistry registry = fromRegistries(fromProviders(new UuidCodecProvider(UuidRepresentation.STANDARD)),
+            MongoClient.getDefaultCodecRegistry());
+    DocumentCodec documentCodec = new DocumentCodec(registry);
 
     private String[] removeUpdateFields;
 
@@ -116,6 +128,10 @@ public class MongoReplayFilter {
                 }
 
                 header = (BSONObject) raw.get("header");
+                int responseto = (Integer) header.get("responseto");
+                if (responseto != 0) {
+                    continue;
+                }
 
                 if (header != null) {
                     int opcode = (Integer) header.get("opcode");
@@ -161,7 +177,7 @@ public class MongoReplayFilter {
                         }
                         int nskip = bsonInput.readInt32();
                         int nreturn = bsonInput.readInt32();
-                        Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
+                        Document commandDoc = documentCodec.decode(reader, DecoderContext.builder().build());
 
                         System.out.println("2004: " + commandDoc);
                         Document queryCommand = (Document) commandDoc.get("$query");
@@ -172,7 +188,7 @@ public class MongoReplayFilter {
                         commandDoc.remove("projection");
                         BasicOutputBuffer tmpBuff = new BasicOutputBuffer();
                         BsonBinaryWriter tmpWriter = new BsonBinaryWriter(tmpBuff);
-                        new DocumentCodec().encode(tmpWriter, commandDoc, EncoderContext.builder().build());
+                        documentCodec.encode(tmpWriter, commandDoc, EncoderContext.builder().build());
                         int commandDocSize = tmpBuff.getSize();
 
                         BasicOutputBuffer rawOut = new BasicOutputBuffer();
@@ -190,7 +206,7 @@ public class MongoReplayFilter {
                         rawOut.writeInt(0); // skip
                         rawOut.writeInt(-1); // return - these values don't seem to matter
 
-                        new DocumentCodec().encode(writer, commandDoc, EncoderContext.builder().build());
+                        documentCodec.encode(writer, commandDoc, EncoderContext.builder().build());
 
                         int size1 = writer.getBsonOutput().getPosition();
                         header.put("messagelength", size1);
@@ -212,7 +228,7 @@ public class MongoReplayFilter {
                         int databaseNameLen = p2 - p1 + 5; // .$cmd gets
                                                            // appended
                         String command = bsonInput.readCString();
-                        Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
+                        Document commandDoc = documentCodec.decode(reader, DecoderContext.builder().build());
                         Document queryCommand = (Document) commandDoc.get("$query");
                         commandDoc.remove("shardVersion");
                         commandDoc.remove("projection");
@@ -234,7 +250,7 @@ public class MongoReplayFilter {
 
                         BasicOutputBuffer tmpBuff = new BasicOutputBuffer();
                         BsonBinaryWriter tmpWriter = new BsonBinaryWriter(tmpBuff);
-                        new DocumentCodec().encode(tmpWriter, commandDoc, EncoderContext.builder().build());
+                        documentCodec.encode(tmpWriter, commandDoc, EncoderContext.builder().build());
                         int commandDocSize = tmpBuff.getSize();
 
                         BasicOutputBuffer rawOut = new BasicOutputBuffer();
@@ -253,7 +269,7 @@ public class MongoReplayFilter {
                         rawOut.writeInt(-1); // return - these values don't seem
                                              // to matter
 
-                        new DocumentCodec().encode(writer, commandDoc, EncoderContext.builder().build());
+                        documentCodec.encode(writer, commandDoc, EncoderContext.builder().build());
 
                         int size1 = writer.getBsonOutput().getPosition();
 
@@ -267,7 +283,7 @@ public class MongoReplayFilter {
                     } else if (opcode == 2011) {
                         // These are the command replies, we don't need to write
                         // them through
-                        Document commandDoc = new DocumentCodec().decode(reader, DecoderContext.builder().build());
+                        Document commandDoc = documentCodec.decode(reader, DecoderContext.builder().build());
                         // System.out.println("doc: " + commandDoc);
                     } else if (opcode == 2013) {
                         // Just pass these through
@@ -304,131 +320,75 @@ public class MongoReplayFilter {
         ByteBufferBsonInput bsonInput = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(uncompressed)));
         BsonBinaryReader reader = new BsonBinaryReader(bsonInput);
         int flagBits = bsonInput.readInt32();
-        //reader.readStartArray();
+        header.put("opcode", 2013);
+        
+        BasicOutputBuffer rawOut = new BasicOutputBuffer();
+        BsonBinaryWriter writer = new BsonBinaryWriter(rawOut);
+        
+        rawOut.writeInt32(uncompressed.length);
+        rawOut.writeInt32(parsedHeader.getRequestId());
+        rawOut.writeInt32(parsedHeader.getResponseTo());
+        rawOut.writeInt32(parsedHeader.getHeaderOpcode());
+        rawOut.writeInt32(flagBits);
+        
         int i = 0;
         while (bsonInput.getPosition() < uncompressed.length) {
-            logger.debug(i + " position: " + bsonInput.getPosition() + ", totLen: " + uncompressed.length);
+            //logger.debug(i + " position: " + bsonInput.getPosition() + ", totLen: " + uncompressed.length);
             
             byte kind = bsonInput.readByte();
-            
-            //int size = bsonInput.readInt32();
-            //logger.debug("size: " + size + ", uncompressed.length: " + uncompressed.length);
+            rawOut.writeByte(kind);
             
             if (kind == 0) {
                 //byte[] slice = Arrays.copyOfRange(uncompressed, 5, uncompressed.length);
-                
-                //ByteBufferBsonInput in = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(slice)));
-                Document mobj = new DocumentCodec().decode(reader, DecoderContext.builder().build());
-                logger.debug("mobj: " + mobj);
-                
-                Object ins = mobj.get("insert");
-                if (ins != null) {
-                  //logger.debug("insert: " + ins + ", position: " + bsonInput.getPosition() + ", totLen: " + uncompressed.length);
-                }
-                
-                BasicOutputBuffer rawOut = new BasicOutputBuffer();
-                BsonBinaryWriter writer = new BsonBinaryWriter(rawOut);
-                
-                rawOut.writeInt32(parsedHeader.getMessageLength());
-                rawOut.writeInt32(parsedHeader.getRequestId());
-                rawOut.writeInt32(parsedHeader.getResponseTo());
-                rawOut.writeInt32(parsedHeader.getHeaderOpcode());
-                rawOut.writeInt32(flagBits);
-                rawOut.writeByte(kind);
                 //rawOut.write(slice);
                 
-                //int size1 = writer.getBsonOutput().getPosition();
-                //logger.debug("***** writtenSize: " + size1);
+                //ByteBufferBsonInput in = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(slice)));
                 
-                header.put("opcode", 2013);
-                header.put("messagelength", uncompressed.length);
-                raw.put("body", rawOut.toByteArray());
+                Document mobj = documentCodec.decode(reader, DecoderContext.builder().build());
+                String db = (String)mobj.get("$db");
+                if (db != null && db.equals("admin") || db.equals("local")) {
+                    return;
+                }
                 
-                ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
-                channel.write(buffer);
-                written++;
+                mobj.remove("txnNumber");
+                //logger.debug("mobj: " + mobj);
+                documentCodec.encode(writer, mobj, EncoderContext.builder().build());
                 
             } else if (kind == 1) {
                 int sectionSize = bsonInput.readInt32();
+                rawOut.writeInt32(sectionSize);
                 String sequenceId = bsonInput.readCString();
+                rawOut.writeCString(sequenceId);
+                int j = 0;
                 while (bsonInput.getPosition() < uncompressed.length) {
-                    logger.debug("kind=1, position: " + bsonInput.getPosition() + ", totLen: " + uncompressed.length);
-                    //int size = bsonInput.readInt32();
-                    //logger.debug("size: " + size);
-                    Document mobj = new DocumentCodec().decode(reader, DecoderContext.builder().build());
+                    logger.debug(j + " kind=1, position: " + bsonInput.getPosition() + ", totLen: " + uncompressed.length);
+                    
+                    
+                    // TODO don't understand why we have to do this
+                    // if we don't we get:
+                    // BsonInvalidOperationException: readStartDocument can only be called when State is VALUE, not when State is DONE.
+                    reader = new BsonBinaryReader(bsonInput);
+                    
+                    Document mobj = documentCodec.decode(reader, DecoderContext.builder().build());
+                    documentCodec.encode(writer, mobj, EncoderContext.builder().build());
                     logger.debug("k1: " + mobj);
+                    j++;
                 }
-                logger.debug(String.format("INCOMPLETE kind: %s, sectionSize: %s, sequenceId: %s", kind, sectionSize, sequenceId));
             } else {
                 logger.error("Unexpected kind byte: " + kind);
             }
             i++;
-            
         }
-        
-        
-        
-
+        int newMessageLength = rawOut.getSize();
+        byte[] newMessageLengthBytes = ByteBuffer.allocate(4).order(ByteOrder.nativeOrder()).putInt(newMessageLength).array();
+        header.put("messagelength", newMessageLength);
+        rawOut.write(newMessageLengthBytes, 0, 4);
+        raw.put("body", rawOut.toByteArray());
+        ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
+        channel.write(buffer);
+        written++;
     }
     
-    private void transcode2013(byte[] uncompressed, FileChannel channel) throws IOException {
-        ByteBufferBsonInput bsonInput = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(uncompressed)));
-        int flagBits = bsonInput.readInt32();
-        byte kind = bsonInput.readByte();
-        int size = bsonInput.readInt32();
-        //logger.debug("size: " + size + ", uncompressed.length: " + uncompressed.length);
-        
-        if (kind == 0) {
-            byte[] slice = Arrays.copyOfRange(uncompressed, 5, uncompressed.length);
-            BSONObject mobj = decoder.readObject(slice);
-            Object tx = mobj.get("txnNumber");
-            if (tx != null) {
-                int oldLen = slice.length;
-                mobj.removeField("txnNumber");
-                
-                slice = encoder.encode(mobj);
-                logger.debug("tx: " + tx + " oldLen: " + oldLen + ", newLen: " + slice.length);
-            }
-            
-            //logger.debug("mobj: " + mobj);
-            
-            Object ins = mobj.get("insert");
-            if (ins != null) {
-                logger.debug("insert: " + ins);
-                
-                
-            }
-            
-            BasicOutputBuffer rawOut = new BasicOutputBuffer();
-            BsonBinaryWriter writer = new BsonBinaryWriter(rawOut);
-            
-            rawOut.writeInt32(parsedHeader.getMessageLength());
-            rawOut.writeInt32(parsedHeader.getRequestId());
-            rawOut.writeInt32(parsedHeader.getResponseTo());
-            rawOut.writeInt32(parsedHeader.getHeaderOpcode());
-            rawOut.writeInt32(flagBits);
-            rawOut.writeByte(kind);
-            rawOut.write(slice);
-            
-            int size1 = writer.getBsonOutput().getPosition();
-            //logger.debug("***** writtenSize: " + size1);
-            
-            header.put("opcode", 2013);
-            header.put("messagelength", uncompressed.length);
-            raw.put("body", rawOut.toByteArray());
-            
-            ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
-            channel.write(buffer);
-            written++;
-            
-        } else if (kind == 1) {
-            int sectionSize = bsonInput.readInt32();
-            String sequenceId = bsonInput.readCString();
-            logger.debug(String.format("INCOMPLETE kind: %s, sectionSize: %s, sequenceId: %s", kind, sectionSize, sequenceId));
-        } else {
-            logger.error("Unexpected kind byte: " + kind);
-        }
-    }
     
     public BSONObject readObject(final byte[] bytes) {
         BSONCallback bsonCallback = new BasicBSONCallback();
