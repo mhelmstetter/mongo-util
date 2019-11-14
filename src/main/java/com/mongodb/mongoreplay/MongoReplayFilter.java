@@ -166,7 +166,7 @@ public class MongoReplayFilter {
                         if (opcode == 2013) {
                             process2013(uncompressed, channel);
                         } else {
-                            System.out.println("****** opcode: " + opcode);
+                            // TODO I think we can safely ignore these 2004s
                         }
                     } else if (opcode == 2004) {
                         int flags = bsonInput.readInt32();
@@ -361,7 +361,7 @@ public class MongoReplayFilter {
                 rawOut.writeCString(sequenceId);
                 int j = 0;
                 while (bsonInput.getPosition() < uncompressed.length) {
-                    logger.debug(j + " kind=1, position: " + bsonInput.getPosition() + ", totLen: " + uncompressed.length);
+                    //logger.debug(j + " kind=1, position: " + bsonInput.getPosition() + ", totLen: " + uncompressed.length);
                     
                     
                     // TODO don't understand why we have to do this
@@ -371,7 +371,7 @@ public class MongoReplayFilter {
                     
                     Document mobj = documentCodec.decode(reader, DecoderContext.builder().build());
                     documentCodec.encode(writer, mobj, EncoderContext.builder().build());
-                    logger.debug("k1: " + mobj);
+                    //logger.debug("k1: " + mobj);
                     j++;
                 }
             } else {

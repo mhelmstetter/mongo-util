@@ -54,12 +54,7 @@
 							<createDependencyReducedPom>false</createDependencyReducedPom>
 							<filters>
 								<filter>
-									<artifact>*:*</artifact>
-									<includes>
-										<include>**/*.properties</include>
-										<include>**/*.xml</include>
-										<include>**/*.class</include>
-									</includes>
+									<artifact>*:*</artifact>	
 								</filter>
 							</filters>
 						</configuration>
