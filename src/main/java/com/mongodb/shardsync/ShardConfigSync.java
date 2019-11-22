@@ -783,7 +783,12 @@ public class ShardConfigSync {
                 logger.debug("Primary shard already matches for database: " + databaseName);
             } else {
                 logger.debug("movePrimary for database: " + databaseName + " from " + destPrimary + " to " + mappedPrimary);
-                destShard.adminCommand(new Document("movePrimary", databaseName).append("to", mappedPrimary));
+                try {
+                    destShard.adminCommand(new Document("movePrimary", databaseName).append("to", mappedPrimary));
+                } catch (MongoCommandException mce) {
+                    // TODO check if exists on source rather than this
+                    logger.warn("movePrimary for database: " + databaseName + " failed. Maybe it doesn't exist?");
+                }
             }
             
         }
