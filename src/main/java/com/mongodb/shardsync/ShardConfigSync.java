@@ -773,6 +773,15 @@ public class ShardConfigSync {
                 
             }
             
+            MongoClient mappedPrimaryClient = sourceShard.getShardMongoClient(mappedPrimary);
+            List<String> mappedPrimaryDatabasesList = new ArrayList<String>();
+            mappedPrimaryClient.listDatabaseNames().into(mappedPrimaryDatabasesList);
+            if (! mappedPrimaryDatabasesList.contains(databaseName)) {
+                logger.debug("Database: " + databaseName + " does not exist on source shard, skipping");
+                continue;
+            }
+            
+            
             dest = destShard.getDatabasesCollection().find(new Document("_id", databaseName)).first();
             if (dest == null) {
                 destShard.createDatabase(databaseName);
