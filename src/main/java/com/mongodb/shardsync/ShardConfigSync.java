@@ -309,14 +309,15 @@ public class ShardConfigSync {
     private void createDestChunksUsingInsert() {
         logger.debug("createDestChunksUsingInsert started");
         MongoCollection<Document> sourceChunksColl = sourceShard.getChunksCollection();
-        FindIterable<Document> sourceChunks = sourceChunksColl.find().sort(Sorts.ascending("ns", "min"));
+        FindIterable<Document> sourceChunksIt = sourceChunksColl.find().sort(Sorts.ascending("ns", "min"));
+        List<Document> sourceChunks = new ArrayList<Document>();
+        sourceChunksIt.into(sourceChunks);
 
         String lastNs = null;
         int currentCount = 0;
 
-        for (Iterator<Document> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
+        for (Document chunk : sourceChunks) {
             
-            Document chunk = sourceChunksIterator.next();
             String ns = chunk.getString("ns");
             Namespace sourceNs = new Namespace(ns);
             if (filtered && ! namespaceFilters.contains(sourceNs) && !databaseFilters.contains(sourceNs.getDatabaseName())) {
