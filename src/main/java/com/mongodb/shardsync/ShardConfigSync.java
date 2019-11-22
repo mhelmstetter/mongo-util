@@ -155,6 +155,7 @@ public class ShardConfigSync {
 
         stopBalancers();
         //checkAutosplit();
+        sourceShard.populateShardMongoClients();
         enableDestinationSharding();
 
         sourceShard.populateCollectionsMap();
