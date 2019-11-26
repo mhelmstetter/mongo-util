@@ -313,7 +313,8 @@ public class DiffUtil {
                 MongoDatabase destDb = destClient.getDatabase(dbName);
                 MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
                 for (String collectionName : sourceCollectionNames) {
-                    if (dbName.equals("admin") || dbName.equals("local") || collectionName.equals("system.profile")) {
+                    if (dbName.equals("admin") || dbName.equals("local") || collectionName.equals("system.profile")
+                            || collectionName.equals("system.indexes")) {
                         continue;
                     }
 
@@ -327,25 +328,56 @@ public class DiffUtil {
                     MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(sort).projection(sort).iterator();
 
                     RawBsonDocument sourceDoc = null;
+                    RawBsonDocument sourceNext = null;
+                    Comparable sourceKey = null;
+                    
                     RawBsonDocument destDoc = null;
-                    while (sourceCursor.hasNext()) {
-                        sourceDoc = sourceCursor.next();
-                        if (destCursor.hasNext()) {
-                            destDoc = destCursor.next();
+                    RawBsonDocument destNext = null;
+                    Comparable destKey = null;
+                    Integer compare = null;
+                    
+                    while (sourceCursor.hasNext() || sourceNext != null || destCursor.hasNext() || destNext != null) {
+                        if (sourceNext != null) {
+                            sourceDoc = sourceNext;
+                            sourceNext = null;
+                            sourceKey = (Comparable) sourceDoc.get("_id");
+                        } else if (sourceCursor.hasNext()) {
+                            sourceDoc = sourceCursor.next();
+                            sourceKey = (Comparable) sourceDoc.get("_id");
                         } else {
-                            logger.error(String.format("collection: %s counts don't match!!!!!", collectionName));
+                            sourceDoc = null;
+                            sourceKey = null;
                         }
-                        Comparable sourceKey = (Comparable) sourceDoc.get("_id");
-                        Comparable destKey = (Comparable) destDoc.get("_id");
+                        
+                        if (destNext != null) {
+                            destDoc = destNext;
+                            destNext = null;
+                            destKey = (Comparable) destDoc.get("_id");
+                        } else if (destCursor.hasNext()) {
+                            destDoc = destCursor.next();
+                            destKey = (Comparable) destDoc.get("_id");
+                        } else {
+                            destDoc = null;
+                            destKey = null;
+                        }
+                        
+                        
+                        if (sourceKey != null && destKey != null) {
+                            compare = sourceKey.compareTo(destKey);
+                        } else if (sourceKey == null) {
+                            logger.debug(String.format("%s - fail: %s missing on source", collectionName, destKey));
+                            continue;
+                        } else if (destKey == null) {
+                            logger.debug(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+                            continue;
+                        }
 
-                        int compare = sourceKey.compareTo(destKey);
                         if (compare < 0) {
-                            logger.warn(String.format("< 0 - key mismatch collection: %s, %s %s", collectionName,
-                                    sourceKey, destKey));
-                            sourceCursor.next();
+                            logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+                            destNext = destDoc;
                         } else if (compare > 0) {
-                            logger.warn(String.format("> 0 - key mismatch collection: %s, %s %s", collectionName,
-                                    sourceKey, destKey));
+                            logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
+                            sourceNext = sourceDoc;
                         }
 
                         // if (! sourceKey.equals(destKey)) {
