@@ -379,11 +379,6 @@ public class DiffUtil {
                             logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
                             sourceNext = sourceDoc;
                         }
-
-                        // if (! sourceKey.equals(destKey)) {
-                        // logger.warn(String.format("key mismatch collection:
-                        // %s, %s %s", collectionName, sourceKey, destKey));
-                        // }
                     }
 
                 }
