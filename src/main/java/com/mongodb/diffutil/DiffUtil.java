@@ -313,7 +313,8 @@ public class DiffUtil {
                 MongoDatabase destDb = destClient.getDatabase(dbName);
                 MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
                 for (String collectionName : sourceCollectionNames) {
-                    if (dbName.equals("admin") || dbName.equals("local") || collectionName.equals("system.profile")
+                    if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config") 
+                            || collectionName.equals("system.profile")
                             || collectionName.equals("system.indexes")) {
                         continue;
                     }
