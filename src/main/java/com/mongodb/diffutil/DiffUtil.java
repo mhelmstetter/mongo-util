@@ -307,7 +307,7 @@ public class DiffUtil {
         for (String dbName : sourceDbInfoMap.keySet()) {
             Document destInfo = destDbInfoMap.get(dbName);
             if (destInfo != null) {
-                logger.debug(String.format("Found matching database %s", dbName));
+                
 
                 MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
                 MongoDatabase destDb = destClient.getDatabase(dbName);
@@ -318,7 +318,8 @@ public class DiffUtil {
                             || collectionName.equals("system.indexes")) {
                         continue;
                     }
-
+                    
+                    logger.debug(String.format("Starting namespace %s.%s", dbName, collectionName));
                     MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName,
                             RawBsonDocument.class);
                     MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName,
