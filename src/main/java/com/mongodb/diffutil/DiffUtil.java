@@ -34,6 +34,7 @@ import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.model.ShardCollection;
 import com.mongodb.util.CodecUtils;
+import com.mongodb.util.bson.BsonValueComparator;
 
 public class DiffUtil {
 
@@ -56,6 +57,8 @@ public class DiffUtil {
 
     private Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
     private Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
+    
+    private BsonValueComparator comparator = new BsonValueComparator();
 
     public DiffUtil() {
         logger.debug("DiffUtil starting");
@@ -331,21 +334,21 @@ public class DiffUtil {
 
                     RawBsonDocument sourceDoc = null;
                     RawBsonDocument sourceNext = null;
-                    Comparable sourceKey = null;
+                    BsonValue sourceKey = null;
                     
                     RawBsonDocument destDoc = null;
                     RawBsonDocument destNext = null;
-                    Comparable destKey = null;
+                    BsonValue destKey = null;
                     Integer compare = null;
                     
                     while (sourceCursor.hasNext() || sourceNext != null || destCursor.hasNext() || destNext != null) {
                         if (sourceNext != null) {
                             sourceDoc = sourceNext;
                             sourceNext = null;
-                            sourceKey = (Comparable) sourceDoc.get("_id");
+                            sourceKey = sourceDoc.get("_id");
                         } else if (sourceCursor.hasNext()) {
                             sourceDoc = sourceCursor.next();
-                            sourceKey = (Comparable) sourceDoc.get("_id");
+                            sourceKey = sourceDoc.get("_id");
                         } else {
                             sourceDoc = null;
                             sourceKey = null;
@@ -354,10 +357,10 @@ public class DiffUtil {
                         if (destNext != null) {
                             destDoc = destNext;
                             destNext = null;
-                            destKey = (Comparable) destDoc.get("_id");
+                            destKey = destDoc.get("_id");
                         } else if (destCursor.hasNext()) {
                             destDoc = destCursor.next();
-                            destKey = (Comparable) destDoc.get("_id");
+                            destKey = destDoc.get("_id");
                         } else {
                             destDoc = null;
                             destKey = null;
@@ -365,7 +368,7 @@ public class DiffUtil {
                         
                         
                         if (sourceKey != null && destKey != null) {
-                            compare = sourceKey.compareTo(destKey);
+                            compare = comparator.compare(sourceKey, destKey);
                         } else if (sourceKey == null) {
                             logger.debug(String.format("%s - fail: %s missing on source", collectionName, destKey));
                             continue;
