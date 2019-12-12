@@ -30,8 +30,8 @@ public class DummyCloneWorker extends AbstractCollectionCloneWorker implements R
         errorCount = 0;
         try {
             cursor = sourceCollection.find().noCursorTimeout(true).hint(new Document("_id", 1)).iterator();
-            Number total = ShardClient.getFastCollectionCount(sourceDb, sourceCollection);
-            logger.debug(String.format("%s - count: %s documents", ns, total));
+            //Number total = ShardClient.getFastCollectionCount(sourceDb, sourceCollection);
+            logger.debug(String.format("%s - starting", ns));
             while (cursor.hasNext()) {
                 RawBsonDocument doc = cursor.next();
                 BsonValue id = getId(doc);
@@ -57,7 +57,7 @@ public class DummyCloneWorker extends AbstractCollectionCloneWorker implements R
                 if (successCount % 500000 == 0) {
                     long current = System.currentTimeMillis();
                     long delta = (current - last) / 1000;
-                    logger.debug(String.format("%s - checked %s / %s documents, errorCount: %s", ns, successCount, total, errorCount));
+                    logger.debug(String.format("%s - checked %s documents, errorCount: %s", ns, successCount, errorCount));
                     last = current;
                 }
                 
