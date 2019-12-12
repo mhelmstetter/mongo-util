@@ -201,7 +201,7 @@ public class ShardClient {
             MongoClientURI clientUri = new MongoClientURI(uri, builder);
             MongoClient client = new MongoClient(clientUri);
             
-            logger.debug("Start ping: " + uri);
+            logger.debug("Start ping: " + clientUri);
             client.getDatabase("admin").runCommand(new Document("ping", 1));
             logger.debug(name + " connected to shard host: " + host);
             shardMongoClients.put(shard.getId(), client);

@@ -10,7 +10,7 @@
 <configuration>
   <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
     <encoder>
-      <pattern>%d [%t] %-5p %c - %m%n</pattern>
+      <pattern>%d %-5p - %m%n</pattern>
     </encoder>
   </appender>
 
@@ -20,7 +20,7 @@
   <logger name="com.mongodb.corruptutil" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.mongostat" level="DEBUG" additivity="false"/>
   <logger name="com.mongodb.mongomirror" level="DEBUG" additivity="false"/>
-  <logger name="com.mongodb.internal" level="DEBUG"  additivity="false"/>
+  <logger name="com.mongodb.internal" level="ERROR"  additivity="false"/>
   
   <logger name="com.mongodb.mongoreplay" level="DEBUG"/>
   <logger name="org.mongodb" level="WARN"/>

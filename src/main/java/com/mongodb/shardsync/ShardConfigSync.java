@@ -254,6 +254,15 @@ public class ShardConfigSync {
             } catch (MongoCommandException mce) {
                 logger.error(String.format("command error for namespace %s", ns), mce);
             }
+            
+            long count = destChunksColl.countDocuments(new Document("_id", chunk.get("_id")));
+            if (count == 1) {
+                logger.debug("Chunk created: " + chunk.get("_id"));
+            } else {
+                long count2 = destChunksColl.countDocuments(new Document("min", chunk.get("min")).append("ns", chunk.get("ns")));
+                logger.debug("Chunk create failed, count2: " + count2);
+                
+            }
 
             lastNs = ns;
             currentCount++;
@@ -626,8 +635,9 @@ public class ShardConfigSync {
                 continue;
             }
             shardCollection(sourceColl);
+            
 
-            if ((boolean)sourceColl.get("noBalance")) {
+            if ((boolean)sourceColl.get("noBalance", false)) {
                 // TODO there is no disableBalancing command so this is not
                 // possible in Atlas
                 // destClient.getDatabase("admin").runCommand(new Document("",
