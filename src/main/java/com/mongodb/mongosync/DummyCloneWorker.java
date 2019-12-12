@@ -54,6 +54,14 @@ public class DummyCloneWorker extends AbstractCollectionCloneWorker implements R
                 
                 lastId = id;
                 
+                if (successCount % 500000 == 0) {
+                    long current = System.currentTimeMillis();
+                    long delta = (current - last) / 1000;
+                    logger.debug(String.format("%s - checked %s / %s documents, errorCount: %s", ns, successCount, total, errorCount));
+                    last = current;
+                }
+                
+                
             }
         } finally {
             if (cursor != null) {
