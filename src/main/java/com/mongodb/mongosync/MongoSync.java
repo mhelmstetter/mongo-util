@@ -60,16 +60,19 @@ public class MongoSync {
     private void populateCollectionsToMigrate() {
         Set<String> namespacesToMigrate = new HashSet<String>();
         
-        for (String dbName : mongoSyncOptions.getDatabaseFilters()) {
-            
-            if (mongoSyncOptions.isDropDestDbs()) {
-                destShardClient.dropDatabase(dbName);
-            }
-            
-            MongoIterable<String> collectionNames = sourceShardClient.listCollectionNames(dbName);
-            for (String collectionName : collectionNames) {
-                namespacesToMigrate.add(new Namespace(dbName, collectionName).getNamespace());
-            }
+//        for (String dbName : mongoSyncOptions.getDatabaseFilters()) {
+//            
+//            if (mongoSyncOptions.isDropDestDbs()) {
+//                destShardClient.dropDatabase(dbName);
+//            }
+//            
+//            MongoIterable<String> collectionNames = sourceShardClient.listCollectionNames(dbName);
+//            for (String collectionName : collectionNames) {
+//                namespacesToMigrate.add(new Namespace(dbName, collectionName).getNamespace());
+//            }
+//        }
+        for (Namespace n : mongoSyncOptions.getNamespaceFilters()) {
+            namespacesToMigrate.add(n.getNamespace());
         }
         mongoSyncOptions.setNamespacesToMigrate(namespacesToMigrate);
         logger.debug("namespacesToMigrate: " + namespacesToMigrate);
