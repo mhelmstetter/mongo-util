@@ -212,6 +212,7 @@ public class ShardConfigSync {
         for (Iterator<Document> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
             
             Document chunk = sourceChunksIterator.next();
+            logger.debug("sourceChunk: " + chunk);
             String ns = chunk.getString("ns");
             Namespace sourceNs = new Namespace(ns);
             
@@ -220,8 +221,12 @@ public class ShardConfigSync {
             }
             
             //TODO make this configurable
+            // if the dest chunk exists already, skip it
             if (! dropDestDbs) {
-                long count = destChunksColl.countDocuments(new Document("_id", chunk.get("_id")));
+                Document query = new Document("_id", chunk.get("_id"));
+                query.append("min", chunk.get("min"));
+                query.append("max", chunk.get("max"));
+                long count = destChunksColl.countDocuments(query);
                 if (count > 0) {
                     continue;
                 }
@@ -248,6 +253,9 @@ public class ShardConfigSync {
 
             splitCommand.put("split", ns);
             splitCommand.put("middle", max);
+            
+            
+            logger.debug("splitCommand: " + splitCommand);
 
             try {
                 destShard.adminCommand(splitCommand);
@@ -679,11 +687,18 @@ public class ShardConfigSync {
     
     private Document shardCollection(Document sourceColl) {
         Document shardCommand = new Document("shardCollection", sourceColl.get("_id"));
-        shardCommand.append("key", sourceColl.get("key"));
+        
+        Document key = (Document)sourceColl.get("key");
+        shardCommand.append("key", key);
         
         // apparently unique is not always correct here, there are cases where unique is false
         // here but the underlying index is unique
         shardCommand.append("unique", sourceColl.get("unique"));
+        
+        Object key1 = key.values().iterator().next();
+        if ("hashed".equals(key1)) {
+            shardCommand.append("numInitialChunks", 1);
+        }
         
         // TODO fixme!!!
 //        if (sourceColl.getDefaultCollation() != null) {
