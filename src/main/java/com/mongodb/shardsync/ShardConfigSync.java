@@ -212,7 +212,7 @@ public class ShardConfigSync {
         for (Iterator<Document> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
             
             Document chunk = sourceChunksIterator.next();
-            logger.debug("sourceChunk: " + chunk);
+            //logger.debug("sourceChunk: " + chunk);
             String ns = chunk.getString("ns");
             Namespace sourceNs = new Namespace(ns);
             
@@ -220,21 +220,21 @@ public class ShardConfigSync {
                 continue;
             }
             
-            //TODO make this configurable
-            // if the dest chunk exists already, skip it
-            if (! dropDestDbs) {
-                Document query = new Document("_id", chunk.get("_id"));
-                query.append("min", chunk.get("min"));
-                query.append("max", chunk.get("max"));
-                long count = destChunksColl.countDocuments(query);
-                if (count > 0) {
-                    continue;
-                }
-            }
-
             if (!ns.equals(lastNs) && lastNs != null) {
                 logger.debug(String.format("%s - created %s chunks", lastNs, ++currentCount));
                 currentCount = 0;
+            }
+            
+
+            // if the dest chunk exists already, skip it
+            Document query = new Document("_id", chunk.get("_id"));
+            query.append("min", chunk.get("min"));
+            query.append("max", chunk.get("max"));
+            long count = destChunksColl.countDocuments(query);
+            if (count > 0) {
+                logger.debug(String.format("Chunk already exists on destination, skipping: _id: %s, min: %s, max: %s", 
+                        chunk.get("_id"), chunk.get("min"), chunk.get("max")));
+                continue;
             }
 
             Document max = (Document) chunk.get("max");
@@ -253,9 +253,7 @@ public class ShardConfigSync {
 
             splitCommand.put("split", ns);
             splitCommand.put("middle", max);
-            
-            
-            logger.debug("splitCommand: " + splitCommand);
+            //logger.debug("splitCommand: " + splitCommand);
 
             try {
                 destShard.adminCommand(splitCommand);
@@ -263,9 +261,9 @@ public class ShardConfigSync {
                 logger.error(String.format("command error for namespace %s", ns), mce);
             }
             
-            long count = destChunksColl.countDocuments(new Document("_id", chunk.get("_id")));
+            count = destChunksColl.countDocuments(new Document("_id", chunk.get("_id")));
             if (count == 1) {
-                logger.debug("Chunk created: " + chunk.get("_id"));
+                //logger.debug("Chunk created: " + chunk.get("_id"));
             } else {
                 long count2 = destChunksColl.countDocuments(new Document("min", chunk.get("min")).append("ns", chunk.get("ns")));
                 logger.debug("Chunk create failed, count2: " + count2);
@@ -469,7 +467,7 @@ public class ShardConfigSync {
             
 
             if (doMove && !mappedShard.equals(destShard)) {
-                logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
+                //logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
                 if (doMove) {
                     moveChunk(sourceNs, sourceMin, sourceMax, mappedShard);
                     continue;
