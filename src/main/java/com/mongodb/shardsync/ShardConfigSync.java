@@ -1060,8 +1060,8 @@ public class ShardConfigSync {
             mongomirror.setBookmarkFile(source.getId() + ".timestamp");
             mongomirror.setNumParallelCollections(numParallelCollections);
             
-            if (destShard.isVersion36OrLater()) {
-                logger.debug("Version 3.6 or later, setting preserveUUIDs true");
+            if (destShard.isVersion36OrLater() && ! nonPrivilegedMode) {
+                logger.debug("Version 3.6 or later, not nonPrivilegedMode, setting preserveUUIDs true");
                 mongomirror.setPreserveUUIDs(true);
             }
             if (tailOnly) {
