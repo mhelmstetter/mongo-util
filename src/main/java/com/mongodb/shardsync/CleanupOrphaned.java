@@ -30,8 +30,9 @@ public class CleanupOrphaned {
     
     public void cleanupOrphans() {
         ExecutorService executor = Executors.newFixedThreadPool(shardClient.getShardsMap().size());
-        for (MongoClient client : shardClient.getMongosMongoClients()) {
-            Runnable worker = new CleanupOrphanedWorker(client);
+        for (Map.Entry<String, MongoClient> entry : shardClient.getShardMongoClients().entrySet()) {
+            MongoClient client = entry.getValue();
+            Runnable worker = new CleanupOrphanedWorker(client, entry.getKey());
             executor.execute(worker);
         }
         executor.shutdown();
@@ -44,16 +45,18 @@ public class CleanupOrphaned {
         
         //private Shard shard;
         private MongoClient client;
+        private String name;
         
-        public CleanupOrphanedWorker(MongoClient client) {
+        public CleanupOrphanedWorker(MongoClient client, String name) {
             this.client = client;
+            this.name = name;
         }
         
         public void run() {
             MongoDatabase db = client.getDatabase("admin");
             for (Document coll : shardClient.getCollectionsMap().values()) {
                 
-                logger.debug("cleanupOrphaned: " + coll.get("_id") + " on " + client.getConnectPoint());
+                logger.debug("cleanupOrphaned: " + coll.get("_id") + " on " + name);
                 
                 Document command = new Document("cleanupOrphaned", (String)coll.get("_id"));
                 

@@ -147,7 +147,7 @@ public class MongoReplayFilter {
                     if (opcode == 2012) {
                         
                         opcode = bsonInput.readInt32();
-                        //logger.debug(String.format("Compressed, originalOpcode: %s", opcode));
+                        logger.debug(String.format("Compressed, originalOpcode: %s", opcode));
                         // Dumb hack, just double count the compressed / uncompressed opcode
                         incrementOpcodeSeenCount(opcode);
                         int uncompressedSize = bsonInput.readInt32();
