@@ -8,9 +8,12 @@ import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoClient;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoCommandException;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 import com.mongodb.shardsync.ShardClient;
 
 public class MongoStat {
@@ -30,7 +33,13 @@ public class MongoStat {
     public void init() {
         for (String uri : uris) {
             logger.debug("Connecting to " + uri);
-            MongoClient client = new MongoClient(new MongoClientURI(uri));
+            ConnectionString connectionString = new ConnectionString(uri);
+            MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+                    .applyConnectionString(connectionString)
+                    .build();
+             
+            MongoClient client = MongoClients.create(mongoClientSettings);
+            
             Document isMaster = client.getDatabase("admin").runCommand(new Document("isMaster", 1));
             logger.debug("isMaster: " + isMaster);
             

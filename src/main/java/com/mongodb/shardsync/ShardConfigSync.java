@@ -1,8 +1,8 @@
 package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.regex;
 import static com.mongodb.client.model.Filters.exists;
+import static com.mongodb.client.model.Filters.regex;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
@@ -25,26 +25,28 @@ import org.bson.UuidRepresentation;
 import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.UuidCodecProvider;
 import org.bson.codecs.configuration.CodecRegistry;
+import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.types.MaxKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoClient;
+import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoCredential;
 import com.mongodb.MongoException;
 import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
+import com.mongodb.connection.ClusterDescription;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardCollection;
 import com.mongodb.mongomirror.MongoMirrorRunner;
 
-// TODO - look at https://github.com/10gen/scripts-and-snippets/blob/master/mongod/recreate-splits.js
 public class ShardConfigSync {
 
     private static Logger logger = LoggerFactory.getLogger(ShardConfigSync.class);
@@ -75,9 +77,9 @@ public class ShardConfigSync {
     private Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
     
     private boolean filtered = false;
-    private String[] namespaceFilterList;
-    private Set<Namespace> namespaceFilters = new HashSet<Namespace>();
-    private Set<String> databaseFilters = new HashSet<String>();
+    
+    private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
+    private Set<String> includeDatabases = new HashSet<String>();
     
     private String[] shardMap;
     
@@ -94,8 +96,10 @@ public class ShardConfigSync {
     private boolean sslAllowInvalidHostnames;
     private boolean sslAllowInvalidCertificates;
     
-    CodecRegistry registry = fromRegistries(fromProviders(new UuidCodecProvider(UuidRepresentation.STANDARD)),
-            MongoClient.getDefaultCodecRegistry());
+    CodecRegistry registry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
+            fromProviders(PojoCodecProvider.builder().automatic(true).build()));
+    
+ 
     DocumentCodec documentCodec = new DocumentCodec(registry);
 
     public ShardConfigSync() {
@@ -216,7 +220,7 @@ public class ShardConfigSync {
             String ns = chunk.getString("ns");
             Namespace sourceNs = new Namespace(ns);
             
-            if (filtered && ! namespaceFilters.contains(sourceNs) && !databaseFilters.contains(sourceNs.getDatabaseName())) {
+            if (filtered && ! includeNamespaces.contains(sourceNs) && !includeDatabases.contains(sourceNs.getDatabaseName())) {
                 continue;
             }
             
@@ -304,7 +308,7 @@ public class ShardConfigSync {
             logger.trace("tag: " + tag);
             String ns = tag.getString("ns");
             Namespace sourceNs = new Namespace(ns);
-            if (filtered && ! namespaceFilters.contains(sourceNs) && !databaseFilters.contains(sourceNs.getDatabaseName())) {
+            if (filtered && ! includeNamespaces.contains(sourceNs) && !includeDatabases.contains(sourceNs.getDatabaseName())) {
                 continue;
             }
             
@@ -335,7 +339,7 @@ public class ShardConfigSync {
             
             String ns = chunk.getString("ns");
             Namespace sourceNs = new Namespace(ns);
-            if (filtered && ! namespaceFilters.contains(sourceNs) && !databaseFilters.contains(sourceNs.getDatabaseName())) {
+            if (filtered && ! includeNamespaces.contains(sourceNs) && !includeDatabases.contains(sourceNs.getDatabaseName())) {
                 continue;
             }
             if (sourceNs.getDatabaseName().equals("config")) {
@@ -445,7 +449,7 @@ public class ShardConfigSync {
             String sourceNs = sourceChunk.getString("ns");
             Namespace sourceNamespace = new Namespace(sourceNs);
             
-            if (filtered && ! namespaceFilters.contains(sourceNamespace) && !databaseFilters.contains(sourceNamespace.getDatabaseName())) {
+            if (filtered && ! includeNamespaces.contains(sourceNamespace) && !includeDatabases.contains(sourceNamespace.getDatabaseName())) {
                 continue;
             }
             
@@ -506,7 +510,7 @@ public class ShardConfigSync {
         for (Document sourceInfo : sourceDatabaseInfo) {
             String dbName = sourceInfo.getString("name");
             
-            if (filtered && !databaseFilters.contains(dbName) || dbName.equals("config")) {
+            if (filtered && !includeDatabases.contains(dbName) || dbName.equals("config")) {
                 logger.debug("Ignore " + dbName + " for compare, filtered");
                 continue;
             }
@@ -609,7 +613,7 @@ public class ShardConfigSync {
             String nsStr = (String)sourceColl.get("_id");
             Namespace ns = new Namespace(nsStr);
             
-            if (filtered && ! namespaceFilters.contains(ns) && !databaseFilters.contains(ns.getDatabaseName())) {
+            if (filtered && ! includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
                 logger.debug("Namespace " + ns + " filtered, not sharding on destination");
                 continue;
             }
@@ -633,7 +637,7 @@ public class ShardConfigSync {
             String nsStr = (String)sourceColl.get("_id");
             Namespace ns = new Namespace(nsStr);
             
-            if (filtered && ! namespaceFilters.contains(ns) && !databaseFilters.contains(ns.getDatabaseName())) {
+            if (filtered && ! includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
                 logger.debug("Namespace " + ns + " filtered, not sharding on destination");
                 continue;
             }
@@ -729,7 +733,7 @@ public class ShardConfigSync {
             
             String nsStr = (String)sourceColl.get("_id");
             Namespace ns = new Namespace(nsStr);
-            if (filtered && ! namespaceFilters.contains(ns) && !databaseFilters.contains(ns.getDatabaseName())) {
+            if (filtered && ! includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
                 //logger.debug("Namespace " + ns + " filtered, not sharding on destination");
                 continue;
             }
@@ -778,7 +782,7 @@ public class ShardConfigSync {
 //                throw new IllegalArgumentException("Shard mapping not found for shard " + primary);
 //            }
             
-            if (filtered && !databaseFilters.contains(databaseName)) {
+            if (filtered && !includeDatabases.contains(databaseName)) {
                 logger.debug("Database " + databaseName + " filtered, not sharding on destination");
                 continue;
             }
@@ -842,7 +846,7 @@ public class ShardConfigSync {
         for (Document database : databases) {
             String databaseName = database.getString("_id");
             
-            if (filtered && !databaseFilters.contains(databaseName)) {
+            if (filtered && !includeDatabases.contains(databaseName)) {
                 logger.debug("Database " + databaseName + " filtered, not dropping on destination");
                 continue;
             } else {
@@ -863,7 +867,7 @@ public class ShardConfigSync {
         for (Document database : databases) {
             String databaseName = database.getString("_id");
             
-            if (filtered && !databaseFilters.contains(databaseName)) {
+            if (filtered && !includeDatabases.contains(databaseName)) {
                 logger.debug("Database " + databaseName + " filtered, not dropping on destination");
                 continue;
             } else {
@@ -920,7 +924,6 @@ public class ShardConfigSync {
     }
     
     public void setNamespaceFilters(String[] namespaceFilterList) {
-        this.namespaceFilterList = namespaceFilterList;
         if (namespaceFilterList == null) {
             return;
         }
@@ -928,10 +931,10 @@ public class ShardConfigSync {
         for (String nsStr : namespaceFilterList) {
             if (nsStr.contains("\\.")) {
                 Namespace ns = new Namespace(nsStr);
-                namespaceFilters.add(ns);
-                databaseFilters.add(ns.getDatabaseName());
+                includeNamespaces.add(ns);
+                includeDatabases.add(ns.getDatabaseName());
             } else {
-                databaseFilters.add(nsStr);
+                includeDatabases.add(nsStr);
             }
         }
     }
@@ -950,42 +953,46 @@ public class ShardConfigSync {
             
             // Source setup
             mongomirror.setSourceHost(source.getHost());
-            mongomirror.setSourceUsername(sourceShard.getUsername());
-            if (sourceShard.getPassword() != null) {
-                mongomirror.setSourcePassword(sourceShard.getPassword());
-            }
-            MongoCredential sourceCredentials = sourceShard.getCredentials();
+            
+            MongoCredential sourceCredentials = sourceShard.getConnectionString().getCredential();
             if (sourceCredentials != null) {
+                mongomirror.setSourceUsername(sourceCredentials.getUserName());
+                mongomirror.setSourcePassword(new String(sourceCredentials.getPassword()));
                 mongomirror.setSourceAuthenticationDatabase(sourceCredentials.getSource());
             }
-            if (sourceShard.getOptions().getSslContext() != null) {
-                mongomirror.setSourceSsl(true);
+            if (sourceShard.getConnectionString().getSslEnabled() != null) {
+                mongomirror.setSourceSsl(sourceShard.getConnectionString().getSslEnabled());
             }
             
             
-            String setName = destShard.getMongoClient().getReplicaSetStatus().getName();
-            
+            //String setName = destShard.getMongoClient().getReplicaSetStatus().getName();
+            String setName = null; // TODO
+            ClusterDescription cd = destShard.getMongoClient().getClusterDescription();
             
             //destMongoClientURI.getCredentials().getSource();
-            String host = destShard.getMongoClient().getAddress().getHost();
+            String host = destShard.getConnectionString().getHosts().get(0); // TODO verify
             
             mongomirror.setDestinationHost(setName + "/" + host);
-            mongomirror.setDestinationUsername(destShard.getUsername());
-            if (destShard.getPassword() != null) {
-                mongomirror.setDestinationPassword(destShard.getPassword());
-            }
-            MongoCredential destCredentials = destShard.getCredentials();
+            MongoCredential destCredentials = destShard.getConnectionString().getCredential();
             if (destCredentials != null) {
+                mongomirror.setDestinationUsername(destCredentials.getUserName());
+                mongomirror.setDestinationPassword(new String(destCredentials.getPassword()));
                 mongomirror.setDestinationAuthenticationDatabase(destCredentials.getSource());
             }
-            if (! destShard.getOptions().isSslEnabled()) {
+            
+
+            if (destShard.getConnectionString().getSslEnabled() == null || destShard.getConnectionString().getSslEnabled().equals(Boolean.FALSE)) {
+                // TODO - this is only in "hacked" mongomirror
                 mongomirror.setDestinationNoSSL(true);
             }
             
             
-            if (namespaceFilterList != null) {
-                String nsFilter = String.join(",", namespaceFilterList);
-                mongomirror.setNamespaceFilter(nsFilter);
+            for (Namespace ns : includeNamespaces) {
+                mongomirror.addIncludeNamespace(ns);
+            }
+            
+            for (String dbName : includeDatabases) {
+                mongomirror.addIncludeDatabase(dbName);
             }
             
             
@@ -1018,40 +1025,45 @@ public class ShardConfigSync {
         for (Shard source : sourceShard.getShardsMap().values()) {
             MongoMirrorRunner mongomirror = new MongoMirrorRunner(source.getId());
             
-            // Source setup
             mongomirror.setSourceHost(source.getHost());
-            mongomirror.setSourceUsername(sourceShard.getUsername());
-            if (sourceShard.getPassword() != null) {
-                mongomirror.setSourcePassword(String.valueOf(sourceShard.getPassword()));
-            }
-            MongoCredential sourceCredentials = sourceShard.getCredentials();
+            
+            MongoCredential sourceCredentials = sourceShard.getConnectionString().getCredential();
             if (sourceCredentials != null) {
+                mongomirror.setSourceUsername(sourceCredentials.getUserName());
+                mongomirror.setSourcePassword(new String(sourceCredentials.getPassword()));
                 mongomirror.setSourceAuthenticationDatabase(sourceCredentials.getSource());
             }
-            if (sourceShard.getOptions().isSslEnabled()) {
-                mongomirror.setSourceSsl(true);
+            if (sourceShard.getConnectionString().getSslEnabled() != null) {
+                mongomirror.setSourceSsl(sourceShard.getConnectionString().getSslEnabled());
             }
             
             // Destination setup
-            String destShardId = sourceToDestShardMap.get(source.getId());
-            Shard dest = destShard.getShardsMap().get(destShardId);
-            mongomirror.setDestinationHost(dest.getHost());
-            mongomirror.setDestinationUsername(destShard.getUsername());
-            if (destShard.getPassword() != null) {
-                mongomirror.setDestinationPassword(destShard.getPassword());
-            }
-            MongoCredential destCredentials = destShard.getCredentials();
+            //String setName = destShard.getMongoClient().getReplicaSetStatus().getName();
+            String setName = null; // TODO
+            ClusterDescription cd = destShard.getMongoClient().getClusterDescription();
+            
+            //destMongoClientURI.getCredentials().getSource();
+            String host = destShard.getConnectionString().getHosts().get(0); // TODO verify
+            
+            mongomirror.setDestinationHost(setName + "/" + host);
+            MongoCredential destCredentials = destShard.getConnectionString().getCredential();
             if (destCredentials != null) {
+                mongomirror.setDestinationUsername(destCredentials.getUserName());
+                mongomirror.setDestinationPassword(new String(destCredentials.getPassword()));
                 mongomirror.setDestinationAuthenticationDatabase(destCredentials.getSource());
             }
-            if (! destShard.getOptions().isSslEnabled()) {
+            
+            if (destShard.getConnectionString().getSslEnabled() == null || destShard.getConnectionString().getSslEnabled().equals(Boolean.FALSE)) {
+                // TODO - this is only in "hacked" mongomirror
                 mongomirror.setDestinationNoSSL(true);
             }
             
+            for (Namespace ns : includeNamespaces) {
+                mongomirror.addIncludeNamespace(ns);
+            }
             
-            if (namespaceFilterList != null) {
-                String nsFilter = String.join(",", namespaceFilterList);
-                mongomirror.setNamespaceFilter(nsFilter);
+            for (String dbName : includeDatabases) {
+                mongomirror.addIncludeDatabase(dbName);
             }
             
             mongomirror.setMongomirrorBinary(mongomirrorBinary);

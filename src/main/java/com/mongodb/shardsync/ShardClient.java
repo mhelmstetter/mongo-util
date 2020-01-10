@@ -9,6 +9,7 @@ import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,14 +28,17 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoClient;
+import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientOptions;
+import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoCredential;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
@@ -64,13 +68,16 @@ public class ShardClient {
     private String name;
     private String version;
     private List<Integer> versionArray;
-    private MongoClientURI mongoClientURI;
+    //private MongoClientURI mongoClientURI;
     private MongoClient mongoClient;
     private MongoDatabase configDb;
     private Map<String, Shard> shardsMap = new LinkedHashMap<String, Shard>();
-    private String username;
-    private String password;
-    private MongoClientOptions mongoClientOptions;
+    
+    private ConnectionString connectionString;
+    private MongoClientSettings mongoClientSettings;
+    //private String username;
+    //private String password;
+    //private MongoClientOptions mongoClientOptions;
 
     private List<Mongos> mongosList = new ArrayList<Mongos>();
     private Map<String, MongoClient> mongosMongoClients = new TreeMap<String, MongoClient>();
@@ -78,43 +85,31 @@ public class ShardClient {
     private Map<String, Document> collectionsMap = new TreeMap<String, Document>();
 
     private Map<String, MongoClient> shardMongoClients = new TreeMap<String, MongoClient>();
+    
+    //private List<String> srvHosts;
 
     public ShardClient(String name, String clusterUri) {
         this.name = name;
         logger.debug(String.format("%s client, uri: %s", name, clusterUri));
-        this.mongoClientURI = new MongoClientURI(clusterUri);
-
-        this.username = mongoClientURI.getUsername();
-        if (username != null) {
-            this.password = String.valueOf(mongoClientURI.getPassword());
-        }
-
-        this.mongoClientOptions = mongoClientURI.getOptions();
-
-        boolean isSRVProtocol = clusterUri.startsWith(MONGODB_SRV_PREFIX);
-        if (isSRVProtocol) {
-            throw new RuntimeException(
-                    "mongodb+srv protocol not supported use standard mongodb protocol in connection string");
-        }
-
-        // We need to ensure a consistent connection to only a single mongos
-        // assume that we will only use the first one in the list
-        if (mongoClientURI.getHosts().size() > 1) {
-            throw new RuntimeException("Specify only a single mongos in the connection string");
-        }
-
-        mongoClient = new MongoClient(mongoClientURI);
-
-        CodecRegistry pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
+        
+        connectionString = new ConnectionString(clusterUri);
+        mongoClientSettings = MongoClientSettings.builder()
+                .applyConnectionString(connectionString)
+                .build();
+         
+        mongoClient = MongoClients.create(mongoClientSettings);
+        
+        CodecRegistry pojoCodecRegistry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
 
-        List<ServerAddress> addrs = mongoClient.getServerAddressList();
-        mongoClient.getDatabase("admin").runCommand(new Document("ping", 1));
+
+        //List<ServerAddress> addrs = mongoClient.getServerAddressList();
+        adminCommand(new Document("ping", 1));
         // logger.debug("Connected to source");
         configDb = mongoClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
         populateShardList();
 
-        Document destBuildInfo = mongoClient.getDatabase("admin").runCommand(new Document("buildinfo", 1));
+        Document destBuildInfo = adminCommand(new Document("buildinfo", 1));
         version = destBuildInfo.getString("version");
         versionArray = (List<Integer>) destBuildInfo.get("versionArray");
         logger.debug(name + ": MongoDB version: " + version);
@@ -133,29 +128,66 @@ public class ShardClient {
     }
 
     private void populateMongosList() {
-        MongoCollection<Mongos> mongosColl = configDb.getCollection("mongos", Mongos.class);
-        // LocalDateTime oneHourAgo = LocalDateTime.now().minusHours(1);
+        
+        if (connectionString.isSrvProtocol()) {
+            for (String hostPort : connectionString.getHosts()) {
+                
+                
+                String host = StringUtils.substringBefore(hostPort, ":");
+                Integer port = Integer.parseInt(StringUtils.substringAfter(hostPort, ":"));
+                
+                MongoClientSettings.Builder settingsBuilder = MongoClientSettings.builder();
+                settingsBuilder.applyToClusterSettings(builder ->
+                        builder.hosts(Arrays.asList(new ServerAddress(host, port))));
+                if (connectionString.getSslEnabled() != null) {
+                    settingsBuilder.applyToSslSettings(builder -> builder.enabled(connectionString.getSslEnabled()));
+                }
+                if (connectionString.getCredential() != null) {
+                    settingsBuilder.credential(connectionString.getCredential());
+                }
+                MongoClientSettings settings = settingsBuilder.build();
 
-        // TODO this needs to take into account "dead" mongos instances
-        int limit = 9999;
-        if (name.equals("source")) {
-            limit = 5;
-        }
-        mongosColl.find().sort(Sorts.ascending("ping")).limit(limit).into(mongosList);
-        for (Mongos mongos : mongosList) {
-            String uri = null;
-            if (username != null && password != null) {
-                uri = "mongodb://" + username + ":" + password + "@" + mongos.getId();
-            } else {
-                uri = "mongodb://" + mongos.getId();
+                MongoClient mongoClient = MongoClients.create(settings);
+                mongosMongoClients.put(hostPort, mongoClient);
             }
+            
+        } else {
+            MongoCollection<Mongos> mongosColl = configDb.getCollection("mongos", Mongos.class);
+            // LocalDateTime oneHourAgo = LocalDateTime.now().minusHours(1);
 
-            MongoClientOptions.Builder builder = new MongoClientOptions.Builder(mongoClientOptions);
-            MongoClientURI clientUri = new MongoClientURI(uri, builder);
-            logger.debug(name + " mongos: " + clientUri);
-            MongoClient client = new MongoClient(clientUri);
-            mongosMongoClients.put(mongos.getId(), client);
+            // TODO this needs to take into account "dead" mongos instances
+            int limit = 9999;
+            if (name.equals("source")) {
+                limit = 5;
+            }
+            mongosColl.find().sort(Sorts.ascending("ping")).limit(limit).into(mongosList);
+            for (Mongos mongos : mongosList) {
+                
+                logger.debug(name + " mongos: " + mongos.getId());
+                
+                String hostPort = mongos.getId();
+                String host = StringUtils.substringBefore(hostPort, ":");
+                Integer port = Integer.parseInt(StringUtils.substringAfter(hostPort, ":"));
+                
+                MongoClientSettings.Builder settingsBuilder = MongoClientSettings.builder();
+                settingsBuilder.applyToClusterSettings(builder ->
+                        builder.hosts(Arrays.asList(new ServerAddress(host, port))));
+                if (connectionString.getSslEnabled() != null) {
+                    settingsBuilder.applyToSslSettings(builder -> builder.enabled(connectionString.getSslEnabled()));
+                }
+                if (connectionString.getCredential() != null) {
+                    settingsBuilder.credential(connectionString.getCredential());
+                }
+                MongoClientSettings settings = settingsBuilder.build();
+                
+                MongoClient mongoClient = MongoClients.create(settings);
+                mongosMongoClients.put(mongos.getId(), mongoClient);
+            }
+               
         }
+        
+
+        
         logger.debug(name + " populateMongosList complete, " + mongosMongoClients.size() + " mongosMongoClients added");
     }
     
@@ -188,23 +220,35 @@ public class ShardClient {
         // MongoCredential sourceCredentials = mongoClientURI.getCredentials();
 
         for (Shard shard : shardsMap.values()) {
-            String host = shard.getHost();
-            String seeds = StringUtils.substringAfter(host, "/");
+            String shardHost = shard.getHost();
+            String seeds = StringUtils.substringAfter(shardHost, "/");
             String uri = null;
-            if (username != null && password != null) {
-                uri = "mongodb://" + username + ":" + password + "@" + seeds;
-            } else {
-                uri = "mongodb://" + seeds;
-            }
-
-            MongoClientOptions.Builder builder = new MongoClientOptions.Builder(mongoClientOptions);
-            MongoClientURI clientUri = new MongoClientURI(uri, builder);
-            MongoClient client = new MongoClient(clientUri);
             
-            logger.debug("Start ping: " + clientUri);
-            client.getDatabase("admin").runCommand(new Document("ping", 1));
-            logger.debug(name + " connected to shard host: " + host);
-            shardMongoClients.put(shard.getId(), client);
+            String[] seedHosts = seeds.split(",");
+            
+            List<ServerAddress> serverAddressList = new ArrayList<>();
+            for (String seed : seedHosts) {
+                String host = StringUtils.substringBefore(seed, ":");
+                Integer port = Integer.parseInt(StringUtils.substringAfter(seed, ":"));
+                
+                serverAddressList.add(new ServerAddress(host, port));
+            }
+            
+            MongoClientSettings.Builder settingsBuilder = MongoClientSettings.builder();
+            settingsBuilder.applyToClusterSettings(builder -> builder.hosts(serverAddressList));
+            if (connectionString.getSslEnabled() != null) {
+                settingsBuilder.applyToSslSettings(builder -> builder.enabled(connectionString.getSslEnabled()));
+            }
+            if (connectionString.getCredential() != null) {
+                settingsBuilder.credential(connectionString.getCredential());
+            }
+            MongoClientSettings settings = settingsBuilder.build();
+
+            
+            logger.debug("Start ping: " + shardHost);
+            mongoClient.getDatabase("admin").runCommand(new Document("ping", 1));
+            logger.debug(name + " connected to shard host: " + shardHost);
+            shardMongoClients.put(shard.getId(), mongoClient);
         }
     }
 
@@ -222,8 +266,8 @@ public class ShardClient {
      */
     public void dropDatabase(String dbName) {
         for (MongoClient c : shardMongoClients.values()) {
-            logger.debug(name + " dropping " + dbName + " on " + c.getConnectPoint());
-            c.dropDatabase(dbName);
+            logger.debug(name + " dropping " + dbName + " on " + c.getClusterDescription().getShortDescription());
+            c.getDatabase(dbName).drop();
         }
     }
 
@@ -236,8 +280,8 @@ public class ShardClient {
         for (MongoClient c : shardMongoClients.values()) {
             for (String dbName : databasesList) {
                 if (! dbName.equals("admin")) {
-                    logger.debug(name + " dropping " + dbName + " on " + c.getConnectPoint());
-                    c.dropDatabase(dbName);
+                    logger.debug(name + " dropping " + dbName + " on " + c.getClusterDescription().getShortDescription());
+                    c.getDatabase(dbName).drop();
                 }
                 
             }
@@ -256,7 +300,7 @@ public class ShardClient {
             if (! dbName.equals("admin")) {
                 logger.debug(name + " dropping " + dbName);
                 try {
-                    mongoClient.dropDatabase(dbName);
+                    mongoClient.getDatabase(dbName).drop();
                 } catch (MongoCommandException mce) {
                     logger.debug("Drop failed, brute forcing.");
                     dropForce(dbName);
@@ -339,7 +383,7 @@ public class ShardClient {
             UpdateOptions updateOptions = new UpdateOptions().upsert(true);
             configDb.getCollection("settings").updateOne(balancerId, setStopped, updateOptions);
         } else {
-            mongoClient.getDatabase("admin").runCommand(new Document("balancerStop", 1));
+            adminCommand(new Document("balancerStop", 1));
         }
     }
 
@@ -378,18 +422,6 @@ public class ShardClient {
         return configDb;
     }
 
-    public String getUsername() {
-        return username;
-    }
-
-    public String getPassword() {
-        return password;
-    }
-
-    public MongoClientOptions getOptions() {
-        return mongoClientOptions;
-    }
-
     public Collection<MongoClient> getMongosMongoClients() {
         return mongosMongoClients.values();
     }
@@ -400,10 +432,6 @@ public class ShardClient {
     
     public Map<String, MongoClient> getShardMongoClients() {
         return shardMongoClients;
-    }
-
-    public MongoCredential getCredentials() {
-        return mongoClientURI.getCredentials();
     }
 
     public void checkAutosplit() {
@@ -431,6 +459,10 @@ public class ShardClient {
             }
         }
 
+    }
+
+    public ConnectionString getConnectionString() {
+        return connectionString;
     }
 
 }

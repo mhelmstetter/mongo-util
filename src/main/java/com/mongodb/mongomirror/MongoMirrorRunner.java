@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.HashSet;
+import java.util.Set;
 
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecuteResultHandler;
@@ -14,6 +16,8 @@ import org.apache.commons.exec.LogOutputStream;
 import org.apache.commons.exec.PumpStreamHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.mongodb.model.Namespace;
 
 public class MongoMirrorRunner {
     
@@ -40,12 +44,13 @@ public class MongoMirrorRunner {
     private Boolean destinationNoSSL;
     private Boolean preserveUUIDs;
     private Boolean tailOnly;
-    private Boolean sslAllowInvalidCertificates;
-    private Boolean sslAllowInvalidHostnames;
-    private String namespaceFilter;
     private String bookmarkFile;
+    private String compressors;
     
     private String numParallelCollections;
+    
+    private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
+    private Set<String> includeDatabases = new HashSet<String>();
 
     private String id;
     
@@ -54,23 +59,6 @@ public class MongoMirrorRunner {
     public MongoMirrorRunner(String id) {
         this.id = id;
         logger = LoggerFactory.getLogger(this.getClass().getName() + "." + id);
-        
-//        this.logger = LoggerFactory.getLogger(id + "." + this.getClass().getName());
-//        
-//        LoggerContext context = (LoggerContext)LoggerFactory.getILoggerFactory();
-//        
-//        FileAppender<ILoggingEvent> file = new FileAppender<ILoggingEvent>();
-//        file.setName("FileLogger." + id);
-//        file.setFile("/tmp/" + id + ".log");
-//        file.setContext(context);
-//        file.setAppend(true);
-//        
-//        //Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
-//        
-//        
-//        
-//        //this.logger = context.getLogger(MongoMirrorRunner.class);
-        
     }
    
     public void execute() throws ExecuteException, IOException {
@@ -98,12 +86,17 @@ public class MongoMirrorRunner {
         addArg("tailOnly", tailOnly);
         
         addArg("drop", drop);
-        addArg("filter", namespaceFilter);
         addArg("bookmarkFile", bookmarkFile);
         addArg("numParallelCollections", numParallelCollections);
+        addArg("compressors", compressors);
         
-        // Can't do this in Atlas, user does not have permissions
-        //addArg("preserveUUIDs", true);
+        for (Namespace ns : includeNamespaces) {
+            addArg("includeNamespace", ns.getNamespace());
+        }
+        
+        for (String dbName : includeDatabases) {
+            addArg("includeDB", dbName);
+        }
         
         PumpStreamHandler psh = new PumpStreamHandler(new ExecBasicLogHandler(id));
         
@@ -190,10 +183,6 @@ public class MongoMirrorRunner {
         this.destinationNoSSL = destinationNoSSL;
     }
 
-    public void setNamespaceFilter(String namespaceFilter) {
-        this.namespaceFilter = namespaceFilter;
-    }
-
     public void setBookmarkFile(String bookmarkFile) {
         this.bookmarkFile = bookmarkFile;
     }
@@ -259,6 +248,18 @@ public class MongoMirrorRunner {
 
     public void setTailOnly(Boolean tailOnly) {
         this.tailOnly = tailOnly;
+    }
+    
+    public void addIncludeNamespace(Namespace ns) {
+        includeNamespaces.add(ns);
+    }
+
+    public void addIncludeDatabase(String dbName) {
+        includeDatabases.add(dbName);
+    }
+
+    public void setCompressors(String compressors) {
+        this.compressors = compressors;
     }
 
 }
