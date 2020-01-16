@@ -1041,7 +1041,6 @@ public class ShardConfigSync {
             }
             
             // Destination setup
-            String setName = null; // TODO
             ClusterDescription cd = destShard.getMongoClient().getClusterDescription();
             
             //destMongoClientURI.getCredentials().getSource();
@@ -1051,8 +1050,7 @@ public class ShardConfigSync {
             logger.debug("mongomirror dest: " + host);
             //String host = destShard.getConnectionString().getHosts().get(0); // TODO verify
             
-            //mongomirror.setDestinationHost(setName + "/" + host);
-            mongomirror.setDestinationHost(host);
+            mongomirror.setDestinationHost(destShardId + "/" + host);
             
             MongoCredential destCredentials = destShard.getConnectionString().getCredential();
             if (destCredentials != null) {
