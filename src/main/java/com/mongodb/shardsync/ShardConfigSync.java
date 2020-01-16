@@ -930,10 +930,9 @@ public class ShardConfigSync {
         }
         filtered = true;
         for (String nsStr : namespaceFilterList) {
-            if (nsStr.contains("\\.")) {
+            if (nsStr.contains(".")) {
                 Namespace ns = new Namespace(nsStr);
                 includeNamespaces.add(ns);
-                includeDatabases.add(ns.getDatabaseName());
             } else {
                 includeDatabases.add(nsStr);
             }
