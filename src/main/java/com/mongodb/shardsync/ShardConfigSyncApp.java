@@ -32,6 +32,7 @@ public class ShardConfigSyncApp {
     private final static String NON_PRIVILEGED = "nonPrivileged";
     private final static String PRESERVE_UUIDS = "preserveUUIDs";
     private final static String TAIL_ONLY = "tailOnly";
+    private final static String COMPRESSORS = "compressors";
     
     private final static String COLL_COUNTS = "compareCounts";
     private final static String CHUNK_COUNTS = "chunkCounts";
@@ -91,6 +92,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(PRESERVE_UUIDS).create(PRESERVE_UUIDS));
         options.addOption(OptionBuilder.withArgName("mongomirror tail only")
                 .withLongOpt(TAIL_ONLY).create(TAIL_ONLY));
+        options.addOption(OptionBuilder.withArgName("mongomirror compressors").hasArg()
+                .withLongOpt(COMPRESSORS).create("c"));
         
         options.addOption(OptionBuilder.withArgName("Execute mongomirror(s)")
                 .withLongOpt(MONGO_MIRROR).create(MONGO_MIRROR));
@@ -242,6 +245,10 @@ public class ShardConfigSyncApp {
             
             boolean tailOnly = line.hasOption(TAIL_ONLY);
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
+            
+            if (line.hasOption(COMPRESSORS)) {
+                sync.setCompressors(line.getOptionValue("c"));
+            }
             
             if (mongoMirrorPath == null) {
                 System.out.println("mongomirrorPath required");

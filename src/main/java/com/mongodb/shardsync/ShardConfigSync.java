@@ -66,6 +66,7 @@ public class ShardConfigSync {
     private boolean doChunkCounts;
     private boolean preserveUUIDs;
     private boolean tailOnly;
+    private String compressors;
     
     private ShardClient sourceShard;
     private ShardClient destShard;
@@ -1084,6 +1085,9 @@ public class ShardConfigSync {
             if (tailOnly) {
                mongomirror.setTailOnly(tailOnly);
             }
+            if (compressors != null) {
+                mongomirror.setCompressors(compressors);
+            }
             mongomirror.execute();
             try {
                 Thread.sleep(sleepMillis);
@@ -1135,5 +1139,9 @@ public class ShardConfigSync {
 
     public void setTailOnly(boolean tailOnly) {
         this.tailOnly = tailOnly;
+    }
+
+    public void setCompressors(String compressors) {
+        this.compressors = compressors;
     }
 }
