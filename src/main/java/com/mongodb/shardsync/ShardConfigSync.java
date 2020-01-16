@@ -1050,7 +1050,7 @@ public class ShardConfigSync {
             logger.debug("mongomirror dest: " + host);
             //String host = destShard.getConnectionString().getHosts().get(0); // TODO verify
             
-            mongomirror.setDestinationHost(destShardId + "/" + host);
+            mongomirror.setDestinationHost(host);
             
             MongoCredential destCredentials = destShard.getConnectionString().getCredential();
             if (destCredentials != null) {
