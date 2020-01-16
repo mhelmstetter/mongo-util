@@ -1022,6 +1022,8 @@ public class ShardConfigSync {
 
     public void mongomirror() throws ExecuteException, IOException {
         
+        destShard.populateShardMongoClients();
+        
         for (Shard source : sourceShard.getShardsMap().values()) {
             MongoMirrorRunner mongomirror = new MongoMirrorRunner(source.getId());
             
@@ -1038,14 +1040,19 @@ public class ShardConfigSync {
             }
             
             // Destination setup
-            //String setName = destShard.getMongoClient().getReplicaSetStatus().getName();
             String setName = null; // TODO
             ClusterDescription cd = destShard.getMongoClient().getClusterDescription();
             
             //destMongoClientURI.getCredentials().getSource();
-            String host = destShard.getConnectionString().getHosts().get(0); // TODO verify
+            String destShardId = sourceToDestShardMap.get(source.getId());
+            Shard dest = destShard.getShardsMap().get(destShardId);
+            String host = dest.getHost();
+            logger.debug("mongomirror dest: " + host);
+            //String host = destShard.getConnectionString().getHosts().get(0); // TODO verify
             
-            mongomirror.setDestinationHost(setName + "/" + host);
+            //mongomirror.setDestinationHost(setName + "/" + host);
+            mongomirror.setDestinationHost(host);
+            
             MongoCredential destCredentials = destShard.getConnectionString().getCredential();
             if (destCredentials != null) {
                 mongomirror.setDestinationUsername(destCredentials.getUserName());

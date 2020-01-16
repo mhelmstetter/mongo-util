@@ -29,11 +29,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.ConnectionString;
-import com.mongodb.MongoClientOptions;
 import com.mongodb.MongoClientSettings;
-import com.mongodb.MongoClientURI;
 import com.mongodb.MongoCommandException;
-import com.mongodb.MongoCredential;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.FindIterable;
@@ -45,6 +42,8 @@ import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
+import com.mongodb.connection.ClusterDescription;
+import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Shard;
 
@@ -86,7 +85,7 @@ public class ShardClient {
 
     private Map<String, MongoClient> shardMongoClients = new TreeMap<String, MongoClient>();
     
-    //private List<String> srvHosts;
+    private List<String> srvHosts;
 
     public ShardClient(String name, String clusterUri) {
         this.name = name;
@@ -130,8 +129,12 @@ public class ShardClient {
     private void populateMongosList() {
         
         if (connectionString.isSrvProtocol()) {
-            for (String hostPort : connectionString.getHosts()) {
-                
+            
+            DefaultDnsResolver resolver = new DefaultDnsResolver();
+            srvHosts = resolver.resolveHostFromSrvRecords(connectionString.getHosts().get(0));
+            
+            for (String hostPort : srvHosts) {
+                logger.debug("populateMongosList() mongos srvHost: " + hostPort);
                 
                 String host = StringUtils.substringBefore(hostPort, ":");
                 Integer port = Integer.parseInt(StringUtils.substringAfter(hostPort, ":"));
@@ -222,7 +225,8 @@ public class ShardClient {
         for (Shard shard : shardsMap.values()) {
             String shardHost = shard.getHost();
             String seeds = StringUtils.substringAfter(shardHost, "/");
-            String uri = null;
+            
+            logger.debug(name + " " + shard.getId() + " populateShardMongoClients() seeds: " + seeds);
             
             String[] seedHosts = seeds.split(",");
             
@@ -243,11 +247,11 @@ public class ShardClient {
                 settingsBuilder.credential(connectionString.getCredential());
             }
             MongoClientSettings settings = settingsBuilder.build();
-
+            MongoClient mongoClient = MongoClients.create(settings);
             
-            logger.debug("Start ping: " + shardHost);
-            mongoClient.getDatabase("admin").runCommand(new Document("ping", 1));
-            logger.debug(name + " connected to shard host: " + shardHost);
+            logger.debug("Start isMaster: " + shardHost);
+            Document isMasterResult = mongoClient.getDatabase("admin").runCommand(new Document("isMaster", 1));
+            logger.debug(name + " isMaster complete, cluster: " + mongoClient.getClusterDescription());
             shardMongoClients.put(shard.getId(), mongoClient);
         }
     }
@@ -265,9 +269,9 @@ public class ShardClient {
      * @param dbName
      */
     public void dropDatabase(String dbName) {
-        for (MongoClient c : shardMongoClients.values()) {
-            logger.debug(name + " dropping " + dbName + " on " + c.getClusterDescription().getShortDescription());
-            c.getDatabase(dbName).drop();
+        for (Map.Entry<String, MongoClient> entry : shardMongoClients.entrySet()) {
+            logger.debug(name + " dropping " + dbName + " on " + entry.getKey());
+            entry.getValue().getDatabase(dbName).drop();
         }
     }
 
@@ -277,11 +281,12 @@ public class ShardClient {
      * @param dbName
      */
     public void dropDatabases(List<String> databasesList) {
-        for (MongoClient c : shardMongoClients.values()) {
+        for (Map.Entry<String, MongoClient> entry : shardMongoClients.entrySet()) {
+            
             for (String dbName : databasesList) {
                 if (! dbName.equals("admin")) {
-                    logger.debug(name + " dropping " + dbName + " on " + c.getClusterDescription().getShortDescription());
-                    c.getDatabase(dbName).drop();
+                    logger.debug(name + " dropping " + dbName + " on " + entry.getKey());
+                    entry.getValue().getDatabase(dbName).drop();
                 }
                 
             }
