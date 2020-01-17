@@ -355,6 +355,14 @@ public class ShardClient {
     public void createDatabase(String databaseName) {
         String tmpName = "tmp_ShardConfigSync_" + System.currentTimeMillis();
         mongoClient.getDatabase(databaseName).createCollection(tmpName);
+        
+        // ugly hack
+//        try {
+//            Thread.sleep(1000);
+//        } catch (InterruptedException e) {
+//            // TODO Auto-generated catch block
+//            e.printStackTrace();
+//        }
         mongoClient.getDatabase(databaseName).getCollection(tmpName).drop();
     }
     

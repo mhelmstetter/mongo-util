@@ -82,6 +82,10 @@ public class ShardConfigSync {
     private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
     private Set<String> includeDatabases = new HashSet<String>();
     
+    // ugly, but we need a set of includeDatabases that we pass to mongomirror
+    // vs. the includes that we use elsewhere
+    private Set<String> includeDatabasesAll = new HashSet<String>();
+    
     private String[] shardMap;
     
     private File mongomirrorBinary;
@@ -208,7 +212,19 @@ public class ShardConfigSync {
         logger.debug("createDestChunksUsingSplitCommand started");
         MongoCollection<Document> sourceChunksColl = sourceShard.getChunksCollection();
         MongoCollection<Document> destChunksColl = destShard.getChunksCollection();
-        FindIterable<Document> sourceChunks = sourceChunksColl.find().noCursorTimeout(true).sort(Sorts.ascending("ns", "max"));
+        
+        Document chunkQuery = null;
+        if (includeNamespaces.size() > 0 || includeDatabases.size() > 0) {
+            List<String> inList = new ArrayList<>();
+            Document inDoc = new Document("$in", inList);
+            chunkQuery = new Document("ns", inDoc);
+            for (Namespace includeNs : includeNamespaces) {
+                inList.add(includeNs.getNamespace());
+            }
+        } else {
+            chunkQuery = new Document();
+        }
+        FindIterable<Document> sourceChunks = sourceChunksColl.find(chunkQuery).noCursorTimeout(true).sort(Sorts.ascending("ns", "max"));
 
         Document splitCommand = new Document();
         String lastNs = null;
@@ -638,7 +654,7 @@ public class ShardConfigSync {
             String nsStr = (String)sourceColl.get("_id");
             Namespace ns = new Namespace(nsStr);
             
-            if (filtered && ! includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
+            if (filtered && ! includeNamespaces.contains(ns)) {
                 logger.debug("Namespace " + ns + " filtered, not sharding on destination");
                 continue;
             }
@@ -783,7 +799,7 @@ public class ShardConfigSync {
 //                throw new IllegalArgumentException("Shard mapping not found for shard " + primary);
 //            }
             
-            if (filtered && !includeDatabases.contains(databaseName)) {
+            if (filtered && !includeDatabasesAll.contains(databaseName)) {
                 logger.debug("Database " + databaseName + " filtered, not sharding on destination");
                 continue;
             }
@@ -933,8 +949,10 @@ public class ShardConfigSync {
             if (nsStr.contains(".")) {
                 Namespace ns = new Namespace(nsStr);
                 includeNamespaces.add(ns);
+                includeDatabasesAll.add(ns.getDatabaseName());
             } else {
                 includeDatabases.add(nsStr);
+                includeDatabasesAll.add(nsStr);
             }
         }
     }

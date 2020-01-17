@@ -93,7 +93,7 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("mongomirror tail only")
                 .withLongOpt(TAIL_ONLY).create(TAIL_ONLY));
         options.addOption(OptionBuilder.withArgName("mongomirror compressors").hasArg()
-                .withLongOpt(COMPRESSORS).create("c"));
+                .withLongOpt(COMPRESSORS).create("z"));
         
         options.addOption(OptionBuilder.withArgName("Execute mongomirror(s)")
                 .withLongOpt(MONGO_MIRROR).create(MONGO_MIRROR));
