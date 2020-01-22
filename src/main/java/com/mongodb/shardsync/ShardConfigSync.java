@@ -94,6 +94,8 @@ public class ShardConfigSync {
     
     private String  numParallelCollections;
     
+    private String writeConcern;
+    
     
     private String destVersion;
     private List<Integer> destVersionArray;
@@ -203,27 +205,31 @@ public class ShardConfigSync {
 
     /**
      * Create chunks on the dest side using the "split" runCommand
-     * NOTE that this will not work correctly with hashed shard keys
      * NOTE that this will be very slow b/c of the locking process that happens with each chunk
-     * In these cases where the dest is Atls, we need to get elevated permissions in Atlas
-     * so that we can bulk insert the dest chunks.
      */
+    @SuppressWarnings({ "rawtypes", "unchecked" })
     private void createDestChunksUsingSplitCommand() {
         logger.debug("createDestChunksUsingSplitCommand started");
         MongoCollection<Document> sourceChunksColl = sourceShard.getChunksCollection();
         MongoCollection<Document> destChunksColl = destShard.getChunksCollection();
         
-        Document chunkQuery = null;
+        Document chunkQuery = new Document();
         if (includeNamespaces.size() > 0 || includeDatabases.size() > 0) {
-            List<String> inList = new ArrayList<>();
-            Document inDoc = new Document("$in", inList);
-            chunkQuery = new Document("ns", inDoc);
+            List inList = new ArrayList();
+            List orList = new ArrayList();
+            //Document orDoc = new Document("$or", orList);
+            chunkQuery.append("$or", orList);
+            Document inDoc = new Document("ns", new Document("$in", inList));
+            orList.add(inDoc);
+            //orDoc.append("ns", inDoc);
             for (Namespace includeNs : includeNamespaces) {
                 inList.add(includeNs.getNamespace());
             }
-        } else {
-            chunkQuery = new Document();
+            for (String dbName : includeDatabases) {
+                orList.add(regex("ns", "^" + dbName + "\\."));
+            }
         }
+        //logger.debug("chunkQuery: " + chunkQuery);
         FindIterable<Document> sourceChunks = sourceChunksColl.find(chunkQuery).noCursorTimeout(true).sort(Sorts.ascending("ns", "max"));
 
         Document splitCommand = new Document();
@@ -654,7 +660,7 @@ public class ShardConfigSync {
             String nsStr = (String)sourceColl.get("_id");
             Namespace ns = new Namespace(nsStr);
             
-            if (filtered && ! includeNamespaces.contains(ns)) {
+            if (filtered && ! includeNamespaces.contains(ns) && ! includeDatabases.contains(ns.getDatabaseName())) {
                 logger.debug("Namespace " + ns + " filtered, not sharding on destination");
                 continue;
             }
@@ -1092,6 +1098,7 @@ public class ShardConfigSync {
             mongomirror.setMongomirrorBinary(mongomirrorBinary);
             mongomirror.setBookmarkFile(source.getId() + ".timestamp");
             mongomirror.setNumParallelCollections(numParallelCollections);
+            mongomirror.setWriteConcern(writeConcern);
             
             if (destShard.isVersion36OrLater() && ! nonPrivilegedMode) {
                 logger.debug("Version 3.6 or later, not nonPrivilegedMode, setting preserveUUIDs true");
@@ -1158,5 +1165,9 @@ public class ShardConfigSync {
 
     public void setCompressors(String compressors) {
         this.compressors = compressors;
+    }
+
+    public void setWriteConcern(String writeConcern) {
+        this.writeConcern = writeConcern;
     }
 }

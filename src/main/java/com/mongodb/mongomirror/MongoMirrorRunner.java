@@ -49,6 +49,8 @@ public class MongoMirrorRunner {
     
     private String numParallelCollections;
     
+    private String writeConcern;
+    
     private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
     private Set<String> includeDatabases = new HashSet<String>();
 
@@ -89,6 +91,7 @@ public class MongoMirrorRunner {
         addArg("bookmarkFile", bookmarkFile);
         addArg("numParallelCollections", numParallelCollections);
         addArg("compressors", compressors);
+        addArg("writeConcern", writeConcern);
         
         for (Namespace ns : includeNamespaces) {
             addArg("includeNamespace", ns.getNamespace());
@@ -260,6 +263,10 @@ public class MongoMirrorRunner {
 
     public void setCompressors(String compressors) {
         this.compressors = compressors;
+    }
+
+    public void setWriteConcern(String writeConcern) {
+        this.writeConcern = writeConcern;
     }
 
 }

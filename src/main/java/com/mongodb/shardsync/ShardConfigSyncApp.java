@@ -107,6 +107,9 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("Diff chunks").hasArgs().withLongOpt("diffChunks")
                 .isRequired(false).create("z"));
         
+        options.addOption(OptionBuilder.withArgName("writeConcern").hasArg().withLongOpt("writeConcern")
+                .isRequired(false).create("w"));
+        
         options.addOption(OptionBuilder.withArgName("Sleep millis").hasArg().withLongOpt("sleepMillis")
                 .isRequired(false).create("x"));
         
@@ -193,6 +196,7 @@ public class ShardConfigSyncApp {
         sync.setDropDestDbsAndConfigMetadata(line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA));
         sync.setSleepMillis(line.getOptionValue("x"));
         sync.setNumParallelCollections(line.getOptionValue("y"));
+        sync.setWriteConcern(line.getOptionValue("w"));
         
         sync.setSslAllowInvalidCertificates(line.hasOption(SSL_ALLOW_INVALID_CERTS));
         sync.setSslAllowInvalidHostnames(line.hasOption(SSL_ALLOW_INVALID_HOSTNAMES));
