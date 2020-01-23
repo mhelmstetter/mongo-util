@@ -230,7 +230,7 @@ public class ShardConfigSync {
             }
         }
         //logger.debug("chunkQuery: " + chunkQuery);
-        FindIterable<Document> sourceChunks = sourceChunksColl.find(chunkQuery).noCursorTimeout(true).sort(Sorts.ascending("ns", "max"));
+        FindIterable<Document> sourceChunks = sourceChunksColl.find(chunkQuery).noCursorTimeout(true).sort(Sorts.ascending("ns", "min"));
 
         Document splitCommand = new Document();
         String lastNs = null;
