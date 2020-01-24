@@ -443,7 +443,7 @@ public class ShardConfigSync {
         
     }
 
-    private boolean compareAndMoveChunks(boolean doMove) {
+    public boolean compareAndMoveChunks(boolean doMove) {
         
         logger.debug("Reading destination chunks, doMove: " + doMove);
         Map<String, String> destChunkMap = new HashMap<String, String>();
@@ -459,21 +459,33 @@ public class ShardConfigSync {
         
         
         MongoCollection<Document> sourceChunksColl = sourceShard.getChunksCollection();
-        FindIterable<Document> sourceChunks = sourceChunksColl.find().sort(Sorts.ascending("ns", "min"));
+        FindIterable<Document> sourceChunks = sourceChunksColl.find().noCursorTimeout(true).sort(Sorts.ascending("ns", "min"));
 
         String lastNs = null;
         int currentCount = 0;
         int movedCount = 0;
         int mismatchedCount = 0;
         int matchedCount = 0;
+        int missingCount = 0;
+        int sourceTotalCount = 0;
 
         for (Document sourceChunk : sourceChunks) {
-
+            sourceTotalCount++;
             String sourceNs = sourceChunk.getString("ns");
             Namespace sourceNamespace = new Namespace(sourceNs);
             
             if (filtered && ! includeNamespaces.contains(sourceNamespace) && !includeDatabases.contains(sourceNamespace.getDatabaseName())) {
                 continue;
+            }
+            
+            if (!sourceNs.equals(lastNs)) {
+                if (currentCount > 0) {
+                    logger.debug(String.format("compareAndMoveChunks - %s - complete, compared %s chunks", lastNs, currentCount));
+                    currentCount = 0;
+                }
+                logger.debug(String.format("compareAndMoveChunks - %s - starting", sourceNs));
+            } else if (currentCount > 0 && currentCount % 10000 == 0) {
+                logger.debug(String.format("compareAndMoveChunks - %s - currentCount: %s chunks", sourceNs, currentCount));
             }
             
             Document sourceMin = (Document) sourceChunk.get("min");
@@ -489,18 +501,16 @@ public class ShardConfigSync {
             
             if (destShard == null) {
                 logger.error("Chunk with _id " + sourceId + " not found on destination");
-                continue;
-            }
-            
-
-            if (doMove && !mappedShard.equals(destShard)) {
+                missingCount++;
+                
+            } else if (doMove && !mappedShard.equals(destShard)) {
                 //logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
                 if (doMove) {
                     moveChunk(sourceNs, sourceMin, sourceMax, mappedShard);
-                    continue;
                 }
 
                 movedCount++;
+                
             } else if (!doMove) {
                 if (!mappedShard.equals(destShard)) {
                     logger.debug("dest chunk is on wrong shard for sourceChunk: " + sourceChunk);
@@ -508,10 +518,19 @@ public class ShardConfigSync {
                 }
                 matchedCount++;
             }
-
+            
+            currentCount++;
             lastNs = sourceNs;
         }
-        logger.debug("Matched count: " + matchedCount);
+        logger.debug(String.format("compareAndMoveChunks - %s - complete, compared %s chunks", lastNs, currentCount));
+        
+        if (doMove) {
+            logger.debug(String.format("compareAndMoveChunks complete, sourceCount: %s, destCount: %s", sourceTotalCount, destChunkMap.size()));
+        } else {
+            logger.debug(String.format("compareAndMoveChunks complete, sourceCount: %s, destCount: %s, mismatchedCount: %s, missingCount: %s", 
+                    sourceTotalCount, destChunkMap.size(), mismatchedCount, missingCount));
+        }
+        
         return true;
     }
 

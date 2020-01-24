@@ -249,9 +249,14 @@ public class ShardClient {
             MongoClientSettings settings = settingsBuilder.build();
             MongoClient mongoClient = MongoClients.create(settings);
             
-            logger.debug("Start isMaster: " + shardHost);
+            logger.debug(String.format("%s isMaster started: %s", name, shardHost));
             Document isMasterResult = mongoClient.getDatabase("admin").runCommand(new Document("isMaster", 1));
-            logger.debug(name + " isMaster complete, cluster: " + mongoClient.getClusterDescription());
+            if (logger.isTraceEnabled()) {
+                logger.trace(name + " isMaster complete, cluster: " + mongoClient.getClusterDescription());
+            } else {
+                logger.debug(String.format("%s isMaster complete: %s", name, shardHost));
+            }
+            
             shardMongoClients.put(shard.getId(), mongoClient);
         }
     }

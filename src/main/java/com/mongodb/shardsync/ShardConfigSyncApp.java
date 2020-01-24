@@ -39,6 +39,7 @@ public class ShardConfigSyncApp {
     private final static String FLUSH_ROUTER = "flushRouter";
     private final static String SYNC_METADATA = "syncMetadata";
     private final static String COMPARE_CHUNKS = "compareChunks";
+    private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
     private final static String SHARD_COLLECTIONS = "shardCollections";
     private final static String CLEANUP_ORPHANS = "cleanupOrphans";
@@ -73,6 +74,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(FLUSH_ROUTER).create(FLUSH_ROUTER));
         options.addOption(OptionBuilder.withArgName("Compare all shard chunks (do not sync/migrate)")
                 .withLongOpt(COMPARE_CHUNKS).create(COMPARE_CHUNKS));
+        options.addOption(OptionBuilder.withArgName("Compare all shard chunks, move any misplaced chunks")
+                .withLongOpt(COMPARE_AND_MOVE_CHUNKS).create(COMPARE_AND_MOVE_CHUNKS));
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata")
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
         options.addOption(OptionBuilder.withArgName("Cleanup source orphans")
@@ -213,6 +216,9 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(COMPARE_CHUNKS)) {
             actionFound = true;
             sync.compareChunks();
+        } else if (line.hasOption(COMPARE_AND_MOVE_CHUNKS)) {
+            actionFound = true;
+            sync.compareAndMoveChunks(true);
         } else if (line.hasOption(SYNC_METADATA)) {
             actionFound = true;
             sync.migrateMetadata();
