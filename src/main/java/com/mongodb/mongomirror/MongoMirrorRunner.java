@@ -5,6 +5,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.commons.exec.CommandLine;
@@ -17,7 +18,10 @@ import org.apache.commons.exec.PumpStreamHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.mongodb.model.Namespace;
+import com.mongodb.util.HttpUtils;
 
 public class MongoMirrorRunner {
     
@@ -46,6 +50,7 @@ public class MongoMirrorRunner {
     private Boolean tailOnly;
     private String bookmarkFile;
     private String compressors;
+    private Integer httpStatusPort;
     
     private String numParallelCollections;
     
@@ -58,9 +63,14 @@ public class MongoMirrorRunner {
     
     private Logger logger;
     
+    private HttpUtils httpUtils;
+    private Gson gson;
+    
     public MongoMirrorRunner(String id) {
         this.id = id;
         logger = LoggerFactory.getLogger(this.getClass().getName() + "." + id);
+        httpUtils = new HttpUtils();
+        gson = new GsonBuilder().create();
     }
    
     public void execute() throws ExecuteException, IOException {
@@ -92,6 +102,8 @@ public class MongoMirrorRunner {
         addArg("numParallelCollections", numParallelCollections);
         addArg("compressors", compressors);
         addArg("writeConcern", writeConcern);
+        addArg("httpStatusPort", httpStatusPort);
+        addArg("forceDump");
         
         for (Namespace ns : includeNamespaces) {
             addArg("includeNamespace", ns.getNamespace());
@@ -108,6 +120,41 @@ public class MongoMirrorRunner {
         executor.setStreamHandler(psh);
         logger.debug("executor.execute id: " + id + " cmdLine: " + cmdLine);
         executor.execute(cmdLine, executeResultHandler);
+    }
+    
+    @SuppressWarnings("rawtypes")
+    public MongoMirrorStatus checkStatus() {
+        String statusStr = null;
+        MongoMirrorStatus status = null;
+        try {
+            statusStr = httpUtils.doGetAsString(String.format("http://localhost:%s", httpStatusPort));
+            if (statusStr.contains("\"stage\":\"initial sync\"")) {
+                if (statusStr.contains("\"applying oplog entries\"")) {
+                    status = gson.fromJson(statusStr, MongoMirrorStatusOplogSync.class);
+                } else {
+                    status = gson.fromJson(statusStr, MongoMirrorStatusInitialSync.class);
+                }
+                
+            } else if (statusStr.contains("\"stage\":\"oplog sync\"")) {
+                status = gson.fromJson(statusStr, MongoMirrorStatusOplogSync.class);
+            } else {
+                status = gson.fromJson(statusStr, MongoMirrorStatus.class);
+            }
+        } catch (Exception e) {
+            logger.error(statusStr);
+            logger.error("Error checking mongomirror status", e);
+        }
+        return status;
+    }
+    
+    private void addArg(String argName) {
+        cmdLine.addArgument("--" + argName);
+    }
+    
+    private void addArg(String argName, Integer argValue) {
+        if (argValue != null) {
+            cmdLine.addArgument("--" + argName + "=" + argValue);
+        }
     }
     
     private void addArg(String argName, String argValue) {
@@ -267,6 +314,14 @@ public class MongoMirrorRunner {
 
     public void setWriteConcern(String writeConcern) {
         this.writeConcern = writeConcern;
+    }
+
+    public void setHttpStatusPort(Integer httpStatusPort) {
+        this.httpStatusPort = httpStatusPort;
+    }
+
+    public String getId() {
+        return id;
     }
 
 }

@@ -8,6 +8,8 @@ import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -21,9 +23,7 @@ import java.util.TreeMap;
 import org.apache.commons.exec.ExecuteException;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
-import org.bson.UuidRepresentation;
 import org.bson.codecs.DocumentCodec;
-import org.bson.codecs.UuidCodecProvider;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.types.MaxKey;
@@ -46,8 +46,14 @@ import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardCollection;
 import com.mongodb.mongomirror.MongoMirrorRunner;
+import com.mongodb.mongomirror.MongoMirrorStatus;
+import com.mongodb.mongomirror.MongoMirrorStatusInitialSync;
+import com.mongodb.mongomirror.MongoMirrorStatusOplogSync;
 
 public class ShardConfigSync {
+    
+    
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm_ss");
 
     private static Logger logger = LoggerFactory.getLogger(ShardConfigSync.class);
     
@@ -1050,7 +1056,10 @@ public class ShardConfigSync {
 //            }
             
             mongomirror.setMongomirrorBinary(mongomirrorBinary);
-            mongomirror.setBookmarkFile(source.getId() + ".timestamp");
+            
+            String dateStr = formatter.format(LocalDateTime.now());
+            mongomirror.setBookmarkFile(String.format("%s_%s.timestamp", source.getId(), dateStr));
+            
             mongomirror.setNumParallelCollections(numParallelCollections);
             mongomirror.execute();
             try {
@@ -1067,8 +1076,13 @@ public class ShardConfigSync {
         
         destShard.populateShardMongoClients();
         
+        int httpStatusPort = 9000;
+        
+        List<MongoMirrorRunner> mongomirrors = new ArrayList<>(sourceShard.getShardsMap().size());
+        
         for (Shard source : sourceShard.getShardsMap().values()) {
             MongoMirrorRunner mongomirror = new MongoMirrorRunner(source.getId());
+            mongomirrors.add(mongomirror);
             
             mongomirror.setSourceHost(source.getHost());
             
@@ -1115,9 +1129,13 @@ public class ShardConfigSync {
             }
             
             mongomirror.setMongomirrorBinary(mongomirrorBinary);
-            mongomirror.setBookmarkFile(source.getId() + ".timestamp");
+            
+            String dateStr = formatter.format(LocalDateTime.now());
+            mongomirror.setBookmarkFile(String.format("%s_%s.timestamp", source.getId(), dateStr));
+            
             mongomirror.setNumParallelCollections(numParallelCollections);
             mongomirror.setWriteConcern(writeConcern);
+            mongomirror.setHttpStatusPort(httpStatusPort++);
             
             if (destShard.isVersion36OrLater() && ! nonPrivilegedMode) {
                 logger.debug("Version 3.6 or later, not nonPrivilegedMode, setting preserveUUIDs true");
@@ -1135,6 +1153,45 @@ public class ShardConfigSync {
             } catch (InterruptedException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
+            }
+        }
+        
+        while (true) {
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+            
+            for (MongoMirrorRunner mongomirror : mongomirrors) {
+                MongoMirrorStatus status = mongomirror.checkStatus();
+                if (status == null) {
+                    continue;
+                }
+                if (status.getErrorMessage() != null) {
+                    logger.error(String.format("%s - mongomirror error %s", 
+                            mongomirror.getId(), status.getErrorMessage()));
+                } else if (status.isInitialSync()) {
+                    MongoMirrorStatusInitialSync st = (MongoMirrorStatusInitialSync)status;
+                    if (st.isCopyingIndexes()) {
+                        logger.debug(String.format("%-15s - %-18s %-22s", 
+                                mongomirror.getId(), status.getStage(), status.getPhase()));
+                    } else {
+                        double cs = st.getCompletionPercent();
+                        logger.debug(String.format("%-15s - %-18s %-22s %6.2f%% complete", 
+                                mongomirror.getId(), status.getStage(), status.getPhase(), cs));
+                    }
+                    
+                } else if (status.isOplogSync()) {
+                    MongoMirrorStatusOplogSync st = (MongoMirrorStatusOplogSync)status;
+                    logger.debug(String.format("%-15s - %-18s %-22s %s lag from source", 
+                            mongomirror.getId(), status.getStage(), status.getPhase(), st.getLagPretty()));
+                } else {
+                    logger.debug(String.format("%-15s - %-18s %-22s", 
+                            mongomirror.getId(), status.getStage(), status.getPhase()));
+                }
+                
             }
         }
         
