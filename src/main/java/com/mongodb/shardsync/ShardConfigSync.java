@@ -102,6 +102,8 @@ public class ShardConfigSync {
     
     private String writeConcern;
     
+    private Long cleanupOrphansSleepMillis;
+    
     
     private String destVersion;
     private List<Integer> destVersionArray;
@@ -932,7 +934,7 @@ public class ShardConfigSync {
         sourceShard.populateCollectionsMap();
         sourceShard.populateShardMongoClients();
         CleanupOrphaned cleaner = new CleanupOrphaned(sourceShard);
-        cleaner.cleanupOrphans();
+        cleaner.cleanupOrphans(cleanupOrphansSleepMillis);
     }
     
     public void cleanupOrphansDest() {
@@ -940,7 +942,7 @@ public class ShardConfigSync {
         destShard.populateCollectionsMap();
         destShard.populateShardMongoClients();
         CleanupOrphaned cleaner = new CleanupOrphaned(destShard);
-        cleaner.cleanupOrphans();
+        cleaner.cleanupOrphans(cleanupOrphansSleepMillis);
     }
 
     public String getSourceClusterUri() {
@@ -1245,5 +1247,11 @@ public class ShardConfigSync {
 
     public void setWriteConcern(String writeConcern) {
         this.writeConcern = writeConcern;
+    }
+
+    public void setCleanupOrphansSleepMillis(String sleepMillisString) {
+        if (sleepMillisString != null) {
+            this.cleanupOrphansSleepMillis = Long.parseLong(sleepMillisString);
+        }
     }
 }

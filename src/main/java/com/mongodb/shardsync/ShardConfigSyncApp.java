@@ -43,6 +43,7 @@ public class ShardConfigSyncApp {
     private final static String MONGO_MIRROR = "mongomirror";
     private final static String SHARD_COLLECTIONS = "shardCollections";
     private final static String CLEANUP_ORPHANS = "cleanupOrphans";
+    private final static String CLEANUP_ORPHANS_SLEEP = "cleanupOrphansSleep";
     private final static String CLEANUP_ORPHANS_DEST = "cleanupOrphansDest";
     
     private final static String SSL_ALLOW_INVALID_HOSTNAMES = "sslAllowInvalidHostnames";
@@ -97,6 +98,9 @@ public class ShardConfigSyncApp {
                 .withLongOpt(TAIL_ONLY).create(TAIL_ONLY));
         options.addOption(OptionBuilder.withArgName("mongomirror compressors").hasArg()
                 .withLongOpt(COMPRESSORS).create("z"));
+        
+        options.addOption(OptionBuilder.withArgName("cleanup orphans sleep millis").hasArg()
+                .withLongOpt(CLEANUP_ORPHANS_SLEEP).create(CLEANUP_ORPHANS_SLEEP));
         
         options.addOption(OptionBuilder.withArgName("Execute mongomirror(s)")
                 .withLongOpt(MONGO_MIRROR).create(MONGO_MIRROR));
@@ -235,6 +239,7 @@ public class ShardConfigSyncApp {
             sync.diffShardedCollections(doSync);
         }  else if (line.hasOption(CLEANUP_ORPHANS)) {
             actionFound = true;
+            sync.setCleanupOrphansSleepMillis(line.getOptionValue(CLEANUP_ORPHANS_SLEEP));
             sync.cleanupOrphans();
         }  else if (line.hasOption(CLEANUP_ORPHANS_DEST)) {
             actionFound = true;
