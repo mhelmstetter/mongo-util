@@ -45,7 +45,7 @@ public class CleanupOrphaned {
                 Document nextKey = null;
                 
                 do {
-                    logger.debug(String.format("cleanupOrphans: %s - %s - nextKey %s", name, coll.get("_id"), nextKey));
+                    //logger.debug(String.format("cleanupOrphans: %s - %s - nextKey %s", name, coll.get("_id"), nextKey));
                     if (nextKey != null) {
                         command.append("startingFromKey", nextKey);
                     }
