@@ -1151,14 +1151,14 @@ public class ShardConfigSync {
             }
             mongomirror.execute();
             try {
-                Thread.sleep(60*1000);
+                Thread.sleep(sleepMillis);
             } catch (InterruptedException e) {
             }
         }
         
         while (true) {
             try {
-                Thread.sleep(2000);
+                Thread.sleep(60*1000);
             } catch (InterruptedException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
