@@ -1078,7 +1078,7 @@ public class ShardConfigSync {
         
         destShard.populateShardMongoClients();
         
-        int httpStatusPort = 9000;
+        int httpStatusPort = 9001;
         
         List<MongoMirrorRunner> mongomirrors = new ArrayList<>(sourceShard.getShardsMap().size());
         
@@ -1151,10 +1151,8 @@ public class ShardConfigSync {
             }
             mongomirror.execute();
             try {
-                Thread.sleep(sleepMillis);
+                Thread.sleep(60*1000);
             } catch (InterruptedException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
             }
         }
         
