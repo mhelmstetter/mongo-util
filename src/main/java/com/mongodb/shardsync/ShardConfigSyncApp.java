@@ -213,7 +213,7 @@ public class ShardConfigSyncApp {
         sync.setSslAllowInvalidCertificates(line.hasOption(SSL_ALLOW_INVALID_CERTS));
         sync.setSslAllowInvalidHostnames(line.hasOption(SSL_ALLOW_INVALID_HOSTNAMES));
         
-        sync.init();
+        sync.initializeShardMappings();
         boolean actionFound = false;
         if (line.hasOption(COLL_COUNTS)) {
             actionFound = true;

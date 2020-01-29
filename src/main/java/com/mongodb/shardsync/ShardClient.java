@@ -86,9 +86,12 @@ public class ShardClient {
     private Map<String, MongoClient> shardMongoClients = new TreeMap<String, MongoClient>();
     
     private List<String> srvHosts;
-
-    public ShardClient(String name, String clusterUri) {
-        this.name = name;
+    
+    private Collection<String> shardIdFilter;
+    
+    public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter) {
+    	this.name = name;
+    	this.shardIdFilter = shardIdFilter;
         logger.debug(String.format("%s client, uri: %s", name, clusterUri));
         
         connectionString = new ConnectionString(clusterUri);
@@ -116,11 +119,18 @@ public class ShardClient {
         populateMongosList();
     }
 
+    public ShardClient(String name, String clusterUri) {
+    	this(name, clusterUri, null);
+    }
+
     private void populateShardList() {
 
         MongoCollection<Shard> shardsColl = configDb.getCollection("shards", Shard.class);
         FindIterable<Shard> shards = shardsColl.find().sort(Sorts.ascending("_id"));
         for (Shard sh : shards) {
+        	if (shardIdFilter != null && ! shardIdFilter.contains(sh.getId())) {
+        		continue;
+        	}
             shardsMap.put(sh.getId(), sh);
         }
         logger.debug(name + ": populateShardList complete, " + shardsMap.size() + " shards added");

@@ -117,25 +117,32 @@ public class ShardConfigSync {
 		logger.debug("ShardConfigSync starting");
 	}
 
-	public void init() {
-		logger.debug("Start init()");
+	public void initializeShardMappings() {
+		logger.debug("Start initializeShardMappings()");
+		
 		sourceShardClient = new ShardClient("source", sourceClusterUri);
 		destShardClient = new ShardClient("dest", destClusterUri);
-		initializeShardMappings();
-	}
-
-	private void initializeShardMappings() {
+		
 		if (this.shardMap != null) {
 			// shardMap is for doing an uneven shard mapping, e.g. 10 shards on source
 			// down to 5 shards on destination
 			logger.debug("Custom n:m shard mapping");
+			
 			for (String mapping : shardMap) {
 				String[] mappings = mapping.split("\\|");
 				logger.debug(mappings[0] + " ==> " + mappings[1]);
 				sourceToDestShardMap.put(mappings[0], mappings[1]);
 			}
+			
+			sourceShardClient = new ShardClient("source", sourceClusterUri, sourceToDestShardMap.keySet());
+			destShardClient = new ShardClient("dest", destClusterUri, sourceToDestShardMap.values());
+			
 		} else {
 			logger.debug("Default 1:1 shard mapping");
+			
+			sourceShardClient = new ShardClient("source", sourceClusterUri);
+			destShardClient = new ShardClient("dest", destClusterUri);
+			
 			logger.debug("Source shard count: " + sourceShardClient.getShardsMap().size());
 			// default, just match up the shards 1:1
 			int index = 0;
@@ -1146,6 +1153,7 @@ public class ShardConfigSync {
 		List<MongoMirrorRunner> mongomirrors = new ArrayList<>(sourceShardClient.getShardsMap().size());
 
 		for (Shard source : sourceShardClient.getShardsMap().values()) {
+			
 			MongoMirrorRunner mongomirror = new MongoMirrorRunner(source.getId());
 			mongomirrors.add(mongomirror);
 
@@ -1168,9 +1176,8 @@ public class ShardConfigSync {
 			String destShardId = sourceToDestShardMap.get(source.getId());
 			Shard dest = destShardClient.getShardsMap().get(destShardId);
 			String host = dest.getHost();
-			logger.debug("mongomirror dest: " + host);
-			// String host = destShard.getConnectionString().getHosts().get(0); // TODO
-			// verify
+			
+			logger.debug(String.format("Creating MongoMirrorRunner for %s ==> %s", source.getId(), dest.getId()));
 
 			mongomirror.setDestinationHost(host);
 
