@@ -169,7 +169,6 @@ public class ShardConfigSync {
 
 		stopBalancers();
 		// checkAutosplit();
-		sourceShardClient.populateShardMongoClients();
 		enableDestinationSharding();
 
 		sourceShardClient.populateCollectionsMap();
@@ -632,9 +631,12 @@ public class ShardConfigSync {
 
 		List<String> dbNames = new ArrayList<>();
 		destShardClient.listDatabaseNames().into(dbNames);
+		
+		Map<Namespace, Map<UUID, List<String>>> collectionUuidMappings = new TreeMap<>();
 
 		for (Map.Entry<String, MongoClient> entry : destShardClient.getShardMongoClients().entrySet()) {
 			MongoClient client = entry.getValue();
+			String shardName = entry.getKey();
 
 			//for (String databaseName : dbNames) {
 			for (String databaseName : client.listDatabaseNames()) {
@@ -649,64 +651,32 @@ public class ShardConfigSync {
 					if (collectionName.endsWith(".create")) {
 						continue;
 					}
+					Namespace ns = new Namespace(databaseName, collectionName);
 					Document info = (Document) collectionInfo.get("info");
 					UUID uuid = (UUID) info.get("uuid");
 					
-					logger.debug(
-							entry.getKey() + " db: " + databaseName + "." + collectionName + " " + uuid);
-					// logger.debug("%s - %s.%s: %s", entry.getKey(), db.getName(),
-					// collectionInfo.get("name"));
+					Map<UUID, List<String>> uuidMapping = collectionUuidMappings.get(ns);
+					if (uuidMapping == null) {
+						uuidMapping = new TreeMap<>();
+					}
+					collectionUuidMappings.put(ns, uuidMapping);
+					
+					List<String> shardNames = uuidMapping.get(uuid);
+					if (shardNames == null) {
+						shardNames = new ArrayList<>();
+					}
+					uuidMapping.put(uuid, shardNames);
+					shardNames.add(shardName);
+					
+					//logger.debug(entry.getKey() + " db: " + databaseName + "." + collectionName + " " + uuid);
 				}
 			}
-
 		}
-
-//        Document listDatabases = new Document("listDatabases", 1);
-//        Document sourceDatabases = sourceShardClient.adminCommand(listDatabases);
-//        Document destDatabases = destShardClient.adminCommand(listDatabases);
-//
-//        List<Document> sourceDatabaseInfo = (List<Document>) sourceDatabases.get("databases");
-//
-//        populateDbMap(sourceDatabaseInfo, sourceDbInfoMap);
-//        
-//        for (Map.Entry<String, MongoClient> entry : destShardClient.getShardMongoClients().entrySet()) {
-//            MongoClient client = entry.getValue();
-//            
-//            for (String dbName : client.listDatabaseNames()) {
-//            	
-//            }
-//            
-//            for (Document sourceInfo : sourceDatabaseInfo) {
-//                String dbName = sourceInfo.getString("name");
-//                MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
-//                for (String collectionName : sourceCollectionNames) {
-//                	
-//                }
-//            }
-//            
-//        }
-//
-//        for (Document sourceInfo : sourceDatabaseInfo) {
-//            String dbName = sourceInfo.getString("name");
-//            
-//            if (filtered && !includeDatabases.contains(dbName) || dbName.equals("config")) {
-//                logger.debug("Ignore " + dbName + " for compare, filtered");
-//                continue;
-//            }
-//                
-//           
-//
-//            MongoDatabase sourceDb = sourceShardClient.getMongoClient().getDatabase(dbName);
-//            MongoIterable<Document> sourceCollections = sourceDb.listCollections();
-//            for (Document sourceCollection : sourceCollections) {
-//                
-//            	logger.debug("coll: " + sourceCollection);
-//                
-//            }
-//            
-//            
-//            
-//        }
+		
+		for (Map.Entry<Namespace, Map<UUID, List<String>>> mappingEntry : collectionUuidMappings.entrySet()) {
+			logger.debug(String.format("%s ==> %s", mappingEntry.getKey(), mappingEntry.getValue()));
+		}
+		
 	}
 
 	private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
@@ -900,6 +870,8 @@ public class ShardConfigSync {
 	}
 
 	public void enableDestinationSharding() {
+		sourceShardClient.populateShardMongoClients();
+		
 		logger.debug("enableDestinationSharding()");
 		MongoCollection<Document> databasesColl = sourceShardClient.getConfigDb().getCollection("databases");
 
@@ -931,7 +903,7 @@ public class ShardConfigSync {
 			Document dest = destShardClient.getConfigDb().getCollection("databases")
 					.find(new Document("_id", databaseName)).first();
 			if (database.getBoolean("partitioned", true)) {
-				logger.debug("enableSharding: " + databaseName);
+				logger.debug(String.format("enableSharding: %s", databaseName));
 				try {
 					destShardClient.adminCommand(new Document("enableSharding", databaseName));
 				} catch (MongoCommandException mce) {
@@ -952,11 +924,13 @@ public class ShardConfigSync {
 				continue;
 			}
 
-			dest = destShardClient.getDatabasesCollection().find(new Document("_id", databaseName)).first();
-			if (dest == null) {
+			//dest = destShardClient.getDatabasesCollection().find(new Document("_id", databaseName)).first();
+			
+			//if (dest == null) {
 				destShardClient.createDatabase(databaseName);
 				dest = destShardClient.getDatabasesCollection().find(new Document("_id", databaseName)).first();
-			}
+				logger.debug("dest db: " + dest);
+			//}
 			String destPrimary = dest.getString("primary");
 			if (mappedPrimary.equals(destPrimary)) {
 				logger.debug("Primary shard already matches for database: " + databaseName);
@@ -1249,7 +1223,7 @@ public class ShardConfigSync {
 
 		while (true) {
 			try {
-				Thread.sleep(60 * 1000);
+				Thread.sleep(5 * 1000);
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();

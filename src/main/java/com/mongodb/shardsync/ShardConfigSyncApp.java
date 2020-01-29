@@ -236,7 +236,7 @@ public class ShardConfigSyncApp {
             sync.migrateMetadata();
         }  else if (line.hasOption(SHARD_COLLECTIONS)) {
             actionFound = true;
-            sync.shardCollections();
+            sync.enableDestinationSharding();
         }  else if (line.hasOption("z")) {
             actionFound = true;
             sync.diffChunks(line.getOptionValue("z"));

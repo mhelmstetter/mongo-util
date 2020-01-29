@@ -3,7 +3,7 @@ package com.mongodb.model;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class Namespace {
+public class Namespace implements Comparable<Namespace> {
 
     private String databaseName;
     private String collectionName;
@@ -69,5 +69,10 @@ public class Namespace {
             return false;
         return true;
     }
+
+	@Override
+	public int compareTo(Namespace o) {
+		return this.getNamespace().compareTo(o.getNamespace());
+	}
 
 }

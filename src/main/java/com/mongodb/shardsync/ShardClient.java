@@ -221,6 +221,10 @@ public class ShardClient {
 
     public void populateShardMongoClients() {
         // MongoCredential sourceCredentials = mongoClientURI.getCredentials();
+    	
+    	if (shardMongoClients.size() > 0) {
+    		logger.debug("populateShardMongoClients already complete, skipping");
+    	}
 
         for (Shard shard : shardsMap.values()) {
             String shardHost = shard.getHost();
@@ -358,18 +362,36 @@ public class ShardClient {
     }
 
     public void createDatabase(String databaseName) {
+    	logger.debug(name + " createDatabase " + databaseName);
         String tmpName = "tmp_ShardConfigSync_" + System.currentTimeMillis();
         mongoClient.getDatabase(databaseName).createCollection(tmpName);
         
         // ugly hack
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+        mongoClient.getDatabase(databaseName).getCollection(tmpName).drop();
+    }
+    
+//    public void createDatabaseOnShards(String databaseName) {
+//    	logger.debug(String.format("%s - createDatabaseOnShards(): %s", name, databaseName));
+//    	
+//    	
+//        String tmpName = "tmp_ShardConfigSync_" + System.currentTimeMillis();
+//        mongoClient.getDatabase(databaseName).createCollection(tmpName);
+//        
+//        // ugly hack
 //        try {
 //            Thread.sleep(1000);
 //        } catch (InterruptedException e) {
 //            // TODO Auto-generated catch block
 //            e.printStackTrace();
 //        }
-        mongoClient.getDatabase(databaseName).getCollection(tmpName).drop();
-    }
+//        mongoClient.getDatabase(databaseName).getCollection(tmpName).drop();
+//    }
     
     public MongoIterable<String> listDatabaseNames() {
         return this.mongoClient.listDatabaseNames();
