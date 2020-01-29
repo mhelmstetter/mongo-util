@@ -97,6 +97,7 @@ public class ShardConfigSync {
 	private long sleepMillis;
 
 	private String numParallelCollections;
+	private int mongoMirrorStartPort = 9001;
 
 	private String writeConcern;
 
@@ -1148,9 +1149,9 @@ public class ShardConfigSync {
 
 		destShardClient.populateShardMongoClients();
 
-		int httpStatusPort = 9001;
-
 		List<MongoMirrorRunner> mongomirrors = new ArrayList<>(sourceShardClient.getShardsMap().size());
+		
+		int httpStatusPort = mongoMirrorStartPort;
 
 		for (Shard source : sourceShardClient.getShardsMap().values()) {
 			
@@ -1323,5 +1324,9 @@ public class ShardConfigSync {
 		if (sleepMillisString != null) {
 			this.cleanupOrphansSleepMillis = Long.parseLong(sleepMillisString);
 		}
+	}
+	
+	public void setMongoMirrorStartPort(int mongoMirrorStartPort) {
+		this.mongoMirrorStartPort = mongoMirrorStartPort;
 	}
 }

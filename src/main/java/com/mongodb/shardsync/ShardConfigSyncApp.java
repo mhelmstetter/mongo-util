@@ -40,6 +40,7 @@ public class ShardConfigSyncApp {
     private final static String SYNC_METADATA = "syncMetadata";
     private final static String COMPARE_CHUNKS = "compareChunks";
     private final static String COMPARE_COLLECTION_UUIDS = "compareCollectionUuids";
+    private final static String MONGOMIRROR_START_PORT = "mongoMirrorStartPort";
     
     private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
@@ -103,6 +104,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(TAIL_ONLY).create(TAIL_ONLY));
         options.addOption(OptionBuilder.withArgName("mongomirror compressors").hasArg()
                 .withLongOpt(COMPRESSORS).create("z"));
+        options.addOption(OptionBuilder.withArgName("mongomirror http status starting port (default 9001)").hasArg()
+                .withLongOpt(MONGOMIRROR_START_PORT).create());
         
         options.addOption(OptionBuilder.withArgName("cleanup orphans sleep millis").hasArg()
                 .withLongOpt(CLEANUP_ORPHANS_SLEEP).create(CLEANUP_ORPHANS_SLEEP));
@@ -271,6 +274,10 @@ public class ShardConfigSyncApp {
             
             if (line.hasOption(COMPRESSORS)) {
                 sync.setCompressors(line.getOptionValue("c"));
+            }
+            if (line.hasOption(MONGOMIRROR_START_PORT)) {
+            	Integer startPort = Integer.parseInt(line.getOptionValue(MONGOMIRROR_START_PORT));
+            	sync.setMongoMirrorStartPort(startPort);
             }
             
             if (mongoMirrorPath == null) {
