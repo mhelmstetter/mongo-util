@@ -50,6 +50,7 @@ public class MongoMirrorRunner {
     private String bookmarkFile;
     private String compressors;
     private Integer httpStatusPort;
+    private String oplogPath;
     
     private String numParallelCollections;
     
@@ -102,7 +103,7 @@ public class MongoMirrorRunner {
         addArg("compressors", compressors);
         addArg("writeConcern", writeConcern);
         addArg("httpStatusPort", httpStatusPort);
-        addArg("forceDump");
+        addArg("oplogPath", oplogPath);
         
         for (Namespace ns : includeNamespaces) {
             addArg("includeNamespace", ns.getNamespace());
@@ -139,6 +140,9 @@ public class MongoMirrorRunner {
             } else {
                 status = gson.fromJson(statusStr, MongoMirrorStatus.class);
             }
+        } catch (IOException e) {
+            logger.error(statusStr);
+            logger.error("Error checking mongomirror status: " + e.getMessage());
         } catch (Exception e) {
             logger.error(statusStr);
             logger.error("Error checking mongomirror status", e);
@@ -322,5 +326,9 @@ public class MongoMirrorRunner {
     public String getId() {
         return id;
     }
+
+	public void setOplogPath(String oplogPath) {
+		this.oplogPath = oplogPath;
+	}
 
 }

@@ -41,6 +41,7 @@ public class ShardConfigSyncApp {
     private final static String COMPARE_CHUNKS = "compareChunks";
     private final static String COMPARE_COLLECTION_UUIDS = "compareCollectionUuids";
     private final static String MONGOMIRROR_START_PORT = "mongoMirrorStartPort";
+    private final static String OPLOG_BASE_PATH = "oplogBasePath";
     
     private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
@@ -85,10 +86,14 @@ public class ShardConfigSyncApp {
         
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata")
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
+        options.addOption(OptionBuilder.withArgName("Shard mapping").hasArgs().withLongOpt(SHARD_MAP)
+                .isRequired(false).create("m"));
         options.addOption(OptionBuilder.withArgName("Cleanup source orphans")
                 .withLongOpt(CLEANUP_ORPHANS).create(CLEANUP_ORPHANS));
         options.addOption(OptionBuilder.withArgName("Cleanup destination orphans")
                 .withLongOpt(CLEANUP_ORPHANS_DEST).create(CLEANUP_ORPHANS_DEST));
+        options.addOption(OptionBuilder.withArgName("cleanup orphans sleep millis").hasArg()
+                .withLongOpt(CLEANUP_ORPHANS_SLEEP).create(CLEANUP_ORPHANS_SLEEP));
         
         options.addOption(OptionBuilder.withArgName("Shard destination collections")
                 .withLongOpt(SHARD_COLLECTIONS).create(SHARD_COLLECTIONS));
@@ -98,7 +103,15 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("ssl allow invalid certificates")
                 .withLongOpt(SSL_ALLOW_INVALID_CERTS).create(SSL_ALLOW_INVALID_CERTS));
         
-        options.addOption(OptionBuilder.withArgName("preserve UUIDs")
+        
+        // Mongomirror options
+        options.addOption(OptionBuilder.withArgName("Execute mongomirror(s)")
+                .withLongOpt(MONGO_MIRROR).create(MONGO_MIRROR));
+        options.addOption(OptionBuilder.withArgName("mongomirror namespace filter").hasArgs()
+        		.withLongOpt("filter").create("f"));
+        options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArgs()
+        		.withLongOpt(MONGOMIRROR_BINARY).create("p"));
+        options.addOption(OptionBuilder.withArgName("mongomirror preserve dest UUIDs (not supported for Atlas dest)")
                 .withLongOpt(PRESERVE_UUIDS).create(PRESERVE_UUIDS));
         options.addOption(OptionBuilder.withArgName("mongomirror tail only")
                 .withLongOpt(TAIL_ONLY).create(TAIL_ONLY));
@@ -106,30 +119,18 @@ public class ShardConfigSyncApp {
                 .withLongOpt(COMPRESSORS).create("z"));
         options.addOption(OptionBuilder.withArgName("mongomirror http status starting port (default 9001)").hasArg()
                 .withLongOpt(MONGOMIRROR_START_PORT).create());
-        
-        options.addOption(OptionBuilder.withArgName("cleanup orphans sleep millis").hasArg()
-                .withLongOpt(CLEANUP_ORPHANS_SLEEP).create(CLEANUP_ORPHANS_SLEEP));
-        
-        options.addOption(OptionBuilder.withArgName("Execute mongomirror(s)")
-                .withLongOpt(MONGO_MIRROR).create(MONGO_MIRROR));
-        options.addOption(OptionBuilder.withArgName("Namespace filter").hasArgs().withLongOpt("filter")
-                .isRequired(false).create("f"));
-        options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArgs().withLongOpt(MONGOMIRROR_BINARY)
-                .isRequired(false).create("p"));
-        options.addOption(OptionBuilder.withArgName("Shard mapping").hasArgs().withLongOpt(SHARD_MAP)
-                .isRequired(false).create("m"));
-        
-        options.addOption(OptionBuilder.withArgName("Diff chunks").hasArgs().withLongOpt("diffChunks")
-                .isRequired(false).create("z"));
-        
-        options.addOption(OptionBuilder.withArgName("writeConcern").hasArg().withLongOpt("writeConcern")
+        options.addOption(OptionBuilder.withArgName("mongomirror numParallelCollections").hasArg()
+        		.withLongOpt("numParallelCollections").create("y"));
+        options.addOption(OptionBuilder.withArgName("mongomirror writeConcern").hasArg().withLongOpt("writeConcern")
                 .isRequired(false).create("w"));
+        options.addOption(OptionBuilder.withArgName("mongomirror oplogPath base path").hasArg()
+                .withLongOpt(OPLOG_BASE_PATH).create());
+        
         
         options.addOption(OptionBuilder.withArgName("Sleep millis").hasArg().withLongOpt("sleepMillis")
                 .isRequired(false).create("x"));
-        
-        options.addOption(OptionBuilder.withArgName("numParallelCollections").hasArg().withLongOpt("numParallelCollections")
-                .isRequired(false).create("y"));
+        options.addOption(OptionBuilder.withArgName("Diff chunks").hasArgs().withLongOpt("diffChunks")
+                .isRequired(false).create("z"));
         
         options.addOption(OptionBuilder.withArgName("shardToRs").withLongOpt("shardToRs")
                 .isRequired(false).create("r"));
@@ -279,6 +280,7 @@ public class ShardConfigSyncApp {
             	Integer startPort = Integer.parseInt(line.getOptionValue(MONGOMIRROR_START_PORT));
             	sync.setMongoMirrorStartPort(startPort);
             }
+            sync.setOplogBasePath(line.getOptionValue(OPLOG_BASE_PATH));
             
             if (mongoMirrorPath == null) {
                 System.out.println("mongomirrorPath required");

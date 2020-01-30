@@ -72,6 +72,7 @@ public class ShardConfigSync {
 	private boolean preserveUUIDs;
 	private boolean tailOnly;
 	private String compressors;
+	private String oplogBasePath;
 
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
@@ -1222,6 +1223,9 @@ public class ShardConfigSync {
 			if (compressors != null) {
 				mongomirror.setCompressors(compressors);
 			}
+			if (oplogBasePath != null) {
+				mongomirror.setOplogPath(String.format("%s/%s", oplogBasePath, source.getId()));
+			}
 			mongomirror.execute();
 			try {
 				Thread.sleep(sleepMillis);
@@ -1328,5 +1332,9 @@ public class ShardConfigSync {
 	
 	public void setMongoMirrorStartPort(int mongoMirrorStartPort) {
 		this.mongoMirrorStartPort = mongoMirrorStartPort;
+	}
+
+	public void setOplogBasePath(String oplogBasePath) {
+		this.oplogBasePath = oplogBasePath;
 	}
 }

@@ -3,6 +3,7 @@ package com.mongodb.util;
 import java.io.IOException;
 
 import org.apache.http.HttpStatus;
+import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -28,20 +29,18 @@ public class HttpUtils {
         gson = new GsonBuilder().create();
     }
 
-    public String doGetAsString(String url) {
+    public String doGetAsString(String url) throws ClientProtocolException, IOException {
         HttpGet httpGet = new HttpGet(url);
-        try {
-            CloseableHttpResponse response = httpClient.execute(httpGet);
-            int responseCode = response.getStatusLine().getStatusCode();
-            if (responseCode != HttpStatus.SC_OK) {
-                throw new IllegalStateException(
-                        String.format("Unexecpected http response status code %s", responseCode));
-            }
-            String responseStr = EntityUtils.toString(response.getEntity());
-            return responseStr;
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
+        
+        CloseableHttpResponse response = httpClient.execute(httpGet);
+        int responseCode = response.getStatusLine().getStatusCode();
+        if (responseCode != HttpStatus.SC_OK) {
+            throw new IllegalStateException(
+                    String.format("Unexecpected http response status code %s", responseCode));
         }
+        String responseStr = EntityUtils.toString(response.getEntity());
+        return responseStr;
+        
     }
     
     public <T> T doGetAsObject(String url, Class<T> classOfT) throws IOException {
