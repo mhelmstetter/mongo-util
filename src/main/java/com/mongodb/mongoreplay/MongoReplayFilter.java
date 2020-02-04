@@ -179,7 +179,7 @@ public class MongoReplayFilter {
                         int nreturn = bsonInput.readInt32();
                         Document commandDoc = documentCodec.decode(reader, DecoderContext.builder().build());
 
-                        System.out.println("2004: " + commandDoc);
+                        //System.out.println("2004: " + commandDoc);
                         Document queryCommand = (Document) commandDoc.get("$query");
                         if (queryCommand != null) {
                             commandDoc = queryCommand;

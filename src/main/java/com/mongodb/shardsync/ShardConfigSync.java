@@ -73,6 +73,8 @@ public class ShardConfigSync {
 	private boolean tailOnly;
 	private String compressors;
 	private String oplogBasePath;
+	private String bookmarkFilePrefix;
+	private boolean reverseSync;
 
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
@@ -212,6 +214,10 @@ public class ShardConfigSync {
 
 	private void checkAutosplit() {
 		sourceShardClient.checkAutosplit();
+	}
+	
+	public void disableSourceAutosplit() {
+		sourceShardClient.disableAutosplit();
 	}
 
 	/**
@@ -1205,9 +1211,14 @@ public class ShardConfigSync {
 			}
 
 			mongomirror.setMongomirrorBinary(mongomirrorBinary);
-
-			String dateStr = formatter.format(LocalDateTime.now());
-			mongomirror.setBookmarkFile(String.format("%s_%s.timestamp", source.getId(), dateStr));
+			
+			String dateStr = null;
+			if (bookmarkFilePrefix != null) {
+				dateStr = bookmarkFilePrefix;
+			} else {
+				dateStr = formatter.format(LocalDateTime.now());
+			}
+			mongomirror.setBookmarkFile(String.format("%s_%s.timestamp", dateStr, source.getId()));
 
 			mongomirror.setNumParallelCollections(numParallelCollections);
 			mongomirror.setWriteConcern(writeConcern);
@@ -1336,5 +1347,13 @@ public class ShardConfigSync {
 
 	public void setOplogBasePath(String oplogBasePath) {
 		this.oplogBasePath = oplogBasePath;
+	}
+
+	public void setBookmarkFilePrefix(String bookmarkFilePrefix) {
+		this.bookmarkFilePrefix = bookmarkFilePrefix;
+	}
+
+	public void setReverseSync(boolean reverseSync) {
+		this.reverseSync = reverseSync;
 	}
 }

@@ -42,7 +42,6 @@ import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
-import com.mongodb.connection.ClusterDescription;
 import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Shard;
@@ -508,8 +507,15 @@ public class ShardClient {
                 logger.debug("Timeout connecting", timeout);
             }
         }
-
     }
+    
+    public void disableAutosplit() {
+    	MongoDatabase configDb = mongoClient.getDatabase("config");
+    	MongoCollection<RawBsonDocument> settings = configDb.getCollection("settings", RawBsonDocument.class);
+    	Document update = new Document("$set", new Document("enabled", false));
+    	settings.updateOne(eq("_id", "autosplit"), update);
+    }
+
 
     public ConnectionString getConnectionString() {
         return connectionString;

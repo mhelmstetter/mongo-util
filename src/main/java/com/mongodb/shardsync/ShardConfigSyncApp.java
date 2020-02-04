@@ -40,11 +40,14 @@ public class ShardConfigSyncApp {
     private final static String SYNC_METADATA = "syncMetadata";
     private final static String COMPARE_CHUNKS = "compareChunks";
     private final static String COMPARE_COLLECTION_UUIDS = "compareCollectionUuids";
+    private final static String DISABLE_SOURCE_AUTOSPLIT = "disableSourceAutosplit";
     private final static String MONGOMIRROR_START_PORT = "mongoMirrorStartPort";
     private final static String OPLOG_BASE_PATH = "oplogBasePath";
+    private final static String BOOKMARK_FILE_PREFIX = "bookmarkFilePrefix";
     
     private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
+    private final static String MONGO_MIRROR_REVERSE = "mongomirrorReverse";
     private final static String SHARD_COLLECTIONS = "shardCollections";
     private final static String CLEANUP_ORPHANS = "cleanupOrphans";
     private final static String CLEANUP_ORPHANS_SLEEP = "cleanupOrphansSleep";
@@ -88,6 +91,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
         options.addOption(OptionBuilder.withArgName("Shard mapping").hasArgs().withLongOpt(SHARD_MAP)
                 .isRequired(false).create("m"));
+        options.addOption(OptionBuilder.withArgName("Disable autosplit on source cluster")
+                .withLongOpt(DISABLE_SOURCE_AUTOSPLIT).create());
         options.addOption(OptionBuilder.withArgName("Cleanup source orphans")
                 .withLongOpt(CLEANUP_ORPHANS).create(CLEANUP_ORPHANS));
         options.addOption(OptionBuilder.withArgName("Cleanup destination orphans")
@@ -107,6 +112,8 @@ public class ShardConfigSyncApp {
         // Mongomirror options
         options.addOption(OptionBuilder.withArgName("Execute mongomirror(s)")
                 .withLongOpt(MONGO_MIRROR).create(MONGO_MIRROR));
+        options.addOption(OptionBuilder.withArgName("Execute mongomirror *REVERSE* sync")
+                .withLongOpt(MONGO_MIRROR_REVERSE).create(MONGO_MIRROR_REVERSE));
         options.addOption(OptionBuilder.withArgName("mongomirror namespace filter").hasArgs()
         		.withLongOpt("filter").create("f"));
         options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArgs()
@@ -125,6 +132,8 @@ public class ShardConfigSyncApp {
                 .isRequired(false).create("w"));
         options.addOption(OptionBuilder.withArgName("mongomirror oplogPath base path").hasArg()
                 .withLongOpt(OPLOG_BASE_PATH).create());
+        options.addOption(OptionBuilder.withArgName("mongomirror bookmark filename prefix").hasArg()
+                .withLongOpt(BOOKMARK_FILE_PREFIX).create());
         
         
         options.addOption(OptionBuilder.withArgName("Sleep millis").hasArg().withLongOpt("sleepMillis")
@@ -168,10 +177,16 @@ public class ShardConfigSyncApp {
         File propsFile = null;
         if (line.hasOption("c")) {
             propsFile = new File(line.getOptionValue("c"));
+        } else if (line.hasOption(MONGO_MIRROR_REVERSE)) {
+        	propsFile = new File("shard-sync-reverse.properties");
+            if (! propsFile.exists()) {
+                logger.warn("Default config file shard-sync-reverse.properties not found, using command line options only");
+                return prop;
+            }
         } else {
             propsFile = new File("shard-sync.properties");
             if (! propsFile.exists()) {
-                logger.debug("Default config file shard-sync.properties not found, using command line options only");
+                logger.warn("Default config file shard-sync.properties not found, using command line options only");
                 return prop;
             }
         }
@@ -226,6 +241,9 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(FLUSH_ROUTER)) {
             actionFound = true;
             sync.flushRouterConfig();
+        } else if (line.hasOption(DISABLE_SOURCE_AUTOSPLIT)) {
+            actionFound = true;
+            sync.disableSourceAutosplit();
         } else if (line.hasOption(COMPARE_CHUNKS)) {
             actionFound = true;
             sync.compareChunks();
@@ -266,7 +284,7 @@ public class ShardConfigSyncApp {
         // 
         
         // MONGOMIRROR_BINARY
-        if (line.hasOption(MONGO_MIRROR)) {
+        if (line.hasOption(MONGO_MIRROR) || line.hasOption(MONGO_MIRROR_REVERSE)) {
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", configFileProps.getProperty(MONGOMIRROR_BINARY));
             
@@ -281,6 +299,7 @@ public class ShardConfigSyncApp {
             	sync.setMongoMirrorStartPort(startPort);
             }
             sync.setOplogBasePath(line.getOptionValue(OPLOG_BASE_PATH));
+            sync.setBookmarkFilePrefix(line.getOptionValue(BOOKMARK_FILE_PREFIX));
             
             if (mongoMirrorPath == null) {
                 System.out.println("mongomirrorPath required");
