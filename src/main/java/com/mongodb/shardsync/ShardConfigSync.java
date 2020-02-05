@@ -227,8 +227,8 @@ public class ShardConfigSync {
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	private void createDestChunksUsingSplitCommand() {
 		logger.debug("createDestChunksUsingSplitCommand started");
-		MongoCollection<Document> sourceChunksColl = sourceShardClient.getChunksCollection();
-		MongoCollection<Document> destChunksColl = destShardClient.getChunksCollection();
+		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
+		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
 
 		Document chunkQuery = new Document();
 		if (includeNamespaces.size() > 0 || includeDatabases.size() > 0) {
@@ -247,18 +247,19 @@ public class ShardConfigSync {
 			}
 		}
 		// logger.debug("chunkQuery: " + chunkQuery);
-		FindIterable<Document> sourceChunks = sourceChunksColl.find(chunkQuery).noCursorTimeout(true)
+		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find(chunkQuery).noCursorTimeout(true)
 				.sort(Sorts.ascending("ns", "min"));
 
 		Document splitCommand = new Document();
 		String lastNs = null;
 		int currentCount = 0;
 
-		for (Iterator<Document> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
+		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
 
-			Document chunk = sourceChunksIterator.next();
+			RawBsonDocument chunk = sourceChunksIterator.next();
 			// logger.debug("sourceChunk: " + chunk);
-			String ns = chunk.getString("ns");
+			
+			String ns = chunk.getString("ns").getValue();
 			Namespace sourceNs = new Namespace(ns);
 
 			if (filtered && !includeNamespaces.contains(sourceNs)
@@ -282,7 +283,9 @@ public class ShardConfigSync {
 				continue;
 			}
 
-			Document max = (Document) chunk.get("max");
+			Object max2 = chunk.get("max");
+			
+			RawBsonDocument max = (RawBsonDocument) chunk.get("max");
 			boolean maxKey = false;
 			for (Iterator i = max.values().iterator(); i.hasNext();) {
 				Object next = i.next();
@@ -468,18 +471,18 @@ public class ShardConfigSync {
 
 		logger.debug("Reading destination chunks, doMove: " + doMove);
 		Map<String, String> destChunkMap = new HashMap<String, String>();
-		MongoCollection<Document> destChunksColl = destShardClient.getChunksCollection();
-		FindIterable<Document> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min"));
+		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
+		FindIterable<RawBsonDocument> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min"));
 
-		for (Document destChunk : destChunks) {
-			String id = destChunk.getString("_id");
-			String shard = destChunk.getString("shard");
+		for (RawBsonDocument destChunk : destChunks) {
+			String id = destChunk.getString("_id").getValue();
+			String shard = destChunk.getString("shard").getValue();
 			destChunkMap.put(id, shard);
 		}
 		logger.debug("Done reading destination chunks, count = " + destChunkMap.size());
 
-		MongoCollection<Document> sourceChunksColl = sourceShardClient.getChunksCollection();
-		FindIterable<Document> sourceChunks = sourceChunksColl.find().noCursorTimeout(true)
+		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
+		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find().noCursorTimeout(true)
 				.sort(Sorts.ascending("ns", "min"));
 
 		String lastNs = null;
@@ -490,9 +493,9 @@ public class ShardConfigSync {
 		int missingCount = 0;
 		int sourceTotalCount = 0;
 
-		for (Document sourceChunk : sourceChunks) {
+		for (RawBsonDocument sourceChunk : sourceChunks) {
 			sourceTotalCount++;
-			String sourceNs = sourceChunk.getString("ns");
+			String sourceNs = sourceChunk.getString("ns").getValue();
 			Namespace sourceNamespace = new Namespace(sourceNs);
 
 			if (filtered && !includeNamespaces.contains(sourceNamespace)
@@ -512,15 +515,15 @@ public class ShardConfigSync {
 						String.format("compareAndMoveChunks - %s - currentCount: %s chunks", sourceNs, currentCount));
 			}
 
-			Document sourceMin = (Document) sourceChunk.get("min");
-			Document sourceMax = (Document) sourceChunk.get("max");
-			String sourceShard = sourceChunk.getString("shard");
+			RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
+			RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
+			String sourceShard = sourceChunk.getString("shard").getValue();
 			String mappedShard = sourceToDestShardMap.get(sourceShard);
 			if (mappedShard == null) {
 				throw new IllegalArgumentException(
 						"No destination shard mapping found for source shard: " + sourceShard);
 			}
-			String sourceId = sourceChunk.getString("_id");
+			String sourceId = sourceChunk.getString("_id").getValue();
 
 			String destShard = destChunkMap.get(sourceId);
 
@@ -700,7 +703,7 @@ public class ShardConfigSync {
 		}
 	}
 
-	private void moveChunk(String namespace, Document min, Document max, String moveToShard) {
+	private void moveChunk(String namespace, RawBsonDocument min, RawBsonDocument max, String moveToShard) {
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
 		moveChunkCmd.append("to", moveToShard);
@@ -1138,7 +1141,10 @@ public class ShardConfigSync {
 			mongomirror.setMongomirrorBinary(mongomirrorBinary);
 
 			String dateStr = formatter.format(LocalDateTime.now());
-			mongomirror.setBookmarkFile(String.format("%s_%s.timestamp", source.getId(), dateStr));
+			
+			// TODO
+			//mongomirror.setBookmarkFile(String.format("%s_%s.timestamp", source.getId(), dateStr));
+			mongomirror.setBookmarkFile(source.getId() + ".timestamp");
 
 			mongomirror.setNumParallelCollections(numParallelCollections);
 			mongomirror.execute();
@@ -1212,13 +1218,14 @@ public class ShardConfigSync {
 
 			mongomirror.setMongomirrorBinary(mongomirrorBinary);
 			
-			String dateStr = null;
-			if (bookmarkFilePrefix != null) {
-				dateStr = bookmarkFilePrefix;
-			} else {
-				dateStr = formatter.format(LocalDateTime.now());
-			}
-			mongomirror.setBookmarkFile(String.format("%s_%s.timestamp", dateStr, source.getId()));
+//			String dateStr = null;
+//			if (bookmarkFilePrefix != null) {
+//				dateStr = bookmarkFilePrefix;
+//			} else {
+//				dateStr = formatter.format(LocalDateTime.now());
+//			}
+//			mongomirror.setBookmarkFile(String.format("%s_%s.timestamp", dateStr, source.getId()));
+			mongomirror.setBookmarkFile(source.getId() + ".timestamp");
 
 			mongomirror.setNumParallelCollections(numParallelCollections);
 			mongomirror.setWriteConcern(writeConcern);
