@@ -8,6 +8,7 @@ import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -50,6 +51,7 @@ import com.mongodb.mongomirror.MongoMirrorRunner;
 import com.mongodb.mongomirror.MongoMirrorStatus;
 import com.mongodb.mongomirror.MongoMirrorStatusInitialSync;
 import com.mongodb.mongomirror.MongoMirrorStatusOplogSync;
+import com.mongodb.util.CodecUtils;
 
 public class ShardConfigSync {
 
@@ -273,7 +275,7 @@ public class ShardConfigSync {
 			}
 
 			// if the dest chunk exists already, skip it
-			Document query = new Document("_id", chunk.get("_id"));
+			Document query = new Document("ns", ns);
 			query.append("min", chunk.get("min"));
 			query.append("max", chunk.get("max"));
 			long count = destChunksColl.countDocuments(query);
@@ -283,8 +285,6 @@ public class ShardConfigSync {
 				continue;
 			}
 
-			Object max2 = chunk.get("max");
-			
 			RawBsonDocument max = (RawBsonDocument) chunk.get("max");
 			boolean maxKey = false;
 			for (Iterator i = max.values().iterator(); i.hasNext();) {
@@ -309,13 +309,12 @@ public class ShardConfigSync {
 				logger.error(String.format("command error for namespace %s", ns), mce);
 			}
 
-			count = destChunksColl.countDocuments(new Document("_id", chunk.get("_id")));
+			count = destChunksColl.countDocuments(query);
 			if (count == 1) {
 				// logger.debug("Chunk created: " + chunk.get("_id"));
 			} else {
-				long count2 = destChunksColl
-						.countDocuments(new Document("min", chunk.get("min")).append("ns", chunk.get("ns")));
-				logger.debug("Chunk create failed, count2: " + count2);
+				//long count2 = destChunksColl.countDocuments(new Document("min", chunk.get("min")).append("ns", chunk.get("ns")));
+				logger.debug("Chunk create failed, count: " + count);
 
 			}
 
@@ -466,6 +465,22 @@ public class ShardConfigSync {
 		logger.debug("Done reading destination chunks, count = " + destChunkMap.size());
 
 	}
+	
+	private static String getHashIdFromChunk(RawBsonDocument sourceChunk) {
+		RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
+		ByteBuffer byteBuffer = sourceMin.getByteBuffer().asNIO();
+        byte[] minBytes = new byte[byteBuffer.remaining()];
+		String minHash = CodecUtils.md5Hex(minBytes);
+		
+		RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
+		byteBuffer = sourceMax.getByteBuffer().asNIO();
+		byte[] maxBytes = new byte[byteBuffer.remaining()];
+		String maxHash = CodecUtils.md5Hex(maxBytes);
+		
+		String ns = sourceChunk.getString("ns").getValue();
+		return String.format("%s_%s_%s", ns, minHash, maxHash);
+		
+	}
 
 	public boolean compareAndMoveChunks(boolean doMove) {
 
@@ -475,7 +490,8 @@ public class ShardConfigSync {
 		FindIterable<RawBsonDocument> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min"));
 
 		for (RawBsonDocument destChunk : destChunks) {
-			String id = destChunk.getString("_id").getValue();
+			String id = getHashIdFromChunk(destChunk);
+			//logger.debug("dest id: " + id);
 			String shard = destChunk.getString("shard").getValue();
 			destChunkMap.put(id, shard);
 		}
@@ -495,6 +511,9 @@ public class ShardConfigSync {
 
 		for (RawBsonDocument sourceChunk : sourceChunks) {
 			sourceTotalCount++;
+			String sourceId = getHashIdFromChunk(sourceChunk);
+			//logger.debug("source id: " + sourceId);
+			
 			String sourceNs = sourceChunk.getString("ns").getValue();
 			Namespace sourceNamespace = new Namespace(sourceNs);
 
@@ -523,8 +542,8 @@ public class ShardConfigSync {
 				throw new IllegalArgumentException(
 						"No destination shard mapping found for source shard: " + sourceShard);
 			}
-			String sourceId = sourceChunk.getString("_id").getValue();
-
+			
+			//String sourceId = sourceChunk.getString("_id").getValue();
 			String destShard = destChunkMap.get(sourceId);
 
 			if (destShard == null) {
