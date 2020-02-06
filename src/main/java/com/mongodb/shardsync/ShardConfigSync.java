@@ -468,16 +468,18 @@ public class ShardConfigSync {
 	
 	private static String getHashIdFromChunk(RawBsonDocument sourceChunk) {
 		RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
-		ByteBuffer byteBuffer = sourceMin.getByteBuffer().asNIO();
-        byte[] minBytes = new byte[byteBuffer.remaining()];
-		String minHash = CodecUtils.md5Hex(minBytes);
+		//ByteBuffer byteBuffer = sourceMin.getByteBuffer().asNIO();
+        //byte[] minBytes = new byte[byteBuffer.remaining()];
+        
+		String minHash = sourceMin.toJson();
 		
 		RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
-		byteBuffer = sourceMax.getByteBuffer().asNIO();
-		byte[] maxBytes = new byte[byteBuffer.remaining()];
-		String maxHash = CodecUtils.md5Hex(maxBytes);
+		//byteBuffer = sourceMax.getByteBuffer().asNIO();
+		//byte[] maxBytes = new byte[byteBuffer.remaining()];
+		String maxHash = sourceMax.toJson();
 		
 		String ns = sourceChunk.getString("ns").getValue();
+		//logger.debug(String.format("hash: %s_%s => %s_%s", sourceMin.toString(), sourceMax.toString(), minHash, maxHash));
 		return String.format("%s_%s_%s", ns, minHash, maxHash);
 		
 	}
@@ -561,6 +563,7 @@ public class ShardConfigSync {
 
 			} else if (!doMove) {
 				if (!mappedShard.equals(destShard)) {
+					logger.debug(String.format("mismatch: %s ==> %s", destShard, mappedShard));
 					logger.debug("dest chunk is on wrong shard for sourceChunk: " + sourceChunk);
 					mismatchedCount++;
 				}
