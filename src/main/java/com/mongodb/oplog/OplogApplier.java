@@ -112,6 +112,7 @@ public class OplogApplier {
                 } catch (MongoCommandException mce) {
                 	errorCount++;
                 	logger.error("error applying: " + mce.getMessage());
+                	logger.debug("op: " + doc);
                 }
                 
                 count++;
