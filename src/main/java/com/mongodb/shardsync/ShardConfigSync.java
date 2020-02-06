@@ -176,6 +176,39 @@ public class ShardConfigSync {
 		sourceShardClient.populateCollectionsMap();
 		shardDestinationCollections();
 	}
+	
+	public void syncIndexes() {
+		logger.debug("Starting syncIndexes");
+		//sourceShardClient.populateCollectionsMap();
+		MongoClient client = sourceShardClient.getMongoClient();
+		for (String dbName : client.listDatabaseNames()) {
+			//logger.debug("dbName: " + dbName);
+			MongoDatabase db = client.getDatabase(dbName);
+			for (String collectionName : db.listCollectionNames()) {
+				Namespace ns = new Namespace(dbName, collectionName);
+				
+				if (filtered && !includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
+					logger.debug("Namespace " + ns + " filtered, skipping index create");
+					continue;
+				}
+				if (ns.getDatabaseName().equals("config")) {
+					continue;
+				}
+				MongoCollection<Document> c = db.getCollection(collectionName);
+				Document createIndexes = new Document("createIndexes", collectionName);
+				List<Document> indexes = new ArrayList<>();
+				createIndexes.append("indexes", indexes);
+				for (Document indexInfo : c.listIndexes()) {
+					//logger.debug("ix: " + indexInfo);
+					indexInfo.remove("v");
+					indexes.add(indexInfo);
+				}
+				Document createIndexesResult = db.runCommand(createIndexes);
+				logger.debug(String.format("%s result: %s", ns, createIndexesResult));
+				
+			}
+		}
+	}
 
 	public void migrateMetadata() throws InterruptedException {
 		logger.debug("Starting metadata sync/migration");

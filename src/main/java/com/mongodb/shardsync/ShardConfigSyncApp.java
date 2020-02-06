@@ -52,6 +52,7 @@ public class ShardConfigSyncApp {
     private final static String CLEANUP_ORPHANS = "cleanupOrphans";
     private final static String CLEANUP_ORPHANS_SLEEP = "cleanupOrphansSleep";
     private final static String CLEANUP_ORPHANS_DEST = "cleanupOrphansDest";
+    private final static String SYNC_INDEXES = "syncIndexes";
     
     private final static String SSL_ALLOW_INVALID_HOSTNAMES = "sslAllowInvalidHostnames";
     private final static String SSL_ALLOW_INVALID_CERTS = "sslAllowInvalidCertificates";
@@ -101,7 +102,9 @@ public class ShardConfigSyncApp {
                 .withLongOpt(CLEANUP_ORPHANS_SLEEP).create(CLEANUP_ORPHANS_SLEEP));
         
         options.addOption(OptionBuilder.withArgName("Shard destination collections")
-                .withLongOpt(SHARD_COLLECTIONS).create(SHARD_COLLECTIONS));
+                .withLongOpt(SHARD_COLLECTIONS).create());
+        options.addOption(OptionBuilder.withArgName("Copy indexes from source to dest")
+                .withLongOpt(SYNC_INDEXES).create());
         
         options.addOption(OptionBuilder.withArgName("ssl allow invalid hostnames")
                 .withLongOpt(SSL_ALLOW_INVALID_HOSTNAMES).create(SSL_ALLOW_INVALID_HOSTNAMES));
@@ -259,6 +262,9 @@ public class ShardConfigSyncApp {
         }  else if (line.hasOption(SHARD_COLLECTIONS)) {
             actionFound = true;
             sync.enableDestinationSharding();
+        } else if (line.hasOption(SYNC_INDEXES)) {
+            actionFound = true;
+            sync.syncIndexes();
         }  else if (line.hasOption("z")) {
             actionFound = true;
             sync.diffChunks(line.getOptionValue("z"));
