@@ -182,8 +182,8 @@ public class ShardConfigSync {
 	public void syncIndexes() {
 		logger.debug("Starting syncIndexes");
 		//sourceShardClient.populateCollectionsMap();
+		destShardClient.populateShardMongoClients();
 		MongoClient client = sourceShardClient.getMongoClient();
-		MongoClient destClient = destShardClient.getMongoClient();
 		for (String dbName : client.listDatabaseNames()) {
 			//logger.debug("dbName: " + dbName);
 			MongoDatabase db = client.getDatabase(dbName);
@@ -214,14 +214,19 @@ public class ShardConfigSync {
 					indexes.add(indexInfo);
 				}
 				if (! indexes.isEmpty()) {
-					MongoDatabase dbDest = destClient.getDatabase(dbName);
-					try {
-						Document createIndexesResult = dbDest.runCommand(createIndexes);
-						//Document raw = (Document)createIndexesResult.get("raw");
-						logger.debug(String.format("%s result: %s", ns, createIndexesResult));
-					} catch (MongoCommandException mce) {
-						logger.error(String.format("%s createIndexes failed: %s", ns, mce.getMessage()));
+					for (Map.Entry<String, MongoClient> entry : destShardClient.getShardMongoClients().entrySet()) {
+						MongoClient destClient = entry.getValue();
+						String shardName = entry.getKey();
+						MongoDatabase dbDest = destClient.getDatabase(dbName);
+						try {
+							Document createIndexesResult = dbDest.runCommand(createIndexes);
+							//Document raw = (Document)createIndexesResult.get("raw");
+							logger.debug(String.format("%s - %s result: %s", shardName, ns, createIndexesResult));
+						} catch (MongoCommandException mce) {
+							logger.error(String.format("%s createIndexes failed: %s", ns, mce.getMessage()));
+						}
 					}
+					
 					
 				}
 			}
