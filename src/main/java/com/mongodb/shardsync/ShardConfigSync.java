@@ -60,6 +60,8 @@ public class ShardConfigSync {
 	private static Logger logger = LoggerFactory.getLogger(ShardConfigSync.class);
 
 	private final static int BATCH_SIZE = 512;
+	
+	private final static int SECONDS_IN_YEAR = 31536000;
 
 	private final static Document LOCALE_SIMPLE = new Document("locale", "simple");
 
@@ -181,6 +183,7 @@ public class ShardConfigSync {
 		logger.debug("Starting syncIndexes");
 		//sourceShardClient.populateCollectionsMap();
 		MongoClient client = sourceShardClient.getMongoClient();
+		MongoClient destClient = destShardClient.getMongoClient();
 		for (String dbName : client.listDatabaseNames()) {
 			//logger.debug("dbName: " + dbName);
 			MongoDatabase db = client.getDatabase(dbName);
@@ -191,7 +194,7 @@ public class ShardConfigSync {
 					logger.debug("Namespace " + ns + " filtered, skipping index create");
 					continue;
 				}
-				if (ns.getDatabaseName().equals("config")) {
+				if (ns.getDatabaseName().equals("config") || ns.getDatabaseName().equals("admin")) {
 					continue;
 				}
 				MongoCollection<Document> c = db.getCollection(collectionName);
@@ -201,11 +204,25 @@ public class ShardConfigSync {
 				for (Document indexInfo : c.listIndexes()) {
 					//logger.debug("ix: " + indexInfo);
 					indexInfo.remove("v");
+					Number expireAfterSeconds = (Number)indexInfo.get("expireAfterSeconds");
+					if (expireAfterSeconds != null) {
+						
+						indexInfo.put("expireAfterSeconds", 50 * SECONDS_IN_YEAR);
+						logger.debug(String.format("Extending TTL for %s %s from %s to %s", 
+								ns, indexInfo.get("name"), expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
+					}
 					indexes.add(indexInfo);
 				}
 				if (! indexes.isEmpty()) {
-					Document createIndexesResult = db.runCommand(createIndexes);
-					logger.debug(String.format("%s result: %s", ns, createIndexesResult));
+					MongoDatabase dbDest = destClient.getDatabase(dbName);
+					try {
+						Document createIndexesResult = dbDest.runCommand(createIndexes);
+						//Document raw = (Document)createIndexesResult.get("raw");
+						logger.debug(String.format("%s result: %s", ns, createIndexesResult));
+					} catch (MongoCommandException mce) {
+						logger.error(String.format("%s createIndexes failed: %s", ns, mce.getMessage()));
+					}
+					
 				}
 			}
 		}

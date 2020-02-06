@@ -92,7 +92,7 @@ public class OplogApplier {
         long errorCount = 0;
         try {
             //cursor = oplog.find(query).noCursorTimeout(true).cursorType(CursorType.TailableAwait).iterator();
-        	cursor = oplog.find(query).iterator();
+        	cursor = oplog.find(query).noCursorTimeout(true).iterator();
             while (cursor.hasNext()) {
                 Document doc = cursor.next();
                 String ns = doc.getString("ns");
