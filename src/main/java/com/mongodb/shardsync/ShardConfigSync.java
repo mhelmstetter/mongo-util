@@ -203,9 +203,10 @@ public class ShardConfigSync {
 					indexInfo.remove("v");
 					indexes.add(indexInfo);
 				}
-				Document createIndexesResult = db.runCommand(createIndexes);
-				logger.debug(String.format("%s result: %s", ns, createIndexesResult));
-				
+				if (! indexes.isEmpty()) {
+					Document createIndexesResult = db.runCommand(createIndexes);
+					logger.debug(String.format("%s result: %s", ns, createIndexesResult));
+				}
 			}
 		}
 	}
