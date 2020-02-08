@@ -8,7 +8,6 @@ import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -16,11 +15,11 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.UUID;
 
 import org.apache.commons.exec.ExecuteException;
 import org.bson.Document;
@@ -32,6 +31,7 @@ import org.bson.types.MaxKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Sets;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoCredential;
@@ -44,6 +44,7 @@ import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.connection.ClusterDescription;
+import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardCollection;
@@ -51,7 +52,6 @@ import com.mongodb.mongomirror.MongoMirrorRunner;
 import com.mongodb.mongomirror.MongoMirrorStatus;
 import com.mongodb.mongomirror.MongoMirrorStatusInitialSync;
 import com.mongodb.mongomirror.MongoMirrorStatusOplogSync;
-import com.mongodb.util.CodecUtils;
 
 public class ShardConfigSync {
 
@@ -61,7 +61,7 @@ public class ShardConfigSync {
 
 	private final static int BATCH_SIZE = 512;
 	
-	private final static int SECONDS_IN_YEAR = 31536000;
+	public final static int SECONDS_IN_YEAR = 31536000;
 
 	private final static Document LOCALE_SIMPLE = new Document("locale", "simple");
 
@@ -168,33 +168,95 @@ public class ShardConfigSync {
 	}
 
 	public void shardCollections() {
-
 		logger.debug("Starting shardCollections");
-
-		// stopBalancers();
-		// TODO disableAutoSplit !!!!
-		// enableDestinationSharding();
-
 		sourceShardClient.populateCollectionsMap();
 		shardDestinationCollections();
 	}
 	
+	private boolean filterCheck(Namespace ns) {
+		if (filtered && !includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
+			logger.debug("Namespace " + ns + " filtered, skipping");
+			return true;
+		}
+		if (ns.getDatabaseName().equals("config") || ns.getDatabaseName().equals("admin")) {
+			return true;
+		}
+		return false;
+	}
+	
+	private Map<Namespace, Set<IndexSpec>> getIndexSpecs(MongoClient client, Set<String> filterSet) {
+		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = new LinkedHashMap<>();
+		for (String dbName : client.listDatabaseNames()) {
+			MongoDatabase sourceDb = client.getDatabase(dbName);
+			for (String collectionName : sourceDb.listCollectionNames()) {
+				Namespace ns = new Namespace(dbName, collectionName);
+				if (filterCheck(ns) || ! filterSet.contains(ns.getNamespace())) {
+					continue;
+				}
+				
+				Set<IndexSpec> indexSpecs = new HashSet<>();
+				sourceIndexSpecs.put(ns, indexSpecs);
+				MongoCollection<RawBsonDocument> collection = sourceDb.getCollection(collectionName, RawBsonDocument.class);
+				for (RawBsonDocument sourceSpec : collection.listIndexes(RawBsonDocument.class)) {
+					indexSpecs.add(IndexSpec.fromDocument(sourceSpec));
+				}
+			}
+		}
+		return sourceIndexSpecs;
+	}
+	
+	public void syncIndexesShards(boolean createMissing) {
+		logger.debug("Starting syncIndexes");
+		destShardClient.populateShardMongoClients();
+		sourceShardClient.populateCollectionsMap();
+		
+		Map<String, Document> map = sourceShardClient.getCollectionsMap();
+		Set<String> filterSet = map.keySet();
+		
+		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), filterSet);
+		Map<String, Map<Namespace, Set<IndexSpec>>> destShardsIndexSpecs = new HashMap<>();
+		
+		for (Map.Entry<String, MongoClient> entry : destShardClient.getShardMongoClients().entrySet()) {
+			String shardName = entry.getKey();
+			MongoClient destClient = entry.getValue();
+			Map<Namespace, Set<IndexSpec>> destShardIndexSpecs = getIndexSpecs(destClient, filterSet);
+			destShardsIndexSpecs.put(shardName, destShardIndexSpecs);
+		}
+		
+		for (Map.Entry<Namespace, Set<IndexSpec>> sourceEntry : sourceIndexSpecs.entrySet()) {
+            Namespace ns = sourceEntry.getKey();
+            Set<IndexSpec> sourceSpecs = sourceEntry.getValue();
+            
+        	for (Map.Entry<String, Map<Namespace, Set<IndexSpec>>> entry : destShardsIndexSpecs.entrySet()) {
+            	String shardName = entry.getKey();
+            	Map<Namespace, Set<IndexSpec>> shardIndexSpecsMap = entry.getValue();
+            	Set<IndexSpec> destSpec = shardIndexSpecsMap.get(ns);
+            	
+            	Set<IndexSpec> diff = Sets.difference(sourceSpecs, destSpec);
+            	
+            	if (diff.isEmpty()) {
+            		logger.debug(String.format("%s - all indexes match for shard %s, indexCount: %s", ns, shardName, sourceSpecs.size()));
+            	} else {
+            		logger.debug(String.format("%s - missing dest indexes %s missing on shard %s, creating", ns, diff, shardName));
+            		destShardClient.createIndexes(shardName, ns, diff);
+            	}
+
+            }
+        }
+	}
+	
+	
 	public void syncIndexes() {
 		logger.debug("Starting syncIndexes");
 		//sourceShardClient.populateCollectionsMap();
-		destShardClient.populateShardMongoClients();
 		MongoClient client = sourceShardClient.getMongoClient();
+		MongoClient destClient = destShardClient.getMongoClient();
 		for (String dbName : client.listDatabaseNames()) {
 			//logger.debug("dbName: " + dbName);
 			MongoDatabase db = client.getDatabase(dbName);
 			for (String collectionName : db.listCollectionNames()) {
 				Namespace ns = new Namespace(dbName, collectionName);
-				
-				if (filtered && !includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
-					logger.debug("Namespace " + ns + " filtered, skipping index create");
-					continue;
-				}
-				if (ns.getDatabaseName().equals("config") || ns.getDatabaseName().equals("admin")) {
+				if (filterCheck(ns)) {
 					continue;
 				}
 				MongoCollection<Document> c = db.getCollection(collectionName);
@@ -202,7 +264,7 @@ public class ShardConfigSync {
 				List<Document> indexes = new ArrayList<>();
 				createIndexes.append("indexes", indexes);
 				for (Document indexInfo : c.listIndexes()) {
-					//logger.debug("ix: " + indexInfo);
+					logger.debug("ix: " + indexInfo);
 					indexInfo.remove("v");
 					Number expireAfterSeconds = (Number)indexInfo.get("expireAfterSeconds");
 					if (expireAfterSeconds != null) {
@@ -214,19 +276,13 @@ public class ShardConfigSync {
 					indexes.add(indexInfo);
 				}
 				if (! indexes.isEmpty()) {
-					for (Map.Entry<String, MongoClient> entry : destShardClient.getShardMongoClients().entrySet()) {
-						MongoClient destClient = entry.getValue();
-						String shardName = entry.getKey();
-						MongoDatabase dbDest = destClient.getDatabase(dbName);
-						try {
-							Document createIndexesResult = dbDest.runCommand(createIndexes);
-							//Document raw = (Document)createIndexesResult.get("raw");
-							logger.debug(String.format("%s - %s result: %s", shardName, ns, createIndexesResult));
-						} catch (MongoCommandException mce) {
-							logger.error(String.format("%s createIndexes failed: %s", ns, mce.getMessage()));
-						}
+					MongoDatabase dbDest = destClient.getDatabase(dbName);
+					try {
+						Document createIndexesResult = dbDest.runCommand(createIndexes);
+						//logger.debug(String.format("%s result: %s", ns, createIndexesResult));
+					} catch (MongoCommandException mce) {
+						logger.error(String.format("%s createIndexes failed: %s", ns, mce.getMessage()));
 					}
-					
 					
 				}
 			}
@@ -319,9 +375,7 @@ public class ShardConfigSync {
 			
 			String ns = chunk.getString("ns").getValue();
 			Namespace sourceNs = new Namespace(ns);
-
-			if (filtered && !includeNamespaces.contains(sourceNs)
-					&& !includeDatabases.contains(sourceNs.getDatabaseName())) {
+			if (filterCheck(sourceNs)) {
 				continue;
 			}
 
@@ -408,8 +462,7 @@ public class ShardConfigSync {
 			logger.trace("tag: " + tag);
 			String ns = tag.getString("ns");
 			Namespace sourceNs = new Namespace(ns);
-			if (filtered && !includeNamespaces.contains(sourceNs)
-					&& !includeDatabases.contains(sourceNs.getDatabaseName())) {
+			if (filterCheck(sourceNs)) {
 				continue;
 			}
 
@@ -440,11 +493,7 @@ public class ShardConfigSync {
 
 			String ns = chunk.getString("ns");
 			Namespace sourceNs = new Namespace(ns);
-			if (filtered && !includeNamespaces.contains(sourceNs)
-					&& !includeDatabases.contains(sourceNs.getDatabaseName())) {
-				continue;
-			}
-			if (sourceNs.getDatabaseName().equals("config")) {
+			if (filterCheck(sourceNs)) {
 				continue;
 			}
 
@@ -574,9 +623,7 @@ public class ShardConfigSync {
 			
 			String sourceNs = sourceChunk.getString("ns").getValue();
 			Namespace sourceNamespace = new Namespace(sourceNs);
-
-			if (filtered && !includeNamespaces.contains(sourceNamespace)
-					&& !includeDatabases.contains(sourceNamespace.getDatabaseName())) {
+			if (filterCheck(sourceNamespace)) {
 				continue;
 			}
 
@@ -721,58 +768,7 @@ public class ShardConfigSync {
 	}
 
 	public void compareCollectionUuids() {
-
-		logger.debug("Starting compareCollectionUuids");
-		destShardClient.populateShardMongoClients();
-
-		List<String> dbNames = new ArrayList<>();
-		destShardClient.listDatabaseNames().into(dbNames);
-		
-		Map<Namespace, Map<UUID, List<String>>> collectionUuidMappings = new TreeMap<>();
-
-		for (Map.Entry<String, MongoClient> entry : destShardClient.getShardMongoClients().entrySet()) {
-			MongoClient client = entry.getValue();
-			String shardName = entry.getKey();
-
-			//for (String databaseName : dbNames) {
-			for (String databaseName : client.listDatabaseNames()) {
-				MongoDatabase db = client.getDatabase(databaseName);
-
-				if (databaseName.equals("admin") || databaseName.equals("config") || databaseName.contentEquals("local")) {
-					continue;
-				}
-
-				for (Document collectionInfo : db.listCollections()) {
-					String collectionName = (String)collectionInfo.get("name");
-					if (collectionName.endsWith(".create")) {
-						continue;
-					}
-					Namespace ns = new Namespace(databaseName, collectionName);
-					Document info = (Document) collectionInfo.get("info");
-					UUID uuid = (UUID) info.get("uuid");
-					
-					Map<UUID, List<String>> uuidMapping = collectionUuidMappings.get(ns);
-					if (uuidMapping == null) {
-						uuidMapping = new TreeMap<>();
-					}
-					collectionUuidMappings.put(ns, uuidMapping);
-					
-					List<String> shardNames = uuidMapping.get(uuid);
-					if (shardNames == null) {
-						shardNames = new ArrayList<>();
-					}
-					uuidMapping.put(uuid, shardNames);
-					shardNames.add(shardName);
-					
-					//logger.debug(entry.getKey() + " db: " + databaseName + "." + collectionName + " " + uuid);
-				}
-			}
-		}
-		
-		for (Map.Entry<Namespace, Map<UUID, List<String>>> mappingEntry : collectionUuidMappings.entrySet()) {
-			logger.debug(String.format("%s ==> %s", mappingEntry.getKey(), mappingEntry.getValue()));
-		}
-		
+		destShardClient.compareCollectionUuids();
 	}
 
 	private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
@@ -814,12 +810,7 @@ public class ShardConfigSync {
 
 			String nsStr = (String) sourceColl.get("_id");
 			Namespace ns = new Namespace(nsStr);
-
-			if (filtered && !includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
-				logger.debug("Namespace " + ns + " filtered, not sharding on destination");
-				continue;
-			}
-			if (ns.getDatabaseName().equals("config")) {
+			if (filterCheck(ns)) {
 				continue;
 			}
 
@@ -839,11 +830,7 @@ public class ShardConfigSync {
 			String nsStr = (String) sourceColl.get("_id");
 			Namespace ns = new Namespace(nsStr);
 
-			if (filtered && !includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
-				logger.debug("Namespace " + ns + " filtered, not sharding on destination");
-				continue;
-			}
-			if (ns.getDatabaseName().equals("config")) {
+			if (filterCheck(ns)) {
 				continue;
 			}
 			shardCollection(sourceColl);
@@ -936,8 +923,7 @@ public class ShardConfigSync {
 
 			String nsStr = (String) sourceColl.get("_id");
 			Namespace ns = new Namespace(nsStr);
-			if (filtered && !includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
-				// logger.debug("Namespace " + ns + " filtered, not sharding on destination");
+			if (filterCheck(ns)) {
 				continue;
 			}
 
@@ -987,9 +973,9 @@ public class ShardConfigSync {
 			String primary = database.getString("primary");
 			String mappedPrimary = sourceToDestShardMap.get(primary);
 			logger.debug("database: " + databaseName + ", primary: " + primary + ", mappedPrimary: " + mappedPrimary);
-//            if (mappedPrimary == null) {
-//                throw new IllegalArgumentException("Shard mapping not found for shard " + primary);
-//            }
+            if (mappedPrimary == null) {
+                logger.warn("Shard mapping not found for shard " + primary);
+            }
 
 			if (filtered && !includeDatabasesAll.contains(databaseName)) {
 				logger.debug("Database " + databaseName + " filtered, not sharding on destination");

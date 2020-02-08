@@ -245,7 +245,7 @@ public class MongoReplayFilter {
                                 }
                             }
                         } else if (! command.equals("find")) {
-                            logger.debug(command);
+                            //logger.debug(command);
                         }
 
                         BasicOutputBuffer tmpBuff = new BasicOutputBuffer();

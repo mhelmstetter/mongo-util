@@ -264,7 +264,7 @@ public class ShardConfigSyncApp {
             sync.enableDestinationSharding();
         } else if (line.hasOption(SYNC_INDEXES)) {
             actionFound = true;
-            sync.syncIndexes();
+            sync.syncIndexesShards(true);
         }  else if (line.hasOption("z")) {
             actionFound = true;
             sync.diffChunks(line.getOptionValue("z"));

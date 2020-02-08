@@ -16,12 +16,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
+import org.bson.BsonNumber;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
+import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
@@ -43,7 +46,9 @@ import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.internal.dns.DefaultDnsResolver;
+import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Mongos;
+import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 
 /**
@@ -54,6 +59,8 @@ import com.mongodb.model.Shard;
 public class ShardClient {
 
     private static Logger logger = LoggerFactory.getLogger(ShardClient.class);
+    
+    private DocumentCodec codec = new DocumentCodec();
 
     private static final String MONGODB_SRV_PREFIX = "mongodb+srv://";
 
@@ -208,7 +215,11 @@ public class ShardClient {
      *  namespaces present.
      */
     public void populateCollectionsMap(Set<String> namespaces) {
-        logger.debug("Starting populateCollectionsMap()");
+    	
+    	if (! collectionsMap.isEmpty()) {
+    		return;
+    	}
+    	logger.debug("Starting populateCollectionsMap()");
         MongoCollection<Document> shardsColl = configDb.getCollection("collections");
         Bson filter = null;
         if (namespaces == null || namespaces.isEmpty()) {
@@ -221,7 +232,7 @@ public class ShardClient {
             String id = (String)c.get("_id");
             collectionsMap.put(id, c);
         }
-        logger.debug(String.format("Finished populateCollectionsMap(), %s collections loaded from config server", collectionsMap.size()));
+        logger.debug(String.format("%s Finished populateCollectionsMap(), %s collections loaded from config server", name, collectionsMap.size()));
     }
 
     public void populateCollectionsMap() {
@@ -515,6 +526,151 @@ public class ShardClient {
     	Document update = new Document("$set", new Document("enabled", false));
     	settings.updateOne(eq("_id", "autosplit"), update);
     }
+    
+    public void compareCollectionUuids() {
+    	logger.debug(String.format("%s - Starting compareCollectionUuids", name));
+		populateShardMongoClients();
+
+		List<String> dbNames = new ArrayList<>();
+		listDatabaseNames().into(dbNames);
+		
+		Map<Namespace, Map<UUID, List<String>>> collectionUuidMappings = new TreeMap<>();
+
+		for (Map.Entry<String, MongoClient> entry : getShardMongoClients().entrySet()) {
+			MongoClient client = entry.getValue();
+			String shardName = entry.getKey();
+
+			for (String databaseName : client.listDatabaseNames()) {
+				MongoDatabase db = client.getDatabase(databaseName);
+
+				if (databaseName.equals("admin") || databaseName.equals("config") || databaseName.contentEquals("local")) {
+					continue;
+				}
+
+				for (Document collectionInfo : db.listCollections()) {
+					String collectionName = (String)collectionInfo.get("name");
+					if (collectionName.endsWith(".create")) {
+						continue;
+					}
+					Namespace ns = new Namespace(databaseName, collectionName);
+					Document info = (Document) collectionInfo.get("info");
+					UUID uuid = (UUID) info.get("uuid");
+					
+					Map<UUID, List<String>> uuidMapping = collectionUuidMappings.get(ns);
+					if (uuidMapping == null) {
+						uuidMapping = new TreeMap<>();
+					}
+					collectionUuidMappings.put(ns, uuidMapping);
+					
+					List<String> shardNames = uuidMapping.get(uuid);
+					if (shardNames == null) {
+						shardNames = new ArrayList<>();
+					}
+					uuidMapping.put(uuid, shardNames);
+					shardNames.add(shardName);
+					
+					//logger.debug(entry.getKey() + " db: " + databaseName + "." + collectionName + " " + uuid);
+				}
+			}
+		}
+		
+		int successCount = 0;
+		int failureCount = 0;
+		
+		for (Map.Entry<Namespace, Map<UUID, List<String>>> mappingEntry : collectionUuidMappings.entrySet()) {
+			Namespace ns = mappingEntry.getKey();
+			Map<UUID, List<String>> uuidMappings = mappingEntry.getValue();
+			if (uuidMappings.size() == 1) {
+				successCount++;
+				logger.debug(String.format("%s ==> %s", ns, uuidMappings));
+			} else {
+				failureCount++;
+				logger.error(String.format("%s ==> %s", ns, uuidMappings));
+			}
+		}
+		
+		if (failureCount == 0 && successCount > 0) {
+			logger.debug(String.format("%s - compareCollectionUuids complete: successCount: %s, failureCount: %s", name, successCount, failureCount));
+		} else {
+			logger.error(String.format("%s - compareCollectionUuids complete: successCount: %s, failureCount: %s", name, successCount, failureCount));
+		}
+		
+    }
+    
+    public void createIndexes(String shardName, Namespace ns, Set<IndexSpec> sourceSpecs) {
+    	MongoClient client = getShardMongoClient(shardName);
+    	MongoDatabase db = client.getDatabase(ns.getDatabaseName());
+    	
+    	MongoCollection<Document> c = db.getCollection(ns.getCollectionName());
+		Document createIndexes = new Document("createIndexes", ns.getCollectionName());
+		List<Document> indexes = new ArrayList<>();
+		createIndexes.append("indexes", indexes);
+		
+		for (IndexSpec indexSpec : sourceSpecs) {
+			logger.debug("ix: " + indexSpec);
+			Document indexInfo = indexSpec.getSourceSpec().decode(codec);
+			//BsonDocument indexInfo = indexSpec.getSourceSpec().clone();
+			indexInfo.remove("v");
+			Number expireAfterSeconds = (Number)indexInfo.get("expireAfterSeconds");
+			if (expireAfterSeconds != null) {
+				
+				indexInfo.put("expireAfterSeconds", 50 * ShardConfigSync.SECONDS_IN_YEAR);
+				logger.debug(String.format("Extending TTL for %s %s from %s to %s", 
+						ns, indexInfo.get("name"), expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
+			}
+			indexes.add(indexInfo);
+		}
+		if (! indexes.isEmpty()) {
+			
+			try {
+				Document createIndexesResult = db.runCommand(createIndexes);
+				//logger.debug(String.format("%s result: %s", ns, createIndexesResult));
+			} catch (MongoCommandException mce) {
+				logger.error(String.format("%s createIndexes failed: %s", ns, mce.getMessage()));
+			}
+			
+		}
+    }
+    
+	public void findOrphans(boolean doMove) {
+
+		logger.debug("Starting findOrphans");
+
+		MongoCollection<RawBsonDocument> sourceChunksColl = getChunksCollectionRaw();
+		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find().noCursorTimeout(true)
+				.sort(Sorts.ascending("ns", "min"));
+
+		String lastNs = null;
+		int currentCount = 0;
+
+		for (String shardId : shardsMap.keySet()) {
+			
+		}
+		for (RawBsonDocument sourceChunk : sourceChunks) {
+			String sourceNs = sourceChunk.getString("ns").getValue();
+
+			if (!sourceNs.equals(lastNs)) {
+				if (currentCount > 0) {
+					logger.debug(String.format("findOrphans - %s - complete, queried %s chunks", lastNs,
+							currentCount));
+					currentCount = 0;
+				}
+				logger.debug(String.format("findOrphans - %s - starting", sourceNs));
+			} else if (currentCount > 0 && currentCount % 10 == 0) {
+				logger.debug(String.format("findOrphans - %s - currentCount: %s chunks", sourceNs, currentCount));
+			}
+
+			RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
+			RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
+			String sourceShard = sourceChunk.getString("shard").getValue();
+			
+
+			currentCount++;
+			lastNs = sourceNs;
+		}
+
+		
+	}
 
 
     public ConnectionString getConnectionString() {
