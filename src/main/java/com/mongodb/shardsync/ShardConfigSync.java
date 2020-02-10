@@ -232,6 +232,9 @@ public class ShardConfigSync {
             	Map<Namespace, Set<IndexSpec>> shardIndexSpecsMap = entry.getValue();
             	Set<IndexSpec> destSpec = shardIndexSpecsMap.get(ns);
             	
+            	if (destSpec == null || sourceSpecs == null) {
+            		continue;
+            	}
             	Set<IndexSpec> diff = Sets.difference(sourceSpecs, destSpec);
             	
             	if (diff.isEmpty()) {
