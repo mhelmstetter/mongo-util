@@ -60,15 +60,21 @@ public class DiffUtil {
 
 	private BsonValueComparator comparator = new BsonValueComparator();
 	
-	MongoDatabase sourceDb;
-	MongoDatabase destDb;
+	MongoDatabase currentSourceDb;
+	MongoDatabase currentDestDb;
 	
-	private String dbName;
-	private String collectionName;
+	private String currentDbName;
+	private String currentCollectionName;
+	private String currentNs;
+	
+	long totalDbs = 0;
+	long missingDbs = 0;
+	long totalCollections = 0;
+	long totalMatches = 0;
+	long totalMissingDocs = 0;
+	long totalKeysMisordered = 0;
+	long totalHashMismatched = 0;
 
-	public DiffUtil() {
-		logger.debug("DiffUtil starting");
-	}
 
 	@SuppressWarnings("unchecked")
 	public void init() {
@@ -78,7 +84,6 @@ public class DiffUtil {
 		MongoClientURI source = new MongoClientURI(sourceClusterUri);
 
 		sourceClient = new MongoClient(source);
-		List<ServerAddress> addrs = sourceClient.getServerAddressList();
 		sourceClient.getDatabase("admin").runCommand(new Document("ping", 1));
 		logger.debug("Connected to source");
 
@@ -98,62 +103,53 @@ public class DiffUtil {
 		populateDbMap(destDatabaseInfo, destDbInfoMap);
 	}
 
-	public void compareChunks() {
-		logger.debug("Starting chunkCounts mode");
+	public void compareDocuments() {
+		logger.debug("Starting compareDocuments mode");
 
 		for (String dbName : sourceDbInfoMap.keySet()) {
-			this.dbName = dbName;
+			this.currentDbName = dbName;
 			Document destInfo = destDbInfoMap.get(dbName);
 			if (destInfo != null) {
-				logger.debug(String.format("Found matching database %s", dbName));
-
-				sourceDb = sourceClient.getDatabase(dbName);
-				destDb = destClient.getDatabase(dbName);
-				MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
+				if (dbName.equals("admin") 
+						|| dbName.equals("config")
+						|| dbName.equals("local") ) {
+					continue;
+				}
+				totalDbs++;
+				currentSourceDb = sourceClient.getDatabase(dbName);
+				currentDestDb = destClient.getDatabase(dbName);
+				MongoIterable<String> sourceCollectionNames = currentSourceDb.listCollectionNames();
 				for (String collectionName : sourceCollectionNames) {
-					this.collectionName = collectionName;
-					if (dbName.equals("admin") 
-							|| dbName.equals("config")
-							|| dbName.equals("local") 
-							|| collectionName.equals("system.profile")) {
+					this.currentCollectionName = collectionName;
+					this.currentNs = String.format("%s.%s", dbName, collectionName);
+					if (collectionName.equals("system.profile") || collectionName.equals("system.indexes")) {
 						continue;
 					}
-					hashChunk();
+					compareAllDocumentsInCollection();
 				}
+			} else {
+				logger.error(String.format("database %s missing on destination", dbName));
+				missingDbs++;
 			}
-
 		}
+		logger.debug(String.format("%s dbs compared, %s collections compared, missingDbs %s, docMatches: %s, missingDocs: %s, hashMismatched: %s, keysMisordered: %s",
+				totalDbs, totalCollections, missingDbs, totalMatches, totalMissingDocs, totalHashMismatched, totalKeysMisordered));
 
 	}
 
-	private long[] doCount(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName, Document query) {
-		logger.debug("auery: " + query);
-		String dbName = sourceDb.getName();
-		long sourceCount = sourceDb.getCollection(collectionName).count(query);
-		long destCount = destDb.getCollection(collectionName).count(query);
-		if (sourceCount == destCount) {
-			logger.debug(String.format("%s.%s chunk count matches: %s", dbName, collectionName, sourceCount));
-		} else {
-			logger.warn(String.format("%s.%s chunk count MISMATCH - source: %s, dest: %s", dbName, collectionName,
-					sourceCount, destCount));
-		}
-		return new long[] { sourceCount, destCount };
-	}
-
-	// MongoDatabase sourceDb, MongoDatabase destDb, String collectionName
-	private void hashChunk() {
-
-		long sourceCount = sourceDb.getCollection(collectionName).countDocuments();
-		long destCount = destDb.getCollection(collectionName).countDocuments();
-		logger.debug(String.format("Starting collection: %s.%s - %d documents", sourceDb.getName(), collectionName,
+	private void compareAllDocumentsInCollection() {
+		
+		long sourceCount = currentSourceDb.getCollection(currentCollectionName).countDocuments();
+		long destCount = currentDestDb.getCollection(currentCollectionName).countDocuments();
+		logger.debug(String.format("Starting collection: %s - %d documents", currentNs,
 				sourceCount));
 		if (sourceCount != destCount) {
-			logger.warn(String.format("%s.%s Count MISMATCH - source: %s, dest: %s", sourceDb.getName(), collectionName,
-					sourceCount, destCount));
+			logger.error(String.format("%s - doc count mismatch - sourceCount: %s, destCount: %s", 
+					currentNs, sourceCount, destCount));
 		}
 
-		MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName, RawBsonDocument.class);
-		MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName, RawBsonDocument.class);
+		MongoCollection<RawBsonDocument> sourceColl = currentSourceDb.getCollection(currentCollectionName, RawBsonDocument.class);
+		MongoCollection<RawBsonDocument> destColl = currentDestDb.getCollection(currentCollectionName, RawBsonDocument.class);
 
 		MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(SORT_ID).iterator();
 		MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(SORT_ID).iterator();
@@ -162,18 +158,21 @@ public class DiffUtil {
 		RawBsonDocument destDoc = null;
 		byte[] sourceBytes = null;
 		byte[] destBytes = null;
+		long missing = 0;
 		long matches = 0;
 		long keysMisordered = 0;
-		long failures = 0;
+		long hashMismatched = 0;
 		long total = 0;
 		long lastReport = System.currentTimeMillis();
 		while (sourceCursor.hasNext()) {
 			sourceDoc = sourceCursor.next();
+			Object sourceId = sourceDoc.get("_id");
 			if (destCursor.hasNext()) {
 				destDoc = destCursor.next();
 			} else {
-				logger.error("counts don't match!!!!!");
-				break;
+				logger.error(String.format("%s - destCursor exhausted, doc %s missing", currentNs, sourceId));
+				missing++;
+				continue;
 			}
 			sourceBytes = sourceDoc.getByteBuffer().array();
 			destBytes = destDoc.getByteBuffer().array();
@@ -182,21 +181,20 @@ public class DiffUtil {
 					Object id = sourceDoc.get("_id");
 
 					if (sourceDoc.equals(destDoc)) {
-						logger.debug("Docs equal but hashes don't match, id: " + id);
+						logger.error(String.format("%s - docs equal, but hash mismatch, id: %s", currentNs, id));
 						keysMisordered++;
 					} else {
-						logger.debug("Hashes and docs don't match, id: " + id);
-						failures++;
+						logger.error(String.format("%s - doc hash mismatch, id: %s", currentNs, id));
+						hashMismatched++;
 					}
 
 				} else {
 					matches++;
 				}
 			} else {
-				Object id = sourceDoc.get("_id");
-				logger.debug("Doc sizes not equal, id: " + id);
+				logger.debug("Doc sizes not equal, id: " + sourceId);
 				boolean xx = compareDocuments(sourceDoc, destDoc);
-				failures++;
+				hashMismatched++;
 			}
 			total++;
 			long now = System.currentTimeMillis();
@@ -207,9 +205,14 @@ public class DiffUtil {
 			}
 
 		}
+		totalCollections++;
+		totalMatches += matches;
+		totalKeysMisordered += keysMisordered;
+		totalHashMismatched += hashMismatched;
+		totalMissingDocs += missing;
 
-		logger.debug(String.format("%s.%s complete matches: %d, outOfOrderKeys: %s, failures: %d", sourceDb.getName(),
-				collectionName, matches, keysMisordered, failures));
+		logger.debug(String.format("%s.%s complete - matches: %d, missing: %d, outOfOrderKeys: %s, hashMismatched: %d", currentSourceDb.getName(),
+				currentCollectionName, matches, missing, keysMisordered, hashMismatched));
 
 	}
 
@@ -262,7 +265,7 @@ public class DiffUtil {
 				RawBsonDocument destRawNew = new RawBsonDocument(destDocNew, new BsonDocumentCodec());
 				boolean newDocsMatch = compareHashes(sourceRawNew.getByteBuffer().array(),
 						destRawNew.getByteBuffer().array());
-				logger.debug(String.format("%s.%s - bytes match: %s", dbName, collectionName, newDocsMatch));
+				logger.debug(String.format("%s.%s - bytes match: %s", currentDbName, currentCollectionName, newDocsMatch));
 			}
 		}
 		return sourceDoc.equals(destDoc);
@@ -320,15 +323,20 @@ public class DiffUtil {
 		for (String dbName : sourceDbInfoMap.keySet()) {
 			Document destInfo = destDbInfoMap.get(dbName);
 			if (destInfo != null) {
+				
+				if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config")) {
+					continue;
+				}
+				totalDbs++;
+				
 				MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
 				MongoDatabase destDb = destClient.getDatabase(dbName);
 				MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
 				for (String collectionName : sourceCollectionNames) {
-					if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config")
-							|| collectionName.equals("system.profile") || collectionName.equals("system.indexes")) {
+					if (collectionName.equals("system.profile") || collectionName.equals("system.indexes")) {
 						continue;
 					}
-
+					totalCollections++;
 					logger.debug(String.format("Starting namespace %s.%s", dbName, collectionName));
 					MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName,
 							RawBsonDocument.class);
@@ -380,19 +388,25 @@ public class DiffUtil {
 						if (sourceKey != null && destKey != null) {
 							compare = comparator.compare(sourceKey, destKey);
 						} else if (sourceKey == null) {
-							logger.debug(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							logger.error(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							totalMissingDocs++;
 							continue;
 						} else if (destKey == null) {
-							logger.debug(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+							logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+							totalMissingDocs++;
 							continue;
 						}
 
 						if (compare < 0) {
 							logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+							totalMissingDocs++;
 							destNext = destDoc;
 						} else if (compare > 0) {
 							logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							totalMissingDocs++;
 							sourceNext = sourceDoc;
+						} else {
+							totalMatches++;
 						}
 					}
 					
@@ -400,9 +414,12 @@ public class DiffUtil {
 				}
 
 			} else {
-				logger.warn(String.format("Destination db not found, name: %s", dbName));
+				logger.error(String.format("Destination db not found, name: %s", dbName));
+				missingDbs++;
 			}
 		}
+		logger.debug(String.format("%s dbs compared, %s collections compared, missingDbs %s, idMatches: %s, missingDocs: %s",
+				totalDbs, totalCollections, missingDbs, totalMatches, totalMissingDocs));
 	}
 
 }

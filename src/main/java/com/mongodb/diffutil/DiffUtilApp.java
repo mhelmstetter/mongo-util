@@ -29,8 +29,8 @@ public class DiffUtilApp {
     private final static String DEST_URI = "dest";
 
     private final static String COLL_COUNTS = "compareCounts";
-    private final static String CHUNK_COUNTS = "chunkCounts";
-    //private final static String COMPARE_CHUNKS = "compareChunks";
+    //private final static String CHUNK_COUNTS = "chunkCounts";
+    private final static String COMPARE_DOCUMENTS = "compareDocuments";
     
     private final static String COMPARE_IDS = "compareIds";
 
@@ -44,8 +44,8 @@ public class DiffUtilApp {
                 .isRequired(false).create("c"));
         options.addOption(OptionBuilder.withArgName("Compare counts only")
                 .withLongOpt(COLL_COUNTS).create(COLL_COUNTS));
-        options.addOption(OptionBuilder.withArgName("Compare chunk counts")
-                .withLongOpt(CHUNK_COUNTS).create(CHUNK_COUNTS));
+        options.addOption(OptionBuilder.withArgName("Compare all documents in all collections")
+                .withLongOpt(COMPARE_DOCUMENTS).create(COMPARE_DOCUMENTS));
         options.addOption(OptionBuilder.withArgName("Compare ids ")
                 .withLongOpt(COMPARE_IDS).create(COMPARE_IDS));
 
@@ -81,7 +81,7 @@ public class DiffUtilApp {
         } else  {
             propsFile = new File("diff-util.properties");
             if (! propsFile.exists()) {
-                logger.warn("Default config file shard-sync.properties not found, using command line options only");
+                logger.warn("Default config file diff-util.properties not found, using command line options only");
                 return prop;
             }
         }
@@ -104,15 +104,12 @@ public class DiffUtilApp {
         if (line.hasOption(COLL_COUNTS)) {
             //sync.compareShardCounts();
         }
-        if (line.hasOption(CHUNK_COUNTS)) {
-            sync.compareChunks();
+        if (line.hasOption(COMPARE_DOCUMENTS)) {
+            sync.compareDocuments();
         }
         if (line.hasOption(COMPARE_IDS)) {
             sync.compareIds();
         }
-        
-        // String[] fileNames = line.getOptionValues("f");
-        // client.setEndpointUrl(line.getOptionValue("u"));
 
     }
 
