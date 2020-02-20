@@ -38,359 +38,371 @@ import com.mongodb.util.bson.BsonValueComparator;
 
 public class DiffUtil {
 
-    private static Logger logger = LoggerFactory.getLogger(DiffUtil.class);
+	private static Logger logger = LoggerFactory.getLogger(DiffUtil.class);
 
-    private String sourceClusterUri;
+	private String sourceClusterUri;
 
-    private String destClusterUri;
+	private String destClusterUri;
 
-    private MongoClient sourceClient;
-    private MongoClient destClient;
+	private MongoClient sourceClient;
+	private MongoClient destClient;
 
-    private final static Document SORT_ID = new Document("_id", 1);
+	private final static Document SORT_ID = new Document("_id", 1);
 
-    private final Codec<RawBsonDocument> rawCodec = new RawBsonDocumentCodec();
+	private final Codec<RawBsonDocument> rawCodec = new RawBsonDocumentCodec();
 
-    CodecRegistry pojoCodecRegistry;
+	CodecRegistry pojoCodecRegistry;
 
-    private List<ShardCollection> sourceCollections = new ArrayList<ShardCollection>();
+	private List<ShardCollection> sourceCollections = new ArrayList<ShardCollection>();
 
-    private Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
-    private Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
-    
-    private BsonValueComparator comparator = new BsonValueComparator();
+	private Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
+	private Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
 
-    public DiffUtil() {
-        logger.debug("DiffUtil starting");
-    }
+	private BsonValueComparator comparator = new BsonValueComparator();
+	
+	MongoDatabase sourceDb;
+	MongoDatabase destDb;
+	
+	private String dbName;
+	private String collectionName;
 
-    @SuppressWarnings("unchecked")
-    public void init() {
-        pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
-                fromProviders(PojoCodecProvider.builder().automatic(true).build()));
+	public DiffUtil() {
+		logger.debug("DiffUtil starting");
+	}
 
-        MongoClientURI source = new MongoClientURI(sourceClusterUri);
+	@SuppressWarnings("unchecked")
+	public void init() {
+		pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
+				fromProviders(PojoCodecProvider.builder().automatic(true).build()));
 
-        sourceClient = new MongoClient(source);
-        List<ServerAddress> addrs = sourceClient.getServerAddressList();
-        sourceClient.getDatabase("admin").runCommand(new Document("ping", 1));
-        logger.debug("Connected to source");
+		MongoClientURI source = new MongoClientURI(sourceClusterUri);
 
-        MongoClientURI dest = new MongoClientURI(destClusterUri);
+		sourceClient = new MongoClient(source);
+		List<ServerAddress> addrs = sourceClient.getServerAddressList();
+		sourceClient.getDatabase("admin").runCommand(new Document("ping", 1));
+		logger.debug("Connected to source");
 
-        destClient = new MongoClient(dest);
-        destClient.getDatabase("admin").runCommand(new Document("ping", 1));
+		MongoClientURI dest = new MongoClientURI(destClusterUri);
 
-        Document listDatabases = new Document("listDatabases", 1);
-        Document sourceDatabases = sourceClient.getDatabase("admin").runCommand(listDatabases);
-        Document destDatabases = destClient.getDatabase("admin").runCommand(listDatabases);
+		destClient = new MongoClient(dest);
+		destClient.getDatabase("admin").runCommand(new Document("ping", 1));
 
-        List<Document> sourceDatabaseInfo = (List<Document>) sourceDatabases.get("databases");
-        List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
+		Document listDatabases = new Document("listDatabases", 1);
+		Document sourceDatabases = sourceClient.getDatabase("admin").runCommand(listDatabases);
+		Document destDatabases = destClient.getDatabase("admin").runCommand(listDatabases);
 
-        populateDbMap(sourceDatabaseInfo, sourceDbInfoMap);
-        populateDbMap(destDatabaseInfo, destDbInfoMap);
-    }
+		List<Document> sourceDatabaseInfo = (List<Document>) sourceDatabases.get("databases");
+		List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
 
-    public void compareChunks() {
-        logger.debug("Starting chunkCounts mode");
+		populateDbMap(sourceDatabaseInfo, sourceDbInfoMap);
+		populateDbMap(destDatabaseInfo, destDbInfoMap);
+	}
 
-        for (String dbName : sourceDbInfoMap.keySet()) {
-            Document destInfo = destDbInfoMap.get(dbName);
-            if (destInfo != null) {
-                logger.debug(String.format("Found matching database %s", dbName));
+	public void compareChunks() {
+		logger.debug("Starting chunkCounts mode");
 
-                MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
-                MongoDatabase destDb = destClient.getDatabase(dbName);
-                MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
-                for (String collectionName : sourceCollectionNames) {
-                    if (dbName.equals("admin") || dbName.equals("local") || collectionName.equals("system.profile")) {
-                        continue;
-                    }
-                    hashChunk(sourceDb, destDb, collectionName);
-                }
-            }
+		for (String dbName : sourceDbInfoMap.keySet()) {
+			this.dbName = dbName;
+			Document destInfo = destDbInfoMap.get(dbName);
+			if (destInfo != null) {
+				logger.debug(String.format("Found matching database %s", dbName));
 
-        }
+				sourceDb = sourceClient.getDatabase(dbName);
+				destDb = destClient.getDatabase(dbName);
+				MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
+				for (String collectionName : sourceCollectionNames) {
+					this.collectionName = collectionName;
+					if (dbName.equals("admin") 
+							|| dbName.equals("config")
+							|| dbName.equals("local") 
+							|| collectionName.equals("system.profile")) {
+						continue;
+					}
+					hashChunk();
+				}
+			}
 
-    }
+		}
 
-    
+	}
 
-    private long[] doCount(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName, Document query) {
-        logger.debug("auery: " + query);
-        String dbName = sourceDb.getName();
-        long sourceCount = sourceDb.getCollection(collectionName).count(query);
-        long destCount = destDb.getCollection(collectionName).count(query);
-        if (sourceCount == destCount) {
-            logger.debug(String.format("%s.%s chunk count matches: %s", dbName, collectionName, sourceCount));
-        } else {
-            logger.warn(String.format("%s.%s chunk count MISMATCH - source: %s, dest: %s", dbName, collectionName,
-                    sourceCount, destCount));
-        }
-        return new long[] { sourceCount, destCount };
-    }
+	private long[] doCount(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName, Document query) {
+		logger.debug("auery: " + query);
+		String dbName = sourceDb.getName();
+		long sourceCount = sourceDb.getCollection(collectionName).count(query);
+		long destCount = destDb.getCollection(collectionName).count(query);
+		if (sourceCount == destCount) {
+			logger.debug(String.format("%s.%s chunk count matches: %s", dbName, collectionName, sourceCount));
+		} else {
+			logger.warn(String.format("%s.%s chunk count MISMATCH - source: %s, dest: %s", dbName, collectionName,
+					sourceCount, destCount));
+		}
+		return new long[] { sourceCount, destCount };
+	}
 
-    private void hashChunk(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
-        
-        
-        long sourceCount = sourceDb.getCollection(collectionName).count();
-        long destCount = destDb.getCollection(collectionName).count();
-        logger.debug(String.format("Starting collection: %s.%s - %d documents", sourceDb.getName(), collectionName, sourceCount));
-        if (sourceCount != destCount) {
-            logger.warn(String.format("%s.%s Count MISMATCH - source: %s, dest: %s", sourceDb.getName(), collectionName,
-                    sourceCount, destCount));
-        }
-        
-        MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName, RawBsonDocument.class);
-        MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName, RawBsonDocument.class);
+	// MongoDatabase sourceDb, MongoDatabase destDb, String collectionName
+	private void hashChunk() {
 
-        MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(SORT_ID).iterator();
-        MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(SORT_ID).iterator();
+		long sourceCount = sourceDb.getCollection(collectionName).countDocuments();
+		long destCount = destDb.getCollection(collectionName).countDocuments();
+		logger.debug(String.format("Starting collection: %s.%s - %d documents", sourceDb.getName(), collectionName,
+				sourceCount));
+		if (sourceCount != destCount) {
+			logger.warn(String.format("%s.%s Count MISMATCH - source: %s, dest: %s", sourceDb.getName(), collectionName,
+					sourceCount, destCount));
+		}
 
-        RawBsonDocument sourceDoc = null;
-        RawBsonDocument destDoc = null;
-        byte[] sourceBytes = null;
-        byte[] destBytes = null;
-        long matches = 0;
-        long keysMisordered = 0;
-        long failures = 0;
-        long total = 0;
-        long lastReport = System.currentTimeMillis();
-        while (sourceCursor.hasNext()) {
-            sourceDoc = sourceCursor.next();
-            if (destCursor.hasNext()) {
-                destDoc = destCursor.next();
-            } else {
-                logger.error("counts don't match!!!!!");
-                break;
-            }
-            sourceBytes = sourceDoc.getByteBuffer().array();
-            destBytes = destDoc.getByteBuffer().array();
-            if (sourceBytes.length == destBytes.length) {
-                if (!compareHashes(sourceBytes, destBytes)) {
-                    Object id = sourceDoc.get("_id");
+		MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName, RawBsonDocument.class);
+		MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName, RawBsonDocument.class);
 
-                    if (sourceDoc.equals(destDoc)) {
-                        logger.debug("Docs equal but hashes don't match, id: " + id);
-                        keysMisordered++;
-                    } else {
-                        logger.debug("Hashes and docs don't match, id: " + id);
-                        failures++;
-                    }
+		MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(SORT_ID).iterator();
+		MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(SORT_ID).iterator();
 
-                } else {
-                    matches++;
-                }
-            } else {
-                Object id = sourceDoc.get("_id");
-                logger.debug("Doc sizes not equal, id: " + id);
-                boolean xx = compareDocuments(sourceDoc, destDoc);
-                failures++;
-            }
-            total++;
-            long now = System.currentTimeMillis();
-            long elapsedSinceLastReport = now - lastReport;
-            if (elapsedSinceLastReport >= 30000) {
-                logger.debug(String.format("%d percent complete", total/sourceCount));
-                lastReport = now;
-            }
+		RawBsonDocument sourceDoc = null;
+		RawBsonDocument destDoc = null;
+		byte[] sourceBytes = null;
+		byte[] destBytes = null;
+		long matches = 0;
+		long keysMisordered = 0;
+		long failures = 0;
+		long total = 0;
+		long lastReport = System.currentTimeMillis();
+		while (sourceCursor.hasNext()) {
+			sourceDoc = sourceCursor.next();
+			if (destCursor.hasNext()) {
+				destDoc = destCursor.next();
+			} else {
+				logger.error("counts don't match!!!!!");
+				break;
+			}
+			sourceBytes = sourceDoc.getByteBuffer().array();
+			destBytes = destDoc.getByteBuffer().array();
+			if (sourceBytes.length == destBytes.length) {
+				if (!compareHashes(sourceBytes, destBytes)) {
+					Object id = sourceDoc.get("_id");
 
-        }
+					if (sourceDoc.equals(destDoc)) {
+						logger.debug("Docs equal but hashes don't match, id: " + id);
+						keysMisordered++;
+					} else {
+						logger.debug("Hashes and docs don't match, id: " + id);
+						failures++;
+					}
 
-        logger.debug(String.format("%s.%s complete matches: %d, outOfOrderKeys: %s, failures: %d", sourceDb.getName(), collectionName,
-                matches, keysMisordered, failures));
+				} else {
+					matches++;
+				}
+			} else {
+				Object id = sourceDoc.get("_id");
+				logger.debug("Doc sizes not equal, id: " + id);
+				boolean xx = compareDocuments(sourceDoc, destDoc);
+				failures++;
+			}
+			total++;
+			long now = System.currentTimeMillis();
+			long elapsedSinceLastReport = now - lastReport;
+			if (elapsedSinceLastReport >= 30000) {
+				logger.debug(String.format("%d percent complete", total / sourceCount));
+				lastReport = now;
+			}
 
-    }
+		}
 
-    /**
-     * This comparison handles the (very) special case that we could have (usually due to some client/driver bug)
-     * 2 documents that differ only by the order of their fields.
-     * 
-     * @param sourceDoc
-     * @param destDoc
-     * @return
-     */
-    private boolean compareDocuments(RawBsonDocument sourceDoc, RawBsonDocument destDoc) {
-        Object id = sourceDoc.get("_id");
-        Set<String> sourceKeys = sourceDoc.keySet();
-        Set<String> destKeys = destDoc.keySet();
-        Set<String> sortedKeys = new TreeSet<String>();
-        boolean setsEqual = sourceKeys.equals(destKeys);
-        Set<String> diff = null;
-        if (!setsEqual) {
-            diff = Sets.difference(sourceKeys, destKeys);
-            logger.debug("    - keys do not match: keys missing from source" + diff);
+		logger.debug(String.format("%s.%s complete matches: %d, outOfOrderKeys: %s, failures: %d", sourceDb.getName(),
+				collectionName, matches, keysMisordered, failures));
 
-            diff = Sets.difference(destKeys, sourceKeys);
-            logger.debug("    - keys do not match: keys missing from dest" + diff);
-            sortedKeys.addAll(diff);
-        }
+	}
 
-        sortedKeys.addAll(sourceKeys);
+	/**
+	 * This comparison handles the (very) special case that we could have (usually
+	 * due to some client/driver bug) 2 documents that differ only by the order of
+	 * their fields.
+	 * 
+	 * @param sourceDoc
+	 * @param destDoc
+	 * @return
+	 */
+	private boolean compareDocuments(RawBsonDocument sourceDoc, RawBsonDocument destDoc) {
+		Object id = sourceDoc.get("_id");
+		Set<String> sourceKeys = sourceDoc.keySet();
+		Set<String> destKeys = destDoc.keySet();
+		Set<String> sortedKeys = new TreeSet<String>();
+		boolean setsEqual = sourceKeys.equals(destKeys);
+		Set<String> diff = null;
+		if (!setsEqual) {
+			diff = Sets.difference(sourceKeys, destKeys);
+			logger.debug("    - keys do not match: keys missing from source" + diff);
 
-        BsonDocument sourceDocNew = new BsonDocument();
-        BsonDocument destDocNew = new BsonDocument();
-        for (String key : sortedKeys) {
-            BsonValue sourceVal = sourceDoc.get(key);
-            BsonValue destVal = destDoc.get(key);
-            boolean valuesEqual = sourceVal != null && destVal != null && sourceVal.equals(destVal);
-            if (!valuesEqual) {
-                logger.debug(String.format("    - values not equal for key: %s, sourceVal: %s, destVal: %s", key, sourceVal,
-                        destVal));
-            }
-            if (sourceVal != null) {
-                sourceDocNew.append(key, sourceVal);
-            }
-            if (destVal != null) {
-                destDocNew.append(key, destVal);
-            }
-            
-            
-            if (setsEqual) {
-                RawBsonDocument sourceRawNew = new RawBsonDocument(sourceDocNew, new BsonDocumentCodec());
-                RawBsonDocument destRawNew = new RawBsonDocument(destDocNew, new BsonDocumentCodec());
-                boolean newDocsMatch = compareHashes(sourceRawNew.getByteBuffer().array(),
-                        destRawNew.getByteBuffer().array());
-                logger.debug("bytes match: " + newDocsMatch);
-            }
-        }
-        return sourceDoc.equals(destDoc);
-    }
+			diff = Sets.difference(destKeys, sourceKeys);
+			logger.debug("    - keys do not match: keys missing from dest" + diff);
+			sortedKeys.addAll(diff);
+		}
 
-    private static boolean compareHashes(byte[] sourceBytes, byte[] destBytes) {
-        String sourceHash = CodecUtils.md5Hex(sourceBytes);
-        String destHash = CodecUtils.md5Hex(destBytes);
-        return sourceHash.equals(destHash);
-    }
+		sortedKeys.addAll(sourceKeys);
 
-    private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
-        for (Document dbInfo : dbInfoList) {
-            databaseMap.put(dbInfo.getString("name"), dbInfo);
-        }
-    }
+		BsonDocument sourceDocNew = new BsonDocument();
+		BsonDocument destDocNew = new BsonDocument();
+		for (String key : sortedKeys) {
+			BsonValue sourceVal = sourceDoc.get(key);
+			BsonValue destVal = destDoc.get(key);
+			boolean valuesEqual = sourceVal != null && destVal != null && sourceVal.equals(destVal);
+			if (!valuesEqual) {
+				logger.debug(String.format("    - values not equal for key: %s, sourceVal: %s, destVal: %s", key,
+						sourceVal, destVal));
+			}
+			if (sourceVal != null) {
+				sourceDocNew.append(key, sourceVal);
+			}
+			if (destVal != null) {
+				destDocNew.append(key, destVal);
+			}
 
-    private List<Document> splitVector(String namespace) {
-        Document splitVectorCmd = new Document("splitVector", namespace);
-        Document keyPattern = new Document("_id", 1);
-        splitVectorCmd.append("keyPattern", keyPattern);
-        splitVectorCmd.append("maxChunkSizeBytes", 1000000);
-        Document splits = destClient.getDatabase("admin").runCommand(splitVectorCmd);
-        List<Document> splitKeys = (List<Document>) splits.get("splitKeys");
-        logger.debug("splits: " + splitKeys);
-        return splitKeys;
-    }
+			if (setsEqual) {
+				RawBsonDocument sourceRawNew = new RawBsonDocument(sourceDocNew, new BsonDocumentCodec());
+				RawBsonDocument destRawNew = new RawBsonDocument(destDocNew, new BsonDocumentCodec());
+				boolean newDocsMatch = compareHashes(sourceRawNew.getByteBuffer().array(),
+						destRawNew.getByteBuffer().array());
+				logger.debug(String.format("%s.%s - bytes match: %s", dbName, collectionName, newDocsMatch));
+			}
+		}
+		return sourceDoc.equals(destDoc);
+	}
 
-    private void populateCollectionList(MongoDatabase db, List<ShardCollection> list) {
-        MongoCollection<ShardCollection> shardsColl = db.getCollection("collections", ShardCollection.class);
-        shardsColl.find(eq("dropped", false)).sort(Sorts.ascending("_id")).into(list);
-    }
+	private static boolean compareHashes(byte[] sourceBytes, byte[] destBytes) {
+		String sourceHash = CodecUtils.md5Hex(sourceBytes);
+		String destHash = CodecUtils.md5Hex(destBytes);
+		return sourceHash.equals(destHash);
+	}
 
-    public String getSourceClusterUri() {
-        return sourceClusterUri;
-    }
+	private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
+		for (Document dbInfo : dbInfoList) {
+			databaseMap.put(dbInfo.getString("name"), dbInfo);
+		}
+	}
 
-    public void setSourceClusterUri(String sourceClusterUri) {
-        this.sourceClusterUri = sourceClusterUri;
-    }
+	private List<Document> splitVector(String namespace) {
+		Document splitVectorCmd = new Document("splitVector", namespace);
+		Document keyPattern = new Document("_id", 1);
+		splitVectorCmd.append("keyPattern", keyPattern);
+		splitVectorCmd.append("maxChunkSizeBytes", 1000000);
+		Document splits = destClient.getDatabase("admin").runCommand(splitVectorCmd);
+		List<Document> splitKeys = (List<Document>) splits.get("splitKeys");
+		logger.debug("splits: " + splitKeys);
+		return splitKeys;
+	}
 
-    public String getDestClusterUri() {
-        return destClusterUri;
-    }
+	private void populateCollectionList(MongoDatabase db, List<ShardCollection> list) {
+		MongoCollection<ShardCollection> shardsColl = db.getCollection("collections", ShardCollection.class);
+		shardsColl.find(eq("dropped", false)).sort(Sorts.ascending("_id")).into(list);
+	}
 
-    public void setDestClusterUri(String destClusterUri) {
-        this.destClusterUri = destClusterUri;
-    }
+	public String getSourceClusterUri() {
+		return sourceClusterUri;
+	}
 
-    @SuppressWarnings("unchecked")
-    public void compareIds() {
-        logger.debug("*********** Starting compareIds mode");
-        Document sort = new Document("_id", 1);
+	public void setSourceClusterUri(String sourceClusterUri) {
+		this.sourceClusterUri = sourceClusterUri;
+	}
 
-        for (String dbName : sourceDbInfoMap.keySet()) {
-            Document destInfo = destDbInfoMap.get(dbName);
-            if (destInfo != null) {
-                
+	public String getDestClusterUri() {
+		return destClusterUri;
+	}
 
-                MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
-                MongoDatabase destDb = destClient.getDatabase(dbName);
-                MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
-                for (String collectionName : sourceCollectionNames) {
-                    if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config") 
-                            || collectionName.equals("system.profile")
-                            || collectionName.equals("system.indexes")) {
-                        continue;
-                    }
-                    
-                    logger.debug(String.format("Starting namespace %s.%s", dbName, collectionName));
-                    MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName,
-                            RawBsonDocument.class);
-                    MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName,
-                            RawBsonDocument.class);
+	public void setDestClusterUri(String destClusterUri) {
+		this.destClusterUri = destClusterUri;
+	}
 
-                    MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(sort).projection(sort)
-                            .iterator();
-                    MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(sort).projection(sort).iterator();
+	@SuppressWarnings("unchecked")
+	public void compareIds() {
+		logger.debug("Starting compareIds mode");
+		Document sort = new Document("_id", 1);
 
-                    RawBsonDocument sourceDoc = null;
-                    RawBsonDocument sourceNext = null;
-                    BsonValue sourceKey = null;
-                    
-                    RawBsonDocument destDoc = null;
-                    RawBsonDocument destNext = null;
-                    BsonValue destKey = null;
-                    Integer compare = null;
-                    
-                    while (sourceCursor.hasNext() || sourceNext != null || destCursor.hasNext() || destNext != null) {
-                        if (sourceNext != null) {
-                            sourceDoc = sourceNext;
-                            sourceNext = null;
-                            sourceKey = sourceDoc.get("_id");
-                        } else if (sourceCursor.hasNext()) {
-                            sourceDoc = sourceCursor.next();
-                            sourceKey = sourceDoc.get("_id");
-                        } else {
-                            sourceDoc = null;
-                            sourceKey = null;
-                        }
-                        
-                        if (destNext != null) {
-                            destDoc = destNext;
-                            destNext = null;
-                            destKey = destDoc.get("_id");
-                        } else if (destCursor.hasNext()) {
-                            destDoc = destCursor.next();
-                            destKey = destDoc.get("_id");
-                        } else {
-                            destDoc = null;
-                            destKey = null;
-                        }
-                        
-                        
-                        if (sourceKey != null && destKey != null) {
-                            compare = comparator.compare(sourceKey, destKey);
-                        } else if (sourceKey == null) {
-                            logger.debug(String.format("%s - fail: %s missing on source", collectionName, destKey));
-                            continue;
-                        } else if (destKey == null) {
-                            logger.debug(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
-                            continue;
-                        }
+		for (String dbName : sourceDbInfoMap.keySet()) {
+			Document destInfo = destDbInfoMap.get(dbName);
+			if (destInfo != null) {
+				MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
+				MongoDatabase destDb = destClient.getDatabase(dbName);
+				MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
+				for (String collectionName : sourceCollectionNames) {
+					if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config")
+							|| collectionName.equals("system.profile") || collectionName.equals("system.indexes")) {
+						continue;
+					}
 
-                        if (compare < 0) {
-                            logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
-                            destNext = destDoc;
-                        } else if (compare > 0) {
-                            logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
-                            sourceNext = sourceDoc;
-                        }
-                    }
+					logger.debug(String.format("Starting namespace %s.%s", dbName, collectionName));
+					MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName,
+							RawBsonDocument.class);
+					MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName,
+							RawBsonDocument.class);
+					long sourceCount = 0;
+					long destCount = 0;
 
-                }
-            } else {
-                logger.warn(String.format("Destination db not found, name: %s", dbName));
-            }
-        }
-    }
+					MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(sort).projection(sort)
+							.iterator();
+					MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(sort).projection(sort).iterator();
+
+					RawBsonDocument sourceDoc = null;
+					RawBsonDocument sourceNext = null;
+					BsonValue sourceKey = null;
+
+					RawBsonDocument destDoc = null;
+					RawBsonDocument destNext = null;
+					BsonValue destKey = null;
+					Integer compare = null;
+
+					while (sourceCursor.hasNext() || sourceNext != null || destCursor.hasNext() || destNext != null) {
+						if (sourceNext != null) {
+							sourceDoc = sourceNext;
+							sourceNext = null;
+							sourceKey = sourceDoc.get("_id");
+						} else if (sourceCursor.hasNext()) {
+							sourceDoc = sourceCursor.next();
+							sourceCount++;
+							sourceKey = sourceDoc.get("_id");
+						} else {
+							sourceDoc = null;
+							sourceKey = null;
+						}
+
+						if (destNext != null) {
+							destDoc = destNext;
+							destNext = null;
+							destKey = destDoc.get("_id");
+						} else if (destCursor.hasNext()) {
+							destDoc = destCursor.next();
+							destCount++;
+							destKey = destDoc.get("_id");
+						} else {
+							destDoc = null;
+							destKey = null;
+						}
+
+						if (sourceKey != null && destKey != null) {
+							compare = comparator.compare(sourceKey, destKey);
+						} else if (sourceKey == null) {
+							logger.debug(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							continue;
+						} else if (destKey == null) {
+							logger.debug(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+							continue;
+						}
+
+						if (compare < 0) {
+							logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+							destNext = destDoc;
+						} else if (compare > 0) {
+							logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							sourceNext = sourceDoc;
+						}
+					}
+					
+					logger.debug(String.format("%s - complete. sourceCount: %s, destCount: %s", collectionName, sourceCount, destCount));
+				}
+
+			} else {
+				logger.warn(String.format("Destination db not found, name: %s", dbName));
+			}
+		}
+	}
 
 }
