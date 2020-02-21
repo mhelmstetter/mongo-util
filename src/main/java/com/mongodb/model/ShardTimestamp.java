@@ -1,15 +1,21 @@
 package com.mongodb.model;
 
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+
 import org.bson.BsonTimestamp;
 
 public class ShardTimestamp {
 
     private String shardName;
     private BsonTimestamp timestamp;
+    private ZonedDateTime date;
 
     public ShardTimestamp(String shardName, BsonTimestamp timestamp) {
         this.shardName = shardName;
         this.timestamp = timestamp;
+        date = ZonedDateTime.ofInstant(Instant.ofEpochSecond(timestamp.getTime()), ZoneOffset.UTC);
     }
     
     public String getShardName() {
@@ -27,6 +33,8 @@ public class ShardTimestamp {
         builder.append(shardName);
         builder.append(", timestamp=");
         builder.append(timestamp);
+        builder.append(", date=");
+        builder.append(date);
         builder.append("]");
         return builder.toString();
     }

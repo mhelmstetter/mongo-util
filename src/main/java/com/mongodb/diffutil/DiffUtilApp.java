@@ -16,8 +16,6 @@ import org.apache.commons.cli.Options;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.shardsync.ShardConfigSyncApp;
-
 public class DiffUtilApp {
 	
 	private static Logger logger = LoggerFactory.getLogger(DiffUtilApp.class);

@@ -14,6 +14,7 @@ public class ReplayOptions {
     protected String[] removeUpdateFields;
     
     private BsonDocument writeConcern;
+    private Long sleepMillis;
     
     private BsonDocument readConcernDocument;
     
@@ -51,6 +52,14 @@ public class ReplayOptions {
     public BsonDocument getReadConcern() {
         return readConcernDocument;
     }
+
+	public Long getSleepMillis() {
+		return sleepMillis;
+	}
+
+	public void setSleepMillis(Long sleepMillis) {
+		this.sleepMillis = sleepMillis;
+	}
     
     
 

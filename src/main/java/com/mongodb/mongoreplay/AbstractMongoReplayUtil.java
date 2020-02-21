@@ -249,10 +249,6 @@ public abstract class AbstractMongoReplayUtil {
         logger.debug(String.format("last event: %s", convertSeen(lastSeen)));
     }
     
-
-    
-
-
     @SuppressWarnings("static-access")
     protected static CommandLine initializeAndParseCommandLineOptions(String[] args) {
         Options options = new Options();
@@ -269,7 +265,7 @@ public abstract class AbstractMongoReplayUtil {
                 OptionBuilder.withArgName("play back target mongo uri").hasArg().withLongOpt("host").isRequired().create("h"));
 
         options.addOption(OptionBuilder.withArgName("# threads").hasArgs().withLongOpt("threads").create("t"));
-        
+        options.addOption(OptionBuilder.withArgName("sleep millis").hasArgs().withLongOpt("sleep").create("s"));
         options.addOption(OptionBuilder.withArgName("queue size").hasArgs().withLongOpt("threads").create("q"));
         
         options.addOption(OptionBuilder.withArgName("ignore collection").hasArgs().withLongOpt("ingoreColl").create("c"));
@@ -312,6 +308,12 @@ public abstract class AbstractMongoReplayUtil {
         String mongoUriStr = line.getOptionValue("h");
        
         setMongoUriStr(mongoUriStr);
+        
+        String sleepStr = line.getOptionValue("s");
+        if (sleepStr != null) {
+            Long sleep = Long.parseLong(sleepStr);
+            replayOptions.setSleepMillis(sleep);
+        }
 
         String threadsStr = line.getOptionValue("t");
         if (threadsStr != null) {

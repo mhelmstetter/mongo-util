@@ -3,6 +3,7 @@ package com.mongodb.shardsync;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.in;
+import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.regex;
 import static com.mongodb.client.model.Projections.include;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
@@ -20,7 +21,6 @@ import java.util.UUID;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
-import org.bson.BsonNumber;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -50,6 +50,7 @@ import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
+import com.mongodb.model.ShardTimestamp;
 
 /**
  * This class encapsulates the client related objects needed for each source and
@@ -284,12 +285,22 @@ public class ShardClient {
             shardMongoClients.put(shard.getId(), mongoClient);
         }
     }
-
-    public BsonTimestamp getLatestOplogTimestamp(String shardId) {
+    
+    public Document getLatestOplogEntry(String shardId) {
         MongoClient client = shardMongoClients.get(shardId);
         MongoCollection<Document> coll = client.getDatabase("local").getCollection("oplog.rs");
-        Document doc = coll.find().projection(include("ts")).sort(eq("$natural", -1)).first();
-        return (BsonTimestamp)doc.get("ts");
+        Document doc = coll.find(ne("op", "n")).sort(eq("$natural", -1)).first();
+        return doc;
+    }
+
+    public ShardTimestamp populateLatestOplogTimestamp(String shardId) {
+        MongoClient client = shardMongoClients.get(shardId);
+        MongoCollection<Document> coll = client.getDatabase("local").getCollection("oplog.rs");
+        Document doc = coll.find(ne("op", "n")).projection(include("ts")).sort(eq("$natural", -1)).first();
+        BsonTimestamp ts = (BsonTimestamp)doc.get("ts");
+        ShardTimestamp st = new ShardTimestamp(shardId, ts);
+        this.getShardsMap().get(shardId).setSyncStartTimestamp(st);
+        return st;
     }
 
     /**

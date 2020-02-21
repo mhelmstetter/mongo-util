@@ -1,10 +1,7 @@
 package com.mongodb.diffutil;
 
 import static com.mongodb.client.model.Filters.eq;
-import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
-import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -16,10 +13,6 @@ import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.codecs.BsonDocumentCodec;
-import org.bson.codecs.Codec;
-import org.bson.codecs.RawBsonDocumentCodec;
-import org.bson.codecs.configuration.CodecRegistry;
-import org.bson.codecs.pojo.PojoCodecProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,11 +41,6 @@ public class DiffUtil {
 
 	private final static Document SORT_ID = new Document("_id", 1);
 
-	private final Codec<RawBsonDocument> rawCodec = new RawBsonDocumentCodec();
-
-	CodecRegistry pojoCodecRegistry;
-
-	private List<ShardCollection> sourceCollections = new ArrayList<ShardCollection>();
 
 	private Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
 	private Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
@@ -77,8 +65,6 @@ public class DiffUtil {
 
 	@SuppressWarnings("unchecked")
 	public void init() {
-		pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
-				fromProviders(PojoCodecProvider.builder().automatic(true).build()));
 
 		MongoClientURI source = new MongoClientURI(sourceClusterUri);
 
@@ -192,7 +178,7 @@ public class DiffUtil {
 				}
 			} else {
 				logger.debug("Doc sizes not equal, id: " + sourceId);
-				boolean xx = compareDocuments(sourceDoc, destDoc);
+				boolean xx = compareDocuments(currentNs, sourceDoc, destDoc);
 				hashMismatched++;
 			}
 			total++;
@@ -224,7 +210,7 @@ public class DiffUtil {
 	 * @param destDoc
 	 * @return
 	 */
-	private boolean compareDocuments(RawBsonDocument sourceDoc, RawBsonDocument destDoc) {
+	private static boolean compareDocuments(String ns, RawBsonDocument sourceDoc, RawBsonDocument destDoc) {
 		Object id = sourceDoc.get("_id");
 		Set<String> sourceKeys = sourceDoc.keySet();
 		Set<String> destKeys = destDoc.keySet();
@@ -264,7 +250,7 @@ public class DiffUtil {
 				RawBsonDocument destRawNew = new RawBsonDocument(destDocNew, new BsonDocumentCodec());
 				boolean newDocsMatch = compareHashes(sourceRawNew.getByteBuffer().array(),
 						destRawNew.getByteBuffer().array());
-				logger.debug(String.format("%s.%s - bytes match: %s", currentDbName, currentCollectionName, newDocsMatch));
+				logger.debug(String.format("%s - bytes match: %s", ns, newDocsMatch));
 			}
 		}
 		return sourceDoc.equals(destDoc);

@@ -2,8 +2,6 @@ package com.mongodb.mongosync;
 
 import java.util.concurrent.Callable;
 
-import org.bson.BsonTimestamp;
-
 import com.mongodb.model.ShardTimestamp;
 import com.mongodb.shardsync.ShardClient;
 
@@ -19,8 +17,7 @@ public class GetLatestOplogTimestampTask implements Callable<ShardTimestamp> {
 
     @Override
     public ShardTimestamp call() throws Exception {
-        BsonTimestamp ts = client.getLatestOplogTimestamp(shardName);
-        return new ShardTimestamp(shardName, ts);
+        return client.populateLatestOplogTimestamp(shardName);
     }
 
 }
