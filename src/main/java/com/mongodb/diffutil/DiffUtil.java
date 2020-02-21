@@ -26,7 +26,6 @@ import org.slf4j.LoggerFactory;
 import com.google.common.collect.Sets;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
-import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
