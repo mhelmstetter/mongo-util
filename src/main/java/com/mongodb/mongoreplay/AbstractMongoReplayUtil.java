@@ -52,6 +52,8 @@ public abstract class AbstractMongoReplayUtil {
 
     protected static final Logger logger = LoggerFactory.getLogger(AbstractMongoReplayUtil.class);
     
+    private final static String DB_NAME_MAP = "dbNameMap";
+    
     private final static long unixToInternal = 62135596800L;
     private final static long internalToUnix = -unixToInternal;
 
@@ -215,6 +217,7 @@ public abstract class AbstractMongoReplayUtil {
                 BSONObject header = (BSONObject) raw.get("header");
                 int opcode = (Integer) header.get("opcode");
                 if (! opcodeWhitelist.contains(opcode)) {
+                	ignored++;
                     continue;
                 }
                 
@@ -266,9 +269,11 @@ public abstract class AbstractMongoReplayUtil {
 
         options.addOption(OptionBuilder.withArgName("# threads").hasArgs().withLongOpt("threads").create("t"));
         options.addOption(OptionBuilder.withArgName("sleep millis").hasArgs().withLongOpt("sleep").create("s"));
-        options.addOption(OptionBuilder.withArgName("queue size").hasArgs().withLongOpt("threads").create("q"));
+        options.addOption(OptionBuilder.withArgName("queue size").hasArgs().withLongOpt("queue").create("q"));
         
         options.addOption(OptionBuilder.withArgName("ignore collection").hasArgs().withLongOpt("ingoreColl").create("c"));
+        
+        options.addOption(OptionBuilder.withArgName("db name map").hasArgs().withLongOpt(DB_NAME_MAP).create());
         
         CommandLineParser parser = new GnuParser();
         CommandLine line = null;
@@ -334,6 +339,10 @@ public abstract class AbstractMongoReplayUtil {
         if (qStr != null) {
             int q = Integer.parseInt(qStr);
             setQueueSize(q);
+        }
+        
+        if (line.hasOption(DB_NAME_MAP)) {
+        	replayOptions.setDbNameMapString(line.getOptionValue(DB_NAME_MAP));
         }
         
     }

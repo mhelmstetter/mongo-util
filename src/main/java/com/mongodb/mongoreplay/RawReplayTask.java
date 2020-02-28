@@ -165,6 +165,16 @@ public class RawReplayTask implements Callable<ReplayResult> {
         }
     }
     
+    private void sleep() {
+    	Long sleep = replayOptions.getSleepMillis();
+    	if (sleep != null) {
+    		try {
+				Thread.currentThread().sleep(sleep);
+			} catch (InterruptedException e) {
+			}
+    	}
+    }
+    
     private void processCommand(String databaseName) {
         //System.out.println(commandDoc);
         Set<String> shape = null;
@@ -230,7 +240,7 @@ public class RawReplayTask implements Callable<ReplayResult> {
             command = Command.FIND_AND_MODIFY;
             collectionName = commandDoc.getString("findandmodify");
         } else {
-            logger.warn("ignored command: " + commandDoc);
+            //logger.warn("ignored command: " + commandDoc);
             //ignored++;
             ignore = true;
             return;
@@ -258,6 +268,15 @@ public class RawReplayTask implements Callable<ReplayResult> {
         // event = new TimedEvent();
         long start = System.nanoTime();
         ReplayResult replayResult = null;
+        String db = null;
+        if (replayOptions.getDbNamesMap() != null) {
+        	db = replayOptions.getDbNamesMap().get(databaseName);
+        	if (db == null) {
+        		db = databaseName;
+        	}
+        } else {
+        	db = databaseName;
+        }
         try {
             Document commandResult = null;
             if (command.isRead()) {
@@ -265,12 +284,12 @@ public class RawReplayTask implements Callable<ReplayResult> {
                 if (replayOptions.getReadConcern() != null) {
                     commandDoc.put("readConcern", replayOptions.getReadConcern());
                 }
-                commandResult = mongoClient.getDatabase(databaseName).runCommand(commandDoc, mongoClient.getReadPreference());
+                commandResult = mongoClient.getDatabase(db).runCommand(commandDoc, mongoClient.getReadPreference());
                  
             } else {
                 
                 commandDoc.put("writeConcern", replayOptions.getWriteConcern());
-                commandResult = mongoClient.getDatabase(databaseName).runCommand(commandDoc);
+                commandResult = mongoClient.getDatabase(db).runCommand(commandDoc);
             }
             long duration = System.nanoTime() - start;
             // long duration = event.stop();
@@ -278,10 +297,10 @@ public class RawReplayTask implements Callable<ReplayResult> {
             // logger.debug("result: " + result);
             if (ok.equals(1.0)) {
                 monitor.incrementEventCount();
-                replayResult = new ReplayResult(queryShape, databaseName, collectionName, command, duration, true);
+                replayResult = new ReplayResult(queryShape, db, collectionName, command, duration, true);
             } else {
                 // event.incrementError(1);
-                replayResult = new ReplayResult(queryShape, databaseName, collectionName, command, duration, false);
+                replayResult = new ReplayResult(queryShape, db, collectionName, command, duration, false);
                 monitor.incrementErrorCount();
             }
 

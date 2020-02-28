@@ -128,9 +128,6 @@ public class ShardConfigSync {
 	public void initializeShardMappings() {
 		logger.debug("Start initializeShardMappings()");
 		
-		sourceShardClient = new ShardClient("source", sourceClusterUri);
-		destShardClient = new ShardClient("dest", destClusterUri);
-		
 		if (this.shardMap != null) {
 			// shardMap is for doing an uneven shard mapping, e.g. 10 shards on source
 			// down to 5 shards on destination

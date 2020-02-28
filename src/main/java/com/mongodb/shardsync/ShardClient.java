@@ -688,4 +688,8 @@ public class ShardClient {
         return connectionString;
     }
 
+	public String getName() {
+		return name;
+	}
+
 }
