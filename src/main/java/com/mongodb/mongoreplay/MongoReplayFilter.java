@@ -161,7 +161,7 @@ public class MongoReplayFilter {
                         
                         bsonInput.readBytes(compressed);
                         byte[] uncompressed = Snappy.uncompress(compressed);
-                        //logger.debug(String.format("compressed.length: %s, uncompressedSize: %s, uncompressed.length: %s", compressed.length, uncompressedSize, uncompressed.length));
+                        logger.debug(String.format("compressed.length: %s, uncompressedSize: %s, uncompressed.length: %s", compressed.length, uncompressedSize, uncompressed.length));
                         
                         if (opcode == 2013) {
                             process2013(uncompressed, channel);
@@ -289,11 +289,12 @@ public class MongoReplayFilter {
                         // Just pass these through
                         // TODO - we could probably do some filtering, e.g.
                         // system dbs?
-//                        ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
-//                        channel.write(buffer);
-//                        written++;
-                        byte[] slice = Arrays.copyOfRange(bytes, 16, bytes.length);
-                        process2013(slice, channel);
+                        ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
+                        channel.write(buffer);
+                        written++;
+                    	
+                        //byte[] slice = Arrays.copyOfRange(bytes, 16, bytes.length);
+                        //process2013(slice, channel);
                     }
                 } else {
                     logger.debug("Header was null, WTF?");

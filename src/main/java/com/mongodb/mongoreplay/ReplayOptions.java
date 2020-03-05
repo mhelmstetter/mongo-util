@@ -17,6 +17,8 @@ public class ReplayOptions {
     
     private Map<String, String> dbNamesMap;
     
+    private ReplayMode replayMode;
+    
     private BsonDocument writeConcern;
     private Long sleepMillis;
     
@@ -81,6 +83,14 @@ public class ReplayOptions {
 
 	public Map<String, String> getDbNamesMap() {
 		return dbNamesMap;
+	}
+
+	public ReplayMode getReplayMode() {
+		return replayMode;
+	}
+
+	public void setReplayMode(ReplayMode replayMode) {
+		this.replayMode = replayMode;
 	}
 
 }

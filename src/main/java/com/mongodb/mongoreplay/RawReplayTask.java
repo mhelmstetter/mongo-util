@@ -109,7 +109,7 @@ public class RawReplayTask implements Callable<ReplayResult> {
                         moreSections = messageLength > bsonInput.getPosition();
                         
                         databaseName = commandDoc.getString("$db");
-                        if (databaseName.equals("local") || databaseName.equals("admin")) {
+                        if (databaseName == null || databaseName.equals("local") || databaseName.equals("admin")) {
                             continue;
                         }
                         
@@ -224,6 +224,7 @@ public class RawReplayTask implements Callable<ReplayResult> {
                     // this will actually crash mongod on OSX
                     if (stage.containsKey("$mergeCursors")) {
                         //ignored++;
+                    	ignore = true;
                         return;
                     }
                 }
@@ -250,6 +251,11 @@ public class RawReplayTask implements Callable<ReplayResult> {
             //ignored++;
             ignore = true;
             return;
+        }
+        
+        if (replayOptions.getReplayMode() == ReplayMode.READ_ONLY && !command.isRead()) {
+        	ignore = true;
+        	return;
         }
         
         if (shape != null) {
@@ -305,8 +311,8 @@ public class RawReplayTask implements Callable<ReplayResult> {
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
-            logger.error("Error executing task", e);
+            //e.printStackTrace();
+            logger.error(String.format("Error executing command: %s", commandDoc), e);
             monitor.incrementErrorCount();
         }
 

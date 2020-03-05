@@ -53,6 +53,7 @@ public abstract class AbstractMongoReplayUtil {
     protected static final Logger logger = LoggerFactory.getLogger(AbstractMongoReplayUtil.class);
     
     private final static String DB_NAME_MAP = "dbNameMap";
+    private final static String READ_ONLY = "readOnly";
     
     private final static long unixToInternal = 62135596800L;
     private final static long internalToUnix = -unixToInternal;
@@ -275,6 +276,8 @@ public abstract class AbstractMongoReplayUtil {
         
         options.addOption(OptionBuilder.withArgName("db name map").hasArgs().withLongOpt(DB_NAME_MAP).create());
         
+        options.addOption(OptionBuilder.withArgName("read only mode").withLongOpt(READ_ONLY).create());
+        
         CommandLineParser parser = new GnuParser();
         CommandLine line = null;
         try {
@@ -343,6 +346,12 @@ public abstract class AbstractMongoReplayUtil {
         
         if (line.hasOption(DB_NAME_MAP)) {
         	replayOptions.setDbNameMapString(line.getOptionValue(DB_NAME_MAP));
+        }
+        
+        if (line.hasOption(READ_ONLY)) {
+        	replayOptions.setReplayMode(ReplayMode.READ_ONLY);
+        } else {
+        	replayOptions.setReplayMode(ReplayMode.READ_WRITE);
         }
         
     }
