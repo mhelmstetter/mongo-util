@@ -298,7 +298,7 @@ public class ShardConfigSyncApp {
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
             
             if (line.hasOption(COMPRESSORS)) {
-                sync.setCompressors(line.getOptionValue("c"));
+                sync.setCompressors(line.getOptionValue(COMPRESSORS));
             }
             if (line.hasOption(MONGOMIRROR_START_PORT)) {
             	Integer startPort = Integer.parseInt(line.getOptionValue(MONGOMIRROR_START_PORT));
