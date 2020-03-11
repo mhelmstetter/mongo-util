@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.Callable;
 
 import org.apache.commons.exec.ExecuteException;
 import org.bson.Document;
@@ -53,7 +54,10 @@ import com.mongodb.mongomirror.MongoMirrorStatus;
 import com.mongodb.mongomirror.MongoMirrorStatusInitialSync;
 import com.mongodb.mongomirror.MongoMirrorStatusOplogSync;
 
-public class ShardConfigSync {
+import picocli.CommandLine.Command;
+
+@Command(name = "shardSync", mixinStandardHelpOptions = true, version = "shardSync 1.0")
+public class ShardConfigSync implements Callable<Integer> {
 
 	DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm_ss");
 
@@ -74,11 +78,11 @@ public class ShardConfigSync {
 	private boolean nonPrivilegedMode = false;
 	private boolean doChunkCounts;
 	private boolean preserveUUIDs;
-	private boolean tailOnly;
 	private String compressors;
 	private String oplogBasePath;
 	private String bookmarkFilePrefix;
 	private boolean reverseSync;
+	private boolean skipBuildIndexes;
 
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
@@ -123,6 +127,11 @@ public class ShardConfigSync {
 
 	public ShardConfigSync() {
 		logger.debug("ShardConfigSync starting");
+	}
+	
+	@Override
+    public Integer call() throws Exception {
+		return 0;
 	}
 
 	public void initializeShardMappings() {
@@ -1299,8 +1308,8 @@ public class ShardConfigSync {
 				logger.debug("Version 3.6 or later, not nonPrivilegedMode, setting preserveUUIDs true");
 				mongomirror.setPreserveUUIDs(true);
 			}
-			if (tailOnly) {
-				mongomirror.setTailOnly(tailOnly);
+			if (skipBuildIndexes) {
+				mongomirror.setSkipBuildIndexes(skipBuildIndexes);
 			}
 			if (compressors != null) {
 				mongomirror.setCompressors(compressors);
@@ -1394,10 +1403,6 @@ public class ShardConfigSync {
 		this.preserveUUIDs = preserveUUIDs;
 	}
 
-	public void setTailOnly(boolean tailOnly) {
-		this.tailOnly = tailOnly;
-	}
-
 	public void setCompressors(String compressors) {
 		this.compressors = compressors;
 	}
@@ -1426,5 +1431,9 @@ public class ShardConfigSync {
 
 	public void setReverseSync(boolean reverseSync) {
 		this.reverseSync = reverseSync;
+	}
+
+	public void setSkipBuildIndexes(boolean skipBuildIndexes) {
+		this.skipBuildIndexes = skipBuildIndexes;
 	}
 }

@@ -44,9 +44,7 @@ public class MongoMirrorRunner {
     
     private String readPreference;
     private Boolean drop;
-    private Boolean destinationNoSSL;
     private Boolean preserveUUIDs;
-    private Boolean tailOnly;
     private String bookmarkFile;
     private String compressors;
     private Integer httpStatusPort;
@@ -54,7 +52,10 @@ public class MongoMirrorRunner {
     
     private String numParallelCollections;
     
+    // Custom mongomirror options
     private String writeConcern;
+    private Boolean destinationNoSSL;
+    private Boolean skipBuildIndexes;
     
     private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
     private Set<String> includeDatabases = new HashSet<String>();
@@ -95,7 +96,6 @@ public class MongoMirrorRunner {
         addArg("readPreference", readPreference);
         addArg("destinationNoSSL", destinationNoSSL);
         addArg("preserveUUIDs", preserveUUIDs);
-        addArg("tailOnly", tailOnly);
         
         addArg("drop", drop);
         addArg("bookmarkFile", bookmarkFile);
@@ -104,6 +104,7 @@ public class MongoMirrorRunner {
         addArg("writeConcern", writeConcern);
         addArg("httpStatusPort", httpStatusPort);
         addArg("oplogPath", oplogPath);
+        addArg("skipBuildIndexes", skipBuildIndexes);
         
         for (Namespace ns : includeNamespaces) {
             addArg("includeNamespace", ns.getNamespace());
@@ -298,10 +299,6 @@ public class MongoMirrorRunner {
     public void setPreserveUUIDs(Boolean preserveUUIDs) {
         this.preserveUUIDs = preserveUUIDs;
     }
-
-    public void setTailOnly(Boolean tailOnly) {
-        this.tailOnly = tailOnly;
-    }
     
     public void addIncludeNamespace(Namespace ns) {
         includeNamespaces.add(ns);
@@ -329,6 +326,10 @@ public class MongoMirrorRunner {
 
 	public void setOplogPath(String oplogPath) {
 		this.oplogPath = oplogPath;
+	}
+
+	public void setSkipBuildIndexes(Boolean skipBuildIndexes) {
+		this.skipBuildIndexes = skipBuildIndexes;
 	}
 
 }

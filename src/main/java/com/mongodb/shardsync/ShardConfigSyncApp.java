@@ -31,7 +31,7 @@ public class ShardConfigSyncApp {
     private final static String DROP_DEST_DBS_AND_CONFIG_METADATA = "dropDestDbsAndConfigMeta";
     private final static String NON_PRIVILEGED = "nonPrivileged";
     private final static String PRESERVE_UUIDS = "preserveUUIDs";
-    private final static String TAIL_ONLY = "tailOnly";
+    private final static String SKIP_BUILD_INDEXES = "skipBuildIndexes";
     private final static String COMPRESSORS = "compressors";
     
     private final static String COLL_COUNTS = "compareCounts";
@@ -104,7 +104,7 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("Shard destination collections")
                 .withLongOpt(SHARD_COLLECTIONS).create());
         options.addOption(OptionBuilder.withArgName("Copy indexes from source to dest")
-                .withLongOpt(SYNC_INDEXES).create());
+                .withLongOpt(SYNC_INDEXES).create(SYNC_INDEXES));
         
         options.addOption(OptionBuilder.withArgName("ssl allow invalid hostnames")
                 .withLongOpt(SSL_ALLOW_INVALID_HOSTNAMES).create(SSL_ALLOW_INVALID_HOSTNAMES));
@@ -123,8 +123,8 @@ public class ShardConfigSyncApp {
         		.withLongOpt(MONGOMIRROR_BINARY).create("p"));
         options.addOption(OptionBuilder.withArgName("mongomirror preserve dest UUIDs (not supported for Atlas dest)")
                 .withLongOpt(PRESERVE_UUIDS).create(PRESERVE_UUIDS));
-        options.addOption(OptionBuilder.withArgName("mongomirror tail only")
-                .withLongOpt(TAIL_ONLY).create(TAIL_ONLY));
+        options.addOption(OptionBuilder.withArgName("skip build indexes")
+                .withLongOpt(SKIP_BUILD_INDEXES).create(SKIP_BUILD_INDEXES));
         options.addOption(OptionBuilder.withArgName("mongomirror compressors").hasArg()
                 .withLongOpt(COMPRESSORS).create("z"));
         options.addOption(OptionBuilder.withArgName("mongomirror http status starting port (default 9001)").hasArg()
@@ -134,7 +134,7 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("mongomirror writeConcern").hasArg().withLongOpt("writeConcern")
                 .isRequired(false).create("w"));
         options.addOption(OptionBuilder.withArgName("mongomirror oplogPath base path").hasArg()
-                .withLongOpt(OPLOG_BASE_PATH).create());
+                .withLongOpt(OPLOG_BASE_PATH).create(OPLOG_BASE_PATH));
         options.addOption(OptionBuilder.withArgName("mongomirror bookmark filename prefix").hasArg()
                 .withLongOpt(BOOKMARK_FILE_PREFIX).create());
         
@@ -226,6 +226,7 @@ public class ShardConfigSyncApp {
         sync.setNamespaceFilters(line.getOptionValues("f"));
         
         sync.setNonPrivilegedMode(line.hasOption(NON_PRIVILEGED));
+        sync.setSkipBuildIndexes(line.hasOption(SKIP_BUILD_INDEXES));
         sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
         sync.setDropDestDbsAndConfigMetadata(line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA));
         sync.setSleepMillis(line.getOptionValue("x"));
@@ -294,7 +295,7 @@ public class ShardConfigSyncApp {
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", configFileProps.getProperty(MONGOMIRROR_BINARY));
             
-            boolean tailOnly = line.hasOption(TAIL_ONLY);
+            boolean skipBuildIndexes = line.hasOption(SKIP_BUILD_INDEXES);
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
             
             if (line.hasOption(COMPRESSORS)) {
@@ -314,7 +315,7 @@ public class ShardConfigSyncApp {
             sync.setMongomirrorBinary(mongoMirrorPath);
             sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
             sync.setPreserveUUIDs(preserveUUIDs);
-            sync.setTailOnly(tailOnly);
+            sync.setSkipBuildIndexes(skipBuildIndexes);
             sync.mongomirror();
         }
         
