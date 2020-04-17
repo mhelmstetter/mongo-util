@@ -1,14 +1,7 @@
 package com.mongodb.diffutil;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.Set;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
-import org.bson.BsonSerializationException;
 import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;

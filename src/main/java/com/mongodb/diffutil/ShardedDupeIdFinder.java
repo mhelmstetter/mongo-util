@@ -1,6 +1,5 @@
 package com.mongodb.diffutil;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -28,6 +27,7 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
+import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 
 public class ShardedDupeIdFinder {
@@ -76,6 +76,7 @@ public class ShardedDupeIdFinder {
 			databaseMap.put(dbInfo.getString("name"), dbInfo);
 		}
 	}
+
 	
 	public void run() throws InterruptedException {
         executor = Executors.newFixedThreadPool(sourceShardClient.getShardMongoClients().size());
