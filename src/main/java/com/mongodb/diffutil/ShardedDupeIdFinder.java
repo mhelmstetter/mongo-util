@@ -41,8 +41,6 @@ public class ShardedDupeIdFinder {
 	private ShardClient sourceShardClient;
 	private Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
 
-	private List<MongoClient> mongoClients = new ArrayList<MongoClient>();
-
 	long totalDbs = 0;
 	long missingDbs = 0;
 	long totalCollections = 0;
@@ -80,7 +78,7 @@ public class ShardedDupeIdFinder {
 	}
 	
 	public void run() throws InterruptedException {
-        executor = Executors.newFixedThreadPool(mongoClients.size());
+        executor = Executors.newFixedThreadPool(sourceShardClient.getShardMongoClients().size());
         
 		
 		for (Map.Entry<String, MongoClient> entry : sourceShardClient.getShardMongoClients().entrySet()) {
