@@ -221,6 +221,7 @@ public class MongoReplayFilter {
                         int p1 = bsonInput.getPosition();
                         String databaseName = bsonInput.readCString();
                         if (databaseName.equals("local") || databaseName.equals("admin")) {
+                        	String command = bsonInput.readCString();
                             systemDatabasesSkippedCount++;
                             continue;
                         }

@@ -795,7 +795,6 @@ public class ShardConfigSync implements Callable<Integer> {
 		} catch (MongoCommandException mce) {
 			logger.warn("moveChunk error", mce);
 		}
-
 	}
 
 	public void shardDestinationCollections() {
