@@ -2,7 +2,6 @@ package com.mongodb.diffutil;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -27,10 +26,8 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
-import com.mongodb.corruptutil.CorruptFinderWorker;
 import com.mongodb.shardsync.ShardClient;
 
 public class ShardedDupeIdFinder {
@@ -151,7 +148,7 @@ public class ShardedDupeIdFinder {
 	public static void main(String[] args) throws Exception {
 		CommandLine line = initializeAndParseCommandLineOptions(args);
 		ShardedDupeIdFinder finder = new ShardedDupeIdFinder(line.getOptionValue("s"));
-
+		finder.run();
 	}
 
 }
