@@ -106,8 +106,7 @@ public class ShardedDupeIdFinder {
         
         executor.shutdown();
         while (!executor.isTerminated()) {
-            logger.debug("Waiting for pool to terminate");
-            Thread.sleep(1000);
+            Thread.sleep(10000);
         }
         logger.debug("ShardedDupeIdFinder complete");
     }

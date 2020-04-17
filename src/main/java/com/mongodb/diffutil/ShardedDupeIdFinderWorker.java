@@ -35,6 +35,7 @@ public class ShardedDupeIdFinderWorker implements Runnable {
 		this.collection = collection;
 		this.client = sourceClient;
 		this.idsSet = syncSet;
+		this.shardName = shardName;
 	}
 
 	@Override
