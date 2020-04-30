@@ -96,12 +96,16 @@ public class ShardClient {
     
     private Collection<String> shardIdFilter;
     
-    public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter) {
+    private boolean useCsrs = false;
+    
+    public ShardClient(String name, ConnectionString cs, Collection<String> shardIdFilter, boolean useCsrs) {
+    	this.connectionString = cs;
     	this.name = name;
     	this.shardIdFilter = shardIdFilter;
-        logger.debug(String.format("%s client, uri: %s", name, clusterUri));
+    	this.useCsrs = useCsrs;
+        logger.debug(String.format("%s client, uri: %s, useCsrs: %s", name, cs.getConnectionString(), useCsrs));
         
-        connectionString = new ConnectionString(clusterUri);
+        
         mongoClientSettings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString)
                 .build();
@@ -125,6 +129,10 @@ public class ShardClient {
 
         populateMongosList();
     }
+    
+    public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter) {
+    	this(name, new ConnectionString(clusterUri), shardIdFilter, false);
+    }
 
     public ShardClient(String name, String clusterUri) {
     	this(name, clusterUri, null);
@@ -144,6 +152,11 @@ public class ShardClient {
     }
 
     private void populateMongosList() {
+    	
+    	if (useCsrs) {
+    		logger.debug("populateMongosList() skipping, useCsrs=true");
+    		return;
+    	}
         
         if (connectionString.isSrvProtocol()) {
             

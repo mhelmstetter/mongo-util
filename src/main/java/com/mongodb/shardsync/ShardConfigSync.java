@@ -33,6 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Sets;
+import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoCredential;
@@ -121,6 +122,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	private boolean sslAllowInvalidCertificates;
 	
 	private boolean skipFlushRouterConfig;
+	private boolean sourceCsrs;
 
 	CodecRegistry registry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
 			fromProviders(PojoCodecProvider.builder().automatic(true).build()));
@@ -138,6 +140,12 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	public void initializeShardMappings() {
 		logger.debug("Start initializeShardMappings()");
+		ConnectionString sourceConnStr = new ConnectionString(sourceClusterUri);
+		ConnectionString destConnStr = new ConnectionString(destClusterUri);
+		
+//		if (sourceConnStr.isSrvProtocol() || destConnStr.isSrvProtocol()) {
+//			throw new IllegalArgumentException("srv protocol not supported, please configure a single mongos mongodb:// connection string");
+//		}
 		
 		if (this.shardMap != null) {
 			// shardMap is for doing an uneven shard mapping, e.g. 10 shards on source
@@ -150,14 +158,15 @@ public class ShardConfigSync implements Callable<Integer> {
 				sourceToDestShardMap.put(mappings[0], mappings[1]);
 			}
 			
-			sourceShardClient = new ShardClient("source", sourceClusterUri, sourceToDestShardMap.keySet());
-			destShardClient = new ShardClient("dest", destClusterUri, sourceToDestShardMap.values());
+			
+			sourceShardClient = new ShardClient("source", sourceConnStr, sourceToDestShardMap.keySet(), sourceCsrs);
+			destShardClient = new ShardClient("dest", destConnStr, sourceToDestShardMap.values(), false);
 			
 		} else {
 			logger.debug("Default 1:1 shard mapping");
 			
-			sourceShardClient = new ShardClient("source", sourceClusterUri);
-			destShardClient = new ShardClient("dest", destClusterUri);
+			sourceShardClient = new ShardClient("source", sourceConnStr, null, sourceCsrs);
+			destShardClient = new ShardClient("dest", destConnStr, null, false);
 			
 			logger.debug("Source shard count: " + sourceShardClient.getShardsMap().size());
 			// default, just match up the shards 1:1
@@ -327,6 +336,10 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 
 	private void stopBalancers() {
+		if (sourceCsrs) {
+			logger.debug("skipping stopBalancers, useCsrs=true");
+			return;
+		}
 
 		logger.debug("stopBalancers started");
 		try {
@@ -1446,5 +1459,13 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	public void setSkipFlushRouterConfig(boolean skipFlushRouterConfig) {
 		this.skipFlushRouterConfig = skipFlushRouterConfig;
+	}
+
+	public boolean isSourceCsrs() {
+		return sourceCsrs;
+	}
+
+	public void setSourceCsrs(boolean sourceCsrs) {
+		this.sourceCsrs = sourceCsrs;
 	}
 }

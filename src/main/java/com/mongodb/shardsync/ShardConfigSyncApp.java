@@ -1,7 +1,6 @@
 package com.mongodb.shardsync;
 
 import java.io.File;
-import java.util.Properties;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -46,6 +45,7 @@ public class ShardConfigSyncApp {
     private final static String OPLOG_BASE_PATH = "oplogBasePath";
     private final static String BOOKMARK_FILE_PREFIX = "bookmarkFilePrefix";
     private final static String SKIP_FLUSH_ROUTER_CONFIG = "skipFlushRouterConfig";
+    private final static String SOURCE_CSRS = "sourceCsrs";
     
     private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
@@ -109,6 +109,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(SYNC_INDEXES).create(SYNC_INDEXES));
         options.addOption(OptionBuilder.withArgName("Skip the flushRouterConfig step")
                 .withLongOpt(SKIP_FLUSH_ROUTER_CONFIG).create(SKIP_FLUSH_ROUTER_CONFIG));
+        options.addOption(OptionBuilder.withArgName("Source mongos is not available, use config server for config")
+                .withLongOpt(SOURCE_CSRS).create(SOURCE_CSRS));
         
         options.addOption(OptionBuilder.withArgName("ssl allow invalid hostnames")
                 .withLongOpt(SSL_ALLOW_INVALID_HOSTNAMES).create(SSL_ALLOW_INVALID_HOSTNAMES));
@@ -244,8 +246,12 @@ public class ShardConfigSyncApp {
         sync.setSslAllowInvalidCertificates(line.hasOption(SSL_ALLOW_INVALID_CERTS));
         sync.setSslAllowInvalidHostnames(line.hasOption(SSL_ALLOW_INVALID_HOSTNAMES));
         
-        if (line.hasOption(SKIP_FLUSH_ROUTER_CONFIG) || config.getBoolean(SKIP_FLUSH_ROUTER_CONFIG)) {
+        if (line.hasOption(SKIP_FLUSH_ROUTER_CONFIG) || config.getBoolean(SKIP_FLUSH_ROUTER_CONFIG, false)) {
         	sync.setSkipFlushRouterConfig(true);
+        }
+        
+        if (line.hasOption(SOURCE_CSRS) || config.getBoolean(SOURCE_CSRS, false)) {
+        	sync.setSourceCsrs(true);
         }
         
         sync.initializeShardMappings();
