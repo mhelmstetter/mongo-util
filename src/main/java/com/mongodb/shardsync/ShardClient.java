@@ -146,6 +146,7 @@ public class ShardClient {
         	if (shardIdFilter != null && ! shardIdFilter.contains(sh.getId())) {
         		continue;
         	}
+        	logger.debug(String.format("%s: populateShardList shard: %s, %s", name, sh.getId(), sh.getHost()));
             shardsMap.put(sh.getId(), sh);
         }
         logger.debug(name + ": populateShardList complete, " + shardsMap.size() + " shards added");
@@ -196,7 +197,7 @@ public class ShardClient {
             mongosColl.find().sort(Sorts.ascending("ping")).limit(limit).into(mongosList);
             for (Mongos mongos : mongosList) {
                 
-                logger.debug(name + " mongos: " + mongos.getId());
+                //logger.debug(name + " mongos: " + mongos.getId());
                 
                 String hostPort = mongos.getId();
                 String host = StringUtils.substringBefore(hostPort, ":");
