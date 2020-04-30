@@ -119,6 +119,8 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	private boolean sslAllowInvalidHostnames;
 	private boolean sslAllowInvalidCertificates;
+	
+	private boolean skipFlushRouterConfig;
 
 	CodecRegistry registry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
 			fromProviders(PojoCodecProvider.builder().automatic(true).build()));
@@ -319,7 +321,9 @@ public class ShardConfigSync implements Callable<Integer> {
 			throw new RuntimeException("chunks don't match");
 		}
 
-		destShardClient.flushRouterConfig();
+		if (! skipFlushRouterConfig) {
+			destShardClient.flushRouterConfig();
+		}
 	}
 
 	private void stopBalancers() {
@@ -1434,5 +1438,13 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	public void setSkipBuildIndexes(boolean skipBuildIndexes) {
 		this.skipBuildIndexes = skipBuildIndexes;
+	}
+
+	public boolean isSkipFlushRouterConfig() {
+		return skipFlushRouterConfig;
+	}
+
+	public void setSkipFlushRouterConfig(boolean skipFlushRouterConfig) {
+		this.skipFlushRouterConfig = skipFlushRouterConfig;
 	}
 }

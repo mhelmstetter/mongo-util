@@ -1,9 +1,6 @@
 package com.mongodb.shardsync;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.Properties;
 
 import org.apache.commons.cli.CommandLine;
@@ -13,6 +10,10 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
+import org.apache.commons.configuration2.Configuration;
+import org.apache.commons.configuration2.PropertiesConfiguration;
+import org.apache.commons.configuration2.builder.fluent.Configurations;
+import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +45,7 @@ public class ShardConfigSyncApp {
     private final static String MONGOMIRROR_START_PORT = "mongoMirrorStartPort";
     private final static String OPLOG_BASE_PATH = "oplogBasePath";
     private final static String BOOKMARK_FILE_PREFIX = "bookmarkFilePrefix";
+    private final static String SKIP_FLUSH_ROUTER_CONFIG = "skipFlushRouterConfig";
     
     private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
@@ -105,6 +107,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(SHARD_COLLECTIONS).create());
         options.addOption(OptionBuilder.withArgName("Copy indexes from source to dest")
                 .withLongOpt(SYNC_INDEXES).create(SYNC_INDEXES));
+        options.addOption(OptionBuilder.withArgName("Skip the flushRouterConfig step")
+                .withLongOpt(SKIP_FLUSH_ROUTER_CONFIG).create(SKIP_FLUSH_ROUTER_CONFIG));
         
         options.addOption(OptionBuilder.withArgName("ssl allow invalid hostnames")
                 .withLongOpt(SSL_ALLOW_INVALID_HOSTNAMES).create(SSL_ALLOW_INVALID_HOSTNAMES));
@@ -175,8 +179,10 @@ public class ShardConfigSyncApp {
         System.exit(-1);
     }
     
-    private static Properties readProperties() {
-        Properties prop = new Properties();
+    private static Configuration readProperties() {
+    	Configurations configs = new Configurations();
+    	Configuration defaultConfig = new PropertiesConfiguration();
+    	
         File propsFile = null;
         if (line.hasOption("c")) {
             propsFile = new File(line.getOptionValue("c"));
@@ -184,39 +190,41 @@ public class ShardConfigSyncApp {
         	propsFile = new File("shard-sync-reverse.properties");
             if (! propsFile.exists()) {
                 logger.warn("Default config file shard-sync-reverse.properties not found, using command line options only");
-                return prop;
+                return defaultConfig;
             }
         } else {
             propsFile = new File("shard-sync.properties");
             if (! propsFile.exists()) {
                 logger.warn("Default config file shard-sync.properties not found, using command line options only");
-                return prop;
+                return defaultConfig;
             }
         }
         
-        try (InputStream input = new FileInputStream(propsFile)) {
-            prop.load(input);
-        } catch (IOException ioe) {
-            logger.error("Error loading properties file: " + propsFile, ioe);
-        }
-        return prop;
+        try {
+			Configuration config = configs.properties(propsFile);
+			return config;
+		} catch (ConfigurationException e) {
+			logger.error("Error loading properties file: " + propsFile, e);
+		}
+        return defaultConfig;
     }
 
     public static void main(String[] args) throws Exception {
         CommandLine line = initializeAndParseCommandLineOptions(args);
         
-        Properties configFileProps = readProperties();
+        
+        Configuration config = readProperties();
         
         ShardConfigSync sync = new ShardConfigSync();
-        sync.setSourceClusterUri(line.getOptionValue("s", configFileProps.getProperty(SOURCE_URI)));
-        sync.setDestClusterUri(line.getOptionValue("d", configFileProps.getProperty(DEST_URI)));
+        sync.setSourceClusterUri(line.getOptionValue("s", config.getString(SOURCE_URI)));
+        sync.setDestClusterUri(line.getOptionValue("d", config.getString(DEST_URI)));
         
         if (sync.getSourceClusterUri() == null || sync.getDestClusterUri() == null) {
             System.out.println("source and dest options required");
             printHelpAndExit();
         }
         
-        String shardMaps = configFileProps.getProperty(SHARD_MAP);
+        String shardMaps = config.getString(SHARD_MAP);
         if (shardMaps != null) {
             sync.setShardMappings(shardMaps.split(","));
         } else {
@@ -235,6 +243,10 @@ public class ShardConfigSyncApp {
         
         sync.setSslAllowInvalidCertificates(line.hasOption(SSL_ALLOW_INVALID_CERTS));
         sync.setSslAllowInvalidHostnames(line.hasOption(SSL_ALLOW_INVALID_HOSTNAMES));
+        
+        if (line.hasOption(SKIP_FLUSH_ROUTER_CONFIG) || config.getBoolean(SKIP_FLUSH_ROUTER_CONFIG)) {
+        	sync.setSkipFlushRouterConfig(true);
+        }
         
         sync.initializeShardMappings();
         boolean actionFound = false;
@@ -293,7 +305,7 @@ public class ShardConfigSyncApp {
         // MONGOMIRROR_BINARY
         if (line.hasOption(MONGO_MIRROR) || line.hasOption(MONGO_MIRROR_REVERSE)) {
             actionFound = true;
-            String mongoMirrorPath = line.getOptionValue("p", configFileProps.getProperty(MONGOMIRROR_BINARY));
+            String mongoMirrorPath = line.getOptionValue("p", config.getString(MONGOMIRROR_BINARY));
             
             boolean skipBuildIndexes = line.hasOption(SKIP_BUILD_INDEXES);
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
