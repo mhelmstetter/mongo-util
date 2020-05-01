@@ -590,7 +590,12 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 
 			String sourceShardName = chunk.getString("shard");
-			String mappedShard = sourceToDestShardMap.get(sourceShardName);
+			//String mappedShard = sourceToDestShardMap.get(sourceShardName);
+			String mappedShard = this.getAltMapping(sourceShardName);
+			if (mappedShard == null) {
+				throw new IllegalArgumentException(String.format("mappedShard is null, sourceShardName: %s, chunk: %s", 
+						sourceShardName, chunk));
+			}
 			chunk.append("shard", mappedShard);
 
 			if (!ns.equals(lastNs) && lastNs != null) {
