@@ -74,6 +74,8 @@ public class OplogApplier {
 		sourceShardClient = new ShardClient("source", sourceClusterUri, sourceToDestShardMap.keySet());
 		destShardClient = new ShardClient("dest", destClusterUri, sourceToDestShardMap.values());
 
+		sourceShardClient.init();
+		destShardClient.init();
 		sourceShardClient.populateShardMongoClients();
 		destShardClient.populateShardMongoClients();
 
