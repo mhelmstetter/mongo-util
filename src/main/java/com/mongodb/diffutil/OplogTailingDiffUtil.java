@@ -73,12 +73,16 @@ public class OplogTailingDiffUtil {
 			
 			sourceShardClient = new ShardClient("source", diffOptions.getSourceMongoUri(), sourceToDestShardMap.keySet());
 			destShardClient = new ShardClient("dest", diffOptions.getDestMongoUri(), sourceToDestShardMap.values());
+			sourceShardClient.init();
+			destShardClient.init();
 			
 		} else {
 			logger.debug("Default 1:1 shard mapping");
 			
 			sourceShardClient = new ShardClient("source", diffOptions.getSourceMongoUri());
 			destShardClient = new ShardClient("dest", diffOptions.getDestMongoUri());
+			sourceShardClient.init();
+			destShardClient.init();
 			
 			logger.debug("Source shard count: " + sourceShardClient.getShardsMap().size());
 			// default, just match up the shards 1:1

@@ -22,6 +22,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
 
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.exec.ExecuteException;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -33,7 +34,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Sets;
-import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoCredential;
@@ -73,6 +73,12 @@ public class ShardConfigSync implements Callable<Integer> {
 	private String sourceClusterUri;
 
 	private String destClusterUri;
+	
+	private String sourceClusterPattern;
+	private String destClusterPattern;
+	
+	private String sourceRsPattern;
+	private String destRsPattern;
 
 	private boolean dropDestDbs;
 	private boolean dropDestDbsAndConfigMetadata;
@@ -89,6 +95,9 @@ public class ShardConfigSync implements Callable<Integer> {
 	private ShardClient destShardClient;
 
 	private Map<String, String> sourceToDestShardMap = new HashMap<String, String>();
+	private Map<String, String> destToSourceShardMap = new HashMap<String, String>();
+	
+	private Map<String, String> altSourceToDestShardMap = new HashMap<String, String>();
 
 	private Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
 	private Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
@@ -122,7 +131,6 @@ public class ShardConfigSync implements Callable<Integer> {
 	private boolean sslAllowInvalidCertificates;
 	
 	private boolean skipFlushRouterConfig;
-	private boolean sourceCsrs;
 
 	CodecRegistry registry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
 			fromProviders(PojoCodecProvider.builder().automatic(true).build()));
@@ -138,10 +146,15 @@ public class ShardConfigSync implements Callable<Integer> {
 		return 0;
 	}
 
+	@SuppressWarnings("unchecked")
 	public void initializeShardMappings() {
 		logger.debug("Start initializeShardMappings()");
-		ConnectionString sourceConnStr = new ConnectionString(sourceClusterUri);
-		ConnectionString destConnStr = new ConnectionString(destClusterUri);
+//		ConnectionString sourceConnStr = null;new ConnectionString(sourceClusterUri);
+//		ConnectionString destConnStr = new ConnectionString(destClusterUri);
+		
+		String source = sourceClusterUri == null ? sourceClusterPattern : sourceClusterUri;
+		String dest = destClusterUri == null ? destClusterPattern : destClusterUri;
+		
 		
 //		if (sourceConnStr.isSrvProtocol() || destConnStr.isSrvProtocol()) {
 //			throw new IllegalArgumentException("srv protocol not supported, please configure a single mongos mongodb:// connection string");
@@ -151,6 +164,9 @@ public class ShardConfigSync implements Callable<Integer> {
 			// shardMap is for doing an uneven shard mapping, e.g. 10 shards on source
 			// down to 5 shards on destination
 			logger.debug("Custom n:m shard mapping");
+			if (sourceClusterPattern != null || destClusterPattern != null) {
+				throw new IllegalArgumentException("Custom mapping not supported with patterned source and/or dest");
+			}
 			
 			for (String mapping : shardMap) {
 				String[] mappings = mapping.split("\\|");
@@ -159,20 +175,34 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 			
 			
-			sourceShardClient = new ShardClient("source", sourceConnStr, sourceToDestShardMap.keySet(), sourceCsrs);
-			destShardClient = new ShardClient("dest", destConnStr, sourceToDestShardMap.values(), false);
+			sourceShardClient = new ShardClient("source", source, sourceToDestShardMap.keySet());
+			destShardClient = new ShardClient("dest", dest, sourceToDestShardMap.values());
+			sourceShardClient.setRsPattern(sourceRsPattern);
+			destShardClient.setRsPattern(destRsPattern);
 			
 		} else {
 			logger.debug("Default 1:1 shard mapping");
 			
-			sourceShardClient = new ShardClient("source", sourceConnStr, null, sourceCsrs);
-			destShardClient = new ShardClient("dest", destConnStr, null, false);
+			sourceShardClient = new ShardClient("source", source, null);
+			destShardClient = new ShardClient("dest", dest, null);
+			sourceShardClient.setRsPattern(sourceRsPattern);
+			destShardClient.setRsPattern(destRsPattern);
+			
+			sourceShardClient.init();
+			destShardClient.init();
 			
 			logger.debug("Source shard count: " + sourceShardClient.getShardsMap().size());
 			// default, just match up the shards 1:1
 			int index = 0;
+			
+			Map<String, Shard> sourceTertiaryMap = sourceShardClient.getTertiaryShardsMap();
+			
+			//Map<String, Shard> sourceShardsMap = sourceTertiaryMap.isEmpty() ?  sourceShardClient.getShardsMap() : sourceTertiaryMap;
+			Map<String, Shard> sourceShardsMap = sourceShardClient.getShardsMap();
+			
 			List<Shard> destList = new ArrayList<Shard>(destShardClient.getShardsMap().values());
-			for (Iterator<Shard> i = sourceShardClient.getShardsMap().values().iterator(); i.hasNext();) {
+			//List<Shard> altList = new ArrayList<Shard>()
+			for (Iterator<Shard> i = sourceShardsMap.values().iterator(); i.hasNext();) {
 				Shard sourceShard = i.next();
 				Shard destShard = destList.get(index);
 				if (destShard != null) {
@@ -181,7 +211,21 @@ public class ShardConfigSync implements Callable<Integer> {
 				}
 				index++;
 			}
+			
+			index = 0;
+			for (Iterator<Shard> i = sourceTertiaryMap.values().iterator(); i.hasNext();) {
+				Shard sourceShard = i.next();
+				Shard destShard = destList.get(index);
+				if (destShard != null) {
+					logger.debug("altMapping: " + sourceShard.getId() + " ==> " + destShard.getId());
+					altSourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
+				}
+				index++;
+			}
 		}
+		// reverse map
+		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
+		
 	}
 
 	public void shardCollections() {
@@ -336,17 +380,18 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 
 	private void stopBalancers() {
-		if (sourceCsrs) {
-			logger.debug("skipping stopBalancers, useCsrs=true");
-			return;
-		}
 
 		logger.debug("stopBalancers started");
-		try {
-			sourceShardClient.stopBalancer();
-		} catch (MongoCommandException mce) {
-			logger.error("Could not stop balancer on source shard: " + mce.getMessage());
+		if (sourceClusterPattern == null) {
+			try {
+				sourceShardClient.stopBalancer();
+			} catch (MongoCommandException mce) {
+				logger.error("Could not stop balancer on source shard: " + mce.getMessage());
+			}
+		} else {
+			logger.debug("Skipping source balancer stop, patterned uri");
 		}
+		
 
 		destShardClient.stopBalancer();
 		logger.debug("stopBalancers complete");
@@ -458,6 +503,27 @@ public class ShardConfigSync implements Callable<Integer> {
 			currentCount++;
 		}
 		logger.debug("createDestChunksUsingSplitCommand complete");
+	}
+	
+	private String getAltMapping(String sourceShardName) {
+		if (! altSourceToDestShardMap.isEmpty()) {
+			String newKey = altSourceToDestShardMap.get(sourceShardName);
+			return newKey;
+			
+		} else {
+			return sourceToDestShardMap.get(sourceShardName);
+		}
+	}
+	
+	private String getSourceToDestShardMapping(String sourceShardName) {
+		if (! altSourceToDestShardMap.isEmpty()) {
+			String newKey = altSourceToDestShardMap.get(sourceShardName);
+			String result = destToSourceShardMap.get(newKey);
+			return result;
+			
+		} else {
+			return sourceToDestShardMap.get(sourceShardName);
+		}
 	}
 
 	@SuppressWarnings("unchecked")
@@ -668,7 +734,8 @@ public class ShardConfigSync implements Callable<Integer> {
 			RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
 			RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
 			String sourceShard = sourceChunk.getString("shard").getValue();
-			String mappedShard = sourceToDestShardMap.get(sourceShard);
+			String mappedShard = getAltMapping(sourceShard);
+			//String mappedShard = sourceToDestShardMap.get(sourceShard);
 			if (mappedShard == null) {
 				throw new IllegalArgumentException(
 						"No destination shard mapping found for source shard: " + sourceShard);
@@ -996,7 +1063,8 @@ public class ShardConfigSync implements Callable<Integer> {
 				continue;
 			}
 			String primary = database.getString("primary");
-			String mappedPrimary = sourceToDestShardMap.get(primary);
+			String xx = sourceToDestShardMap.get(primary);
+			String mappedPrimary = getAltMapping(primary);
 			logger.debug("database: " + databaseName + ", primary: " + primary + ", mappedPrimary: " + mappedPrimary);
             if (mappedPrimary == null) {
                 logger.warn("Shard mapping not found for shard " + primary);
@@ -1023,7 +1091,9 @@ public class ShardConfigSync implements Callable<Integer> {
 
 			}
 
-			MongoClient primaryClient = sourceShardClient.getShardMongoClient(primary);
+			// this needs to be the atlas-xxx id
+			String zz = destToSourceShardMap.get(mappedPrimary);
+			MongoClient primaryClient = sourceShardClient.getShardMongoClient(zz);
 			List<String> primaryDatabasesList = new ArrayList<String>();
 			primaryClient.listDatabaseNames().into(primaryDatabasesList);
 			if (!primaryDatabasesList.contains(databaseName)) {
@@ -1461,11 +1531,35 @@ public class ShardConfigSync implements Callable<Integer> {
 		this.skipFlushRouterConfig = skipFlushRouterConfig;
 	}
 
-	public boolean isSourceCsrs() {
-		return sourceCsrs;
+	public String getSourceClusterPattern() {
+		return sourceClusterPattern;
 	}
 
-	public void setSourceCsrs(boolean sourceCsrs) {
-		this.sourceCsrs = sourceCsrs;
+	public void setSourceClusterPattern(String sourceClusterPattern) {
+		this.sourceClusterPattern = sourceClusterPattern;
+	}
+
+	public String getDestClusterPattern() {
+		return destClusterPattern;
+	}
+
+	public void setDestClusterPattern(String destClusterPattern) {
+		this.destClusterPattern = destClusterPattern;
+	}
+
+	public String getSourceRsPattern() {
+		return sourceRsPattern;
+	}
+
+	public void setSourceRsPattern(String sourceRsPattern) {
+		this.sourceRsPattern = sourceRsPattern;
+	}
+
+	public String getDestRsPattern() {
+		return destRsPattern;
+	}
+
+	public void setDestRsPattern(String destRsPattern) {
+		this.destRsPattern = destRsPattern;
 	}
 }

@@ -55,6 +55,7 @@ public class MongoStat {
             
             if (isMongos) {
                 ShardClient sourceShardClient = new ShardClient("source", uri);
+                sourceShardClient.init();
                 sourceShardClient.populateShardMongoClients();
                 Collection<MongoClient> clients = sourceShardClient.getShardMongoClients().values();
                 for (MongoClient c : clients) {

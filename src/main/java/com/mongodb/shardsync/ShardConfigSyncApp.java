@@ -25,6 +25,13 @@ public class ShardConfigSyncApp {
     
     private final static String SOURCE_URI = "source";
     private final static String DEST_URI = "dest";
+    
+    private final static String SOURCE_URI_PATTERN = "sourceUriPattern";
+    private final static String DEST_URI_PATTERN = "destUriPattern";
+    
+    private final static String SOURCE_RS_PATTERN = "sourceRsPattern";
+    private final static String DEST_RS_PATTERN = "destRsPattern";
+    
     private final static String MONGOMIRROR_BINARY = "mongomirrorBinary";
 
     private final static String DROP_DEST_DBS = "dropDestDbs";
@@ -45,7 +52,6 @@ public class ShardConfigSyncApp {
     private final static String OPLOG_BASE_PATH = "oplogBasePath";
     private final static String BOOKMARK_FILE_PREFIX = "bookmarkFilePrefix";
     private final static String SKIP_FLUSH_ROUTER_CONFIG = "skipFlushRouterConfig";
-    private final static String SOURCE_CSRS = "sourceCsrs";
     
     private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
@@ -66,11 +72,12 @@ public class ShardConfigSyncApp {
         options = new Options();
         options.addOption(new Option("help", "print this message"));
         options.addOption(OptionBuilder.withArgName("Configuration properties file").hasArgs().withLongOpt("config")
-                .isRequired(false).create("c"));
+                .create("c"));
         options.addOption(OptionBuilder.withArgName("Source cluster connection uri").hasArgs().withLongOpt(SOURCE_URI)
-                .isRequired(false).create("s"));
+                .create("s"));
         options.addOption(OptionBuilder.withArgName("Destination cluster connection uri").hasArgs().withLongOpt(DEST_URI)
-                .isRequired(false).create("d"));
+                .create("d"));
+        
         options.addOption(OptionBuilder.withArgName("Drop destination databases, but preserve config metadata")
                 .withLongOpt(DROP_DEST_DBS).create(DROP_DEST_DBS));
         options.addOption(OptionBuilder.withArgName("Drop destination databases AND config metadata (collections, databases, chunks)")
@@ -109,8 +116,6 @@ public class ShardConfigSyncApp {
                 .withLongOpt(SYNC_INDEXES).create(SYNC_INDEXES));
         options.addOption(OptionBuilder.withArgName("Skip the flushRouterConfig step")
                 .withLongOpt(SKIP_FLUSH_ROUTER_CONFIG).create(SKIP_FLUSH_ROUTER_CONFIG));
-        options.addOption(OptionBuilder.withArgName("Source mongos is not available, use config server for config")
-                .withLongOpt(SOURCE_CSRS).create(SOURCE_CSRS));
         
         options.addOption(OptionBuilder.withArgName("ssl allow invalid hostnames")
                 .withLongOpt(SSL_ALLOW_INVALID_HOSTNAMES).create(SSL_ALLOW_INVALID_HOSTNAMES));
@@ -221,8 +226,16 @@ public class ShardConfigSyncApp {
         sync.setSourceClusterUri(line.getOptionValue("s", config.getString(SOURCE_URI)));
         sync.setDestClusterUri(line.getOptionValue("d", config.getString(DEST_URI)));
         
-        if (sync.getSourceClusterUri() == null || sync.getDestClusterUri() == null) {
-            System.out.println("source and dest options required");
+        sync.setSourceClusterPattern(config.getString(SOURCE_URI_PATTERN));
+        sync.setDestClusterPattern(config.getString(DEST_URI_PATTERN));
+        
+        sync.setSourceRsPattern(config.getString(SOURCE_RS_PATTERN));
+        sync.setDestRsPattern(config.getString(DEST_RS_PATTERN));
+        
+        if ((sync.getSourceClusterUri() == null && sync.getSourceClusterPattern() == null) 
+        	|| (sync.getDestClusterUri() == null && sync.getDestClusterPattern() == null)) {
+            System.out.println(String.format("%s/%s and/or %s/%s options required", 
+            		SOURCE_URI, DEST_URI, SOURCE_URI_PATTERN, DEST_URI_PATTERN));
             printHelpAndExit();
         }
         
@@ -248,10 +261,6 @@ public class ShardConfigSyncApp {
         
         if (line.hasOption(SKIP_FLUSH_ROUTER_CONFIG) || config.getBoolean(SKIP_FLUSH_ROUTER_CONFIG, false)) {
         	sync.setSkipFlushRouterConfig(true);
-        }
-        
-        if (line.hasOption(SOURCE_CSRS) || config.getBoolean(SOURCE_CSRS, false)) {
-        	sync.setSourceCsrs(true);
         }
         
         sync.initializeShardMappings();

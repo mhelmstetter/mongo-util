@@ -79,6 +79,8 @@ public class ShardClient {
     private MongoDatabase configDb;
     private Map<String, Shard> shardsMap = new LinkedHashMap<String, Shard>();
     
+    private Map<String, Shard> tertiaryShardsMap = new LinkedHashMap<String, Shard>();
+    
     private ConnectionString connectionString;
     private MongoClientSettings mongoClientSettings;
     //private String username;
@@ -96,14 +98,28 @@ public class ShardClient {
     
     private Collection<String> shardIdFilter;
     
-    private boolean useCsrs = false;
+    private boolean patternedUri;
+    private String connectionStringPattern;
+    private String rsPattern;
     
-    public ShardClient(String name, ConnectionString cs, Collection<String> shardIdFilter, boolean useCsrs) {
-    	this.connectionString = cs;
+    public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter) {
+    	
+    	this.patternedUri = clusterUri.contains("%s");
+    	if (patternedUri) {
+    		this.connectionStringPattern = clusterUri;
+    		// example mongodb://admin@cluster1-%s-%s-%s.wxyz.mongodb.net:27017/?ssl=true&authSource=admin
+    		String csrsUri = String.format(clusterUri, "config", 0, 0);
+    		logger.debug("csrsUri: " + csrsUri);
+    		this.connectionString = new ConnectionString(csrsUri);
+    		
+    	} else {
+    		this.connectionString = new ConnectionString(clusterUri);
+    	}
+    	
+    	
     	this.name = name;
     	this.shardIdFilter = shardIdFilter;
-    	this.useCsrs = useCsrs;
-        logger.debug(String.format("%s client, uri: %s, useCsrs: %s", name, cs.getConnectionString(), useCsrs));
+        logger.debug(String.format("%s client, uri: %s", name, clusterUri));
         
         
         mongoClientSettings = MongoClientSettings.builder()
@@ -120,6 +136,13 @@ public class ShardClient {
         adminCommand(new Document("ping", 1));
         // logger.debug("Connected to source");
         configDb = mongoClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
+    }
+    
+    public ShardClient(String name, String clusterUri) {
+    	this(name, clusterUri, null);
+    }
+    
+    public void init() {
         populateShardList();
 
         Document destBuildInfo = adminCommand(new Document("buildinfo", 1));
@@ -129,33 +152,58 @@ public class ShardClient {
 
         populateMongosList();
     }
-    
-    public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter) {
-    	this(name, new ConnectionString(clusterUri), shardIdFilter, false);
-    }
 
-    public ShardClient(String name, String clusterUri) {
-    	this(name, clusterUri, null);
-    }
-
+    /**
+     * If we're using patternedUri, we assume that the source or dest is an Atlas cluster
+     * that's in the midst of LiveMigrate and this tool is being used to reverse sync.
+     * In that case the data that's in the config server is WRONG. But, we'll use that to assume the number of shards
+     * (for now)
+     * 
+     */
     private void populateShardList() {
 
-        MongoCollection<Shard> shardsColl = configDb.getCollection("shards", Shard.class);
+    	MongoCollection<Shard> shardsColl = configDb.getCollection("shards", Shard.class);
         FindIterable<Shard> shards = shardsColl.find().sort(Sorts.ascending("_id"));
         for (Shard sh : shards) {
         	if (shardIdFilter != null && ! shardIdFilter.contains(sh.getId())) {
         		continue;
         	}
-        	logger.debug(String.format("%s: populateShardList shard: %s, %s", name, sh.getId(), sh.getHost()));
+        	if (!patternedUri) {
+        		logger.debug(String.format("%s: populateShardList shard: %s", name, sh.getHost()));
+        	}
             shardsMap.put(sh.getId(), sh);
         }
+        
+    	if (patternedUri) {
+    		int shardCount = shardsMap.size();
+    		tertiaryShardsMap.putAll(shardsMap);
+    		shardsMap.clear();
+    		for (int shardNum = 0; shardNum < shardCount; shardNum++) {
+    			
+    			String hostBasePre = StringUtils.substringAfter(connectionStringPattern, "mongodb://");
+    			String hostBase = StringUtils.substringBefore(hostBasePre, "/");
+    			if (hostBase.contains("@")) {
+    				hostBase = StringUtils.substringAfter(hostBase, "@");
+    			}
+    			String host0 = String.format(hostBase, "shard", shardNum, 0);
+    			String host1 = String.format(hostBase, "shard", shardNum, 1);
+    			String rsName = String.format(this.rsPattern, "shard", shardNum);
+    			Shard sh = new Shard();
+    			sh.setId(rsName);
+    			sh.setHost(String.format("%s/%s,%s", rsName, host0, host1));
+    			shardsMap.put(sh.getId(), sh);
+    			logger.debug(String.format("%s: populateShardList formatted shard name: %s", name, sh.getHost()));
+    		}
+    		
+    	}
+        
         logger.debug(name + ": populateShardList complete, " + shardsMap.size() + " shards added");
     }
 
     private void populateMongosList() {
     	
-    	if (useCsrs) {
-    		logger.debug("populateMongosList() skipping, useCsrs=true");
+    	if (patternedUri) {
+    		logger.debug("populateMongosList() skipping, patternedUri");
     		return;
     	}
         
@@ -512,7 +560,14 @@ public class ShardClient {
     }
     
     public MongoClient getShardMongoClient(String shardId) {
-        return shardMongoClients.get(shardId);
+    	// TODO clean this up
+//    	if (!this.tertiaryShardsMap.isEmpty()) {
+//    		String tid = tertiaryShardsMap.get(shardId).getId();
+//    		return shardMongoClients.get(tid);
+//    	} else {
+//    		
+//    	}
+    	return shardMongoClients.get(shardId);
     }
     
     public Map<String, MongoClient> getShardMongoClients() {
@@ -704,6 +759,18 @@ public class ShardClient {
 
 	public String getName() {
 		return name;
+	}
+
+	public String getRsPattern() {
+		return rsPattern;
+	}
+
+	public void setRsPattern(String rsPattern) {
+		this.rsPattern = rsPattern;
+	}
+
+	public Map<String, Shard> getTertiaryShardsMap() {
+		return tertiaryShardsMap;
 	}
 
 }

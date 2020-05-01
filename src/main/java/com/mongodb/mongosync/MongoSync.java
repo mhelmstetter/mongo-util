@@ -47,10 +47,14 @@ public class MongoSync {
     
     private void initialize() {
         sourceShardClient = new ShardClient("source", mongoSyncOptions.getSourceMongoUri());
+        sourceShardClient.init();
         sourceShardClient.populateShardMongoClients();
         
         destShardClient = new ShardClient("dest", mongoSyncOptions.getDestMongoUri());
+        destShardClient.init();
         destShardClient.populateShardMongoClients();
+        
+        
         
         populateCollectionsToMigrate();
         sourceShardClient.populateCollectionsMap(mongoSyncOptions.getNamespacesToMigrate());

@@ -63,6 +63,7 @@ public class ShardedDupeIdFinder {
 	public ShardedDupeIdFinder(String sourceClusterUri) {
 		this.sourceClusterUri = sourceClusterUri;
 		sourceShardClient = new ShardClient("source", sourceClusterUri);
+		sourceShardClient.init();
 		sourceShardClient.populateShardMongoClients();
 		Document listDatabases = new Document("listDatabases", 1);
 		Document sourceDatabases = sourceShardClient.adminCommand(listDatabases);
