@@ -24,6 +24,7 @@ import java.util.concurrent.Callable;
 
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.exec.ExecuteException;
+import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.codecs.DocumentCodec;
@@ -59,6 +60,8 @@ import picocli.CommandLine.Command;
 
 @Command(name = "shardSync", mixinStandardHelpOptions = true, version = "shardSync 1.0")
 public class ShardConfigSync implements Callable<Integer> {
+	
+	private final static DocumentCodec codec = new DocumentCodec();
 
 	DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm_ss");
 
@@ -404,17 +407,18 @@ public class ShardConfigSync implements Callable<Integer> {
 	public void disableSourceAutosplit() {
 		sourceShardClient.disableAutosplit();
 	}
-
-	/**
-	 * Create chunks on the dest side using the "split" runCommand NOTE that this
-	 * will be very slow b/c of the locking process that happens with each chunk
-	 */
+	
+	private boolean checkChunkExists(String ns, MongoCollection<RawBsonDocument> destChunksColl, RawBsonDocument chunk) {
+		// if the dest chunk exists already, skip it
+		Document query = new Document("ns", ns);
+		query.append("min", chunk.get("min"));
+		query.append("max", chunk.get("max"));
+		long count = destChunksColl.countDocuments(query);
+		return count > 0;
+	}
+	
 	@SuppressWarnings({ "rawtypes", "unchecked" })
-	private void createDestChunksUsingSplitCommand() {
-		logger.debug("createDestChunksUsingSplitCommand started");
-		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
-		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
-
+	private Document getChunkQuery() {
 		Document chunkQuery = new Document();
 		if (includeNamespaces.size() > 0 || includeDatabases.size() > 0) {
 			List inList = new ArrayList();
@@ -431,6 +435,19 @@ public class ShardConfigSync implements Callable<Integer> {
 				orList.add(regex("ns", "^" + dbName + "\\."));
 			}
 		}
+		return chunkQuery;
+	}
+
+	/**
+	 * Create chunks on the dest side using the "split" runCommand NOTE that this
+	 * will be very slow b/c of the locking process that happens with each chunk
+	 */
+	private void createDestChunksUsingSplitCommand() {
+		logger.debug("createDestChunksUsingSplitCommand started");
+		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
+		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
+
+		Document chunkQuery = getChunkQuery();
 		// logger.debug("chunkQuery: " + chunkQuery);
 		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find(chunkQuery).noCursorTimeout(true)
 				.sort(Sorts.ascending("ns", "min"));
@@ -455,14 +472,8 @@ public class ShardConfigSync implements Callable<Integer> {
 				currentCount = 0;
 			}
 
-			// if the dest chunk exists already, skip it
-			Document query = new Document("ns", ns);
-			query.append("min", chunk.get("min"));
-			query.append("max", chunk.get("max"));
-			long count = destChunksColl.countDocuments(query);
-			if (count > 0) {
-				logger.debug(String.format("Chunk already exists on destination, skipping: _id: %s, min: %s, max: %s",
-						chunk.get("_id"), chunk.get("min"), chunk.get("max")));
+			boolean chunkExists = checkChunkExists(ns, destChunksColl, chunk);
+			if (chunkExists) {
 				continue;
 			}
 
@@ -490,13 +501,9 @@ public class ShardConfigSync implements Callable<Integer> {
 				logger.error(String.format("command error for namespace %s", ns), mce);
 			}
 
-			count = destChunksColl.countDocuments(query);
-			if (count == 1) {
-				// logger.debug("Chunk created: " + chunk.get("_id"));
-			} else {
-				//long count2 = destChunksColl.countDocuments(new Document("min", chunk.get("min")).append("ns", chunk.get("ns")));
-				logger.debug("Chunk create failed, count: " + count);
-
+			chunkExists = checkChunkExists(ns, destChunksColl, chunk);
+			if (! chunkExists) {
+				logger.warn("Chunk create failed: " + chunk);
 			}
 
 			lastNs = ns;
@@ -573,30 +580,44 @@ public class ShardConfigSync implements Callable<Integer> {
 	 */
 	private void createDestChunksUsingInsert() {
 		logger.debug("createDestChunksUsingInsert started");
-		MongoCollection<Document> sourceChunksColl = sourceShardClient.getChunksCollection();
-		FindIterable<Document> sourceChunksIt = sourceChunksColl.find().sort(Sorts.ascending("ns", "min"));
-		List<Document> sourceChunks = new ArrayList<Document>();
+		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
+		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
+		ReplaceOptions replaceOptions = new ReplaceOptions().upsert(true);
+		
+		destShardClient.populateCollectionsMap();
+		Map<String, Document> collectionsMap = destShardClient.getCollectionsMap();
+		
+		Document chunkQuery = getChunkQuery();
+		FindIterable<RawBsonDocument> sourceChunksIt = sourceChunksColl.find(chunkQuery)
+				.sort(Sorts.ascending("ns", "min"));
+		List<RawBsonDocument> sourceChunks = new ArrayList<>();
 		sourceChunksIt.into(sourceChunks);
 
 		String lastNs = null;
 		int currentCount = 0;
+		int ts = 1;
 
-		for (Document chunk : sourceChunks) {
+		for (RawBsonDocument chunk : sourceChunks) {
 
-			String ns = chunk.getString("ns");
+			String ns = chunk.getString("ns").getValue();
+			Document collectionMeta = collectionsMap.get(ns);
 			Namespace sourceNs = new Namespace(ns);
 			if (filterCheck(sourceNs)) {
 				continue;
 			}
-
-			String sourceShardName = chunk.getString("shard");
+			
+			String sourceShardName = chunk.getString("shard").getValue();
 			//String mappedShard = sourceToDestShardMap.get(sourceShardName);
 			String mappedShard = this.getAltMapping(sourceShardName);
 			if (mappedShard == null) {
 				throw new IllegalArgumentException(String.format("mappedShard is null, sourceShardName: %s, chunk: %s", 
 						sourceShardName, chunk));
 			}
-			chunk.append("shard", mappedShard);
+			
+			Document newDoc = chunk.decode(codec);
+			newDoc.append("shard", mappedShard);
+			newDoc.append("lastmod", new BsonTimestamp(ts++, 0));
+			newDoc.append("lastmodEpoch", collectionMeta.get("lastmodEpoch"));
 
 			if (!ns.equals(lastNs) && lastNs != null) {
 				logger.debug(String.format("%s - created %s chunks", lastNs, ++currentCount));
@@ -606,8 +627,8 @@ public class ShardConfigSync implements Callable<Integer> {
 			try {
 
 				// hack to avoid "Invalid BSON field name _id.x" for compound shard keys
-				RawBsonDocument rawDoc = new RawBsonDocument(chunk, documentCodec);
-				destShardClient.getChunksCollectionRaw().insertOne(rawDoc);
+				RawBsonDocument rawDoc = new RawBsonDocument(newDoc, documentCodec);
+				destShardClient.getChunksCollectionRaw().replaceOne(eq("_id", rawDoc.get("_id")), rawDoc, replaceOptions);
 
 			} catch (MongoException mce) {
 				logger.error(String.format("command error for namespace %s", ns), mce);
@@ -887,13 +908,9 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 
 	public void shardDestinationCollections() {
-		if (nonPrivilegedMode) {
-			logger.debug("shardDestinationCollections(), non-privileged mode");
-			shardDestinationCollectionsUsingShardCommand();
-		} else {
-			logger.debug("shardDestinationCollections(), privileged mode");
-			shardDestinationCollectionsUsingInsert();
-		}
+		// Don't use the insert method regardless, because that can cause us to
+		// miss UUIDs for MongoDB 3.6+
+		shardDestinationCollectionsUsingShardCommand();
 	}
 
 	private void shardDestinationCollectionsUsingInsert() {
