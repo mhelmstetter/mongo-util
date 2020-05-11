@@ -93,6 +93,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	private String bookmarkFilePrefix;
 	private boolean reverseSync;
 	private boolean skipBuildIndexes;
+	private Integer collStatsThreshold;
 
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
@@ -1425,6 +1426,9 @@ public class ShardConfigSync implements Callable<Integer> {
 			if (oplogBasePath != null) {
 				mongomirror.setOplogPath(String.format("%s/%s", oplogBasePath, source.getId()));
 			}
+			if (collStatsThreshold != null) {
+				mongomirror.setCollStatsThreshold(collStatsThreshold);
+			}
 			mongomirror.execute();
 			try {
 				Thread.sleep(sleepMillis);
@@ -1583,5 +1587,13 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	public void setDestRsPattern(String destRsPattern) {
 		this.destRsPattern = destRsPattern;
+	}
+
+	public int getCollStatsThreshold() {
+		return collStatsThreshold;
+	}
+
+	public void setCollStatsThreshold(int collStatsThreshold) {
+		this.collStatsThreshold = collStatsThreshold;
 	}
 }

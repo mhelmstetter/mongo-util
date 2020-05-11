@@ -40,6 +40,7 @@ public class ShardConfigSyncApp {
     private final static String PRESERVE_UUIDS = "preserveUUIDs";
     private final static String SKIP_BUILD_INDEXES = "skipBuildIndexes";
     private final static String COMPRESSORS = "compressors";
+    private final static String COLL_STATS_THRESHOLD = "collStatsThreshold";
     
     private final static String COLL_COUNTS = "compareCounts";
     private final static String CHUNK_COUNTS = "chunkCounts";
@@ -137,7 +138,9 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("skip build indexes")
                 .withLongOpt(SKIP_BUILD_INDEXES).create(SKIP_BUILD_INDEXES));
         options.addOption(OptionBuilder.withArgName("mongomirror compressors").hasArg()
-                .withLongOpt(COMPRESSORS).create("z"));
+                .withLongOpt(COMPRESSORS).create(COMPRESSORS));
+        options.addOption(OptionBuilder.withArgName("mongomirror collStatsThreshold").hasArg()
+                .withLongOpt(COLL_STATS_THRESHOLD).create(COLL_STATS_THRESHOLD));
         options.addOption(OptionBuilder.withArgName("mongomirror http status starting port (default 9001)").hasArg()
                 .withLongOpt(MONGOMIRROR_START_PORT).create());
         options.addOption(OptionBuilder.withArgName("mongomirror numParallelCollections").hasArg()
@@ -324,6 +327,13 @@ public class ShardConfigSyncApp {
             
             boolean skipBuildIndexes = line.hasOption(SKIP_BUILD_INDEXES);
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
+            
+            if (line.hasOption(COLL_STATS_THRESHOLD)) {
+            	Integer collStatsThreshold = Integer.parseInt(line.getOptionValue(COLL_STATS_THRESHOLD));
+            	sync.setCollStatsThreshold(collStatsThreshold);
+            } else if (config.getProperty(COLL_STATS_THRESHOLD) != null) {
+            	sync.setCollStatsThreshold(config.getInt(COLL_STATS_THRESHOLD));
+            }
             
             if (line.hasOption(COMPRESSORS)) {
                 sync.setCompressors(line.getOptionValue(COMPRESSORS));

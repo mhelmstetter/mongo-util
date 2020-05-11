@@ -49,6 +49,7 @@ public class MongoMirrorRunner {
     private String compressors;
     private Integer httpStatusPort;
     private String oplogPath;
+    private Integer collStatsThreshold;
     
     private String numParallelCollections;
     
@@ -105,6 +106,7 @@ public class MongoMirrorRunner {
         addArg("httpStatusPort", httpStatusPort);
         addArg("oplogPath", oplogPath);
         addArg("skipBuildIndexes", skipBuildIndexes);
+        addArg("collStatsThreshold", collStatsThreshold);
         
         for (Namespace ns : includeNamespaces) {
             addArg("includeNamespace", ns.getNamespace());
@@ -330,6 +332,10 @@ public class MongoMirrorRunner {
 
 	public void setSkipBuildIndexes(Boolean skipBuildIndexes) {
 		this.skipBuildIndexes = skipBuildIndexes;
+	}
+
+	public void setCollStatsThreshold(Integer collStatsThreshold) {
+		this.collStatsThreshold = collStatsThreshold;
 	}
 
 }
