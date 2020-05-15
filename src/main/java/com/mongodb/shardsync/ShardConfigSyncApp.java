@@ -36,7 +36,7 @@ public class ShardConfigSyncApp {
 
     private final static String DROP_DEST_DBS = "dropDestDbs";
     private final static String DROP_DEST_DBS_AND_CONFIG_METADATA = "dropDestDbsAndConfigMeta";
-    private final static String NON_PRIVILEGED = "nonPrivileged";
+    public final static String NON_PRIVILEGED = "nonPrivileged";
     private final static String PRESERVE_UUIDS = "preserveUUIDs";
     private final static String SKIP_BUILD_INDEXES = "skipBuildIndexes";
     private final static String COMPRESSORS = "compressors";
@@ -251,7 +251,8 @@ public class ShardConfigSyncApp {
         
         sync.setNamespaceFilters(line.getOptionValues("f"));
         
-        sync.setNonPrivilegedMode(line.hasOption(NON_PRIVILEGED));
+        
+        sync.setNonPrivilegedMode(line.hasOption(NON_PRIVILEGED) || config.getBoolean(NON_PRIVILEGED, false));
         sync.setSkipBuildIndexes(line.hasOption(SKIP_BUILD_INDEXES));
         sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
         sync.setDropDestDbsAndConfigMetadata(line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA));
