@@ -1562,6 +1562,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		
 		sourceShardClient.populateShardMongoClients();
 		Collection<Shard> shards = sourceShardClient.getShardsMap().values();
+		logger.debug("shardCount: " + shards.size());
 		for (Shard shard : shards) {
 			try {
 				BufferedWriter writer = new BufferedWriter(new FileWriter(new File(shard.getId() + ".timestamp")));
