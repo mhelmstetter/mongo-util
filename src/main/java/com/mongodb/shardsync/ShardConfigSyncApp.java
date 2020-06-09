@@ -28,6 +28,7 @@ public class ShardConfigSyncApp {
     
     private final static String SOURCE_URI_PATTERN = "sourceUriPattern";
     private final static String DEST_URI_PATTERN = "destUriPattern";
+    private final static String DEST_CSRS_URI = "destCsrs";
     
     private final static String SOURCE_RS_PATTERN = "sourceRsPattern";
     private final static String DEST_RS_PATTERN = "destRsPattern";
@@ -56,8 +57,9 @@ public class ShardConfigSyncApp {
     
     private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
-    private final static String MONGO_MIRROR_REVERSE = "mongomirrorReverse";
+    private final static String TAIL_FROM_NOW = "tailFromNow";
     private final static String SHARD_COLLECTIONS = "shardCollections";
+    private final static String CREATE_CHUNKS = "createChunks";
     private final static String CLEANUP_ORPHANS = "cleanupOrphans";
     private final static String CLEANUP_ORPHANS_SLEEP = "cleanupOrphansSleep";
     private final static String CLEANUP_ORPHANS_DEST = "cleanupOrphansDest";
@@ -113,6 +115,8 @@ public class ShardConfigSyncApp {
         
         options.addOption(OptionBuilder.withArgName("Shard destination collections")
                 .withLongOpt(SHARD_COLLECTIONS).create());
+        options.addOption(OptionBuilder.withArgName("Create destination chunks only")
+                .withLongOpt(CREATE_CHUNKS).create());
         options.addOption(OptionBuilder.withArgName("Copy indexes from source to dest")
                 .withLongOpt(SYNC_INDEXES).create(SYNC_INDEXES));
         options.addOption(OptionBuilder.withArgName("Skip the flushRouterConfig step")
@@ -127,8 +131,8 @@ public class ShardConfigSyncApp {
         // Mongomirror options
         options.addOption(OptionBuilder.withArgName("Execute mongomirror(s)")
                 .withLongOpt(MONGO_MIRROR).create(MONGO_MIRROR));
-        options.addOption(OptionBuilder.withArgName("Execute mongomirror *REVERSE* sync")
-                .withLongOpt(MONGO_MIRROR_REVERSE).create(MONGO_MIRROR_REVERSE));
+        options.addOption(OptionBuilder.withArgName("mongomirror tail only starting at current ts")
+                .withLongOpt(TAIL_FROM_NOW).create(TAIL_FROM_NOW));
         options.addOption(OptionBuilder.withArgName("mongomirror namespace filter").hasArgs()
         		.withLongOpt("filter").create("f"));
         options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArgs()
@@ -196,12 +200,6 @@ public class ShardConfigSyncApp {
         File propsFile = null;
         if (line.hasOption("c")) {
             propsFile = new File(line.getOptionValue("c"));
-        } else if (line.hasOption(MONGO_MIRROR_REVERSE)) {
-        	propsFile = new File("shard-sync-reverse.properties");
-            if (! propsFile.exists()) {
-                logger.warn("Default config file shard-sync-reverse.properties not found, using command line options only");
-                return defaultConfig;
-            }
         } else {
             propsFile = new File("shard-sync.properties");
             if (! propsFile.exists()) {
@@ -232,6 +230,8 @@ public class ShardConfigSyncApp {
         sync.setSourceClusterPattern(config.getString(SOURCE_URI_PATTERN));
         sync.setDestClusterPattern(config.getString(DEST_URI_PATTERN));
         
+        sync.setDestCsrsUri(config.getString(DEST_CSRS_URI));
+        
         sync.setSourceRsPattern(config.getString(SOURCE_RS_PATTERN));
         sync.setDestRsPattern(config.getString(DEST_RS_PATTERN));
         
@@ -251,8 +251,8 @@ public class ShardConfigSyncApp {
         
         sync.setNamespaceFilters(line.getOptionValues("f"));
         
-        
-        sync.setNonPrivilegedMode(line.hasOption(NON_PRIVILEGED) || config.getBoolean(NON_PRIVILEGED, false));
+        boolean nonPrivilegedMode = line.hasOption(NON_PRIVILEGED) || config.getBoolean(NON_PRIVILEGED, false);
+        sync.setNonPrivilegedMode(nonPrivilegedMode);
         sync.setSkipBuildIndexes(line.hasOption(SKIP_BUILD_INDEXES));
         sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
         sync.setDropDestDbsAndConfigMetadata(line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA));
@@ -284,7 +284,12 @@ public class ShardConfigSyncApp {
             sync.compareChunks();
         } else if (line.hasOption(COMPARE_AND_MOVE_CHUNKS)) {
             actionFound = true;
-            sync.compareAndMoveChunks(true);
+            if (nonPrivilegedMode) {
+            	sync.compareAndMoveChunks(true);
+            } else {
+            	sync.compareAndMovePrivileged();
+            }
+            
         } else if (line.hasOption(COMPARE_COLLECTION_UUIDS)) {
         	actionFound = true;
         	sync.compareCollectionUuids();
@@ -294,6 +299,9 @@ public class ShardConfigSyncApp {
         }  else if (line.hasOption(SHARD_COLLECTIONS)) {
             actionFound = true;
             sync.enableDestinationSharding();
+        }  else if (line.hasOption(CREATE_CHUNKS)) {
+            actionFound = true;
+            sync.migrateMetadata(false, false);
         } else if (line.hasOption(SYNC_INDEXES)) {
             actionFound = true;
             sync.syncIndexesShards(true);
@@ -322,7 +330,7 @@ public class ShardConfigSyncApp {
         // 
         
         // MONGOMIRROR_BINARY
-        if (line.hasOption(MONGO_MIRROR) || line.hasOption(MONGO_MIRROR_REVERSE)) {
+        if (line.hasOption(MONGO_MIRROR) || line.hasOption(TAIL_FROM_NOW)) {
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", config.getString(MONGOMIRROR_BINARY));
             
@@ -354,7 +362,13 @@ public class ShardConfigSyncApp {
             sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
             sync.setPreserveUUIDs(preserveUUIDs);
             sync.setSkipBuildIndexes(skipBuildIndexes);
-            sync.mongomirror();
+            
+            if (line.hasOption(MONGO_MIRROR)) {
+            	sync.mongomirror();
+            } else {
+            	sync.mongomirrorTailFromNow();
+            }
+            
         }
         
         if (line.hasOption("r")) {

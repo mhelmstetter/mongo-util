@@ -1,12 +1,15 @@
 package com.mongodb.shardsync;
 
+import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Filters.regex;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -31,6 +34,7 @@ import org.bson.RawBsonDocument;
 import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
+import org.bson.conversions.Bson;
 import org.bson.types.MaxKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,11 +54,13 @@ import com.mongodb.client.model.Accumulators;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
+import com.mongodb.client.result.UpdateResult;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardCollection;
+import com.mongodb.model.ShardTimestamp;
 import com.mongodb.mongomirror.MongoMirrorRunner;
 import com.mongodb.mongomirror.MongoMirrorStatus;
 import com.mongodb.mongomirror.MongoMirrorStatusInitialSync;
@@ -86,6 +92,8 @@ public class ShardConfigSync implements Callable<Integer> {
 	
 	private String sourceRsPattern;
 	private String destRsPattern;
+	
+	private String destCsrsUri;
 
 	private boolean dropDestDbs;
 	private boolean dropDestDbsAndConfigMetadata;
@@ -187,6 +195,10 @@ public class ShardConfigSync implements Callable<Integer> {
 			destShardClient = new ShardClient("dest", dest, sourceToDestShardMap.values());
 			sourceShardClient.setRsPattern(sourceRsPattern);
 			destShardClient.setRsPattern(destRsPattern);
+			destShardClient.setCsrsUri(destCsrsUri);
+			
+			sourceShardClient.init();
+			destShardClient.init();
 			
 		} else {
 			logger.debug("Default 1:1 shard mapping");
@@ -195,6 +207,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			destShardClient = new ShardClient("dest", dest, null);
 			sourceShardClient.setRsPattern(sourceRsPattern);
 			destShardClient.setRsPattern(destRsPattern);
+			destShardClient.setCsrsUri(destCsrsUri);
 			
 			sourceShardClient.init();
 			destShardClient.init();
@@ -360,14 +373,21 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 		}
 	}
-
+	
 	public void migrateMetadata() throws InterruptedException {
+		migrateMetadata(true, true);
+	}
+
+	public void migrateMetadata(boolean enableDestinationSharding, boolean compareAndMove) throws InterruptedException {
 		logger.debug(String.format("Starting metadata sync/migration, %s: %s", 
 				ShardConfigSyncApp.NON_PRIVILEGED, nonPrivilegedMode));
 
 		stopBalancers();
 		// checkAutosplit();
-		enableDestinationSharding();
+		
+		if (enableDestinationSharding) {
+			enableDestinationSharding();
+		}
 
 		sourceShardClient.populateCollectionsMap();
 		shardDestinationCollections();
@@ -379,9 +399,15 @@ public class ShardConfigSync implements Callable<Integer> {
 			createShardTagsUsingInsert();
 		}
 
-		if (!compareAndMoveChunks(true)) {
-			throw new RuntimeException("chunks don't match");
+		if (compareAndMove) {
+			if (nonPrivilegedMode) {
+				compareAndMoveChunks(true);
+			} else {
+				compareAndMovePrivileged();
+			}
 		}
+		
+		
 
 		if (! skipFlushRouterConfig) {
 			destShardClient.flushRouterConfig();
@@ -420,9 +446,6 @@ public class ShardConfigSync implements Callable<Integer> {
 		query.append("min", chunk.get("min"));
 		query.append("max", chunk.get("max"));
 		long count = destChunksColl.countDocuments(query);
-		if (count <= 0) {
-			System.out.println();
-		}
 		count = destChunksColl.countDocuments(query);
 		return count > 0;
 	}
@@ -764,10 +787,107 @@ public class ShardConfigSync implements Callable<Integer> {
 		return String.format("%s_%s_%s", ns, minHash, maxHash);
 		
 	}
+	
+	public void compareAndMovePrivileged() {
+		
+		logger.debug("Starting compareAndMovePrivileged");
+		
+		Map<String, String> destChunkMap = readDestinationChunks();
+		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
+		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
+		
+		MongoCollection<RawBsonDocument> destChunksCollPriv = destShardClient.getChunksCollectionRawPrivileged();
+		
+		Document chunkQuery = getChunkQuery();
+		AggregateIterable<Document> results = sourceShardClient.getChunksCollection().aggregate(Arrays.asList(
+			Aggregates.match(chunkQuery),
+			Aggregates.group("$ns", Accumulators.addToSet("shards", "$shard"))
+        ));
+		
+		int movedCount = 0;
+		int updatedCount = 0;
+		int errorCount = 0;
+		
+		Map<String, Set<String>> nsToShardsMap = new HashMap<>();
+        for (Document result : results) {
+        	String ns = result.getString("_id");
+        	List<String> shards = result.getList("shards",  String.class);
+        	Set<String> mappedShards = new HashSet<>(shards.size());
+        	for (String shard : shards) {
+        		String mappedShard = this.getAltMapping(shard);
+        		if (mappedShard == null) {
+    				throw new IllegalArgumentException(
+    						"No destination shard mapping found for source shard: " + shard);
+    			}
+        		mappedShards.add(mappedShard);
+        		
+        		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find(and(eq("ns", ns), eq("shard", shard)));
+        		
+        		boolean movedChunk = false;
+        		for (RawBsonDocument sourceChunk : sourceChunks) {
+        			String sourceId = getHashIdFromChunk(sourceChunk);
+        			
+        			String sourceNs = sourceChunk.getString("ns").getValue();
+        			Namespace sourceNamespace = new Namespace(sourceNs);
+        			
+        			RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
+        			RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
+        			String sourceShard = sourceChunk.getString("shard").getValue();
+        			
+        			
+        			//String sourceId = sourceChunk.getString("_id").getValue();
+        			String destShard = destChunkMap.get(sourceId);
 
-	public boolean compareAndMoveChunks(boolean doMove) {
+        			if (destShard == null) {
+        				logger.error("Chunk with _id " + sourceId + " not found on destination");
+        				errorCount++;
 
-		logger.debug("Reading destination chunks, doMove: " + doMove);
+        			} else if (!mappedShard.equals(destShard)) {
+        				
+        				// We only need to moveChunk on 1 chunk per shard per ns
+        				if (movedChunk) {
+        					Document update = new Document("$set", new Document("shard", mappedShard));
+        					Bson updateQuery = and(eq("ns", ns), eq("min", sourceMin), eq("max", sourceMax));
+        					UpdateResult updateResult = destChunksCollPriv.updateOne(updateQuery, update);
+        					if (updateResult.getModifiedCount() != 1) {
+        						logger.error(String.format("Unexpected modifiedCount, chunk not updated ns: %s, min: %s, max: %s", ns, sourceMin, sourceMax));
+        						errorCount++;
+        					} else {
+        						updatedCount++;
+        					}
+        					
+        					try {
+        						Number destCount = destShardClient.getCollectionCount(sourceNamespace.getDatabaseName(), sourceNamespace.getCollectionName());
+        					} catch (MongoCommandException mce) {
+        						String msg = mce.getErrorMessage();
+        						logger.error(msg);
+        					}
+        					
+        					
+        				} else {
+        					boolean moveSuccess = moveChunk(sourceNs, sourceMin, sourceMax, mappedShard);
+        					if (moveSuccess) {
+        						logger.debug(String.format("%s: moved chunk from %s to %s", sourceNs, destShard, mappedShard));
+                				movedChunk = true;
+                				movedCount++;
+        					} else {
+        						errorCount++;
+        					}
+            				
+        				}
+        			}
+        			
+        		}
+        		
+        	}
+        	nsToShardsMap.put(ns, mappedShards);
+        }
+        logger.debug(String.format("Finished compareAndMovePrivileged movedCount: %s, updatedCount: %s, errorCount: %s", movedCount, updatedCount, errorCount));
+		
+	}
+	
+	private Map<String, String> readDestinationChunks() {
+		logger.debug("Reading destination chunks");
 		Map<String, String> destChunkMap = new HashMap<String, String>();
 		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
 		FindIterable<RawBsonDocument> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min"));
@@ -779,6 +899,12 @@ public class ShardConfigSync implements Callable<Integer> {
 			destChunkMap.put(id, shard);
 		}
 		logger.debug("Done reading destination chunks, count = " + destChunkMap.size());
+		return destChunkMap;
+	}
+
+	public void compareAndMoveChunks(boolean doMove) {
+
+		Map<String, String> destChunkMap = readDestinationChunks();
 
 		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
 		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find().noCursorTimeout(true)
@@ -791,6 +917,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		int matchedCount = 0;
 		int missingCount = 0;
 		int sourceTotalCount = 0;
+		int errorCount = 0;
 
 		for (RawBsonDocument sourceChunk : sourceChunks) {
 			sourceTotalCount++;
@@ -836,7 +963,10 @@ public class ShardConfigSync implements Callable<Integer> {
 				// logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs,
 				// destShard, mappedShard));
 				if (doMove) {
-					moveChunk(sourceNs, sourceMin, sourceMax, mappedShard);
+					boolean moveSuccess = moveChunk(sourceNs, sourceMin, sourceMax, mappedShard);
+					if (! moveSuccess) {
+						errorCount++;
+					}
 				}
 
 				movedCount++;
@@ -864,7 +994,6 @@ public class ShardConfigSync implements Callable<Integer> {
 					sourceTotalCount, destChunkMap.size(), mismatchedCount, missingCount));
 		}
 
-		return true;
 	}
 
 	@SuppressWarnings("unchecked")
@@ -916,9 +1045,8 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	private boolean doCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
 
-		Number sourceCount = ShardClient.getCollectionCount(sourceDb, collectionName);
-		Number destCount = ShardClient.getCollectionCount(destDb, collectionName);
-		;
+		Number sourceCount = sourceShardClient.getCollectionCount(sourceDb, collectionName);
+		Number destCount = destShardClient.getCollectionCount(destDb, collectionName);
 
 		if (sourceCount == null && destCount == null) {
 			logger.debug(String.format("%s.%s count matches: %s", sourceDb.getName(), collectionName, 0));
@@ -954,15 +1082,17 @@ public class ShardConfigSync implements Callable<Integer> {
 		}
 	}
 
-	private void moveChunk(String namespace, RawBsonDocument min, RawBsonDocument max, String moveToShard) {
+	private boolean moveChunk(String namespace, RawBsonDocument min, RawBsonDocument max, String moveToShard) {
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
 		moveChunkCmd.append("to", moveToShard);
 		try {
 			destShardClient.adminCommand(moveChunkCmd);
 		} catch (MongoCommandException mce) {
-			logger.warn("moveChunk error", mce);
+			logger.warn(String.format("moveChunk error ns: %s, message: %s", namespace, mce.getMessage()));
+			return false;
 		}
+		return true;
 	}
 
 	public void shardDestinationCollections() {
@@ -1396,6 +1526,28 @@ public class ShardConfigSync implements Callable<Integer> {
 		}
 
 	}
+	
+	public void mongomirrorTailFromNow() throws IOException {
+		sourceShardClient.populateShardMongoClients();
+		Set<String> shardIds = sourceShardClient.getShardsMap().keySet();
+		for (String shardId : shardIds) {
+			ShardTimestamp st = sourceShardClient.populateLatestOplogTimestamp(shardId);
+			logger.debug(st.toString());
+			try {
+				BufferedWriter writer = new BufferedWriter(new FileWriter(new File(st.getShardName() + ".timestamp")));
+				writer.write(shardId);
+				writer.newLine();
+				writer.write(String.valueOf(st.getTimestamp().getValue()));
+				writer.close();
+				
+			} catch (IOException e) {
+				logger.error(String.format("Error writing timestamp file for shard %s", shardId), e);
+				throw e;
+			}
+		}
+		mongomirror();
+		
+	}
 
 	public void mongomirror() throws ExecuteException, IOException {
 
@@ -1652,5 +1804,9 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	public void setCollStatsThreshold(int collStatsThreshold) {
 		this.collStatsThreshold = collStatsThreshold;
+	}
+
+	public void setDestCsrsUri(String destCsrsUri) {
+		this.destCsrsUri = destCsrsUri;
 	}
 }

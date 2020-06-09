@@ -83,6 +83,11 @@ public class ShardClient {
     
     private ConnectionString connectionString;
     private MongoClientSettings mongoClientSettings;
+    
+    private ConnectionString csrsConnectionString;
+    private MongoClientSettings csrsMongoClientSettings;
+    private MongoClient csrsMongoClient;
+    
     //private String username;
     //private String password;
     //private MongoClientOptions mongoClientOptions;
@@ -101,6 +106,7 @@ public class ShardClient {
     private boolean patternedUri;
     private String connectionStringPattern;
     private String rsPattern;
+    private String csrsUri;
     
     public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter) {
     	
@@ -109,9 +115,8 @@ public class ShardClient {
     		this.connectionStringPattern = clusterUri;
     		// example mongodb://admin@cluster1-%s-%s-%s.wxyz.mongodb.net:27017/?ssl=true&authSource=admin
     		String csrsUri = String.format(clusterUri, "config", 0, 0);
-    		logger.debug("csrsUri: " + csrsUri);
+    		logger.debug(name + " csrsUri from pattern: " + csrsUri);
     		this.connectionString = new ConnectionString(csrsUri);
-    		
     	} else {
     		this.connectionString = new ConnectionString(clusterUri);
     	}
@@ -120,9 +125,22 @@ public class ShardClient {
     	this.name = name;
     	this.shardIdFilter = shardIdFilter;
         logger.debug(String.format("%s client, uri: %s", name, clusterUri));
-        
-        
-        mongoClientSettings = MongoClientSettings.builder()
+    }
+    
+    public ShardClient(String name, String clusterUri) {
+    	this(name, clusterUri, null);
+    }
+    
+    public void init() {
+    	if (csrsUri != null) {
+    		logger.debug(name + " csrsUri: " + csrsUri);
+    		this.csrsConnectionString = new ConnectionString(csrsUri);
+    		this.csrsMongoClientSettings = MongoClientSettings.builder()
+                    .applyConnectionString(csrsConnectionString)
+                    .build();
+    		this.csrsMongoClient = MongoClients.create(csrsMongoClientSettings);
+    	}
+    	mongoClientSettings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString)
                 .build();
          
@@ -136,13 +154,7 @@ public class ShardClient {
         adminCommand(new Document("ping", 1));
         // logger.debug("Connected to source");
         configDb = mongoClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
-    }
-    
-    public ShardClient(String name, String clusterUri) {
-    	this(name, clusterUri, null);
-    }
-    
-    public void init() {
+    	
         populateShardList();
 
         Document destBuildInfo = adminCommand(new Document("buildinfo", 1));
@@ -358,7 +370,8 @@ public class ShardClient {
     public ShardTimestamp populateLatestOplogTimestamp(String shardId) {
         MongoClient client = shardMongoClients.get(shardId);
         MongoCollection<Document> coll = client.getDatabase("local").getCollection("oplog.rs");
-        Document doc = coll.find(ne("op", "n")).projection(include("ts")).sort(eq("$natural", -1)).first();
+        // ne("op", "n")
+        Document doc = coll.find().projection(include("ts")).sort(eq("$natural", -1)).first();
         BsonTimestamp ts = (BsonTimestamp)doc.get("ts");
         ShardTimestamp st = new ShardTimestamp(shardId, ts);
         this.getShardsMap().get(shardId).setSyncStartTimestamp(st);
@@ -421,16 +434,26 @@ public class ShardClient {
         return collection.countDocuments();
     }
     
-    public static Number getCollectionCount(MongoDatabase db, MongoCollection<RawBsonDocument> collection) {
-        BsonDocument result = collection.aggregate(countPipeline).first();
-        Number count = null;
-        if (result != null) {
-            count = result.get("count").asNumber().longValue();
-        }
-        return count;
+    public Number getCollectionCount(MongoDatabase db, MongoCollection<RawBsonDocument> collection) {
+    	try {
+    		BsonDocument result = collection.aggregate(countPipeline).first();
+            Number count = null;
+            if (result != null) {
+                count = result.get("count").asNumber().longValue();
+            }
+            return count;
+    	} catch (MongoCommandException mce) {
+    		logger.error(name + " getCollectionCount error");
+    		throw mce;
+    	}
+    }
+    
+    public Number getCollectionCount(String dbName, String collectionName) {
+    	MongoDatabase db = mongoClient.getDatabase(dbName);
+        return getCollectionCount(db, db.getCollection(collectionName, RawBsonDocument.class));
     }
 
-    public static Number getCollectionCount(MongoDatabase db, String collectionName) {
+    public Number getCollectionCount(MongoDatabase db, String collectionName) {
         return getCollectionCount(db, db.getCollection(collectionName, RawBsonDocument.class));
     }
     
@@ -447,6 +470,11 @@ public class ShardClient {
     }
     
     public MongoCollection<RawBsonDocument> getChunksCollectionRaw() {
+        return configDb.getCollection("chunks", RawBsonDocument.class);
+    }
+    
+    public MongoCollection<RawBsonDocument> getChunksCollectionRawPrivileged() {
+    	MongoDatabase configDb = csrsMongoClient.getDatabase("config");
         return configDb.getCollection("chunks", RawBsonDocument.class);
     }
 
@@ -771,6 +799,10 @@ public class ShardClient {
 
 	public Map<String, Shard> getTertiaryShardsMap() {
 		return tertiaryShardsMap;
+	}
+
+	public void setCsrsUri(String csrsUri) {
+		this.csrsUri = csrsUri;
 	}
 
 }
