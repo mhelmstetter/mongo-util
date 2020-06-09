@@ -57,7 +57,9 @@ public class ShardConfigSyncApp {
     
     private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
+    private final static String DRY_RUN = "dryRun";
     private final static String TAIL_FROM_NOW = "tailFromNow";
+    private final static String TAIL_FROM_LATEST_OPLOG_TS = "tailFromLatestOplogTs";
     private final static String SHARD_COLLECTIONS = "shardCollections";
     private final static String CREATE_CHUNKS = "createChunks";
     private final static String CLEANUP_ORPHANS = "cleanupOrphans";
@@ -131,8 +133,12 @@ public class ShardConfigSyncApp {
         // Mongomirror options
         options.addOption(OptionBuilder.withArgName("Execute mongomirror(s)")
                 .withLongOpt(MONGO_MIRROR).create(MONGO_MIRROR));
+        options.addOption(OptionBuilder.withArgName("Dry run only")
+                .withLongOpt(DRY_RUN).create(DRY_RUN));
         options.addOption(OptionBuilder.withArgName("mongomirror tail only starting at current ts")
                 .withLongOpt(TAIL_FROM_NOW).create(TAIL_FROM_NOW));
+        options.addOption(OptionBuilder.withArgName("mongomirror tail only starting from latest oplog ts")
+                .withLongOpt(TAIL_FROM_LATEST_OPLOG_TS).create(TAIL_FROM_LATEST_OPLOG_TS));
         options.addOption(OptionBuilder.withArgName("mongomirror namespace filter").hasArgs()
         		.withLongOpt("filter").create("f"));
         options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArgs()
@@ -259,6 +265,7 @@ public class ShardConfigSyncApp {
         sync.setSleepMillis(line.getOptionValue("x"));
         sync.setNumParallelCollections(line.getOptionValue("y"));
         sync.setWriteConcern(line.getOptionValue("w"));
+        sync.setDryRun(line.hasOption(DRY_RUN));
         
         sync.setSslAllowInvalidCertificates(line.hasOption(SSL_ALLOW_INVALID_CERTS));
         sync.setSslAllowInvalidHostnames(line.hasOption(SSL_ALLOW_INVALID_HOSTNAMES));
@@ -330,7 +337,7 @@ public class ShardConfigSyncApp {
         // 
         
         // MONGOMIRROR_BINARY
-        if (line.hasOption(MONGO_MIRROR) || line.hasOption(TAIL_FROM_NOW)) {
+        if (line.hasOption(MONGO_MIRROR)) {
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", config.getString(MONGOMIRROR_BINARY));
             
@@ -363,12 +370,13 @@ public class ShardConfigSyncApp {
             sync.setPreserveUUIDs(preserveUUIDs);
             sync.setSkipBuildIndexes(skipBuildIndexes);
             
-            if (line.hasOption(MONGO_MIRROR)) {
-            	sync.mongomirror();
-            } else {
+            if (line.hasOption(TAIL_FROM_NOW)) {
             	sync.mongomirrorTailFromNow();
+            } else if (line.hasOption(TAIL_FROM_LATEST_OPLOG_TS)) {
+            	sync.mongomirrorTailFromLatestOplogTs();
+            } else {
+            	sync.mongomirror();
             }
-            
         }
         
         if (line.hasOption("r")) {

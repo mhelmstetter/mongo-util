@@ -106,6 +106,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	private boolean reverseSync;
 	private boolean skipBuildIndexes;
 	private Integer collStatsThreshold;
+	private boolean dryRun;
 
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
@@ -1516,7 +1517,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			mongomirror.setBookmarkFile(source.getId() + ".timestamp");
 
 			mongomirror.setNumParallelCollections(numParallelCollections);
-			mongomirror.execute();
+			mongomirror.execute(dryRun);
 			try {
 				Thread.sleep(sleepMillis);
 			} catch (InterruptedException e) {
@@ -1527,7 +1528,8 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	}
 	
-	public void mongomirrorTailFromNow() throws IOException {
+	public void mongomirrorTailFromLatestOplogTs()  throws IOException {
+		logger.debug("Starting mongomirrorTailFromLatestOplogTs");
 		sourceShardClient.populateShardMongoClients();
 		Set<String> shardIds = sourceShardClient.getShardsMap().keySet();
 		for (String shardId : shardIds) {
@@ -1538,6 +1540,33 @@ public class ShardConfigSync implements Callable<Integer> {
 				writer.write(shardId);
 				writer.newLine();
 				writer.write(String.valueOf(st.getTimestamp().getValue()));
+				writer.close();
+				
+			} catch (IOException e) {
+				logger.error(String.format("Error writing timestamp file for shard %s", shardId), e);
+				throw e;
+			}
+		}
+		mongomirror();
+	}
+	
+	public void mongomirrorTailFromNow() throws IOException {
+		
+		
+		long now = System.currentTimeMillis();
+		int nowSeconds = (int)now/1000;
+		BsonTimestamp nowBson = new BsonTimestamp(nowSeconds, 0);
+		logger.debug(String.format("Starting mongomirrorTailFromNow, now: %s, nowSeconds: %s, nowBson: %s", 
+				now, nowSeconds, nowBson));
+		
+		sourceShardClient.populateShardMongoClients();
+		Set<String> shardIds = sourceShardClient.getShardsMap().keySet();
+		for (String shardId : shardIds) {
+			try {
+				BufferedWriter writer = new BufferedWriter(new FileWriter(new File(shardId + ".timestamp")));
+				writer.write(shardId);
+				writer.newLine();
+				writer.write(String.valueOf(nowBson.getValue()));
 				writer.close();
 				
 			} catch (IOException e) {
@@ -1622,10 +1651,10 @@ public class ShardConfigSync implements Callable<Integer> {
 			mongomirror.setWriteConcern(writeConcern);
 			mongomirror.setHttpStatusPort(httpStatusPort++);
 
-			if (destShardClient.isVersion36OrLater() && !nonPrivilegedMode) {
-				logger.debug("Version 3.6 or later, not nonPrivilegedMode, setting preserveUUIDs true");
-				mongomirror.setPreserveUUIDs(true);
-			}
+//			if (destShardClient.isVersion36OrLater() && !nonPrivilegedMode) {
+//				logger.debug("Version 3.6 or later, not nonPrivilegedMode, setting preserveUUIDs true");
+//				mongomirror.setPreserveUUIDs(true);
+//			}
 			if (skipBuildIndexes) {
 				mongomirror.setSkipBuildIndexes(skipBuildIndexes);
 			}
@@ -1638,11 +1667,17 @@ public class ShardConfigSync implements Callable<Integer> {
 			if (collStatsThreshold != null) {
 				mongomirror.setCollStatsThreshold(collStatsThreshold);
 			}
-			mongomirror.execute();
+			
+			mongomirror.execute(dryRun);
+			
 			try {
 				Thread.sleep(sleepMillis);
 			} catch (InterruptedException e) {
 			}
+		}
+		
+		if (dryRun) {
+			return;
 		}
 
 		while (true) {
@@ -1808,5 +1843,9 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	public void setDestCsrsUri(String destCsrsUri) {
 		this.destCsrsUri = destCsrsUri;
+	}
+
+	public void setDryRun(boolean dryRun) {
+		this.dryRun = dryRun;
 	}
 }

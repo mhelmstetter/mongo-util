@@ -75,7 +75,7 @@ public class MongoMirrorRunner {
         gson = new GsonBuilder().create();
     }
    
-    public void execute() throws ExecuteException, IOException {
+    public void execute(boolean dryRun) throws ExecuteException, IOException {
         
         logger.debug("execute() start id: " + id);
         executeResultHandler = new DefaultExecuteResultHandler();
@@ -121,8 +121,15 @@ public class MongoMirrorRunner {
         DefaultExecutor executor = new DefaultExecutor();
         executor.setExitValue(1);
         executor.setStreamHandler(psh);
-        logger.debug("executor.execute id: " + id + " cmdLine: " + cmdLine);
-        executor.execute(cmdLine, executeResultHandler);
+        
+        
+        if (dryRun) {
+        	logger.debug("dry run: " + id + " cmdLine: " + cmdLine);
+        } else {
+        	logger.debug("executor.execute id: " + id + " cmdLine: " + cmdLine);
+        	executor.execute(cmdLine, executeResultHandler);
+        }
+        
     }
     
     @SuppressWarnings("rawtypes")
