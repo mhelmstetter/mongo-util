@@ -180,9 +180,9 @@ public class ShardConfigSync implements Callable<Integer> {
 			// shardMap is for doing an uneven shard mapping, e.g. 10 shards on source
 			// down to 5 shards on destination
 			logger.debug("Custom n:m shard mapping");
-			if (sourceClusterPattern != null || destClusterPattern != null) {
-				throw new IllegalArgumentException("Custom mapping not supported with patterned source and/or dest");
-			}
+//			if (sourceClusterPattern != null || destClusterPattern != null) {
+//				throw new IllegalArgumentException("Custom mapping not supported with patterned source and/or dest");
+//			}
 			
 			for (String mapping : shardMap) {
 				String[] mappings = mapping.split("\\|");
