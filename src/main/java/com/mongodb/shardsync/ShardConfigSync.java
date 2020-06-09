@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -1531,19 +1532,19 @@ public class ShardConfigSync implements Callable<Integer> {
 	public void mongomirrorTailFromLatestOplogTs()  throws IOException {
 		logger.debug("Starting mongomirrorTailFromLatestOplogTs");
 		sourceShardClient.populateShardMongoClients();
-		Set<String> shardIds = sourceShardClient.getShardsMap().keySet();
-		for (String shardId : shardIds) {
-			ShardTimestamp st = sourceShardClient.populateLatestOplogTimestamp(shardId);
+		Collection<Shard> shards = sourceShardClient.getShardsMap().values();
+		for (Shard shard : shards) {
+			ShardTimestamp st = sourceShardClient.populateLatestOplogTimestamp(shard.getId());
 			logger.debug(st.toString());
 			try {
-				BufferedWriter writer = new BufferedWriter(new FileWriter(new File(st.getShardName() + ".timestamp")));
-				writer.write(shardId);
+				BufferedWriter writer = new BufferedWriter(new FileWriter(new File(shard.getId() + ".timestamp")));
+				writer.write(shard.getRsName());
 				writer.newLine();
 				writer.write(String.valueOf(st.getTimestamp().getValue()));
 				writer.close();
 				
 			} catch (IOException e) {
-				logger.error(String.format("Error writing timestamp file for shard %s", shardId), e);
+				logger.error(String.format("Error writing timestamp file for shard %s", shard.getId()), e);
 				throw e;
 			}
 		}
@@ -1554,23 +1555,23 @@ public class ShardConfigSync implements Callable<Integer> {
 		
 		
 		long now = System.currentTimeMillis();
-		int nowSeconds = (int)now/1000;
-		BsonTimestamp nowBson = new BsonTimestamp(nowSeconds, 0);
+		long nowSeconds = now/1000l;
+		BsonTimestamp nowBson = new BsonTimestamp((int)nowSeconds, 1);
 		logger.debug(String.format("Starting mongomirrorTailFromNow, now: %s, nowSeconds: %s, nowBson: %s", 
 				now, nowSeconds, nowBson));
 		
 		sourceShardClient.populateShardMongoClients();
-		Set<String> shardIds = sourceShardClient.getShardsMap().keySet();
-		for (String shardId : shardIds) {
+		Collection<Shard> shards = sourceShardClient.getShardsMap().values();
+		for (Shard shard : shards) {
 			try {
-				BufferedWriter writer = new BufferedWriter(new FileWriter(new File(shardId + ".timestamp")));
-				writer.write(shardId);
+				BufferedWriter writer = new BufferedWriter(new FileWriter(new File(shard.getId() + ".timestamp")));
+				writer.write(shard.getRsName());
 				writer.newLine();
 				writer.write(String.valueOf(nowBson.getValue()));
 				writer.close();
 				
 			} catch (IOException e) {
-				logger.error(String.format("Error writing timestamp file for shard %s", shardId), e);
+				logger.error(String.format("Error writing timestamp file for shard %s", shard.getId()), e);
 				throw e;
 			}
 		}

@@ -116,20 +116,17 @@ public class MongoMirrorRunner {
             addArg("includeDB", dbName);
         }
         
+        if (dryRun) {
+        	logger.debug("dry run: " + id + " cmdLine: " + cmdLine);
+        	return;
+        }
         PumpStreamHandler psh = new PumpStreamHandler(new ExecBasicLogHandler(id));
         
         DefaultExecutor executor = new DefaultExecutor();
         executor.setExitValue(1);
         executor.setStreamHandler(psh);
-        
-        
-        if (dryRun) {
-        	logger.debug("dry run: " + id + " cmdLine: " + cmdLine);
-        } else {
-        	logger.debug("executor.execute id: " + id + " cmdLine: " + cmdLine);
-        	executor.execute(cmdLine, executeResultHandler);
-        }
-        
+        logger.debug("executor.execute id: " + id + " cmdLine: " + cmdLine);
+    	executor.execute(cmdLine, executeResultHandler);
     }
     
     @SuppressWarnings("rawtypes")

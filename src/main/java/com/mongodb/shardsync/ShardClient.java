@@ -183,6 +183,8 @@ public class ShardClient {
         	if (!patternedUri) {
         		logger.debug(String.format("%s: populateShardList shard: %s", name, sh.getHost()));
         	}
+        	String rsName = StringUtils.substringBefore(sh.getHost(), "/");
+        	sh.setRsName(rsName);
             shardsMap.put(sh.getId(), sh);
         }
         
@@ -348,12 +350,12 @@ public class ShardClient {
             MongoClientSettings settings = settingsBuilder.build();
             MongoClient mongoClient = MongoClients.create(settings);
             
-            logger.debug(String.format("%s isMaster started: %s", name, shardHost));
+            //logger.debug(String.format("%s isMaster started: %s", name, shardHost));
             Document isMasterResult = mongoClient.getDatabase("admin").runCommand(new Document("isMaster", 1));
             if (logger.isTraceEnabled()) {
                 logger.trace(name + " isMaster complete, cluster: " + mongoClient.getClusterDescription());
             } else {
-                logger.debug(String.format("%s isMaster complete: %s", name, shardHost));
+                //logger.debug(String.format("%s isMaster complete: %s", name, shardHost));
             }
             
             shardMongoClients.put(shard.getId(), mongoClient);

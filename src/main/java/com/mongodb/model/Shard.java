@@ -8,6 +8,7 @@ public class Shard {
     private String host;
     private int state;
     private ShardTimestamp syncStartTimestamp;
+    private String rsName;
     
     // internal property only used by sync process
     private boolean mongomirrorDropped;
@@ -51,5 +52,13 @@ public class Shard {
     public void setSyncStartTimestamp(ShardTimestamp syncStartTimestamp) {
         this.syncStartTimestamp = syncStartTimestamp;
     }
+
+	public String getRsName() {
+		return rsName;
+	}
+
+	public void setRsName(String rsName) {
+		this.rsName = rsName;
+	}
 
 }
