@@ -429,8 +429,16 @@ public class ShardConfigSync implements Callable<Integer> {
 			logger.debug("Skipping source balancer stop, patterned uri");
 		}
 		
+		if (destClusterPattern == null) {
+			try {
+				destShardClient.stopBalancer();
+			} catch (MongoCommandException mce) {
+				logger.error("Could not stop balancer on dest shard: " + mce.getMessage());
+			}
+		} else {
+			logger.debug("Skipping dest balancer stop, patterned uri");
+		}
 
-		destShardClient.stopBalancer();
 		logger.debug("stopBalancers complete");
 	}
 
@@ -1560,9 +1568,10 @@ public class ShardConfigSync implements Callable<Integer> {
 		logger.debug(String.format("Starting mongomirrorTailFromNow, now: %s, nowSeconds: %s, nowBson: %s", 
 				now, nowSeconds, nowBson));
 		
-		sourceShardClient.populateShardMongoClients();
+		//sourceShardClient.populateShardMongoClients();
 		Collection<Shard> shards = sourceShardClient.getShardsMap().values();
 		logger.debug("shardCount: " + shards.size());
+		
 		for (Shard shard : shards) {
 			try {
 				BufferedWriter writer = new BufferedWriter(new FileWriter(new File(shard.getId() + ".timestamp")));

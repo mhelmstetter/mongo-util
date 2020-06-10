@@ -204,6 +204,7 @@ public class ShardClient {
     			String rsName = String.format(this.rsPattern, "shard", shardNum);
     			Shard sh = new Shard();
     			sh.setId(rsName);
+    			sh.setRsName(rsName);
     			sh.setHost(String.format("%s/%s,%s", rsName, host0, host1));
     			shardsMap.put(sh.getId(), sh);
     			logger.debug(String.format("%s: populateShardList formatted shard name: %s", name, sh.getHost()));
