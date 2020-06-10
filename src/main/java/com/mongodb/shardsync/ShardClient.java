@@ -177,9 +177,12 @@ public class ShardClient {
     	MongoCollection<Shard> shardsColl = configDb.getCollection("shards", Shard.class);
         FindIterable<Shard> shards = shardsColl.find().sort(Sorts.ascending("_id"));
         for (Shard sh : shards) {
-        	if (shardIdFilter != null && ! shardIdFilter.contains(sh.getId())) {
-        		continue;
-        	}
+        	
+        	// TODO fix this for patterned uri
+//        	if (shardIdFilter != null && ! shardIdFilter.contains(sh.getId())) {
+//        		continue;
+//        	}
+        	
         	if (!patternedUri) {
         		logger.debug(String.format("%s: populateShardList shard: %s", name, sh.getHost()));
         	}
