@@ -129,9 +129,23 @@ public class MongoReplayFilter {
 
                 header = (BSONObject) raw.get("header");
                 int responseto = (Integer) header.get("responseto");
-                if (responseto != 0) {
-                    continue;
-                }
+//                if (responseto != 0) {
+//                	ByteBufferBsonInput bsonInput = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(bytes)));
+//                    BsonBinaryReader reader = new BsonBinaryReader(bsonInput);
+//
+//                    parsedHeader = MessageHeader.parse(bsonInput);
+//                    int opcode = (Integer) header.get("opcode");
+//                    if (opcode == 2013) {
+//                        // Just pass these through
+//                        // TODO - we could probably do some filtering, e.g.
+//                        // system dbs?
+//                        ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
+//                        channel.write(buffer);
+//                        written++;
+//                    }
+//                    
+//                    continue;
+//                }
 
                 if (header != null) {
                     int opcode = (Integer) header.get("opcode");
@@ -144,7 +158,15 @@ public class MongoReplayFilter {
                     //logger.debug("opcode: " + opcode + ", headerOpcode: " + headerOpcode);
                     
                     // https://github.com/mongodb/specifications/blob/master/source/compression/OP_COMPRESSED.rst
-                    if (opcode == 2012) {
+                    if (opcode == 1) {
+                    	int responseFlags = bsonInput.readInt32();
+                    	long cursorId = bsonInput.readInt64();
+                    	int startingFrom = bsonInput.readInt32();
+                    	int nReturned = bsonInput.readInt32();
+                    	Document x = documentCodec.decode(reader, DecoderContext.builder().build());
+                    	System.out.println(x);
+                    
+                    } else if (opcode == 2012) {
                         
                         opcode = bsonInput.readInt32();
                         logger.debug(String.format("Compressed, originalOpcode: %s", opcode));

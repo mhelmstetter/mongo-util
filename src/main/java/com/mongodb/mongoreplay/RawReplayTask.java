@@ -178,6 +178,12 @@ public class RawReplayTask implements Callable<ReplayResult> {
     private void processCommand(String databaseName) {
         //System.out.println(commandDoc);
         Set<String> shape = null;
+        
+        if (commandDoc.containsKey("writeConcern")) {
+        	Document wc = (Document)commandDoc.get("writeConcern");
+        	System.out.println("wc: " + wc);
+        }
+        
         if (commandDoc.containsKey("$query")) {
             Document queryDoc = (Document)commandDoc.get("$query");
             commandDoc = queryDoc;
@@ -296,6 +302,10 @@ public class RawReplayTask implements Callable<ReplayResult> {
                 
                 commandDoc.put("writeConcern", replayOptions.getWriteConcern());
                 commandResult = mongoClient.getDatabase(db).runCommand(commandDoc);
+                if (commandResult.containsKey("writeErrors")) {
+                	logger.debug("result: " + commandResult);
+                }
+                
             }
             long duration = System.nanoTime() - start;
             // long duration = event.stop();

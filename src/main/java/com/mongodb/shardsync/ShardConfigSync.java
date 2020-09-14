@@ -1279,7 +1279,8 @@ public class ShardConfigSync implements Callable<Integer> {
 		databases.into(databasesList);
 		for (Document database : databasesList) {
 			String databaseName = database.getString("_id");
-			if (databaseName.equals("admin") || databaseName.equals("system") || databaseName.contains("$")) {
+			if (databaseName.equals("admin") || databaseName.equals("system") || databaseName.equals("local") 
+					|| databaseName.contains("$")) {
 				continue;
 			}
 			String primary = database.getString("primary");
