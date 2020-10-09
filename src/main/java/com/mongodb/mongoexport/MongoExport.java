@@ -39,6 +39,7 @@ public class MongoExport implements Callable<Integer> {
 		
 		String dbName = connectionString.getDatabase();
 		MongoDatabase db = mongoClient.getDatabase(dbName);
+		//mongoClient.getDatabase("admin").runCommand(new Document("ping", 1));
 		MongoCursor<Document> cursor = null;
         long start = System.currentTimeMillis();
         long count = 0;
@@ -50,7 +51,7 @@ public class MongoExport implements Callable<Integer> {
             
             while (cursor.hasNext()) {
                 Document doc = cursor.next();
-                System.out.println(doc);
+                System.out.println(doc.toJson());
                 count++;
                 if (count % 100000 == 0) {
                     double complete = count/totalDocs*100.0;
