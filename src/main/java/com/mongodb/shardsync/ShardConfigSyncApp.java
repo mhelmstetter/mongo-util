@@ -274,6 +274,10 @@ public class ShardConfigSyncApp {
         	sync.setSkipFlushRouterConfig(true);
         }
         
+        if (line.hasOption("r")) {
+        	sync.setShardToRs(true);
+        }
+        
         sync.initializeShardMappings();
         boolean actionFound = false;
         if (line.hasOption(COLL_COUNTS)) {
@@ -337,7 +341,7 @@ public class ShardConfigSyncApp {
         // 
         
         // MONGOMIRROR_BINARY
-        if (line.hasOption(MONGO_MIRROR)) {
+        if (line.hasOption(MONGO_MIRROR) && ! line.hasOption("r")) {
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", config.getString(MONGOMIRROR_BINARY));
             
@@ -379,13 +383,11 @@ public class ShardConfigSyncApp {
             }
         }
         
-        if (line.hasOption("r")) {
+        if (line.hasOption("r") && line.hasOption(MONGO_MIRROR)) {
+        	logger.debug("shardToRs");
             actionFound = true;
-            if (!line.hasOption("p")) {
-                System.out.println("mongomirrorPath required");
-                printHelpAndExit();
-            }
-            sync.setMongomirrorBinary(line.getOptionValue("p"));
+            String mongoMirrorPath = line.getOptionValue("p", config.getString(MONGOMIRROR_BINARY));
+            sync.setMongomirrorBinary(mongoMirrorPath);
             sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
             sync.shardToRs();
         }

@@ -41,6 +41,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Sets;
+import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoCredential;
@@ -57,6 +58,7 @@ import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.result.UpdateResult;
 import com.mongodb.connection.ClusterDescription;
+import com.mongodb.connection.ServerDescription;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
@@ -108,6 +110,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	private boolean skipBuildIndexes;
 	private Integer collStatsThreshold;
 	private boolean dryRun;
+	private boolean shardToRs;
 
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
@@ -224,27 +227,31 @@ public class ShardConfigSync implements Callable<Integer> {
 			Map<String, Shard> sourceShardsMap = sourceShardClient.getShardsMap();
 			
 			List<Shard> destList = new ArrayList<Shard>(destShardClient.getShardsMap().values());
-			//List<Shard> altList = new ArrayList<Shard>()
-			for (Iterator<Shard> i = sourceShardsMap.values().iterator(); i.hasNext();) {
-				Shard sourceShard = i.next();
-				Shard destShard = destList.get(index);
-				if (destShard != null) {
-					logger.debug(sourceShard.getId() + " ==> " + destShard.getId());
-					sourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
+			if (! shardToRs) {
+				for (Iterator<Shard> i = sourceShardsMap.values().iterator(); i.hasNext();) {
+					Shard sourceShard = i.next();
+					Shard destShard = destList.get(index);
+					if (destShard != null) {
+						logger.debug(sourceShard.getId() + " ==> " + destShard.getId());
+						sourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
+					}
+					index++;
 				}
-				index++;
+				
+				index = 0;
+				for (Iterator<Shard> i = sourceTertiaryMap.values().iterator(); i.hasNext();) {
+					Shard sourceShard = i.next();
+					Shard destShard = destList.get(index);
+					if (destShard != null) {
+						logger.debug("altMapping: " + sourceShard.getId() + " ==> " + destShard.getId());
+						altSourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
+					}
+					index++;
+				}
 			}
 			
-			index = 0;
-			for (Iterator<Shard> i = sourceTertiaryMap.values().iterator(); i.hasNext();) {
-				Shard sourceShard = i.next();
-				Shard destShard = destList.get(index);
-				if (destShard != null) {
-					logger.debug("altMapping: " + sourceShard.getId() + " ==> " + destShard.getId());
-					altSourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
-				}
-				index++;
-			}
+			
+			
 		}
 		// reverse map
 		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
@@ -300,6 +307,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), filterSet);
 		Map<String, Map<Namespace, Set<IndexSpec>>> destShardsIndexSpecs = new HashMap<>();
 		
+		// TODO fix for shard to rs
 		for (Map.Entry<String, MongoClient> entry : destShardClient.getShardMongoClients().entrySet()) {
 			String shardName = entry.getKey();
 			MongoClient destClient = entry.getValue();
@@ -1479,11 +1487,13 @@ public class ShardConfigSync implements Callable<Integer> {
 				mongomirror.setSourceSsl(sourceShardClient.getConnectionString().getSslEnabled());
 			}
 
-			// String setName = destShard.getMongoClient().getReplicaSetStatus().getName();
-			String setName = null; // TODO
 			ClusterDescription cd = destShardClient.getMongoClient().getClusterDescription();
+			ServerDescription s1 = cd.getServerDescriptions().get(0);
+			String setName = s1.getSetName();
+			
 
 			// destMongoClientURI.getCredentials().getSource();
+			ConnectionString cs = destShardClient.getConnectionString();
 			String host = destShardClient.getConnectionString().getHosts().get(0); // TODO verify
 
 			mongomirror.setDestinationHost(setName + "/" + host);
@@ -1734,7 +1744,9 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 
 	public void setMongomirrorBinary(String binaryPath) {
-		this.mongomirrorBinary = new File(binaryPath);
+		if (binaryPath != null) {
+			this.mongomirrorBinary = new File(binaryPath);
+		}
 	}
 
 	public void setSleepMillis(String optionValue) {
@@ -1859,5 +1871,13 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	public void setDryRun(boolean dryRun) {
 		this.dryRun = dryRun;
+	}
+
+	public boolean isShardToRs() {
+		return shardToRs;
+	}
+
+	public void setShardToRs(boolean shardToRs) {
+		this.shardToRs = shardToRs;
 	}
 }
