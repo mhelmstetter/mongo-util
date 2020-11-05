@@ -78,7 +78,7 @@ public class SchemaAnalyzer implements Callable<Integer> {
 				String collectionName = collectionInfo.getString("name");
 				String ns = dbName + "." + collectionName;
 				MongoCollection<Document> coll = db.getCollection(collectionName);
-				long count =  coll.countDocuments();
+				long count =  coll.estimatedDocumentCount();
 				System.out.println(String.format("%-40s %,20d", ns, count));
 				
 			}
@@ -98,7 +98,7 @@ public class SchemaAnalyzer implements Callable<Integer> {
         try {
             
             MongoCollection<BsonDocument> mongoCollection = db.getCollection(collectionName, BsonDocument.class);
-            long totalDocs = mongoCollection.countDocuments();
+            long totalDocs = mongoCollection.estimatedDocumentCount();
             logger.debug(String.format("Total documents for %s: %s", namespace, totalDocs));
             
             if (limit != null) {
