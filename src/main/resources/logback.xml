@@ -15,6 +15,7 @@
   </appender>
 
   <logger name="com.mongodb.diffutil" level="DEBUG"/>
+  <logger name="com.mongodb.schema" level="DEBUG"/>
   <logger name="com.mongodb.shardsync" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.mongosync" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.corruptutil" level="DEBUG" additivity="true"/>

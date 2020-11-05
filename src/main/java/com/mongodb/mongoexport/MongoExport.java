@@ -1,10 +1,8 @@
 package com.mongodb.mongoexport;
 
-import java.nio.ByteBuffer;
 import java.util.concurrent.Callable;
 
 import org.bson.Document;
-import org.bson.RawBsonDocument;
 
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
