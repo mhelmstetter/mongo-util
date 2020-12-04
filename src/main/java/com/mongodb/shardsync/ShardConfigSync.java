@@ -300,8 +300,8 @@ public class ShardConfigSync implements Callable<Integer> {
 		return sourceIndexSpecs;
 	}
 	
-	public void syncIndexesShards(boolean createMissing) {
-		logger.debug("Starting syncIndexes");
+	public void syncIndexesShards(boolean createMissing, boolean extendTtl) {
+		logger.debug(String.format("Starting syncIndexes: extendTtl: %s", extendTtl));
 		destShardClient.populateShardMongoClients();
 		sourceShardClient.populateCollectionsMap();
 		
@@ -337,7 +337,7 @@ public class ShardConfigSync implements Callable<Integer> {
             		logger.debug(String.format("%s - all indexes match for shard %s, indexCount: %s", ns, shardName, sourceSpecs.size()));
             	} else {
             		logger.debug(String.format("%s - missing dest indexes %s missing on shard %s, creating", ns, diff, shardName));
-            		destShardClient.createIndexes(shardName, ns, diff);
+            		destShardClient.createIndexes(shardName, ns, diff, extendTtl);
             	}
 
             }

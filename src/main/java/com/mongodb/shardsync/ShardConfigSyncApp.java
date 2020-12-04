@@ -66,6 +66,7 @@ public class ShardConfigSyncApp {
     private final static String CLEANUP_ORPHANS_SLEEP = "cleanupOrphansSleep";
     private final static String CLEANUP_ORPHANS_DEST = "cleanupOrphansDest";
     private final static String SYNC_INDEXES = "syncIndexes";
+    private final static String EXTEND_TTL = "extendTtl";
     
     private final static String SSL_ALLOW_INVALID_HOSTNAMES = "sslAllowInvalidHostnames";
     private final static String SSL_ALLOW_INVALID_CERTS = "sslAllowInvalidCertificates";
@@ -121,6 +122,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(CREATE_CHUNKS).create());
         options.addOption(OptionBuilder.withArgName("Copy indexes from source to dest")
                 .withLongOpt(SYNC_INDEXES).create(SYNC_INDEXES));
+        options.addOption(OptionBuilder.withArgName("Extend TTL expiration (use with syncIndexes)")
+                .withLongOpt(EXTEND_TTL).create(EXTEND_TTL));
         options.addOption(OptionBuilder.withArgName("Skip the flushRouterConfig step")
                 .withLongOpt(SKIP_FLUSH_ROUTER_CONFIG).create(SKIP_FLUSH_ROUTER_CONFIG));
         
@@ -315,7 +318,8 @@ public class ShardConfigSyncApp {
             sync.migrateMetadata(false, false);
         } else if (line.hasOption(SYNC_INDEXES)) {
             actionFound = true;
-            sync.syncIndexesShards(true);
+            boolean extendTtl = line.hasOption(EXTEND_TTL);
+            sync.syncIndexesShards(true, extendTtl);
         }  else if (line.hasOption("z")) {
             actionFound = true;
             sync.diffChunks(line.getOptionValue("z"));

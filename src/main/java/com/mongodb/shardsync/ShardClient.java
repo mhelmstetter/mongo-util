@@ -721,7 +721,7 @@ public class ShardClient {
 		
     }
     
-    public void createIndexes(String shardName, Namespace ns, Set<IndexSpec> sourceSpecs) {
+    public void createIndexes(String shardName, Namespace ns, Set<IndexSpec> sourceSpecs, boolean extendTtl) {
     	MongoClient client = getShardMongoClient(shardName);
     	MongoDatabase db = client.getDatabase(ns.getDatabaseName());
     	
@@ -736,11 +736,17 @@ public class ShardClient {
 			//BsonDocument indexInfo = indexSpec.getSourceSpec().clone();
 			indexInfo.remove("v");
 			Number expireAfterSeconds = (Number)indexInfo.get("expireAfterSeconds");
-			if (expireAfterSeconds != null) {
+			if (expireAfterSeconds != null && extendTtl) {
 				
-				indexInfo.put("expireAfterSeconds", 50 * ShardConfigSync.SECONDS_IN_YEAR);
-				logger.debug(String.format("Extending TTL for %s %s from %s to %s", 
-						ns, indexInfo.get("name"), expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
+				if (expireAfterSeconds.equals(0)) {
+					logger.warn(String.format("Skip extending TTL for %s %s - expireAfterSeconds is 0 (wall clock exp.)", 
+							ns, indexInfo.get("name")));
+				} else {
+					indexInfo.put("expireAfterSeconds", 50 * ShardConfigSync.SECONDS_IN_YEAR);
+					logger.debug(String.format("Extending TTL for %s %s from %s to %s", 
+							ns, indexInfo.get("name"), expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
+				}
+				
 			}
 			indexes.add(indexInfo);
 		}
