@@ -104,6 +104,7 @@ public class ShardClient {
     private Collection<String> shardIdFilter;
     
     private boolean patternedUri;
+    private boolean mongos;
     private String connectionStringPattern;
     private String rsPattern;
     private String csrsUri;
@@ -121,6 +122,9 @@ public class ShardClient {
     		this.connectionString = new ConnectionString(clusterUri);
     	}
     	
+    	if (connectionString.isSrvProtocol()) {
+    		throw new IllegalArgumentException("srv protocol not supported, please configure a single mongos mongodb:// connection string");
+    	}
     	
     	this.name = name;
     	this.shardIdFilter = shardIdFilter;
@@ -149,10 +153,16 @@ public class ShardClient {
         CodecRegistry pojoCodecRegistry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
 
-
-        //List<ServerAddress> addrs = mongoClient.getServerAddressList();
-        adminCommand(new Document("ping", 1));
-        // logger.debug("Connected to source");
+        
+        try {
+        	Document dbgridResult = adminCommand(new Document("isdbgrid", 1));
+        	Integer dbgrid = dbgridResult.getInteger("isdbgrid");
+        	mongos = dbgrid.equals(1);
+        } catch (MongoCommandException mce) {
+        	
+        }
+        
+        
         configDb = mongoClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
     	
         populateShardList();
@@ -160,7 +170,7 @@ public class ShardClient {
         Document destBuildInfo = adminCommand(new Document("buildinfo", 1));
         version = destBuildInfo.getString("version");
         versionArray = (List<Integer>) destBuildInfo.get("versionArray");
-        logger.debug(name + ": MongoDB version: " + version);
+        logger.debug(String.format("%s : MongoDB version: %s, mongos: %s", name, version, mongos));
 
         populateMongosList();
     }
@@ -809,6 +819,10 @@ public class ShardClient {
 
 	public void setCsrsUri(String csrsUri) {
 		this.csrsUri = csrsUri;
+	}
+
+	public boolean isMongos() {
+		return mongos;
 	}
 
 }

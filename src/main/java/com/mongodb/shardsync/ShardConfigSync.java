@@ -170,24 +170,15 @@ public class ShardConfigSync implements Callable<Integer> {
 	@SuppressWarnings("unchecked")
 	public void initializeShardMappings() {
 		logger.debug("Start initializeShardMappings()");
-//		ConnectionString sourceConnStr = null;new ConnectionString(sourceClusterUri);
-//		ConnectionString destConnStr = new ConnectionString(destClusterUri);
 		
 		String source = sourceClusterUri == null ? sourceClusterPattern : sourceClusterUri;
 		String dest = destClusterUri == null ? destClusterPattern : destClusterUri;
 		
 		
-//		if (sourceConnStr.isSrvProtocol() || destConnStr.isSrvProtocol()) {
-//			throw new IllegalArgumentException("srv protocol not supported, please configure a single mongos mongodb:// connection string");
-//		}
-		
 		if (this.shardMap != null) {
 			// shardMap is for doing an uneven shard mapping, e.g. 10 shards on source
 			// down to 5 shards on destination
 			logger.debug("Custom n:m shard mapping");
-//			if (sourceClusterPattern != null || destClusterPattern != null) {
-//				throw new IllegalArgumentException("Custom mapping not supported with patterned source and/or dest");
-//			}
 			
 			for (String mapping : shardMap) {
 				String[] mappings = mapping.split("\\|");
@@ -216,6 +207,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			
 			sourceShardClient.init();
 			destShardClient.init();
+			checkDestShardClientIsMongos();
 			
 			logger.debug("Source shard count: " + sourceShardClient.getShardsMap().size());
 			// default, just match up the shards 1:1
@@ -256,6 +248,18 @@ public class ShardConfigSync implements Callable<Integer> {
 		// reverse map
 		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
 		
+		if (! sourceShardClient.isMongos()) {
+			throw new IllegalArgumentException("source connection must be to a mongos router");
+		}
+		
+		checkDestShardClientIsMongos();
+		
+	}
+	
+	private void checkDestShardClientIsMongos() {
+		if (!destShardClient.isMongos() && !shardToRs) {
+			throw new IllegalArgumentException("dest connection must be to a mongos router unless using shardToRs");
+		}
 	}
 
 	public void shardCollections() {
