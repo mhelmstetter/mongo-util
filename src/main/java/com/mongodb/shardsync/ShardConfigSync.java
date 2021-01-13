@@ -344,50 +344,6 @@ public class ShardConfigSync implements Callable<Integer> {
         }
 	}
 	
-	
-	public void syncIndexes() {
-		logger.debug("Starting syncIndexes");
-		//sourceShardClient.populateCollectionsMap();
-		MongoClient client = sourceShardClient.getMongoClient();
-		MongoClient destClient = destShardClient.getMongoClient();
-		for (String dbName : client.listDatabaseNames()) {
-			//logger.debug("dbName: " + dbName);
-			MongoDatabase db = client.getDatabase(dbName);
-			for (String collectionName : db.listCollectionNames()) {
-				Namespace ns = new Namespace(dbName, collectionName);
-				if (filterCheck(ns)) {
-					continue;
-				}
-				MongoCollection<Document> c = db.getCollection(collectionName);
-				Document createIndexes = new Document("createIndexes", collectionName);
-				List<Document> indexes = new ArrayList<>();
-				createIndexes.append("indexes", indexes);
-				for (Document indexInfo : c.listIndexes()) {
-					logger.debug("ix: " + indexInfo);
-					indexInfo.remove("v");
-					Number expireAfterSeconds = (Number)indexInfo.get("expireAfterSeconds");
-					if (expireAfterSeconds != null) {
-						
-						indexInfo.put("expireAfterSeconds", 50 * SECONDS_IN_YEAR);
-						logger.debug(String.format("Extending TTL for %s %s from %s to %s", 
-								ns, indexInfo.get("name"), expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
-					}
-					indexes.add(indexInfo);
-				}
-				if (! indexes.isEmpty()) {
-					MongoDatabase dbDest = destClient.getDatabase(dbName);
-					try {
-						Document createIndexesResult = dbDest.runCommand(createIndexes);
-						//logger.debug(String.format("%s result: %s", ns, createIndexesResult));
-					} catch (MongoCommandException mce) {
-						logger.error(String.format("%s createIndexes failed: %s", ns, mce.getMessage()));
-					}
-					
-				}
-			}
-		}
-	}
-	
 	public void migrateMetadata() throws InterruptedException {
 		migrateMetadata(true, true);
 	}
@@ -1677,10 +1633,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			mongomirror.setWriteConcern(writeConcern);
 			mongomirror.setHttpStatusPort(httpStatusPort++);
 
-//			if (destShardClient.isVersion36OrLater() && !nonPrivilegedMode) {
-//				logger.debug("Version 3.6 or later, not nonPrivilegedMode, setting preserveUUIDs true");
-//				mongomirror.setPreserveUUIDs(true);
-//			}
+			logger.debug("here: skipBuildIndexes=" + skipBuildIndexes);
 			if (skipBuildIndexes) {
 				mongomirror.setSkipBuildIndexes(skipBuildIndexes);
 			}
