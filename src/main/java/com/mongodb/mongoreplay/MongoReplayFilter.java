@@ -13,7 +13,6 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -28,6 +27,7 @@ import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
 import org.bson.BSONCallback;
 import org.bson.BSONDecoder;
+import org.bson.BSONException;
 import org.bson.BSONObject;
 import org.bson.BasicBSONCallback;
 import org.bson.BasicBSONDecoder;
@@ -163,7 +163,11 @@ public class MongoReplayFilter {
                     	long cursorId = bsonInput.readInt64();
                     	int startingFrom = bsonInput.readInt32();
                     	int nReturned = bsonInput.readInt32();
-                    	Document x = documentCodec.decode(reader, DecoderContext.builder().build());
+                    	try {
+                    		Document x = documentCodec.decode(reader, DecoderContext.builder().build());
+                    	} catch (BSONException be) {
+                    	}
+                    	
                     
                     } else if (opcode == 2012) {
                         
