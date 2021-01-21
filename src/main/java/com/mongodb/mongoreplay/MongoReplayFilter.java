@@ -164,12 +164,11 @@ public class MongoReplayFilter {
                     	int startingFrom = bsonInput.readInt32();
                     	int nReturned = bsonInput.readInt32();
                     	Document x = documentCodec.decode(reader, DecoderContext.builder().build());
-                    	System.out.println(x);
                     
                     } else if (opcode == 2012) {
                         
                         opcode = bsonInput.readInt32();
-                        logger.debug(String.format("Compressed, originalOpcode: %s", opcode));
+                        //logger.debug(String.format("Compressed, originalOpcode: %s", opcode));
                         // Dumb hack, just double count the compressed / uncompressed opcode
                         incrementOpcodeSeenCount(opcode);
                         int uncompressedSize = bsonInput.readInt32();
@@ -183,7 +182,7 @@ public class MongoReplayFilter {
                         
                         bsonInput.readBytes(compressed);
                         byte[] uncompressed = Snappy.uncompress(compressed);
-                        logger.debug(String.format("compressed.length: %s, uncompressedSize: %s, uncompressed.length: %s", compressed.length, uncompressedSize, uncompressed.length));
+                        //logger.debug(String.format("compressed.length: %s, uncompressedSize: %s, uncompressed.length: %s", compressed.length, uncompressedSize, uncompressed.length));
                         
                         if (opcode == 2013) {
                             process2013(uncompressed, channel);
