@@ -195,6 +195,9 @@ public class RawReplayTask implements Callable<ReplayResult> {
 //            commandDoc = queryDoc;
 //        }
         
+        commandDoc.remove("shardVersion");
+        commandDoc.remove("$clusterTime");
+        
         if (commandDoc.containsKey("find")) {
             command = Command.FIND;
             collectionName = commandDoc.getString("find");
