@@ -370,7 +370,7 @@ public class MongoReplayFilter {
                 
                 Document mobj = documentCodec.decode(reader, DecoderContext.builder().build());
                 String db = (String)mobj.get("$db");
-                if (db != null && db.equals("admin") || db.equals("local")) {
+                if (db != null && (db.equals("admin") || db.equals("local"))) {
                     return;
                 }
                 

@@ -270,7 +270,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	
 	private boolean filterCheck(Namespace ns) {
 		if (filtered && !includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
-			logger.debug("Namespace " + ns + " filtered, skipping");
+			logger.trace("Namespace " + ns + " filtered, skipping");
 			return true;
 		}
 		if (ns.getDatabaseName().equals("config") || ns.getDatabaseName().equals("admin")) {
@@ -885,8 +885,8 @@ public class ShardConfigSync implements Callable<Integer> {
 		Map<String, String> destChunkMap = readDestinationChunks();
 
 		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
-		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find().noCursorTimeout(true)
-				.sort(Sorts.ascending("ns", "min"));
+		List<RawBsonDocument> sourceChunks = new ArrayList<>();
+		sourceChunksColl.find().sort(Sorts.ascending("ns", "min")).into(sourceChunks);
 
 		String lastNs = null;
 		int currentCount = 0;
@@ -1184,7 +1184,8 @@ public class ShardConfigSync implements Callable<Integer> {
 			if (mce.getCode() == 20) {
 				logger.debug(String.format("Sharding already enabled for %s", sourceColl.get("_id")));
 			} else {
-				throw mce;
+				logger.error(String.format("Error sharding collection %s", sourceColl.get("_id")));
+				//throw mce;
 			}
 		}
 		return result;
@@ -1260,7 +1261,7 @@ public class ShardConfigSync implements Callable<Integer> {
             }
 
 			if (filtered && !includeDatabasesAll.contains(databaseName)) {
-				logger.debug("Database " + databaseName + " filtered, not sharding on destination");
+				logger.trace("Database " + databaseName + " filtered, not sharding on destination");
 				continue;
 			}
 
@@ -1329,7 +1330,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			String databaseName = database.getString("_id");
 
 			if (filtered && !includeDatabases.contains(databaseName)) {
-				logger.debug("Database " + databaseName + " filtered, not dropping on destination");
+				logger.trace("Database " + databaseName + " filtered, not dropping on destination");
 				continue;
 			} else {
 				databasesList.add(databaseName);
@@ -1350,7 +1351,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			String databaseName = database.getString("_id");
 
 			if (filtered && !includeDatabases.contains(databaseName)) {
-				logger.debug("Database " + databaseName + " filtered, not dropping on destination");
+				logger.trace("Database " + databaseName + " filtered, not dropping on destination");
 				continue;
 			} else {
 				databasesList.add(databaseName);
