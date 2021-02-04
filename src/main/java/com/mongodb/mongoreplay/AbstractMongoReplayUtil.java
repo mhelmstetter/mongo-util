@@ -19,7 +19,6 @@ import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.DataFormatException;
 
@@ -42,7 +41,7 @@ import com.mongodb.Mongo;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
 import com.mongodb.ReadConcern;
-import com.mongodb.ReadPreference;
+import com.mongodb.WriteConcern;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ClusterType;
 import com.mongodb.util.CallerBlocksPolicy;
@@ -61,6 +60,7 @@ public abstract class AbstractMongoReplayUtil {
     private final BasicBSONEncoder encoder;
 
     protected String[] fileNames;
+    protected boolean splitFilesMode = false;
     protected static String[] removeUpdateFields;
     private static Set<String> ignoredCollections = new HashSet<String>();
 
@@ -73,7 +73,7 @@ public abstract class AbstractMongoReplayUtil {
 
     protected PausableThreadPoolExecutor pool = null;
     private BlockingQueue<Runnable> workQueue;
-    List<Future<ReplayResult>> futures = new LinkedList<Future<ReplayResult>>();
+    List<Future<?>> futures = new LinkedList<>();
 
     private String mongoUriStr;
     private static MongoClient mongoClient;
@@ -94,6 +94,8 @@ public abstract class AbstractMongoReplayUtil {
     
     //private Set<Long> seenConnections = new HashSet<Long>();
     
+    private Replayer replayer;
+    
     public AbstractMongoReplayUtil() {
         this.encoder = new BasicBSONEncoder();
         opcodeWhitelist.addAll(Arrays.asList(2004, 2010, 2013));
@@ -102,10 +104,15 @@ public abstract class AbstractMongoReplayUtil {
     public void init() throws NoSuchMethodException, SecurityException, IllegalAccessException, IllegalArgumentException, InvocationTargetException {
         logger.debug("mongoUriStr: " + mongoUriStr);
         MongoClientURI connectionString = new MongoClientURI(mongoUriStr);
+        
         mongoClient = new MongoClient(connectionString);
         //readPreference = mongoClient.getMongoClientOptions().getReadPreference();
         
-        replayOptions.setWriteConcern(mongoClient.getWriteConcern().asDocument());
+        WriteConcern wc = connectionString.getOptions().getWriteConcern();
+        if (wc != null && wc.getWObject() != null) {
+        	replayOptions.setWriteConcern(wc.asDocument());
+        }
+        
         
         ReadConcern readConcern = mongoClient.getReadConcern();
         if (readConcern != null && readConcern.getLevel() != null) {
@@ -137,6 +144,7 @@ public abstract class AbstractMongoReplayUtil {
         monitor = new Monitor(Thread.currentThread());
         monitor.setPool(pool);
         monitor.start();
+        replayer = new Replayer(monitor, mongoClient, replayOptions);
     }
 
     public void close() {
@@ -192,6 +200,14 @@ public abstract class AbstractMongoReplayUtil {
             Thread.interrupted();
         }
     }
+    
+    public void replayFileSplitMode(String filename) throws FileNotFoundException, DataFormatException {
+    	File file = new File(filename);
+    	InputStream inputStream = new BufferedInputStream(new FileInputStream(file));
+    	SplitModeReplayTask rawTask = new SplitModeReplayTask(replayer, inputStream);
+        futures.add(pool.submit(rawTask));
+        count++;
+    }
 
     public void replayFile(String filename) throws FileNotFoundException, DataFormatException {
         File file = new File(filename);
@@ -230,7 +246,7 @@ public abstract class AbstractMongoReplayUtil {
                     firstSeen = lastSeen;
                 }
                 
-                RawReplayTask rawTask = new RawReplayTask(monitor, mongoClient, replayOptions, raw);
+                RawReplayTask rawTask = new RawReplayTask(replayer, raw);
                 futures.add(pool.submit(rawTask));
 
                 count++;
@@ -259,6 +275,8 @@ public abstract class AbstractMongoReplayUtil {
         options.addOption(new Option("help", "print this message"));
         options.addOption(
                 OptionBuilder.withArgName("input mongoreplay bson file(s)").hasArgs().withLongOpt("files").create("f"));
+        
+        options.addOption(OptionBuilder.withArgName("input files (split)").hasArgs().withLongOpt("splitFiles").create("F"));
 
         options.addOption(OptionBuilder.withArgName("remove update fields").hasArgs().withLongOpt("removeUpdateFields")
                 .create("u"));
@@ -268,9 +286,9 @@ public abstract class AbstractMongoReplayUtil {
         options.addOption(
                 OptionBuilder.withArgName("play back target mongo uri").hasArg().withLongOpt("host").isRequired().create("h"));
 
-        options.addOption(OptionBuilder.withArgName("# threads").hasArgs().withLongOpt("threads").create("t"));
-        options.addOption(OptionBuilder.withArgName("sleep millis").hasArgs().withLongOpt("sleep").create("s"));
-        options.addOption(OptionBuilder.withArgName("queue size").hasArgs().withLongOpt("queue").create("q"));
+        options.addOption(OptionBuilder.withArgName("# threads").hasArg().withLongOpt("threads").create("t"));
+        options.addOption(OptionBuilder.withArgName("sleep millis").hasArg().withLongOpt("sleep").create("s"));
+        options.addOption(OptionBuilder.withArgName("queue size").hasArg().withLongOpt("queue").create("q"));
         
         options.addOption(OptionBuilder.withArgName("ignore collection").hasArgs().withLongOpt("ingoreColl").create("c"));
         
@@ -293,11 +311,7 @@ public abstract class AbstractMongoReplayUtil {
             printHelpAndExit(options);
         }
 
-        String[] fileNames = line.getOptionValues("f");
-
-        if (fileNames == null) {
-            printHelpAndExit(options);
-        }
+        
 
         return line;
     }
@@ -306,9 +320,17 @@ public abstract class AbstractMongoReplayUtil {
         CommandLine line = initializeAndParseCommandLineOptions(args);
         
         this.replayOptions = new ReplayOptions();
-        replayOptions.setIgnoredCollections(ignoredCollections);
+        replayOptions.addIgnoredCollections(ignoredCollections);
 
-        this.fileNames = line.getOptionValues("f");
+        if (line.hasOption('F')) {
+        	this.splitFilesMode = true;
+        	String[] vals = line.getOptionValues("F");
+        	this.fileNames = line.getOptionValues("F");
+        } else {
+        	this.fileNames = line.getOptionValues("f");
+        }
+
+        
         String[] x = line.getOptionValues("u");
         replayOptions.setRemoveUpdateFields(x);
         String limitStr = line.getOptionValue("l");
@@ -391,5 +413,9 @@ public abstract class AbstractMongoReplayUtil {
         Long t = (sec + internalToUnix) * 1000;
         return ZonedDateTime.ofInstant(Instant.ofEpochMilli(t), ZoneId.of("UTC"));
     }
+
+	public boolean isSplitFilesMode() {
+		return splitFilesMode;
+	}
 
 }

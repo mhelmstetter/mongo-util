@@ -82,7 +82,13 @@ public class MongoStat {
             for (MongoClient client : mongoClients) {
                 Document serverStatus = client.getDatabase("admin").runCommand(new Document("serverStatus", 1));
                 
-                ServerStatus status = serverStatuses.get(index);
+                ServerStatus status = null;
+                if (serverStatuses.size() >= index+1) {
+                	status = serverStatuses.get(index);
+                } else {
+                	status = new ServerStatus();
+                	serverStatuses.add(index, status);
+                }
                 status.updateServerStatus(serverStatus);
                 status.report();
                 index++;

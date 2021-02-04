@@ -938,8 +938,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				missingCount++;
 
 			} else if (doMove && !mappedShard.equals(destShard)) {
-				// logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs,
-				// destShard, mappedShard));
+				//logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
 				if (doMove) {
 					boolean moveSuccess = moveChunk(sourceNs, sourceMin, sourceMax, mappedShard);
 					if (! moveSuccess) {
@@ -992,7 +991,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		for (Document sourceInfo : sourceDatabaseInfo) {
 			String dbName = sourceInfo.getString("name");
 
-			if (filtered && !includeDatabases.contains(dbName) || dbName.equals("config")) {
+			if (filtered && !includeDatabasesAll.contains(dbName) || dbName.equals("config")) {
 				logger.debug("Ignore " + dbName + " for compare, filtered");
 				continue;
 			}
@@ -1008,6 +1007,13 @@ public class ShardConfigSync implements Callable<Integer> {
 					if (collectionName.startsWith("system.")) {
 						continue;
 					}
+					
+					Namespace ns = new Namespace(dbName, collectionName);
+					if (filtered && !includeNamespaces.contains(ns)) {
+						//logger.debug("include: " + includeNamespaces);
+						continue;
+					}
+					
 
 					boolean firstTry = doCounts(sourceDb, destDb, collectionName);
 
@@ -1023,8 +1029,8 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	private boolean doCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
 
-		Number sourceCount = sourceShardClient.getCollectionCount(sourceDb, collectionName);
-		Number destCount = destShardClient.getCollectionCount(destDb, collectionName);
+		Number sourceCount = sourceShardClient.getFastCollectionCount(sourceDb, collectionName);
+		Number destCount = destShardClient.getFastCollectionCount(destDb, collectionName);
 
 		if (sourceCount == null && destCount == null) {
 			logger.debug(String.format("%s.%s count matches: %s", sourceDb.getName(), collectionName, 0));

@@ -13,6 +13,7 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -71,6 +72,8 @@ public class MongoReplayFilter {
     private String[] removeUpdateFields;
 
     private int limit = Integer.MAX_VALUE;
+    
+    private int splits = 1;
 
     private Map<Integer, Integer> opcodeSeenCounters = new TreeMap<Integer, Integer>();
 
@@ -81,10 +84,30 @@ public class MongoReplayFilter {
     BSONObject raw;
     BSONObject header;
     MessageHeader parsedHeader;
+    
+    private List<FileChannel> fileChannels;
 
     public MongoReplayFilter() {
         this.encoder = new BasicBSONEncoder();
         this.decoder = new BasicBSONDecoder();
+    }
+    
+    private void createOutputFiles(String filename) throws FileNotFoundException {
+    	//outputFiles = new ArrayList<>(splits);
+    	fileChannels = new ArrayList<>(splits);
+    	for (int i = 1; i <= splits; i++) {
+    		File outputFile = new File(String.format("%s.%s.FILTERED", filename, i));
+    		FileOutputStream fos = new FileOutputStream(outputFile);
+    		fileChannels.add(fos.getChannel());
+    	}
+    }
+    
+    private FileChannel getOutputFileChannel(Long seenNum) {
+    	int index = 0;
+    	if (seenNum != null) {
+    		index = seenNum.intValue() % splits;
+    	}
+    	return fileChannels.get(index);
     }
 
     @SuppressWarnings({ "unused", "unchecked" })
@@ -93,14 +116,13 @@ public class MongoReplayFilter {
         File file = new File(filename);
         InputStream inputStream = new BufferedInputStream(new FileInputStream(file));
 
-        File outputFile = new File(filename + ".FILTERED");
-        FileOutputStream fos = null;
+        
+        createOutputFiles(filename);
 
         count = 0;
         written = 0;
         try {
-            fos = new FileOutputStream(outputFile);
-            FileChannel channel = fos.getChannel();
+            
             while (inputStream.available() > 0) {
 
                 if (count >= limit) {
@@ -112,6 +134,10 @@ public class MongoReplayFilter {
                 if (obj == null) {
                     break;
                 }
+                Long seenconnectionnum = (Long)obj.get("seenconnectionnum");
+                //logger.debug("seen: " + seenconnectionnum);
+                
+                FileChannel channel = getOutputFileChannel(seenconnectionnum);
 
                 raw = (BSONObject) obj.get("rawop");
                 if (raw == null) {
@@ -330,6 +356,8 @@ public class MongoReplayFilter {
             }
         } catch (IOException e) {
             e.printStackTrace();
+        } catch (Exception e) {
+                e.printStackTrace();
         } finally {
             try {
                 inputStream.close();
@@ -452,6 +480,8 @@ public class MongoReplayFilter {
         options.addOption(new Option("help", "print this message"));
         options.addOption(
                 OptionBuilder.withArgName("input mongoreplay bson file(s)").hasArgs().withLongOpt("files").create("f"));
+        
+        options.addOption(OptionBuilder.withArgName("number of output files split").hasArgs().withLongOpt("split").create("s"));
 
         options.addOption(OptionBuilder.withArgName("remove update fields").hasArgs().withLongOpt("removeUpdateFields")
                 .create("u"));
@@ -503,11 +533,16 @@ public class MongoReplayFilter {
             int limit = Integer.parseInt(limitStr);
             filter.setLimit(limit);
         }
+        
+        String splitStr = line.getOptionValue("s");
+        if (splitStr != null) {
+            int splits = Integer.parseInt(splitStr);
+            filter.setSplits(splits);
+        }
 
         for (String filename : fileNames) {
             filter.filterFile(filename);
         }
-
     }
 
     public String[] getRemoveUpdateFields() {
@@ -521,5 +556,9 @@ public class MongoReplayFilter {
     public void setLimit(int limit) {
         this.limit = limit;
     }
+
+	public void setSplits(int splits) {
+		this.splits = splits;
+	}
 
 }

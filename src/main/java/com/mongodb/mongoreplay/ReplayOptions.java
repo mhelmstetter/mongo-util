@@ -9,6 +9,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonString;
 
 import com.mongodb.ReadConcernLevel;
+import com.mongodb.WriteConcern;
 
 public class ReplayOptions {
     
@@ -19,19 +20,23 @@ public class ReplayOptions {
     
     private ReplayMode replayMode;
     
-    private BsonDocument writeConcern;
+    private BsonDocument writeConcern = WriteConcern.ACKNOWLEDGED.asDocument();
     private Long sleepMillis;
     
     private BsonDocument readConcernDocument;
     
     // readConcern: { level: "majority" }
+    
+    public ReplayOptions() {
+    	ignoredCollections.add("system.sessions");
+    }
 
     public Set<String> getIgnoredCollections() {
         return ignoredCollections;
     }
 
-    public void setIgnoredCollections(Set<String> ignoredCollections) {
-        this.ignoredCollections = ignoredCollections;
+    public void addIgnoredCollections(Set<String> ignoredCollections) {
+        this.ignoredCollections.addAll(ignoredCollections);
     }
 
     public String[] getRemoveUpdateFields() {

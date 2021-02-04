@@ -20,6 +20,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
@@ -34,6 +35,7 @@ import org.slf4j.LoggerFactory;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
+import com.mongodb.MongoException;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.FindIterable;
@@ -158,8 +160,9 @@ public class ShardClient {
         	Document dbgridResult = adminCommand(new Document("isdbgrid", 1));
         	Integer dbgrid = dbgridResult.getInteger("isdbgrid");
         	mongos = dbgrid.equals(1);
-        } catch (MongoCommandException mce) {
-        	
+        } catch (MongoException mce) {
+        	logger.error(String.format("%s error checking mongos", name), mce);
+        	throw mce;
         }
         
         
@@ -266,7 +269,7 @@ public class ShardClient {
             // LocalDateTime oneHourAgo = LocalDateTime.now().minusHours(1);
 
             // TODO this needs to take into account "dead" mongos instances
-            int limit = 9999;
+            int limit = 100;
             if (name.equals("source")) {
                 limit = 5;
             }
@@ -362,6 +365,7 @@ public class ShardClient {
                 settingsBuilder.credential(connectionString.getCredential());
             }
             MongoClientSettings settings = settingsBuilder.build();
+            logger.debug("settings: " + ReflectionToStringBuilder.toString(settings));
             MongoClient mongoClient = MongoClients.create(settings);
             
             //logger.debug(String.format("%s isMaster started: %s", name, shardHost));
@@ -462,6 +466,10 @@ public class ShardClient {
     		logger.error(name + " getCollectionCount error");
     		throw mce;
     	}
+    }
+    
+    public Number getFastCollectionCount(MongoDatabase db, String collectionName) {
+        return db.getCollection(collectionName).countDocuments();
     }
     
     public Number getCollectionCount(String dbName, String collectionName) {
