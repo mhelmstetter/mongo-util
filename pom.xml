@@ -9,7 +9,6 @@
 	<properties>
 		<spring.version>3.2.2.RELEASE</spring.version>
 		<jpa.version>2.0.0</jpa.version>
-		<junit.version>4.11</junit.version>
 		<hibernate.version>4.1.9.Final</hibernate.version>
 		<slf4j.version>1.7.5</slf4j.version>
 		<logback.version>1.2.3</logback.version>
@@ -193,7 +192,7 @@
 		<dependency>
 			<groupId>junit</groupId>
 			<artifactId>junit</artifactId>
-			<version>4.7</version>
+			<version>4.13.1</version>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
