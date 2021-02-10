@@ -1314,10 +1314,9 @@ public class ShardConfigSync implements Callable<Integer> {
 			//dest = destShardClient.getDatabasesCollection().find(new Document("_id", databaseName)).first();
 			
 			//if (dest == null) {
-				destShardClient.createDatabase(databaseName);
-				dest = destShardClient.getDatabasesCollection().find(new Document("_id", databaseName)).first();
-				logger.debug("dest db: " + dest);
-			//}
+			dest = destShardClient.createDatabase(databaseName);
+			logger.debug("dest db: " + dest);
+
 			String destPrimary = dest.getString("primary");
 			if (mappedPrimary.equals(destPrimary)) {
 				logger.debug("Primary shard already matches for database: " + databaseName);

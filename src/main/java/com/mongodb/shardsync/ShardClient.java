@@ -510,19 +510,23 @@ public class ShardClient {
 		return configDb.getCollection("databases");
 	}
 
-	public void createDatabase(String databaseName) {
+	public Document createDatabase(String databaseName) {
 		logger.debug(name + " createDatabase " + databaseName);
 		String tmpName = "tmp_ShardConfigSync_" + System.currentTimeMillis();
 		mongoClient.getDatabase(databaseName).createCollection(tmpName);
 
-		// ugly hack
-		try {
-			Thread.sleep(5000);
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+		Document dbMeta = null;
+		while (dbMeta == null) {
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+			}
+			logger.debug("createDatabase() querying for config.databases entry");
+			dbMeta = getDatabasesCollection().find(new Document("_id", databaseName)).first();
 		}
+		
 		mongoClient.getDatabase(databaseName).getCollection(tmpName).drop();
+		return dbMeta;
 	}
 
 //    public void createDatabaseOnShards(String databaseName) {
