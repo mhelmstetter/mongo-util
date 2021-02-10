@@ -22,6 +22,10 @@ public class Namespace implements Comparable<Namespace> {
         this.databaseName = dbName;
         this.collectionName = collectionName;
     }
+    
+    public boolean hasDatabase(String dbName) {
+    	return databaseName != null && databaseName.equals(dbName);
+    }
 
     public String getDatabaseName() {
         return databaseName;

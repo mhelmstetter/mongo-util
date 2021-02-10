@@ -29,7 +29,7 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
 
     @Override
     public void run() {
-        
+    	
         //splitVector("foo.bar");
         MongoCursor<RawBsonDocument> cursor = null;
         
@@ -40,7 +40,7 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
         try {
             //cursor = sourceCollection.find().noCursorTimeout(true).iterator();
             cursor = sourceCollection.find().noCursorTimeout(true).hint(new Document("_id", 1)).iterator();
-            Number total = ShardClient.getFastCollectionCount(sourceDb, sourceCollection);
+            Number total = ShardClient.countDocuments(sourceDb, sourceCollection);
             logger.debug(String.format("%s - count: %s documents", ns, total));
             while (cursor.hasNext()) {
                 RawBsonDocument doc = cursor.next();
@@ -63,7 +63,8 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
                     long current = System.currentTimeMillis();
                     long delta = (current - last) / 1000;
                     if (delta >= 30) {
-                        logger.debug(String.format("%s - cloned %s / %s documents, errorCount: %s", ns, successCount, total, errorCount));
+                        logger.debug(String.format("%s - cloned %s / %s documents, errorCount: %s, duplicateKeyCount: %s", 
+                        		ns, successCount, total, errorCount, duplicateKeyCount));
                         last = current;
                     }
                 }
@@ -86,7 +87,7 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
         }
         long end = System.currentTimeMillis();
         Double dur = (end - start)/1000.0;
-        logger.debug(String.format("%s - cloned %s documents, errorCount: %s", ns, successCount, errorCount));
+        logger.debug(String.format("%s - cloned %s documents, errorCount: %s, duplicateKeyCount: %s", ns, successCount, errorCount, duplicateKeyCount));
         logger.debug(String.format("Done cloning %s, %s documents in %f seconds", ns, successCount, dur));
     }
     

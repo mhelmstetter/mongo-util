@@ -335,6 +335,11 @@ public class ShardConfigSync implements Callable<Integer> {
             	
             	if (diff.isEmpty()) {
             		logger.debug(String.format("%s - all indexes match for shard %s, indexCount: %s", ns, shardName, sourceSpecs.size()));
+            		
+            		if (extendTtl) {
+            			destShardClient.extendTtls(shardName, ns, sourceSpecs);
+            		}
+            		
             	} else {
             		logger.debug(String.format("%s - missing dest indexes %s missing on shard %s, creating", ns, diff, shardName));
             		destShardClient.createIndexes(shardName, ns, diff, extendTtl);
@@ -999,6 +1004,10 @@ public class ShardConfigSync implements Callable<Integer> {
 			Document destInfo = destDbInfoMap.get(dbName);
 			if (destInfo != null) {
 				logger.debug(String.format("Found matching database %s", dbName));
+				
+				long sourceTotal = 0;
+				long destTotal = 0;
+				int collCount = 0;
 
 				MongoDatabase sourceDb = sourceShardClient.getMongoClient().getDatabase(dbName);
 				MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(dbName);
@@ -1015,33 +1024,38 @@ public class ShardConfigSync implements Callable<Integer> {
 					}
 					
 
-					boolean firstTry = doCounts(sourceDb, destDb, collectionName);
-
-					if (!firstTry) {
-						doCounts(sourceDb, destDb, collectionName);
-					}
+					long[] result = doCounts(sourceDb, destDb, collectionName);
+					sourceTotal += result[0];
+					destTotal += result[1];
+					collCount++;
 				}
+				logger.debug("Database {} - source count total: {}, dest count total {}", dbName, sourceTotal, destTotal);
 			} else {
 				logger.warn(String.format("Destination db not found, name: %s", dbName));
 			}
 		}
 	}
 
-	private boolean doCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
+	private long[] doCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
 
-		Number sourceCount = sourceShardClient.getFastCollectionCount(sourceDb, collectionName);
-		Number destCount = destShardClient.getFastCollectionCount(destDb, collectionName);
-
-		if (sourceCount == null && destCount == null) {
-			logger.debug(String.format("%s.%s count matches: %s", sourceDb.getName(), collectionName, 0));
-			return true;
-		} else if (sourceCount != null && sourceCount.equals(destCount)) {
+		long[] result = new long[2];
+		Long sourceCount = sourceShardClient.getFastCollectionCount(sourceDb, collectionName).longValue();
+		Long destCount = destShardClient.getFastCollectionCount(destDb, collectionName).longValue();
+		result[0] = sourceCount;
+		result[1] = destCount;
+		
+//		if (sourceCount == null && destCount == null) {
+//			logger.debug(String.format("%s.%s count matches: %s", sourceDb.getName(), collectionName, 0));
+//			return result;
+//		} else if (sourceCount != null && sourceCount.equals(destCount)) {
+		
+		if (sourceCount.equals(destCount)) {
 			logger.debug(String.format("%s.%s count matches: %s", sourceDb.getName(), collectionName, sourceCount));
-			return true;
+			return result;
 		} else {
 			logger.warn(String.format("%s.%s count MISMATCH - source: %s, dest: %s", sourceDb.getName(), collectionName,
 					sourceCount, destCount));
-			return false;
+			return result;
 		}
 	}
 

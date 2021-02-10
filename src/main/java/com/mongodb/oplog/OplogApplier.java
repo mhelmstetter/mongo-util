@@ -4,8 +4,10 @@ import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.ne;
 
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -22,6 +24,9 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
 import org.apache.commons.lang3.StringUtils;
+import org.bson.BSONDecoder;
+import org.bson.BSONObject;
+import org.bson.BasicBSONDecoder;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -58,6 +63,7 @@ public class OplogApplier {
 	private String destClusterUri;
 	private String sourceShardId;
 	private String destShardId;
+	private File sourceFile;
 	
 	private BsonTimestamp timestamp;
 
@@ -94,7 +100,7 @@ public class OplogApplier {
         long errorCount = 0;
         try {
             //cursor = oplog.find(query).noCursorTimeout(true).cursorType(CursorType.TailableAwait).iterator();
-        	cursor = oplog.find(query).noCursorTimeout(true).iterator();
+        	cursor = oplog.find(query).sort(new Document("$natural", 1)).noCursorTimeout(true).iterator();
             while (cursor.hasNext()) {
                 Document doc = cursor.next();
                 String ns = doc.getString("ns");
@@ -130,6 +136,83 @@ public class OplogApplier {
         Double dur = (end - start)/1000.0;
         logger.debug(String.format("Executed %s applyOps in %f seconds, errorCount: %s", count, dur, errorCount));
     }
+	
+	public void runFile() throws FileNotFoundException {
+		logger.debug("OplogApplier starting");
+
+		//sourceToDestShardMap.put(sourceShardId, destShardId);
+
+		//sourceShardClient = new ShardClient("source", sourceClusterUri, sourceToDestShardMap.keySet());
+		destShardClient = new ShardClient("dest", destClusterUri, sourceToDestShardMap.values());
+
+		//sourceShardClient.init();
+		destShardClient.init();
+		//sourceShardClient.populateShardMongoClients();
+		destShardClient.populateShardMongoClients();
+
+		//MongoClient sourceClient = sourceShardClient.getShardMongoClient(sourceShardId);
+		MongoClient destClient = destShardClient.getShardMongoClient(destShardId);
+		
+		
+        long start = System.currentTimeMillis();
+        long count = 0;
+        long errorCount = 0;
+        
+        InputStream inputStream = new BufferedInputStream(new FileInputStream(sourceFile));
+        
+        List<BSONObject> opsList = new ArrayList<>(1);
+        BSONDecoder decoder = new BasicBSONDecoder();
+        try {
+            while (inputStream.available() > 0) {
+                
+            	
+                BSONObject obj = decoder.readObject(inputStream);
+                if(obj == null){
+                    break;
+                }
+                
+                String ns = (String)obj.get("ns");
+                if (ns.startsWith("config.") || ns.contains(".tmp.")) {
+                	continue;
+                }
+                String dbName = StringUtils.substringBefore(ns, ".");
+                obj.removeField("ui");
+                
+                opsList.clear();
+                opsList.add(obj);
+                Document applyOps = new Document("applyOps", opsList);
+                try {
+                	Document result = destClient.getDatabase(dbName).runCommand(applyOps);
+                	logger.debug("result: " + result);
+                } catch (MongoCommandException mce) {
+                	errorCount++;
+                	logger.error("error applying: " + mce.getMessage());
+                	logger.debug("op: " + obj);
+                }
+                
+                count++;
+                if (count % 100 == 0) {
+                	logger.debug(String.format("Executed %s applyOps, errorCount: %s", count, errorCount));
+                }
+                
+            }
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        } finally {
+            try {
+                inputStream.close();
+            } catch (IOException e) {
+            }
+        }
+        System.err.println(String.format("%s objects read", count));
+        
+        
+        
+        long end = System.currentTimeMillis();
+        Double dur = (end - start)/1000.0;
+        logger.debug(String.format("Executed %s applyOps in %f seconds, errorCount: %s", count, dur, errorCount));
+    }
         
 
 	@SuppressWarnings("static-access")
@@ -139,11 +222,14 @@ public class OplogApplier {
 		options.addOption(OptionBuilder.withArgName("Configuration properties file").hasArgs().withLongOpt("config")
 				.isRequired(false).create("c"));
 		options.addOption(
-				OptionBuilder.withArgName("source shard id").hasArg().withLongOpt(SOURCE_SHARD).isRequired().create("s"));
+				OptionBuilder.withArgName("source shard id").hasArg().withLongOpt(SOURCE_SHARD).create("s"));
 		options.addOption(
 				OptionBuilder.withArgName("dest shard id").hasArg().withLongOpt(DEST_SHARD).isRequired().create("d"));
 		options.addOption(
-				OptionBuilder.withArgName("oplog timestamp <time>,<increment>").hasArg().withLongOpt(TIMESTAMP).isRequired().create());
+				OptionBuilder.withArgName("oplog timestamp <time>,<increment>").hasArg().withLongOpt(TIMESTAMP).create());
+		
+		options.addOption(
+				OptionBuilder.withArgName("source file").hasArg().withLongOpt("sourceFile").create("f"));
 
 		CommandLineParser parser = new GnuParser();
 		try {
@@ -201,16 +287,21 @@ public class OplogApplier {
 		oplog.setDestShardId(line.getOptionValue(DEST_SHARD));
 		
 		String timestamp = line.getOptionValue(TIMESTAMP);
-		String[] tsParts = timestamp.split(",");
-		int time = Integer.parseInt(tsParts[0]);
-		int inc = Integer.parseInt(tsParts[1]);
-		oplog.setTimestamp(new BsonTimestamp(time, inc));
-
-		if (oplog.getSourceClusterUri() == null || oplog.getDestClusterUri() == null) {
-			System.out.println("source and dest options required");
-			printHelpAndExit();
+		if (timestamp != null) {
+			String[] tsParts = timestamp.split(",");
+			int time = Integer.parseInt(tsParts[0]);
+			int inc = Integer.parseInt(tsParts[1]);
+			oplog.setTimestamp(new BsonTimestamp(time, inc));
 		}
-		oplog.run();
+		
+		
+		String sourceFileName = line.getOptionValue("sourceFile");
+		if (sourceFileName != null) {
+			oplog.setSourceFile(new File(sourceFileName));
+			oplog.runFile();
+		} else {
+			oplog.run();
+		}
 
 	}
 
@@ -241,6 +332,11 @@ public class OplogApplier {
 
 	public void setTimestamp(BsonTimestamp timestamp) {
 		this.timestamp = timestamp;
+	}
+
+
+	public void setSourceFile(File sourceFile) {
+		this.sourceFile = sourceFile;
 	}
 
 }

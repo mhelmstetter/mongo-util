@@ -7,6 +7,7 @@ import static com.mongodb.client.model.Filters.ne;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
@@ -50,7 +51,7 @@ public class OplogTailWorker implements Runnable {
         long start = System.currentTimeMillis();
         long count = 0;
         try {
-            cursor = oplog.find(query).noCursorTimeout(true).cursorType(CursorType.TailableAwait).iterator();
+            cursor = oplog.find(query).sort(new Document("$natural", 1)).noCursorTimeout(true).cursorType(CursorType.TailableAwait).iterator();
             while (cursor.hasNext()) {
                 RawBsonDocument doc = cursor.next();
                 String ns = doc.getString("ns").getValue();

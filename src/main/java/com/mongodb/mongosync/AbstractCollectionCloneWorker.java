@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoException;
+import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -46,6 +47,7 @@ public abstract class AbstractCollectionCloneWorker {
     
     protected long successCount;
     protected long errorCount;
+    protected long duplicateKeyCount;
     protected BsonValue lastId;
     protected BsonValue previousBatchLastId;
 
@@ -85,6 +87,18 @@ public abstract class AbstractCollectionCloneWorker {
         return lastId;
     }
     
+    private int getDuplicateKeyErrorCount(List<BulkWriteError> errors) {
+    	int count = 0;
+    	for (BulkWriteError bwe : errors) {
+    		if (bwe.getCode() == 11000) {
+    			count++;
+    		} else {
+    			logger.warn(String.format("%s - insertMany() error : %s", ns, bwe.getMessage()));
+    		}
+    	}
+    	return count;
+    }
+    
     protected void doInsert() {
         boolean retry = false;
         
@@ -93,13 +107,18 @@ public abstract class AbstractCollectionCloneWorker {
             //destCollection.insertMany(buffer, insertManyOptions);
             BulkWriteResult result = destCollection.bulkWrite(writesBuffer, bulkWriteOptions);
             successCount += result.getInsertedCount();
-            errorCount += docsBuffer.size() - result.getInsertedCount();
-            //WriteModel<RawBsonDocument> first = buffer.get(0);
-            //first.
+            
+            // this would be double counting?
+            //errorCount += docsBuffer.size() - result.getInsertedCount();
+            
             
         } catch (MongoBulkWriteException bwe) {
-            logger.warn(String.format("%s - insertMany() error : %s", ns, bwe.getMessage()));
-            errorCount += bwe.getWriteErrors().size();
+            //logger.warn(String.format("%s - insertMany() error : %s", ns, bwe.getMessage()));
+        	List<BulkWriteError> errors = bwe.getWriteErrors();
+        	int batchDuplicateKeyCount = getDuplicateKeyErrorCount(errors);
+        	int batchErrorCount = bwe.getWriteErrors().size() - batchDuplicateKeyCount;
+            errorCount += batchErrorCount;
+            duplicateKeyCount += batchDuplicateKeyCount;
         } catch (MongoException e) {
             logger.warn(String.format("%s - insertMany() unexpected error: %s", ns, e.getMessage()));
             //errorCount++;
