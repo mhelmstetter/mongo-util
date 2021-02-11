@@ -219,6 +219,12 @@ public class ShardConfigSync implements Callable<Integer> {
 			Map<String, Shard> sourceShardsMap = sourceShardClient.getShardsMap();
 			
 			List<Shard> destList = new ArrayList<Shard>(destShardClient.getShardsMap().values());
+			
+			if (shardMap == null && sourceShardsMap.size() != destList.size()) {
+				throw new IllegalArgumentException(String.format("disparate shard counts requires shardMap to be defined, sourceShardCount: %s, destShardCount: %s", 
+						sourceShardsMap.size(), destList.size()));
+			}
+			
 			if (! shardToRs) {
 				for (Iterator<Shard> i = sourceShardsMap.values().iterator(); i.hasNext();) {
 					Shard sourceShard = i.next();
@@ -265,7 +271,13 @@ public class ShardConfigSync implements Callable<Integer> {
 	public void shardCollections() {
 		logger.debug("Starting shardCollections");
 		sourceShardClient.populateCollectionsMap();
+		enableDestinationSharding();
 		shardDestinationCollections();
+	}
+	
+	private boolean filterCheck(String nsStr) {
+		Namespace ns = new Namespace(nsStr);
+		return filterCheck(ns);
 	}
 	
 	private boolean filterCheck(Namespace ns) {
@@ -423,16 +435,6 @@ public class ShardConfigSync implements Callable<Integer> {
 		sourceShardClient.disableAutosplit();
 	}
 	
-	private boolean checkChunkExists(String ns, MongoCollection<RawBsonDocument> destChunksColl, RawBsonDocument chunk) {
-		// if the dest chunk exists already, skip it
-		Document query = new Document("ns", ns);
-		query.append("min", chunk.get("min"));
-		query.append("max", chunk.get("max"));
-		long count = destChunksColl.countDocuments(query);
-		count = destChunksColl.countDocuments(query);
-		return count > 0;
-	}
-	
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	private Document getChunkQuery() {
 		Document chunkQuery = new Document();
@@ -484,12 +486,20 @@ public class ShardConfigSync implements Callable<Integer> {
 
 			RawBsonDocument chunk = sourceChunksIterator.next();
 			String ns = chunk.getString("ns").getValue();
+			if (filterCheck(ns)) {
+				continue;
+			}
+			
 			if (!ns.equals(lastNs) && lastNs != null) {
 				logger.debug(String.format("%s - created %s chunks", lastNs, ++currentCount));
 				currentCount = 0;
 			}
 			
-			createChunk(chunk, lastNs, currentCount);
+			
+			
+			destShardClient.createChunk(chunk, true, true);
+			lastNs = ns;
+			currentCount++;
 			
 		}
 		if (nsFilter == null) {
@@ -497,48 +507,6 @@ public class ShardConfigSync implements Callable<Integer> {
 		}
 	}
 
-	private boolean createChunk(RawBsonDocument chunk, String lastNs, int currentCount) {
-		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
-		String ns = chunk.getString("ns").getValue();
-		Namespace sourceNs = new Namespace(ns);
-		if (filterCheck(sourceNs)) {
-			return false;
-		}
-
-		boolean chunkExists = checkChunkExists(ns, destChunksColl, chunk);
-		if (chunkExists) {
-			return false;
-		}
-
-		RawBsonDocument max = (RawBsonDocument) chunk.get("max");
-		for (Iterator i = max.values().iterator(); i.hasNext();) {
-			Object next = i.next();
-			if (next instanceof MaxKey || next instanceof BsonMaxKey) {
-				return false;
-			}
-		}
-
-
-		Document splitCommand = new Document("split", ns);
-		splitCommand.put("middle", max);
-		// logger.debug("splitCommand: " + splitCommand);
-
-		try {
-			destShardClient.adminCommand(splitCommand);
-		} catch (MongoCommandException mce) {
-			logger.error(String.format("command error for namespace %s", ns), mce);
-		}
-
-		chunkExists = checkChunkExists(ns, destChunksColl, chunk);
-		if (! chunkExists) {
-			logger.warn("Chunk create failed: " + chunk);
-		}
-
-		lastNs = ns;
-		currentCount++;
-		return true;
-	}
-	
 	private String getAltMapping(String sourceShardName) {
 		if (! altSourceToDestShardMap.isEmpty()) {
 			String newKey = altSourceToDestShardMap.get(sourceShardName);

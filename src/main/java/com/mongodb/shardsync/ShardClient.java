@@ -12,6 +12,8 @@ import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,8 +22,8 @@ import java.util.TreeMap;
 import java.util.UUID;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 import org.bson.BsonDocument;
+import org.bson.BsonMaxKey;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -29,6 +31,7 @@ import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
+import org.bson.types.MaxKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +47,7 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
+import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
@@ -62,6 +66,9 @@ import com.mongodb.model.ShardTimestamp;
 public class ShardClient {
 
 	private static Logger logger = LoggerFactory.getLogger(ShardClient.class);
+	
+	private final static int ONE_GIGABYTE = 1024 * 1024 * 1024;
+	private final static int ONE_MEGABYTE = 1024 * 1024;
 
 	private DocumentCodec codec = new DocumentCodec();
 
@@ -72,6 +79,8 @@ public class ShardClient {
 		countPipeline.add(Document.parse("{ $group: { _id: null, count: { $sum: 1 } } }"));
 		countPipeline.add(Document.parse("{ $project: { _id: 0, count: 1 } }"));
 	}
+	
+	public final static Set<String> excludedSystemDbs = new HashSet<>(Arrays.asList("system", "local", "config", "admin"));
 
 	private String name;
 	private String version;
@@ -288,7 +297,6 @@ public class ShardClient {
 					settingsBuilder.credential(connectionString.getCredential());
 				}
 				MongoClientSettings settings = settingsBuilder.build();
-
 				MongoClient mongoClient = MongoClients.create(settings);
 				mongosMongoClients.put(mongos.getId(), mongoClient);
 			}
@@ -861,8 +869,183 @@ public class ShardClient {
 			currentCount++;
 			lastNs = sourceNs;
 		}
-
 	}
+	
+	public boolean checkChunkExists(BsonDocument chunk) {
+		String ns = chunk.getString("ns").getValue();
+		// if the dest chunk exists already, skip it
+		Document query = new Document("ns", ns);
+		query.append("min", chunk.get("min"));
+		query.append("max", chunk.get("max"));
+		long count = getChunksCollectionRaw().countDocuments(query);
+		return count > 0;
+	}
+	
+	public void createChunk(BsonDocument chunk, boolean checkAfterCreate, boolean logErrors) {
+		MongoCollection<RawBsonDocument> destChunksColl = getChunksCollectionRaw();
+		String ns = chunk.getString("ns").getValue();
+
+		// we can't really check that the chunk exists because all we have is a split point
+//		boolean chunkExists = checkChunkExists(chunk);
+//		if (chunkExists) {
+//			return false;
+//		}
+
+		BsonDocument max = (BsonDocument) chunk.get("max");
+		for (Iterator i = max.values().iterator(); i.hasNext();) {
+			Object next = i.next();
+			if (next instanceof MaxKey || next instanceof BsonMaxKey) {
+				return;
+			}
+		}
+
+
+		Document splitCommand = new Document("split", ns);
+		splitCommand.put("middle", max);
+		// logger.debug("splitCommand: " + splitCommand);
+
+		try {
+			adminCommand(splitCommand);
+		} catch (MongoCommandException mce) {
+			if (logErrors) {
+				logger.error("command error for namespace {}, message: {}", ns, mce.getMessage());
+			}
+		}
+
+		if (checkAfterCreate) {
+			boolean chunkExists = checkChunkExists(chunk);
+			if (! chunkExists) {
+				logger.warn("Chunk create failed: " + chunk);
+			}
+		}
+	}
+	
+	public List<Document> splitVector(Namespace ns, Document collectionMeta) {
+		Document splitVectorCmd = new Document("splitVector", ns.getNamespace());
+		Document keyPattern = (Document)collectionMeta.get("key");
+		splitVectorCmd.append("keyPattern", keyPattern);
+		splitVectorCmd.append("maxChunkSizeBytes", ONE_GIGABYTE);
+		MongoDatabase dbTop = mongoClient.getDatabase(ns.getDatabaseName());
+		
+		Document stats = dbTop.runCommand(new Document("collStats", ns.getCollectionName()));
+		Long size = ((Number) stats.get("size")).longValue();
+		
+		int shardCount = this.shardsMap.size();
+		long splitSize = (size / shardCount) / 10;
+		
+		if (splitSize >= 16793599) {
+			splitSize = 16793599;
+		} else if (splitSize < ONE_MEGABYTE) {
+			splitSize = 2 * ONE_MEGABYTE;
+		}
+		
+		logger.debug("{}: size: {}, splitSize: {}", ns, size, splitSize);
+		
+		
+		
+		splitVectorCmd.append("maxChunkSizeBytes", splitSize);
+		
+//		if (size < shardCount * ONE_GIGABYTE) {
+//			logger.debug("{}: using 8MB chunk size for splitVector", ns);
+//			splitVectorCmd.append("maxChunkSizeBytes", 8 * ONE_MEGABYTE);
+//		} else {
+//			splitVectorCmd.append("maxChunkSizeBytes", ONE_GIGABYTE);
+//		}
+		//logger.debug("stats: {}", stats);
+		
+		Document splits = null;
+		List<Document> splitKeys = null;
+		List<Document> splitKeysAll = new ArrayList<>();
+		for (Map.Entry<String, MongoClient> entry : shardMongoClients.entrySet()) {
+			MongoClient mongoClient = entry.getValue();
+			MongoDatabase db = mongoClient.getDatabase(ns.getDatabaseName());
+			String shardId = entry.getKey();
+			Integer splitCount = null;
+			try {
+				splits = db.runCommand(splitVectorCmd);
+				splitKeys = (List<Document>) splits.get("splitKeys");
+				splitKeysAll.addAll(splitKeys);
+				splitCount = splitKeys.size();
+			} catch (MongoCommandException mce) {
+				if (mce.getCode() == 13) {
+					logger.error("splitVector failed: {}, note this cannot be run on an Atlas source", mce.getMessage());
+				} else if (mce.getMessage().contains("couldn't find index over splitting key")) {
+					long count = db.getCollection(ns.getCollectionName()).estimatedDocumentCount();
+					logger.warn("shard {} splitVector failed for ns {}, index {} does not exist. estimated doc count: {}", shardId, ns.getNamespace(), keyPattern, count);
+					db.getCollection(ns.getCollectionName()).createIndex(keyPattern, new IndexOptions().background(true));
+//					List<Document> indexes = new ArrayList<>();
+//					db.getCollection(ns.getCollectionName()).listIndexes().into(indexes);
+//					for (Document index : indexes) {
+//						logger.warn("    {}", index);
+//					}
+					
+				} else if (mce.getMessage().contains("ns not found")) {
+					// ignore
+				} else {
+					logger.error("splitVector unexpected error for ns {}, message: {}", ns, mce.getMessage());
+				}
+			}
+			logger.debug("{}: shard: {}, ns: {}, key: {}, splitCount: {}", name, shardId, ns.getNamespace(), keyPattern, splitCount);
+		}
+		return splitKeysAll;
+	}
+	
+	public Map<Namespace, List<Document>> splitVector() {
+		
+		Map<Namespace, List<Document>> splitPoints = new TreeMap<>();
+		
+		for (Document sourceColl : getCollectionsMap().values()) {
+
+			String nsStr = (String) sourceColl.get("_id");
+			Namespace ns = new Namespace(nsStr);
+			if (excludedSystemDbs.contains(ns.getDatabaseName())) {
+				continue;
+			}
+			
+			Document splitVectorCmd = new Document("splitVector", nsStr);
+			Document keyPattern = (Document)sourceColl.get("key");
+			splitVectorCmd.append("keyPattern", keyPattern);
+			splitVectorCmd.append("maxChunkSizeBytes", ONE_GIGABYTE);
+			
+			Document splits = null;
+			List<Document> splitKeys = null;
+			List<Document> splitKeysAll = new ArrayList<>();
+			for (Map.Entry<String, MongoClient> entry : shardMongoClients.entrySet()) {
+				MongoClient mongoClient = entry.getValue();
+				String shardId = entry.getKey();
+				MongoDatabase db = mongoClient.getDatabase(ns.getDatabaseName());
+				
+				Integer splitCount = null;
+				try {
+					splits = db.runCommand(splitVectorCmd);
+					splitKeys = (List<Document>) splits.get("splitKeys");
+					splitKeysAll.addAll(splitKeys);
+					splitCount = splitKeys.size();
+				} catch (MongoCommandException mce) {
+					if (mce.getCode() == 13) {
+						logger.error("splitVector failed: {}, note this cannot be run on an Atlas source", mce.getMessage());
+					} else if (mce.getMessage().contains("couldn't find index over splitting key")) {
+						long count = db.getCollection(ns.getCollectionName()).estimatedDocumentCount();
+						logger.warn("shard {} splitVector failed for ns {}, index {} does not exist. estimated doc count: {}", shardId, nsStr, keyPattern, count);
+						db.getCollection(ns.getCollectionName()).createIndex(keyPattern, new IndexOptions().background(true));
+//						List<Document> indexes = new ArrayList<>();
+//						db.getCollection(ns.getCollectionName()).listIndexes().into(indexes);
+//						for (Document index : indexes) {
+//							logger.warn("    {}", index);
+//						}
+						
+					} else {
+						logger.error("splitVector unexpected error", mce);
+					}
+				}
+				logger.debug("{}: shard: {}, ns: {}, key: {}, splitCount: {}", name, shardId, nsStr, keyPattern, splitCount);
+			}
+			splitPoints.put(ns, splitKeysAll);
+
+		}
+		return splitPoints;
+	}
+	
 
 	public ConnectionString getConnectionString() {
 		return connectionString;

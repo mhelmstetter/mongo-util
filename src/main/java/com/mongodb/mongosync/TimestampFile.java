@@ -66,6 +66,9 @@ public class TimestampFile {
 	}
 
 	public void update(BsonTimestamp ts) throws IOException {
+		if (ts == null) {
+			return;
+		}
 		if (! tsFile.exists()) {
 			boolean success = tsFile.createNewFile();
 		}

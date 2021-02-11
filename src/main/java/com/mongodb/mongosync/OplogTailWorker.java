@@ -143,6 +143,7 @@ public class OplogTailWorker implements Runnable {
 	}
 
 	public int applyOperations(List<BsonDocument> operations) throws MongoException, IOException {
+		//logger.debug("apply ops, size: {}", operations.size());
 		int totalModelsAdded = 0;
 		int totalValidOperations = 0;
 		Namespace previousNamespace = null;
@@ -306,12 +307,12 @@ public class OplogTailWorker implements Runnable {
 //                        op.toString(), collection.getNamespace().getFullName(), soloResult.toString());
                 // no errors? keep going
             } catch (MongoBulkWriteException bwe) {
-                BulkWriteError we = bwe.getWriteErrors().get(0);
-                if (bwe.getCode() != 11000) {
-                	failedOps.add(op);
-                    logger.error("[BULK-WRITE-RETRY ERROR] solo op on collection: {}; error {}",
-                            collection.getNamespace().getFullName(), bwe.getMessage());
-                }
+//                BulkWriteError we = bwe.getWriteErrors().get(0);
+//                if (bwe.getCode() != 11000) {
+//                	failedOps.add(op);
+//                    logger.error("[BULK-WRITE-RETRY ERROR] solo op on collection: {}; code '{}'",
+//                            collection.getNamespace().getFullName(), bwe.getMessage());
+//                }
             } catch (Exception soloErr) {
                 failedOps.add(op);
                 logger.error("[BULK-WRITE-RETRY] unknown exception occurred while applying solo op on collection: {}; error {}",

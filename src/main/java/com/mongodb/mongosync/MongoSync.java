@@ -1,9 +1,11 @@
 package com.mongodb.mongosync;
 
+import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -15,8 +17,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -29,9 +29,15 @@ import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.configuration2.PropertiesConfiguration;
 import org.apache.commons.configuration2.builder.fluent.Configurations;
 import org.apache.commons.configuration2.ex.ConfigurationException;
+import org.bson.BsonDocument;
+import org.bson.Document;
+import org.bson.codecs.DocumentCodec;
+import org.bson.codecs.configuration.CodecRegistry;
+import org.bson.codecs.pojo.PojoCodecProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.MongoIterable;
 import com.mongodb.model.Namespace;
@@ -44,9 +50,15 @@ public class MongoSync {
     
     protected static final Logger logger = LoggerFactory.getLogger(MongoSync.class);
     
+    CodecRegistry registry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
+			fromProviders(PojoCodecProvider.builder().automatic(true).build()));
+
+	DocumentCodec documentCodec = new DocumentCodec(registry);
+    
     private final static String SOURCE_URI = "source";
     private final static String DEST_URI = "dest";
     
+    private final static String SPLIT_CHUNKS = "splitChunks";
     private final static String DROP_DEST_DBS = "dropDestDbs";
     
     private static Options options;
@@ -56,8 +68,6 @@ public class MongoSync {
     
     private ShardClient sourceShardClient;
     private ShardClient destShardClient;
-    
-    private Set<String> databasesBlacklist = new HashSet<>(Arrays.asList("system", "local", "config", "admin"));
     
     private ExecutorService initialSyncExecutor;
     
@@ -78,7 +88,7 @@ public class MongoSync {
         
         populateCollectionsToMigrate();
         sourceShardClient.populateCollectionsMap(mongoSyncOptions.getNamespacesToMigrate());
-        
+        stopBalancers();
     }
     
     private void stopBalancers() {
@@ -188,7 +198,7 @@ public class MongoSync {
             MongoIterable<String> dbNames = sourceShardClient.listDatabaseNames();
             for (String dbName : dbNames) {
                 
-                if (! databasesBlacklist.contains(dbName)) {
+                if (! ShardClient.excludedSystemDbs.contains(dbName)) {
                 	
                 	if (mongoSyncOptions.isDropDestDbs()) {
                 		destShardClient.dropDatabase(dbName);
@@ -248,7 +258,7 @@ public class MongoSync {
     
     private void execute() {
         
-    	stopBalancers();
+    	
         try {
             collectOplogLatestTimestamps();
         } catch (IOException | InterruptedException | ExecutionException e) {
@@ -267,6 +277,29 @@ public class MongoSync {
     }
     
     
+    private void splitChunks() {
+    	logger.debug("Starting splitChunks");
+    	
+    	for (Document sourceColl : sourceShardClient.getCollectionsMap().values()) {
+    		String nsStr = (String) sourceColl.get("_id");
+			Namespace ns = new Namespace(nsStr);
+			if (ShardClient.excludedSystemDbs.contains(ns.getDatabaseName())) {
+				continue;
+			}
+			List<Document> splitPoints = sourceShardClient.splitVector(ns, sourceColl);
+			logger.debug("ns: {}, splitCount: {}", ns, splitPoints.size());
+			
+			for (Document split : splitPoints) {
+				Document chunk = new Document();
+				chunk.put("ns", nsStr);
+				chunk.put("max", split);
+				destShardClient.createChunk(chunk.toBsonDocument(BsonDocument.class, registry), false, false);
+			}
+    	}
+    }
+    
+    
+    
     private static void printHelpAndExit(Options options) {
         HelpFormatter formatter = new HelpFormatter();
         formatter.printHelp("replayUtil", options);
@@ -279,11 +312,11 @@ public class MongoSync {
         options.addOption(new Option("help", "print this message"));
        
         options.addOption(OptionBuilder.withArgName("Configuration properties file").hasArg().withLongOpt("config").create("c"));
-        options.addOption(OptionBuilder.withArgName("source cluster mongo uri").hasArg().withLongOpt("source").create("s"));
-        options.addOption(OptionBuilder.withArgName("destination cluster mongo uri").hasArg().withLongOpt("destination").create("d"));
+        options.addOption(OptionBuilder.withArgName("source cluster mongo uri").hasArg().withLongOpt(SOURCE_URI).create("s"));
+        options.addOption(OptionBuilder.withArgName("destination cluster mongo uri").hasArg().withLongOpt(DEST_URI).create("d"));
+        options.addOption(OptionBuilder.withArgName("split destination chunks").withLongOpt(SPLIT_CHUNKS).create("x"));
         options.addOption(OptionBuilder.withArgName("# threads").hasArg().withLongOpt("threads").create("t"));
-        options.addOption(OptionBuilder.withArgName("Namespace filter").hasArgs().withLongOpt("filter")
-                .isRequired(false).create("f"));
+        options.addOption(OptionBuilder.withArgName("Namespace filter").hasArgs().withLongOpt("filter").create("f"));
         options.addOption(OptionBuilder.withArgName("Drop destination databases, but preserve config metadata")
                 .withLongOpt(DROP_DEST_DBS).create(DROP_DEST_DBS));
         
@@ -328,8 +361,8 @@ public class MongoSync {
         return defaultConfig;
     }
     
-    protected void parseArgs(String args[]) {
-        CommandLine line = initializeAndParseCommandLineOptions(args);
+    protected void parseArgs() {
+        
         
         Configuration config = readProperties();
         
@@ -354,11 +387,18 @@ public class MongoSync {
     
     
     public static void main(String args[]) throws Exception {
-
+    	initializeAndParseCommandLineOptions(args);
+    	
         MongoSync sync = new MongoSync();
-        sync.parseArgs(args);
+        sync.parseArgs();
         sync.initialize();
-        sync.execute();
+        if (line.hasOption(SPLIT_CHUNKS)) {
+        	sync.splitChunks();
+        } else {
+        	sync.execute();
+        }
+        
+        
     }
 
 }

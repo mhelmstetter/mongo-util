@@ -41,24 +41,28 @@ public class OplogTailMonitor implements Runnable {
 
 	@Override
 	public void run() {
-		System.out.println(shardId + " run()");
 		try {
-			timestampFile.update(latestTimestamp);
-		} catch (IOException e) {
-			logger.error("error updating timestamp file", e);
+			try {
+				timestampFile.update(latestTimestamp);
+			} catch (IOException e) {
+				logger.error("error updating timestamp file", e);
+			}
+			
+			BsonTimestamp sourceTs = sourceShardClient.getLatestOplogTimestamp(shardId);
+			Long delta = null;
+			Long lagSeconds = null;
+			if (latestTimestamp != null) {
+				delta = sourceTs.getValue() - latestTimestamp.getValue();
+				lagSeconds = delta / 1000;
+				System.out.println("lagSeconds: " + lagSeconds);
+			}
+			
+			logger.debug("lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, failed: {}, dupeKey: {}",
+					lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, failedOpsCount, duplicateKeyExceptionCount);
+			
+		} catch (Exception e) {
+			logger.error("monitor error", e);
 		}
-		
-		BsonTimestamp sourceTs = sourceShardClient.getLatestOplogTimestamp(shardId);
-		long delta = sourceTs.getValue() - latestTimestamp.getValue();
-		long lagSeconds = delta / 1000;
-		System.out.println("lagSeconds: " + lagSeconds);
-		
-		logger.debug("lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, failed: {}, dupeKey: {}",
-				lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, failedOpsCount, duplicateKeyExceptionCount);
-		
-		
-		
-		
 	}
 
 	public void updateStatus(BulkWriteOutput output) {

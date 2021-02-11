@@ -312,7 +312,7 @@ public class ShardConfigSyncApp {
             sync.migrateMetadata();
         }  else if (line.hasOption(SHARD_COLLECTIONS)) {
             actionFound = true;
-            sync.enableDestinationSharding();
+            sync.shardCollections();
         }  else if (line.hasOption(CREATE_CHUNKS)) {
             actionFound = true;
             sync.migrateMetadata(false, false);

@@ -16,16 +16,7 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
         super(ns, sourceShardClient, destShardClient, options);
     }
     
-//    private List<Document> splitVector(String namespace) {
-//        Document splitVectorCmd = new Document("splitVector", namespace);
-//        Document keyPattern = new Document("_id", 1);
-//        splitVectorCmd.append("keyPattern", keyPattern);
-//        splitVectorCmd.append("maxChunkSizeBytes", 2 * 1024 * 1024);
-//        Document splits = sourceShardClient.getMongoClient().getDatabase("admin").runCommand(splitVectorCmd);
-//        List<Document> splitKeys = (List<Document>) splits.get("splitKeys");
-//        logger.debug("splits: " + splitKeys);
-//        return splitKeys;
-//    }
+
 
     @Override
     public void run() {
