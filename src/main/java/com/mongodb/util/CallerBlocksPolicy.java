@@ -28,7 +28,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * A {@link RejectedExecutionHandler} that blocks the caller until
- * the executor has room in its queue, or a timeout occurs (in which
+ * the oplogTailExecutor has room in its queue, or a timeout occurs (in which
  * case a {@link RejectedExecutionException} is thrown.
  *
  * @author Gary Russell

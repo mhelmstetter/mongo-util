@@ -99,6 +99,28 @@ public abstract class AbstractCollectionCloneWorker {
     	return count;
     }
     
+    protected Number getCount() {
+    	Number total = null;
+    	try {
+    		total = ShardClient.countDocuments(sourceDb, sourceCollection);
+            logger.debug(String.format("%s - count: %s documents", ns, total));
+            return total;
+            
+    	} catch (MongoException me) {
+    		logger.warn("error getting collection count for ns: {}. will retry with estimated count, message: {}", ns, me.getMessage());
+    	}
+    	
+    	try {
+    		total = ShardClient.estimatedDocumentCount(sourceDb, sourceCollection);
+            logger.debug(String.format("%s - count: %s documents", ns, total));
+            return total;
+    	} catch (MongoException me) {
+    		logger.warn("2nd attempt, error getting estimated collection count for ns: {}, message: {}", ns, me.getMessage());
+    	}
+    	
+    	return total;
+    }
+    
     protected void doInsert() {
         boolean retry = false;
         

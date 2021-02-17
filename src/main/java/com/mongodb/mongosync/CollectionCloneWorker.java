@@ -1,9 +1,11 @@
 package com.mongodb.mongosync;
 
+import static com.mongodb.client.model.Filters.eq;
+
 import org.bson.BsonValue;
-import org.bson.Document;
 import org.bson.RawBsonDocument;
 
+import com.mongodb.MongoException;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.model.InsertOneModel;
 import com.mongodb.model.Namespace;
@@ -15,8 +17,6 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
     public CollectionCloneWorker(Namespace ns, ShardClient sourceShardClient, ShardClient destShardClient, MongoSyncOptions options) {
         super(ns, sourceShardClient, destShardClient, options);
     }
-    
-
 
     @Override
     public void run() {
@@ -29,10 +29,11 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
         successCount = 0;
         errorCount = 0;
         try {
-            //cursor = sourceCollection.find().noCursorTimeout(true).iterator();
-            cursor = sourceCollection.find().noCursorTimeout(true).hint(new Document("_id", 1)).iterator();
-            Number total = ShardClient.countDocuments(sourceDb, sourceCollection);
-            logger.debug(String.format("%s - count: %s documents", ns, total));
+            // TODO .hint(new Document("_id", 1)) when storage engine is WT
+            cursor = sourceCollection.find().sort(eq("$natural", 1)).noCursorTimeout(true).iterator();
+            
+            Number total = getCount();
+            
             while (cursor.hasNext()) {
                 RawBsonDocument doc = cursor.next();
                 BsonValue id = getId(doc);
@@ -69,7 +70,9 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
                 writesBuffer.clear();
                 docsBuffer.clear();
             }
-            
+        
+        } catch (MongoException me) {
+        	logger.error("fatal error cloning collection, ns: {}", ns, me);;
         } finally {
             if (cursor != null) {
                 cursor.close();

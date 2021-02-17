@@ -20,6 +20,7 @@ public class TimestampFile {
 	
 	private String shardId;
 	private File tsFile;
+	BsonTimestamp lastTs;
 	
 	
 	public TimestampFile(String shardId) {
@@ -69,6 +70,10 @@ public class TimestampFile {
 		if (ts == null) {
 			return;
 		}
+//		if (lastTs != null) {
+//			logger.debug("{} TimestampFile update: lastTs: {}, newTs: {}", shardId, lastTs.getTime(), ts.getTime());
+//		}
+		
 		if (! tsFile.exists()) {
 			boolean success = tsFile.createNewFile();
 		}
@@ -86,6 +91,7 @@ public class TimestampFile {
         } catch (IOException ioe) {
         	logger.error(String.format("timestamp file update error: %s", tsFile), ioe);
         }
+		lastTs = ts;
 	}
 
 	public String getShardId() {

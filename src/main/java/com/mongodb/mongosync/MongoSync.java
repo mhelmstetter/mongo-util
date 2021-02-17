@@ -60,6 +60,7 @@ public class MongoSync {
     
     private final static String SPLIT_CHUNKS = "splitChunks";
     private final static String DROP_DEST_DBS = "dropDestDbs";
+    private final static String CLEAN_TIMESTAMPS = "cleanTs";
     
     private static Options options;
     private static CommandLine line;
@@ -70,6 +71,9 @@ public class MongoSync {
     private ShardClient destShardClient;
     
     private ExecutorService initialSyncExecutor;
+    private ExecutorService oplogTailExecutor;
+    
+    private List<OplogTailWorker> oplogTailWorkers;
     
     private Map<String, TimestampFile> timestampFiles;
     private Map<String, ShardTimestamp> shardTimestamps;
@@ -88,26 +92,19 @@ public class MongoSync {
         
         populateCollectionsToMigrate();
         sourceShardClient.populateCollectionsMap(mongoSyncOptions.getNamespacesToMigrate());
-        stopBalancers();
+        stopSourceBalancer();
     }
     
-    private void stopBalancers() {
+    private void stopSourceBalancer() {
 
-		logger.debug("stopBalancers started");
+		logger.debug("stopSourceBalancer started");
 		try {
 			sourceShardClient.stopBalancer();
 		} catch (MongoCommandException mce) {
 			logger.error("Could not stop balancer on source shard: " + mce.getMessage());
 		}
 		
-		
-		try {
-			destShardClient.stopBalancer();
-		} catch (MongoCommandException mce) {
-			logger.error("Could not stop balancer on dest shard: " + mce.getMessage());
-		}
-		
-		logger.debug("stopBalancers complete");
+		logger.debug("stopSourceBalancer complete");
 	}
     
     // TODO - currently only does entire databases
@@ -143,8 +140,9 @@ public class MongoSync {
     		TimestampFile tsFile = new TimestampFile(shardId);
     		
     		timestampFiles.put(shardId, tsFile);
-    		if (tsFile.exists()) {
-    			doInitialSync = false;
+    		if (tsFile.exists() && ! mongoSyncOptions.isCleanTimestampFiles()) {
+    			
+				doInitialSync = false;
     			try {
 					ShardTimestamp st = tsFile.getShardTimestamp();
 					logger.debug(String.format("timestamp file %s exists: %s", tsFile, st));
@@ -153,6 +151,7 @@ public class MongoSync {
 					logger.error(String.format("Error reading timestamp file %s", tsFile), e);
 					throw e;
 				}
+    			
     		} else {
     			tasks.add(new GetLatestOplogTimestampTask(shardId, sourceShardClient));
     		}
@@ -169,7 +168,7 @@ public class MongoSync {
                     ShardTimestamp shardTimestamp = result.get();
                     shardTimestamps.put(shardTimestamp.getShardName(), shardTimestamp);
                     sourceShardClient.getShardsMap().get(shardTimestamp.getShardName()).setSyncStartTimestamp(shardTimestamp);
-                    logger.debug(shardTimestamp.toString());
+                    logger.debug("GetLatestOplogTimestampTask result: {}", shardTimestamp.toString());
                    
                     TimestampFile timestampFile = timestampFiles.get(shardTimestamp.getShardName());
                     timestampFile.update(shardTimestamp);
@@ -234,30 +233,35 @@ public class MongoSync {
         
         logger.debug("tailOplogs: {} shards", shards.size());
         
-        ExecutorService executor = Executors.newFixedThreadPool(shards.size());
+        oplogTailExecutor = Executors.newFixedThreadPool(shards.size());
         
-        
+        oplogTailWorkers = new ArrayList<>(shards.size());
         for (Shard shard : shards) {
         	ShardTimestamp shardTimestamp = shardTimestamps.get(shard.getId());
         	TimestampFile timestampFile = timestampFiles.get(shard.getId());
         	
-            Runnable worker;
+        	OplogTailWorker worker;
 			try {
 				worker = new OplogTailWorker(shardTimestamp, timestampFile, sourceShardClient, destShardClient, mongoSyncOptions);
-				executor.execute(worker);
+				oplogTailWorkers.add(worker);
+				oplogTailExecutor.execute(worker);
 			} catch (IOException e) {
 				logger.error(String.format("Error creating OplogTailWorker", e));
 			}
             
         }
-        executor.shutdown();
-        while (!executor.isTerminated()) {
+        oplogTailExecutor.shutdown();
+        while (!oplogTailExecutor.isTerminated()) {
         }
+        logger.debug("tailOplogs shutdown");
         logger.debug("Finished all threads");
     }
     
     private void execute() {
         
+    	if (mongoSyncOptions.isCleanTimestampFiles()) {
+    		// TODO
+    	}
     	
         try {
             collectOplogLatestTimestamps();
@@ -274,6 +278,16 @@ public class MongoSync {
         
         tailOplogs();
         
+    }
+    
+    private void shutdown() {
+    	if (oplogTailExecutor != null) {
+    		for (OplogTailWorker oplogTailWorker : oplogTailWorkers) {
+    			oplogTailWorker.stop();
+    		}
+    		logger.debug("workers stopped");
+    	}
+    	
     }
     
     
@@ -316,9 +330,13 @@ public class MongoSync {
         options.addOption(OptionBuilder.withArgName("destination cluster mongo uri").hasArg().withLongOpt(DEST_URI).create("d"));
         options.addOption(OptionBuilder.withArgName("split destination chunks").withLongOpt(SPLIT_CHUNKS).create("x"));
         options.addOption(OptionBuilder.withArgName("# threads").hasArg().withLongOpt("threads").create("t"));
+        options.addOption(OptionBuilder.withArgName("batch size").hasArg().withLongOpt("batchSize").create("b"));
         options.addOption(OptionBuilder.withArgName("Namespace filter").hasArgs().withLongOpt("filter").create("f"));
         options.addOption(OptionBuilder.withArgName("Drop destination databases, but preserve config metadata")
                 .withLongOpt(DROP_DEST_DBS).create(DROP_DEST_DBS));
+        options.addOption(OptionBuilder.withArgName("Cleanup and previous/old timestamp files")
+                .withLongOpt(CLEAN_TIMESTAMPS).create(CLEAN_TIMESTAMPS));
+        
         
         CommandLineParser parser = new GnuParser();
         try {
@@ -379,9 +397,25 @@ public class MongoSync {
             mongoSyncOptions.setThreads(threads);
         }
         
+        String batchSizeStr = line.getOptionValue("b");
+        if (batchSizeStr != null) {
+            int batchSize = Integer.parseInt(batchSizeStr);
+            mongoSyncOptions.setBatchSize(batchSize);
+        }
+        
         mongoSyncOptions.setNamespaceFilters(line.getOptionValues("f"));
         mongoSyncOptions.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
+        mongoSyncOptions.setCleanTimestampFiles(line.hasOption(CLEAN_TIMESTAMPS));
         
+    }
+    
+    private static void addShutdownHook(MongoSync sync) {
+    	Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            public void run() {
+                logger.debug("**** SHUTDOWN *****");
+                sync.shutdown();
+            }
+        }));
     }
     
     
@@ -395,6 +429,7 @@ public class MongoSync {
         if (line.hasOption(SPLIT_CHUNKS)) {
         	sync.splitChunks();
         } else {
+        	addShutdownHook(sync);
         	sync.execute();
         }
         

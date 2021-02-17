@@ -122,10 +122,10 @@ public class OplogTailingDiffUtil {
     }
         
 //        int numThreads = tasks.size();
-//        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+//        ExecutorService oplogTailExecutor = Executors.newFixedThreadPool(numThreads);
 //        List<Future<OplogTailingDiffTaskResult>> results;
 //        try {
-//            results = executor.invokeAll(tasks);
+//            results = oplogTailExecutor.invokeAll(tasks);
 //            for(Future<OplogTailingDiffTaskResult> future : results){
 //            	OplogTailingDiffTaskResult result = future.get();
 //                
@@ -134,7 +134,7 @@ public class OplogTailingDiffUtil {
 //        } catch (InterruptedException | ExecutionException e) {
 //            throw(e);
 //        } finally {
-//            executor.shutdown();
+//            oplogTailExecutor.shutdown();
 //        }
         logger.debug("Diff complete");
     }

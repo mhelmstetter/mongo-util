@@ -60,6 +60,10 @@ public class OplogTailWorker implements Runnable {
 	private ClientSession destSession;
 	
 	private OplogTailMonitor oplogTailMonitor;
+	
+	List<BsonDocument> buffer;
+	
+	private boolean shutdown;
 
 	public OplogTailWorker(ShardTimestamp shardTimestamp, TimestampFile timestampFile, ShardClient sourceShardClient, ShardClient destShardClient,
 			MongoSyncOptions options) throws IOException {
@@ -69,7 +73,8 @@ public class OplogTailWorker implements Runnable {
 		this.destShardClient = destShardClient;
 		this.destSession = destShardClient.getMongoClient().startSession();
 		this.options = options;
-		oplogTailMonitor = new OplogTailMonitor(timestampFile, sourceShardClient);
+		oplogTailMonitor = new OplogTailMonitor(this, timestampFile, sourceShardClient);
+		buffer = new ArrayList<BsonDocument>(options.getBatchSize());
 	}
 
 	@Override
@@ -83,7 +88,7 @@ public class OplogTailWorker implements Runnable {
 
 		Set<String> namespacesToMigrate = options.getNamespacesToMigrate();
 
-		List<BsonDocument> buffer = new ArrayList<BsonDocument>(options.getBatchSize());
+		
 
 		MongoCursor<BsonDocument> cursor = null;
 		// TODO - should we ignore no-ops
@@ -95,51 +100,69 @@ public class OplogTailWorker implements Runnable {
 		long count;
 		try {
 			
-			logger.debug("{}: starting oplog tail query", shardId);
+			logger.debug("{}: starting oplog tail query: {}", shardId, query);
 			count = 0;
 			cursor = oplog.find(query).sort(eq("$natural", 1))
 					.oplogReplay(true)
 					.noCursorTimeout(true)
 					.cursorType(CursorType.TailableAwait).iterator();
-			while (cursor.hasNext()) {
+			while (cursor.hasNext() && !shutdown) {
 				BsonDocument doc = cursor.next();
+				
 				String ns = doc.getString("ns").getValue();
-
-				if (namespacesToMigrate.contains(ns)) {
-					//logger.debug(shardId + " " + doc);
-					count++;
+				String op = doc.getString("op").getValue();
+				
+				if (op.equals("n")) {
+					continue;
 				}
+				
+//				if (op.equals("n") && buffer.size() == 0) {
+//					BsonTimestamp ts = doc.getTimestamp("ts");
+//					oplogTailMonitor.setLatestTimestamp(ts);
+//					continue;
+//				}
+				
 
                 buffer.add(doc);
+                count++;
                 if (buffer.size() >= options.getBatchSize()) {
-                	applyOperations(buffer);
-                    buffer.clear();
+                	flushBuffer();
                 }
 
 			}
 			
             // flush any remaining from the buffer
-            if (buffer.size() > 0) {
-            	applyOperations(buffer);
-            }
+            flushBuffer();
 			
 			long end = System.currentTimeMillis();
 			Double dur = (end - start) / 1000.0;
-			logger.debug(String.format("\nDone cloning, %s documents in %f seconds",  count, dur));
+			logger.debug("{}: oplog tail complete, {} operations applied in {} seconds",  shardId, count, dur);
 		
 		} catch (Exception e) {
 			logger.error("tail error", e);
 		} finally {
-			if (buffer.size() > 0) {
-            	try {
-					applyOperations(buffer);
-				} catch (MongoException | IOException e) {
-					logger.error("final apply error", e);
-				}
-            }
+        	try {
+        		logger.debug("{}: finally flush", shardId);
+				flushBuffer();
+			} catch (MongoException | IOException e) {
+				logger.error("final apply error", e);
+			}
+
 			cursor.close();
 		}
 		
+	}
+	
+	public synchronized void stop() {
+		logger.debug("{}: OplogTailWorker got stop signal", shardId);
+		this.shutdown = true;
+	}
+	
+	public synchronized void flushBuffer() throws MongoException, IOException {
+		if (buffer.size() > 0) {
+			applyOperations(buffer);
+	        buffer.clear();
+		}
 	}
 
 	public int applyOperations(List<BsonDocument> operations) throws MongoException, IOException {
@@ -177,8 +200,8 @@ public class OplogTailWorker implements Runnable {
 						}
 					} else {
 						// TODO this is noisy and figure out why the counts don't match
-						logger.warn("applyOperations the {} write operations for the batch were applied fully; output {}",
-								operations.size(), output.toString());
+						//logger.warn("applyOperations the {} write operations for the batch were applied fully; output {}",
+						//		operations.size(), output.toString());
 					}
 					totalModelsAdded += output.getSuccessfulWritesCount();
 					models.clear();
@@ -269,21 +292,23 @@ public class OplogTailWorker implements Runnable {
 		} catch (MongoBulkWriteException err) {
 			if (err.getWriteErrors().size() == operations.size()) {
 				// every doc in this batch is error. just move on
-				logger.debug(
-						"[IGNORE] Ignoring all the {} write operations for the {} batch as they all failed with duplicate key exception. (already applied previously)",
-						operations.size(), namespace);
+//				logger.debug(
+//						"[IGNORE] Ignoring all the {} write operations for the {} batch as they all failed with duplicate key exception. (already applied previously)",
+//						operations.size(), namespace);
 				return new BulkWriteOutput(0, 0, 0, 0, operations.size(), new ArrayList<>());
 			}
-			logger.warn(
-					"[WARN] the {} bulk write operations for the {} batch failed with exceptions. applying them one by one. error: {}",
-					operations.size(), namespace, err.getWriteErrors().toString());
-			return applySoloBulkWriteModelsOnCollection(operations, collection);
+//			logger.warn(
+//					"[WARN] the {} bulk write operations for the {} batch failed with exceptions. applying them one by one. error: {}",
+//					operations.size(), namespace, err.getWriteErrors().toString());
+//			return applySoloBulkWriteModelsOnCollection(operations, collection);
 		} catch (Exception ex) {
-			logger.error(
-					"[FATAL] unknown exception occurred while apply bulk write options for oplog. err: {}. Going to retry individually anyways",
-					ex.toString());
-			return applySoloBulkWriteModelsOnCollection(operations, collection);
+//			logger.error(
+//					"[FATAL] unknown exception occurred while apply bulk write options for oplog. err: {}. Going to retry individually anyways",
+//					ex.toString());
+//			return applySoloBulkWriteModelsOnCollection(operations, collection);
 		}
+		// TODO FIXME
+		return new BulkWriteOutput(0, 0, 0, 0, operations.size(), new ArrayList<>());
 	}
 	
     private BulkWriteOutput applySoloBulkWriteModelsOnCollection(List<WriteModel<BsonDocument>> operations, MongoCollection<BsonDocument> collection) {
@@ -342,7 +367,7 @@ public class OplogTailWorker implements Runnable {
 
 		// if the update operation is not using $set then use replaceOne
 		Set<String> docKeys = update.keySet();
-		if (docKeys.size() == 1 && docKeys.iterator().next().startsWith("$")) {
+		if (docKeys.iterator().next().startsWith("$")) {
 			return new UpdateOneModel<BsonDocument>(find, update);
 		} else {
 			return new ReplaceOneModel<BsonDocument>(find, update);
@@ -430,7 +455,7 @@ public class OplogTailWorker implements Runnable {
 				logger.error("performOperationWithRetry op error: {}", we.toString());
 				throw we;
 			} catch (Exception e) {
-				logger.error("performOperationWithRetry [UNHANDLED] error: {}", e.toString());
+				logger.error("performOperationWithRetry [UNHANDLED] error: {}, op: {}", e.toString(), operation, e);
 				throw e;
 			}
 		}

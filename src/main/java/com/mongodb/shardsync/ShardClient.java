@@ -454,12 +454,16 @@ public class ShardClient {
 				try {
 					mongoClient.getDatabase(dbName).drop();
 				} catch (MongoCommandException mce) {
-					logger.debug("Drop failed, brute forcing.");
+					logger.warn("Drop failed, brute forcing.", mce);
 					dropForce(dbName);
 				}
 
 			}
 		}
+	}
+	
+	public static Number estimatedDocumentCount(MongoDatabase db, MongoCollection<RawBsonDocument> collection) {
+		return collection.estimatedDocumentCount();
 	}
 
 	public static Number countDocuments(MongoDatabase db, MongoCollection<RawBsonDocument> collection) {
@@ -881,15 +885,16 @@ public class ShardClient {
 		return count > 0;
 	}
 	
-	public void createChunk(BsonDocument chunk, boolean checkAfterCreate, boolean logErrors) {
+	public void createChunk(BsonDocument chunk, boolean checkExists, boolean logErrors) {
 		MongoCollection<RawBsonDocument> destChunksColl = getChunksCollectionRaw();
 		String ns = chunk.getString("ns").getValue();
 
-		// we can't really check that the chunk exists because all we have is a split point
-//		boolean chunkExists = checkChunkExists(chunk);
-//		if (chunkExists) {
-//			return false;
-//		}
+		if (checkExists) {
+			boolean chunkExists = checkChunkExists(chunk);
+			if (chunkExists) {
+				return;
+			}
+		}
 
 		BsonDocument max = (BsonDocument) chunk.get("max");
 		for (Iterator i = max.values().iterator(); i.hasNext();) {
@@ -912,7 +917,7 @@ public class ShardClient {
 			}
 		}
 
-		if (checkAfterCreate) {
+		if (checkExists) {
 			boolean chunkExists = checkChunkExists(chunk);
 			if (! chunkExists) {
 				logger.warn("Chunk create failed: " + chunk);
@@ -940,18 +945,7 @@ public class ShardClient {
 		}
 		
 		logger.debug("{}: size: {}, splitSize: {}", ns, size, splitSize);
-		
-		
-		
 		splitVectorCmd.append("maxChunkSizeBytes", splitSize);
-		
-//		if (size < shardCount * ONE_GIGABYTE) {
-//			logger.debug("{}: using 8MB chunk size for splitVector", ns);
-//			splitVectorCmd.append("maxChunkSizeBytes", 8 * ONE_MEGABYTE);
-//		} else {
-//			splitVectorCmd.append("maxChunkSizeBytes", ONE_GIGABYTE);
-//		}
-		//logger.debug("stats: {}", stats);
 		
 		Document splits = null;
 		List<Document> splitKeys = null;
@@ -973,12 +967,6 @@ public class ShardClient {
 					long count = db.getCollection(ns.getCollectionName()).estimatedDocumentCount();
 					logger.warn("shard {} splitVector failed for ns {}, index {} does not exist. estimated doc count: {}", shardId, ns.getNamespace(), keyPattern, count);
 					db.getCollection(ns.getCollectionName()).createIndex(keyPattern, new IndexOptions().background(true));
-//					List<Document> indexes = new ArrayList<>();
-//					db.getCollection(ns.getCollectionName()).listIndexes().into(indexes);
-//					for (Document index : indexes) {
-//						logger.warn("    {}", index);
-//					}
-					
 				} else if (mce.getMessage().contains("ns not found")) {
 					// ignore
 				} else {

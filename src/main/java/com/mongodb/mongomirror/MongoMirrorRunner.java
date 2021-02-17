@@ -125,7 +125,7 @@ public class MongoMirrorRunner {
         DefaultExecutor executor = new DefaultExecutor();
         executor.setExitValue(1);
         executor.setStreamHandler(psh);
-        logger.debug("executor.execute id: " + id + " cmdLine: " + cmdLine);
+        logger.debug("oplogTailExecutor.execute id: " + id + " cmdLine: " + cmdLine);
     	executor.execute(cmdLine, executeResultHandler);
     }
     

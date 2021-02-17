@@ -12,6 +12,7 @@ public class MongoSyncOptions {
     private String sourceMongoUri;
     private String destMongoUri;
     private boolean dropDestDbs;
+    private boolean cleanTimestampFiles;
     
     private boolean filtered = false;
     private String[] namespaceFilterList;
@@ -94,6 +95,14 @@ public class MongoSyncOptions {
     public void setNamespacesToMigrate(Set<String> namespacesToMigrate) {
         this.namespacesToMigrate = namespacesToMigrate;
     }
+
+	public boolean isCleanTimestampFiles() {
+		return cleanTimestampFiles;
+	}
+
+	public void setCleanTimestampFiles(boolean cleanTimestampFiles) {
+		this.cleanTimestampFiles = cleanTimestampFiles;
+	}
     
     
 

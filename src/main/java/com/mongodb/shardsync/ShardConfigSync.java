@@ -495,8 +495,6 @@ public class ShardConfigSync implements Callable<Integer> {
 				currentCount = 0;
 			}
 			
-			
-			
 			destShardClient.createChunk(chunk, true, true);
 			lastNs = ns;
 			currentCount++;
@@ -505,6 +503,41 @@ public class ShardConfigSync implements Callable<Integer> {
 		if (nsFilter == null) {
 			logger.debug("createDestChunksUsingSplitCommand complete");
 		}
+	}
+	
+	// TODO incomplete
+	private void createMergedChunks() {
+		logger.debug("createMergedChunks started");
+		
+		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
+
+		Document chunkQuery = getChunkQuery();
+		
+		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find(chunkQuery).noCursorTimeout(true)
+				.sort(Sorts.ascending("ns", "min"));
+
+		String lastNs = null;
+		int currentCount = 0;
+
+		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
+
+			RawBsonDocument chunk = sourceChunksIterator.next();
+			String ns = chunk.getString("ns").getValue();
+			if (filterCheck(ns)) {
+				continue;
+			}
+			
+			if (!ns.equals(lastNs) && lastNs != null) {
+				logger.debug(String.format("%s - created %s chunks", lastNs, ++currentCount));
+				currentCount = 0;
+			}
+			
+			destShardClient.createChunk(chunk, true, true);
+			lastNs = ns;
+			currentCount++;
+			
+		}
+		logger.debug("createDestChunksUsingSplitCommand complete");
 	}
 
 	private String getAltMapping(String sourceShardName) {

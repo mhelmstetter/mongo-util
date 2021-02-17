@@ -28,15 +28,24 @@ public class OplogTailMonitor implements Runnable {
 	//private ClientSession sourceSession;
 	private String shardId;
 	
-	public OplogTailMonitor(TimestampFile timestampFile, ShardClient sourceShardClient) {
+	OplogTailWorker worker;
+	
+	public OplogTailMonitor(OplogTailWorker worker, TimestampFile timestampFile, ShardClient sourceShardClient) {
 		this.timestampFile = timestampFile;
 		this.sourceShardClient = sourceShardClient;
 		this.shardId = timestampFile.getShardId();
+		this.worker = worker;
 		//this.sourceSession = sourceShardClient.getShardMongoClient(shardId).startSession();
 	}
 	
+	protected void setLatestTimestamp(BsonTimestamp ts) throws IOException {
+		latestTimestamp = ts;
+		//logger.debug("{}: setLatestTimestamp: {}", shardId, latestTimestamp.getTime());
+    }
+	
 	protected void setLatestTimestamp(BsonDocument document) throws IOException {
 		latestTimestamp = document.getTimestamp("ts");
+		//logger.debug("{}: setLatestTimestamp: {}", shardId, latestTimestamp.getTime());
     }
 
 	@Override
@@ -49,16 +58,14 @@ public class OplogTailMonitor implements Runnable {
 			}
 			
 			BsonTimestamp sourceTs = sourceShardClient.getLatestOplogTimestamp(shardId);
-			Long delta = null;
-			Long lagSeconds = null;
+			Integer lagSeconds = null;
+			
 			if (latestTimestamp != null) {
-				delta = sourceTs.getValue() - latestTimestamp.getValue();
-				lagSeconds = delta / 1000;
-				System.out.println("lagSeconds: " + lagSeconds);
+				lagSeconds = sourceTs.getTime() - latestTimestamp.getTime();
 			}
 			
-			logger.debug("lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, failed: {}, dupeKey: {}",
-					lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, failedOpsCount, duplicateKeyExceptionCount);
+			logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, failed: {}, dupeKey: {}",
+					shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, failedOpsCount, duplicateKeyExceptionCount);
 			
 		} catch (Exception e) {
 			logger.error("monitor error", e);
