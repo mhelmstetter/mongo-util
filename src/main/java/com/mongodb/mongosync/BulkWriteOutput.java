@@ -1,6 +1,6 @@
 package com.mongodb.mongosync;
 
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.bson.BsonDocument;
@@ -15,11 +15,10 @@ public class BulkWriteOutput {
     private final int modifiedCount;
     private final int insertedCount;
     private final int upsertedCount;
-    private final List<WriteModel<BsonDocument>> failedOps;
+    private List<WriteModel<BsonDocument>> failedOps = Collections.emptyList();
 
     public BulkWriteOutput(BulkWriteResult bulkWriteResult) {
         this.result = bulkWriteResult;
-        this.failedOps = new ArrayList<>();
         this.deletedCount = result.getDeletedCount();
         this.modifiedCount = result.getModifiedCount();
         this.insertedCount = result.getInsertedCount();
@@ -29,6 +28,15 @@ public class BulkWriteOutput {
 
     public BulkWriteOutput(int deletedCount, int modifiedCount, int insertedCount, int upsertedCount, int duplicateKeyExceptionCount, List<WriteModel<BsonDocument>> failedOps) {
         this.failedOps = failedOps;
+        this.result = null;
+        this.deletedCount = deletedCount;
+        this.modifiedCount = modifiedCount;
+        this.insertedCount = insertedCount;
+        this.upsertedCount = upsertedCount;
+        this.duplicateKeyExceptionCount = duplicateKeyExceptionCount;
+    }
+    
+    public BulkWriteOutput(int deletedCount, int modifiedCount, int insertedCount, int upsertedCount, int duplicateKeyExceptionCount) {
         this.result = null;
         this.deletedCount = deletedCount;
         this.modifiedCount = modifiedCount;

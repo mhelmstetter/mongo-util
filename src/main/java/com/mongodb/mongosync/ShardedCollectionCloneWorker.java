@@ -1,32 +1,7 @@
 package com.mongodb.mongosync;
 
-import static com.mongodb.client.model.Filters.and;
-import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.gte;
-import static com.mongodb.client.model.Filters.lt;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
-
-import org.bson.BsonType;
-import org.bson.BsonValue;
-import org.bson.Document;
-import org.bson.RawBsonDocument;
-import org.bson.codecs.configuration.CodecRegistry;
-import org.bson.conversions.Bson;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.mongodb.MongoClient;
-import com.mongodb.client.FindIterable;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
-import com.mongodb.client.model.InsertOneModel;
-import com.mongodb.client.model.Sorts;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
-import com.mongodb.util.CodecUtils;
 
 public class ShardedCollectionCloneWorker extends AbstractCollectionCloneWorker implements Runnable {
 

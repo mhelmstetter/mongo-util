@@ -1,6 +1,8 @@
 package com.mongodb.mongosync;
 
 import java.io.IOException;
+import java.util.Map;
+import java.util.concurrent.ThreadPoolExecutor;
 
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -28,22 +30,23 @@ public class OplogTailMonitor implements Runnable {
 	//private ClientSession sourceSession;
 	private String shardId;
 	
-	OplogTailWorker worker;
+	Map<Integer, ThreadPoolExecutor> executors;
 	
-	public OplogTailMonitor(OplogTailWorker worker, TimestampFile timestampFile, ShardClient sourceShardClient) {
+	public OplogTailMonitor(TimestampFile timestampFile, ShardClient sourceShardClient, Map<Integer, ThreadPoolExecutor> executors) {
 		this.timestampFile = timestampFile;
 		this.sourceShardClient = sourceShardClient;
 		this.shardId = timestampFile.getShardId();
-		this.worker = worker;
+		this.executors = executors;
+		//this.worker = worker;
 		//this.sourceSession = sourceShardClient.getShardMongoClient(shardId).startSession();
 	}
 	
-	protected void setLatestTimestamp(BsonTimestamp ts) throws IOException {
+	protected synchronized void setLatestTimestamp(BsonTimestamp ts) throws IOException {
 		latestTimestamp = ts;
 		//logger.debug("{}: setLatestTimestamp: {}", shardId, latestTimestamp.getTime());
     }
 	
-	protected void setLatestTimestamp(BsonDocument document) throws IOException {
+	protected synchronized void setLatestTimestamp(BsonDocument document) throws IOException {
 		latestTimestamp = document.getTimestamp("ts");
 		//logger.debug("{}: setLatestTimestamp: {}", shardId, latestTimestamp.getTime());
     }
@@ -64,15 +67,31 @@ public class OplogTailMonitor implements Runnable {
 				lagSeconds = sourceTs.getTime() - latestTimestamp.getTime();
 			}
 			
-			logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, failed: {}, dupeKey: {}",
-					shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, failedOpsCount, duplicateKeyExceptionCount);
+			
+			
+			int queuedTasks = 0;
+			if (executors != null) {
+				for (Map.Entry<Integer, ThreadPoolExecutor> entry : executors.entrySet()) {
+					ThreadPoolExecutor pool = entry.getValue();
+					int queueSize = pool.getQueue().size();
+					logger.debug("{} - pool {} - queue size: {}", shardId, entry.getKey(), queueSize);
+					queuedTasks += queueSize;
+				}
+				logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, failed: {}, dupeKey: {}, queuedTasks: {}",
+						shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, failedOpsCount, duplicateKeyExceptionCount,
+						queuedTasks);
+				
+			} else {
+				logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, failed: {}, dupeKey: {}",
+						shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, failedOpsCount, duplicateKeyExceptionCount);
+			}
 			
 		} catch (Exception e) {
 			logger.error("monitor error", e);
 		}
 	}
 
-	public void updateStatus(BulkWriteOutput output) {
+	public synchronized void updateStatus(BulkWriteOutput output) {
 		duplicateKeyExceptionCount += output.getDuplicateKeyExceptionCount();
 		deletedCount += output.getDeletedCount();
 		modifiedCount += output.getModifiedCount();

@@ -8,11 +8,15 @@ import com.mongodb.model.Namespace;
 public class MongoSyncOptions {
     
     private int threads = 4;
-    private int batchSize = 500;
+    private int batchSize = 5000;
     private String sourceMongoUri;
     private String destMongoUri;
     private boolean dropDestDbs;
     private boolean cleanTimestampFiles;
+    private boolean useMultiThreadedOplogTailWorkers = false;
+    private int oplogThreads = 4;
+    private int oplogQueueSize = 50;
+    
     
     private boolean filtered = false;
     private String[] namespaceFilterList;
@@ -102,6 +106,30 @@ public class MongoSyncOptions {
 
 	public void setCleanTimestampFiles(boolean cleanTimestampFiles) {
 		this.cleanTimestampFiles = cleanTimestampFiles;
+	}
+
+	public boolean isUseMultiThreadedOplogTailWorkers() {
+		return useMultiThreadedOplogTailWorkers;
+	}
+
+	public void setUseMultiThreadedOplogTailWorkers(boolean useMultiThreadedOplogTailWorkers) {
+		this.useMultiThreadedOplogTailWorkers = useMultiThreadedOplogTailWorkers;
+	}
+
+	public int getOplogThreads() {
+		return oplogThreads;
+	}
+
+	public void setOplogThreads(int oplogThreads) {
+		this.oplogThreads = oplogThreads;
+	}
+
+	public int getOplogQueueSize() {
+		return oplogQueueSize;
+	}
+
+	public void setOplogQueueSize(int oplogQueueSize) {
+		this.oplogQueueSize = oplogQueueSize;
 	}
     
     

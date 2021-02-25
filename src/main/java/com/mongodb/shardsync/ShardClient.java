@@ -134,10 +134,10 @@ public class ShardClient {
 			this.connectionString = new ConnectionString(clusterUri);
 		}
 
-		if (connectionString.isSrvProtocol()) {
-			throw new IllegalArgumentException(
-					"srv protocol not supported, please configure a single mongos mongodb:// connection string");
-		}
+//		if (connectionString.isSrvProtocol()) {
+//			throw new IllegalArgumentException(
+//					"srv protocol not supported, please configure a single mongos mongodb:// connection string");
+//		}
 
 		this.name = name;
 		this.shardIdFilter = shardIdFilter;
@@ -622,9 +622,24 @@ public class ShardClient {
 	public MongoClient getMongoClient() {
 		return mongoClient;
 	}
+	
+	public MongoCollection<Document> getCollection(String nsStr) {
+		return getCollection(new Namespace(nsStr));
+	}
 
 	public MongoCollection<Document> getCollection(Namespace ns) {
 		return mongoClient.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName());
+	}
+	
+	public Document enableSharding(String dbName) {
+		Document enableSharding = new Document("enableSharding", dbName);
+		return adminCommand(enableSharding);
+	}
+	
+	public Document shardCollection(Namespace ns, Document shardKey) {
+		Document shardCommand = new Document("shardCollection", ns.getNamespace());
+		shardCommand.append("key", shardKey);
+		return adminCommand(shardCommand);
 	}
 
 	public MongoCollection<BsonDocument> getCollectionRaw(Namespace ns) {

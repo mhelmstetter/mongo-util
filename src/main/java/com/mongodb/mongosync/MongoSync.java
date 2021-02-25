@@ -61,6 +61,10 @@ public class MongoSync {
     private final static String SPLIT_CHUNKS = "splitChunks";
     private final static String DROP_DEST_DBS = "dropDestDbs";
     private final static String CLEAN_TIMESTAMPS = "cleanTs";
+    private final static String MULTI_OPLOG_WORKER = "multiWorker";
+    private final static String OPLOG_THREADS = "oplogThreads";
+    private final static String OPLOG_QUEUE_SIZE = "oplogQueueSize";
+    private final static String NAME = "name";
     
     private static Options options;
     private static CommandLine line;
@@ -73,13 +77,12 @@ public class MongoSync {
     private ExecutorService initialSyncExecutor;
     private ExecutorService oplogTailExecutor;
     
-    private List<OplogTailWorker> oplogTailWorkers;
+    private List<AbstractOplogTailWorker> oplogTailWorkers;
     
     private Map<String, TimestampFile> timestampFiles;
     private Map<String, ShardTimestamp> shardTimestamps;
     
     private boolean doInitialSync = true;
-    
     
     private void initialize() throws IOException {
         sourceShardClient = new ShardClient("source", mongoSyncOptions.getSourceMongoUri());
@@ -130,7 +133,6 @@ public class MongoSync {
     }
     
     private void collectOplogLatestTimestamps() throws InterruptedException, ExecutionException, IOException {
-    	Set<String> sourceShards = sourceShardClient.getShardsMap().keySet();
     	Collection<Callable<ShardTimestamp>> tasks = new ArrayList<>();
     	timestampFiles = new HashMap<>();
     	shardTimestamps = new HashMap<>();
@@ -234,27 +236,43 @@ public class MongoSync {
         logger.debug("tailOplogs: {} shards", shards.size());
         
         oplogTailExecutor = Executors.newFixedThreadPool(shards.size());
-        
         oplogTailWorkers = new ArrayList<>(shards.size());
         for (Shard shard : shards) {
-        	ShardTimestamp shardTimestamp = shardTimestamps.get(shard.getId());
-        	TimestampFile timestampFile = timestampFiles.get(shard.getId());
-        	
-        	OplogTailWorker worker;
-			try {
-				worker = new OplogTailWorker(shardTimestamp, timestampFile, sourceShardClient, destShardClient, mongoSyncOptions);
-				oplogTailWorkers.add(worker);
-				oplogTailExecutor.execute(worker);
-			} catch (IOException e) {
-				logger.error(String.format("Error creating OplogTailWorker", e));
-			}
-            
+        	createWorker(shard.getId());
         }
+        
+//        oplogTailExecutor = Executors.newFixedThreadPool(1);
+//        oplogTailWorkers = new ArrayList<>(1);
+//        createWorker(shards.iterator().next().getId());
+        
+        
         oplogTailExecutor.shutdown();
         while (!oplogTailExecutor.isTerminated()) {
+        	try {
+				Thread.sleep(10000);
+			} catch (InterruptedException e) {
+			}
         }
         logger.debug("tailOplogs shutdown");
         logger.debug("Finished all threads");
+    }
+    
+    private void createWorker(String shardId) {
+    	ShardTimestamp shardTimestamp = shardTimestamps.get(shardId);
+    	TimestampFile timestampFile = timestampFiles.get(shardId);
+    	
+    	AbstractOplogTailWorker worker;
+		try {
+			if (mongoSyncOptions.isUseMultiThreadedOplogTailWorkers()) {
+				worker = new MultiBufferOplogTailWorker(shardTimestamp, timestampFile, sourceShardClient, destShardClient, mongoSyncOptions);
+			} else {
+				worker = new OplogTailWorker(shardTimestamp, timestampFile, sourceShardClient, destShardClient, mongoSyncOptions);
+			}
+			oplogTailWorkers.add(worker);
+			oplogTailExecutor.execute(worker);
+		} catch (IOException e) {
+			logger.error(String.format("Error creating OplogTailWorker", e));
+		}
     }
     
     private void execute() {
@@ -282,7 +300,7 @@ public class MongoSync {
     
     private void shutdown() {
     	if (oplogTailExecutor != null) {
-    		for (OplogTailWorker oplogTailWorker : oplogTailWorkers) {
+    		for (AbstractOplogTailWorker oplogTailWorker : oplogTailWorkers) {
     			oplogTailWorker.stop();
     		}
     		logger.debug("workers stopped");
@@ -336,6 +354,15 @@ public class MongoSync {
                 .withLongOpt(DROP_DEST_DBS).create(DROP_DEST_DBS));
         options.addOption(OptionBuilder.withArgName("Cleanup and previous/old timestamp files")
                 .withLongOpt(CLEAN_TIMESTAMPS).create(CLEAN_TIMESTAMPS));
+        options.addOption(OptionBuilder.withArgName("Use multi-threaded oplog tail workers")
+                .withLongOpt(MULTI_OPLOG_WORKER).create(MULTI_OPLOG_WORKER));
+        options.addOption(OptionBuilder.withArgName("# oplog tailing threads (per shard)").hasArg()
+                .withLongOpt(OPLOG_THREADS).create(OPLOG_THREADS));
+        options.addOption(OptionBuilder.withArgName("oplog queue size (per shard)").hasArg()
+                .withLongOpt(OPLOG_QUEUE_SIZE).create(OPLOG_QUEUE_SIZE));
+        
+        options.addOption(OptionBuilder.withArgName("name for this sync process")
+                .withLongOpt(NAME).create(NAME));
         
         
         CommandLineParser parser = new GnuParser();
@@ -406,6 +433,19 @@ public class MongoSync {
         mongoSyncOptions.setNamespaceFilters(line.getOptionValues("f"));
         mongoSyncOptions.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
         mongoSyncOptions.setCleanTimestampFiles(line.hasOption(CLEAN_TIMESTAMPS));
+        mongoSyncOptions.setUseMultiThreadedOplogTailWorkers(line.hasOption(MULTI_OPLOG_WORKER));
+        
+        String oplogThreadsStr = line.getOptionValue(OPLOG_THREADS);
+        if (oplogThreadsStr != null) {
+            int oplogThreads = Integer.parseInt(oplogThreadsStr);
+            mongoSyncOptions.setOplogThreads(oplogThreads);
+        }
+        
+        String oplogQueueSizeStr = line.getOptionValue(OPLOG_QUEUE_SIZE);
+        if (oplogQueueSizeStr != null) {
+            int oplogQueueSize = Integer.parseInt(oplogQueueSizeStr);
+            mongoSyncOptions.setOplogThreads(oplogQueueSize);
+        }
         
     }
     
