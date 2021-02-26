@@ -444,7 +444,7 @@ public class MongoSync {
         String oplogQueueSizeStr = line.getOptionValue(OPLOG_QUEUE_SIZE);
         if (oplogQueueSizeStr != null) {
             int oplogQueueSize = Integer.parseInt(oplogQueueSizeStr);
-            mongoSyncOptions.setOplogThreads(oplogQueueSize);
+            mongoSyncOptions.setOplogQueueSize(oplogQueueSize);
         }
         
     }
