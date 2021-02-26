@@ -76,7 +76,7 @@ public class ApplyOperationsHelper  {
 		}
 
 		if (models.size() > 0) {
-			BulkWriteOutput output = applyBulkWriteModelsOnCollection(namespace, models, operations);
+			BulkWriteOutput output = applyBulkWriteModelsOnCollection(namespace, models);
 			oplogTailMonitor.updateStatus(output);
 			oplogTailMonitor.setLatestTimestamp(lastTimestamp);
 		}
@@ -84,27 +84,29 @@ public class ApplyOperationsHelper  {
 		models = null;
 	}
 	
-	private BulkWriteOutput applyBulkWriteModelsOnCollection(Namespace namespace, List<WriteModel<BsonDocument>> operations, List<BsonDocument> originalOps)
+	
+	public BulkWriteOutput applyBulkWriteModelsOnCollection(Namespace namespace, List<WriteModel<BsonDocument>> operations)
 			throws MongoException {
 		MongoCollection<BsonDocument> collection = destShardClient.getCollectionRaw(namespace);
 		try {
 			//BulkWriteResult bulkWriteResult = applyBulkWriteModelsOnCollection(collection, operations, originalOps);
 			BulkWriteResult bulkWriteResult = collection.bulkWrite(operations, bulkWriteOptions);
-			operations = null;
 			BulkWriteOutput output = new BulkWriteOutput(bulkWriteResult);
 			return output;
 		} catch (MongoBulkWriteException err) {
-			if (err.getWriteErrors().size() == operations.size()) {
-				// every doc in this batch is error. just move on
-//				logger.debug(
-//						"[IGNORE] Ignoring all the {} write operations for the {} batch as they all failed with duplicate key exception. (already applied previously)",
-//						operations.size(), namespace);
-				return new BulkWriteOutput(0, 0, 0, 0, operations.size());
-			}
-//			logger.warn(
-//					"[WARN] the {} bulk write operations for the {} batch failed with exceptions. applying them one by one. error: {}",
-//					operations.size(), namespace, err.getWriteErrors().toString());
-//			return applySoloBulkWriteModelsOnCollection(operations, collection);
+			
+			logger.error("{} bulk write error: {}", shardId, err.getWriteErrors().toString());
+//			if (err.getWriteErrors().size() == operations.size()) {
+//				// every doc in this batch is error. just move on
+////				logger.debug(
+////						"[IGNORE] Ignoring all the {} write operations for the {} batch as they all failed with duplicate key exception. (already applied previously)",
+////						operations.size(), namespace);
+//				return new BulkWriteOutput(0, 0, 0, 0, operations.size());
+//			}
+////			logger.warn(
+////					"[WARN] the {} bulk write operations for the {} batch failed with exceptions. applying them one by one. error: {}",
+////					operations.size(), namespace, err.getWriteErrors().toString());
+////			return applySoloBulkWriteModelsOnCollection(operations, collection);
 		} catch (Exception ex) {
 			logger.error("{} unknown error: {}", shardId, ex.getMessage(), ex);
 
@@ -114,7 +116,7 @@ public class ApplyOperationsHelper  {
 		return new BulkWriteOutput(0, 0, 0, 0, operations.size());
 	}
 	
-	private static WriteModel<BsonDocument> getWriteModelForOperation(BsonDocument operation) throws MongoException {
+	public static WriteModel<BsonDocument> getWriteModelForOperation(BsonDocument operation) throws MongoException {
 		String message;
 		WriteModel<BsonDocument> model = null;
 		switch (operation.getString("op").getValue()) {

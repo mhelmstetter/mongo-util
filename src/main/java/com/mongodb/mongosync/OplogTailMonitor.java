@@ -1,7 +1,10 @@
 package com.mongodb.mongosync;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 
 import org.bson.BsonDocument;
@@ -30,23 +33,23 @@ public class OplogTailMonitor implements Runnable {
 	//private ClientSession sourceSession;
 	private String shardId;
 	
-	Map<Integer, ThreadPoolExecutor> executors;
+	private Map<Integer, ArrayBlockingQueue<BsonDocument>> childQueues;
 	
-	public OplogTailMonitor(TimestampFile timestampFile, ShardClient sourceShardClient, Map<Integer, ThreadPoolExecutor> executors) {
+	public OplogTailMonitor(TimestampFile timestampFile, ShardClient sourceShardClient, Map<Integer, ArrayBlockingQueue<BsonDocument>> childQueues) {
 		this.timestampFile = timestampFile;
 		this.sourceShardClient = sourceShardClient;
 		this.shardId = timestampFile.getShardId();
-		this.executors = executors;
+		this.childQueues = childQueues;
 		//this.worker = worker;
 		//this.sourceSession = sourceShardClient.getShardMongoClient(shardId).startSession();
 	}
 	
-	protected synchronized void setLatestTimestamp(BsonTimestamp ts) throws IOException {
+	protected synchronized void setLatestTimestamp(BsonTimestamp ts) {
 		latestTimestamp = ts;
 		//logger.debug("{}: setLatestTimestamp: {}", shardId, latestTimestamp.getTime());
     }
 	
-	protected synchronized void setLatestTimestamp(BsonDocument document) throws IOException {
+	protected synchronized void setLatestTimestamp(BsonDocument document) {
 		latestTimestamp = document.getTimestamp("ts");
 		//logger.debug("{}: setLatestTimestamp: {}", shardId, latestTimestamp.getTime());
     }
@@ -67,13 +70,13 @@ public class OplogTailMonitor implements Runnable {
 				lagSeconds = sourceTs.getTime() - latestTimestamp.getTime();
 			}
 			
-			
+			//
 			
 			int queuedTasks = 0;
-			if (executors != null) {
-				for (Map.Entry<Integer, ThreadPoolExecutor> entry : executors.entrySet()) {
-					ThreadPoolExecutor pool = entry.getValue();
-					int queueSize = pool.getQueue().size();
+			if (childQueues != null) {
+				for (Map.Entry<Integer, ArrayBlockingQueue<BsonDocument>> entry : childQueues.entrySet()) {
+					ArrayBlockingQueue<BsonDocument> queue = entry.getValue();
+					int queueSize = queue.size();
 					logger.debug("{} - pool {} - queue size: {}", shardId, entry.getKey(), queueSize);
 					queuedTasks += queueSize;
 				}

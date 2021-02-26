@@ -263,11 +263,8 @@ public class MongoSync {
     	
     	AbstractOplogTailWorker worker;
 		try {
-			if (mongoSyncOptions.isUseMultiThreadedOplogTailWorkers()) {
-				worker = new MultiBufferOplogTailWorker(shardTimestamp, timestampFile, sourceShardClient, destShardClient, mongoSyncOptions);
-			} else {
-				worker = new OplogTailWorker(shardTimestamp, timestampFile, sourceShardClient, destShardClient, mongoSyncOptions);
-			}
+			//if (mongoSyncOptions.isUseMultiThreadedOplogTailWorkers()) {
+			worker = new MultiBufferOplogTailWorker(shardTimestamp, timestampFile, sourceShardClient, destShardClient, mongoSyncOptions);
 			oplogTailWorkers.add(worker);
 			oplogTailExecutor.execute(worker);
 		} catch (IOException e) {
@@ -444,7 +441,7 @@ public class MongoSync {
         String oplogQueueSizeStr = line.getOptionValue(OPLOG_QUEUE_SIZE);
         if (oplogQueueSizeStr != null) {
             int oplogQueueSize = Integer.parseInt(oplogQueueSizeStr);
-            mongoSyncOptions.setOplogThreads(oplogQueueSize);
+            mongoSyncOptions.setOplogQueueSize(oplogQueueSize);
         }
         
     }
