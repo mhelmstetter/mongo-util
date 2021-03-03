@@ -66,7 +66,7 @@ public class Monitor extends Thread {
     private void cleanup() {
         pool.shutdownNow();
 
-        logger.trace("waiting for pool to terminate");
+        logger.trace("waiting for executor to terminate");
 
         try {
             pool.awaitTermination(30, TimeUnit.SECONDS);
@@ -89,7 +89,7 @@ public class Monitor extends Thread {
         long currentMillis;
 
         // if anything goes wrong, the futuretask knows how to stop us
-        // hence, we do nothing with the pool in this loop
+        // hence, we do nothing with the executor in this loop
         int count = 0;
         logger.trace("looping every " + sleepMillis);
         while (running && !isInterrupted()) {

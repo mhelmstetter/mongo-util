@@ -40,6 +40,7 @@ public class DiffUtilApp {
         options.addOption(OptionBuilder.withArgName("Destination cluster connection uri").hasArgs().withLongOpt("dest").create("d"));
         options.addOption(OptionBuilder.withArgName("Configuration properties file").hasArgs().withLongOpt("config")
                 .isRequired(false).create("c"));
+        options.addOption(OptionBuilder.withArgName("Include namespace").hasArgs().withLongOpt("includeNamespace").create("f"));
         options.addOption(OptionBuilder.withArgName("Compare counts only")
                 .withLongOpt(COLL_COUNTS).create(COLL_COUNTS));
         options.addOption(OptionBuilder.withArgName("Compare all documents in all collections")
@@ -79,7 +80,11 @@ public class DiffUtilApp {
         } else  {
             propsFile = new File("diff-util.properties");
             if (! propsFile.exists()) {
-                logger.warn("Default config file diff-util.properties not found, using command line options only");
+            	propsFile = new File("shard-sync.properties");
+            }
+            
+            if (! propsFile.exists()) {
+                logger.warn("Default config files diff-util.properties or shard-sync.properties, not found, using command line options only");
                 return prop;
             }
         }
@@ -98,9 +103,13 @@ public class DiffUtilApp {
         DiffUtil sync = new DiffUtil();
         sync.setSourceClusterUri(line.getOptionValue("s", configFileProps.getProperty(SOURCE_URI)));
         sync.setDestClusterUri(line.getOptionValue("d", configFileProps.getProperty(DEST_URI)));
+        
+        String[] includes = line.getOptionValues("f"); 
+        sync.setIncludes(includes);
+        
         sync.init();
         if (line.hasOption(COLL_COUNTS)) {
-            //sync.compareShardCounts();
+            sync.compareShardCounts();
         }
         if (line.hasOption(COMPARE_DOCUMENTS)) {
             sync.compareDocuments();
@@ -108,6 +117,8 @@ public class DiffUtilApp {
         if (line.hasOption(COMPARE_IDS)) {
             sync.compareIds();
         }
+        
+        
 
     }
 

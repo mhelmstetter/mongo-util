@@ -77,7 +77,7 @@ public class OplogTailMonitor implements Runnable {
 				for (Map.Entry<Integer, ArrayBlockingQueue<BsonDocument>> entry : childQueues.entrySet()) {
 					ArrayBlockingQueue<BsonDocument> queue = entry.getValue();
 					int queueSize = queue.size();
-					logger.debug("{} - pool {} - queue size: {}", shardId, entry.getKey(), queueSize);
+					logger.debug("{} - executor {} - queue size: {}", shardId, entry.getKey(), queueSize);
 					queuedTasks += queueSize;
 				}
 				logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, failed: {}, dupeKey: {}, queuedTasks: {}",
@@ -94,7 +94,7 @@ public class OplogTailMonitor implements Runnable {
 		}
 	}
 
-	public synchronized void updateStatus(BulkWriteOutput output) {
+	public synchronized void updateStatus(final BulkWriteOutput output) {
 		duplicateKeyExceptionCount += output.getDuplicateKeyExceptionCount();
 		deletedCount += output.getDeletedCount();
 		modifiedCount += output.getModifiedCount();

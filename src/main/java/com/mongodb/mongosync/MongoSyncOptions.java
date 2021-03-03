@@ -1,6 +1,9 @@
 package com.mongodb.mongosync;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import com.mongodb.model.Namespace;
@@ -18,14 +21,17 @@ public class MongoSyncOptions {
     private int oplogQueueSize = 50;
     
     
-    private boolean filtered = false;
-    private String[] namespaceFilterList;
     
-    private Set<Namespace> namespaceFilters = new HashSet<Namespace>();
-    private Set<String> databaseFilters = new HashSet<String>();
+    private Set<Namespace> includedNamespaces = new HashSet<Namespace>();
+    private Set<String> includedNamespaceStrings = new HashSet<String>();
+    private Set<String> includedDatabases = new HashSet<String>();
+    private Map<String, Set<String>> includedCollections = new HashMap<>();
     
-    // populated externally
-    private Set<String> namespacesToMigrate;
+    private Set<Namespace> excludedNamespaces = new HashSet<Namespace>();
+    private Set<String> excludedNamespaceStrings = new HashSet<String>();
+    private Set<String> excludedDatabases = new HashSet<String>();
+
+    
 
     public int getThreads() {
         return threads;
@@ -51,30 +57,71 @@ public class MongoSyncOptions {
         this.destMongoUri = destMongoUri;
     }
     
-    public void setNamespaceFilters(String[] namespaceFilterList) {
-        this.namespaceFilterList = namespaceFilterList;
-        if (namespaceFilterList == null) {
-            return;
-        }
-        filtered = true;
-        for (String nsStr : namespaceFilterList) {
-            if (nsStr.contains("\\.")) {
-                Namespace ns = new Namespace(nsStr);
-                namespaceFilters.add(ns);
-                databaseFilters.add(ns.getDatabaseName());
-            } else {
-                databaseFilters.add(nsStr);
-            }
-        }
+    public boolean includeCollection(String dbName, String collectionName) {
+    	boolean filtered = !includedCollections.isEmpty();
+    	if (filtered) {
+			Set<String> colls = includedCollections.get(dbName);
+			if (! colls.contains(collectionName)) {
+				return false;
+			} else {
+				return true;
+			}
+		}
+    	return true;
     }
-
-    public Set<Namespace> getNamespaceFilters() {
-        return namespaceFilters;
+    
+    public boolean includeDatabase(String dbName) {
+    	boolean filtered = !includedCollections.isEmpty();
+    	if (filtered) {
+			return includedCollections.containsKey(dbName);
+		}
+    	return true;
     }
-
-    public Set<String> getDatabaseFilters() {
-        return databaseFilters;
-    }
+    
+	public void setIncludesExcludes(String[] includes, String[] excludes) {
+		
+		if (includes != null) {
+			Collections.addAll(includedNamespaceStrings, includes);
+			for (String nsStr : includes) {
+	            if (nsStr.contains(".")) {
+	                Namespace ns = new Namespace(nsStr);
+	                includedNamespaces.add(ns);
+	                includedDatabases.add(ns.getDatabaseName());
+	                Set<String> colls = includedCollections.get(ns.getDatabaseName());
+					if (colls == null) {
+						colls = new HashSet<>();
+						includedCollections.put(ns.getDatabaseName(), colls);
+					}
+					colls.add(ns.getCollectionName());
+	            } else {
+	                includedDatabases.add(nsStr);
+	            }
+	        }
+		}
+		
+		
+		if (excludes != null) {
+			Collections.addAll(excludedNamespaceStrings, excludes);
+			for (String nsStr : excludes) {
+	            if (nsStr.contains(".")) {
+	                Namespace ns = new Namespace(nsStr);
+	                excludedNamespaces.add(ns);
+	                excludedDatabases.add(ns.getDatabaseName());
+	            } else {
+	                excludedDatabases.add(nsStr);
+	            }
+	        }
+		}
+	}
+    
+	public boolean excludeDb(String dbName) {
+		return excludedDatabases.contains(dbName);
+	}
+	
+	public boolean excludeNamespace(Namespace ns) {
+		return excludedNamespaces.contains(ns);
+	}
+	
 
     public void setDropDestDbs(boolean dropDestDbs) {
         this.dropDestDbs = dropDestDbs;
@@ -90,14 +137,6 @@ public class MongoSyncOptions {
 
     public void setBatchSize(int batchSize) {
         this.batchSize = batchSize;
-    }
-
-    public Set<String> getNamespacesToMigrate() {
-        return namespacesToMigrate;
-    }
-
-    public void setNamespacesToMigrate(Set<String> namespacesToMigrate) {
-        this.namespacesToMigrate = namespacesToMigrate;
     }
 
 	public boolean isCleanTimestampFiles() {
@@ -131,7 +170,25 @@ public class MongoSyncOptions {
 	public void setOplogQueueSize(int oplogQueueSize) {
 		this.oplogQueueSize = oplogQueueSize;
 	}
-    
-    
+
+	public Set<String> getIncludedNamespaceStrings() {
+		return includedNamespaceStrings;
+	}
+
+	public Set<Namespace> getIncludedNamespaces() {
+		return includedNamespaces;
+	}
+
+	public Set<Namespace> getExcludedNamespaces() {
+		return excludedNamespaces;
+	}
+
+	public Set<String> getExcludedNamespaceStrings() {
+		return excludedNamespaceStrings;
+	}
+
+	public Map<String, Set<String>> getIncludedCollections() {
+		return includedCollections;
+	}
 
 }

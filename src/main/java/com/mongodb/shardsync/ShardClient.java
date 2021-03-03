@@ -485,7 +485,7 @@ public class ShardClient {
 	}
 
 	public Number getFastCollectionCount(MongoDatabase db, String collectionName) {
-		return db.getCollection(collectionName).countDocuments();
+		return db.getCollection(collectionName).estimatedDocumentCount();
 	}
 
 	public Number getCollectionCount(String dbName, String collectionName) {

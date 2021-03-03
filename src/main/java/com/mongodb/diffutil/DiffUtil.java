@@ -2,21 +2,21 @@ package com.mongodb.diffutil;
 
 import static com.mongodb.client.model.Filters.eq;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.TreeSet;
 
-import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
-import org.bson.codecs.BsonDocumentCodec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.Sets;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
 import com.mongodb.client.MongoCollection;
@@ -24,6 +24,7 @@ import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Sorts;
+import com.mongodb.model.Namespace;
 import com.mongodb.model.ShardCollection;
 import com.mongodb.util.DiffUtils;
 import com.mongodb.util.bson.BsonValueComparator;
@@ -39,21 +40,25 @@ public class DiffUtil {
 	private MongoClient sourceClient;
 	private MongoClient destClient;
 
-	private final static Document SORT_ID = new Document("_id", 1);
+	private Set<Namespace> includedNamespaces = new HashSet<>();
+    private Set<String> includedNamespaceStrings = new HashSet<>();
+    private Set<String> includedDatabases = new HashSet<>();
+    private Map<String, Set<String>> includedCollections = new HashMap<>();
 
+	private final static Document SORT_ID = new Document("_id", 1);
 
 	private Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
 	private Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
 
 	private BsonValueComparator comparator = new BsonValueComparator();
-	
+
 	MongoDatabase currentSourceDb;
 	MongoDatabase currentDestDb;
-	
+
 	private String currentDbName;
 	private String currentCollectionName;
 	private String currentNs;
-	
+
 	long totalDbs = 0;
 	long missingDbs = 0;
 	long totalCollections = 0;
@@ -61,7 +66,6 @@ public class DiffUtil {
 	long totalMissingDocs = 0;
 	long totalKeysMisordered = 0;
 	long totalHashMismatched = 0;
-
 
 	@SuppressWarnings("unchecked")
 	public void init() {
@@ -84,20 +88,31 @@ public class DiffUtil {
 		List<Document> sourceDatabaseInfo = (List<Document>) sourceDatabases.get("databases");
 		List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
 
-		populateDbMap(sourceDatabaseInfo, sourceDbInfoMap);
+		if (includedNamespaces.isEmpty()) {
+			populateDbMap(sourceDatabaseInfo, sourceDbInfoMap);
+		} else {
+			for (Document dbInfo : sourceDatabaseInfo) {
+				String dbName = dbInfo.getString("name");
+				if (includedDatabases.contains(dbName)) {
+					sourceDbInfoMap.put(dbName, dbInfo);
+				}
+				
+			}
+		}
+		
 		populateDbMap(destDatabaseInfo, destDbInfoMap);
 	}
 
 	public void compareDocuments() {
 		logger.debug("Starting compareDocuments mode");
+		
+		boolean filtered = !includedCollections.isEmpty();
 
 		for (String dbName : sourceDbInfoMap.keySet()) {
 			this.currentDbName = dbName;
 			Document destInfo = destDbInfoMap.get(dbName);
 			if (destInfo != null) {
-				if (dbName.equals("admin") 
-						|| dbName.equals("config")
-						|| dbName.equals("local") ) {
+				if (dbName.equals("admin") || dbName.equals("config") || dbName.equals("local")) {
 					continue;
 				}
 				totalDbs++;
@@ -105,6 +120,14 @@ public class DiffUtil {
 				currentDestDb = destClient.getDatabase(dbName);
 				MongoIterable<String> sourceCollectionNames = currentSourceDb.listCollectionNames();
 				for (String collectionName : sourceCollectionNames) {
+					
+					if (filtered) {
+						Set<String> colls = includedCollections.get(dbName);
+						if (! colls.contains(collectionName)) {
+							continue;
+						}
+					}
+					
 					this.currentCollectionName = collectionName;
 					this.currentNs = String.format("%s.%s", dbName, collectionName);
 					if (collectionName.equals("system.profile") || collectionName.equals("system.indexes")) {
@@ -113,28 +136,31 @@ public class DiffUtil {
 					compareAllDocumentsInCollection();
 				}
 			} else {
-				logger.error(String.format("database %s missing on destination", dbName));
+				logger.error(String.format("database %s missing on destination or excluded via filter", dbName));
 				missingDbs++;
 			}
 		}
-		logger.debug(String.format("%s dbs compared, %s collections compared, missingDbs %s, docMatches: %s, missingDocs: %s, hashMismatched: %s, keysMisordered: %s",
-				totalDbs, totalCollections, missingDbs, totalMatches, totalMissingDocs, totalHashMismatched, totalKeysMisordered));
+		logger.debug(String.format(
+				"%s dbs compared, %s collections compared, missingDbs %s, docMatches: %s, missingDocs: %s, hashMismatched: %s, keysMisordered: %s",
+				totalDbs, totalCollections, missingDbs, totalMatches, totalMissingDocs, totalHashMismatched,
+				totalKeysMisordered));
 
 	}
 
 	private void compareAllDocumentsInCollection() {
-		
+
 		long sourceCount = currentSourceDb.getCollection(currentCollectionName).countDocuments();
 		long destCount = currentDestDb.getCollection(currentCollectionName).countDocuments();
-		logger.debug(String.format("Starting collection: %s - %d documents", currentNs,
-				sourceCount));
+		logger.debug(String.format("Starting collection: %s - %d documents", currentNs, sourceCount));
 		if (sourceCount != destCount) {
-			logger.error(String.format("%s - doc count mismatch - sourceCount: %s, destCount: %s", 
-					currentNs, sourceCount, destCount));
+			logger.error(String.format("%s - doc count mismatch - sourceCount: %s, destCount: %s", currentNs,
+					sourceCount, destCount));
 		}
 
-		MongoCollection<RawBsonDocument> sourceColl = currentSourceDb.getCollection(currentCollectionName, RawBsonDocument.class);
-		MongoCollection<RawBsonDocument> destColl = currentDestDb.getCollection(currentCollectionName, RawBsonDocument.class);
+		MongoCollection<RawBsonDocument> sourceColl = currentSourceDb.getCollection(currentCollectionName,
+				RawBsonDocument.class);
+		MongoCollection<RawBsonDocument> destColl = currentDestDb.getCollection(currentCollectionName,
+				RawBsonDocument.class);
 
 		MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(SORT_ID).iterator();
 		MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(SORT_ID).iterator();
@@ -196,12 +222,10 @@ public class DiffUtil {
 		totalHashMismatched += hashMismatched;
 		totalMissingDocs += missing;
 
-		logger.debug(String.format("%s.%s complete - matches: %d, missing: %d, outOfOrderKeys: %s, hashMismatched: %d", currentSourceDb.getName(),
-				currentCollectionName, matches, missing, keysMisordered, hashMismatched));
+		logger.debug(String.format("%s.%s complete - matches: %d, missing: %d, outOfOrderKeys: %s, hashMismatched: %d",
+				currentSourceDb.getName(), currentCollectionName, matches, missing, keysMisordered, hashMismatched));
 
 	}
-
-
 
 	private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
 		for (Document dbInfo : dbInfoList) {
@@ -249,12 +273,12 @@ public class DiffUtil {
 		for (String dbName : sourceDbInfoMap.keySet()) {
 			Document destInfo = destDbInfoMap.get(dbName);
 			if (destInfo != null) {
-				
+
 				if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config")) {
 					continue;
 				}
 				totalDbs++;
-				
+
 				MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
 				MongoDatabase destDb = destClient.getDatabase(dbName);
 				MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
@@ -335,8 +359,9 @@ public class DiffUtil {
 							totalMatches++;
 						}
 					}
-					
-					logger.debug(String.format("%s - complete. sourceCount: %s, destCount: %s", collectionName, sourceCount, destCount));
+
+					logger.debug(String.format("%s - complete. sourceCount: %s, destCount: %s", collectionName,
+							sourceCount, destCount));
 				}
 
 			} else {
@@ -344,8 +369,36 @@ public class DiffUtil {
 				missingDbs++;
 			}
 		}
-		logger.debug(String.format("%s dbs compared, %s collections compared, missingDbs %s, idMatches: %s, missingDocs: %s",
-				totalDbs, totalCollections, missingDbs, totalMatches, totalMissingDocs));
+		logger.debug(
+				String.format("%s dbs compared, %s collections compared, missingDbs %s, idMatches: %s, missingDocs: %s",
+						totalDbs, totalCollections, missingDbs, totalMatches, totalMissingDocs));
+	}
+
+	public void compareShardCounts() {
+		// TODO Auto-generated method stub
+
+	}
+
+	public void setIncludes(String[] includes) {
+
+		if (includes != null) {
+			Collections.addAll(includedNamespaceStrings, includes);
+			for (String nsStr : includes) {
+				if (nsStr.contains(".")) {
+					Namespace ns = new Namespace(nsStr);
+					includedNamespaces.add(ns);
+					includedDatabases.add(ns.getDatabaseName());
+					Set<String> colls = includedCollections.get(ns.getDatabaseName());
+					if (colls == null) {
+						colls = new HashSet<>();
+						includedCollections.put(ns.getDatabaseName(), colls);
+					}
+					colls.add(ns.getCollectionName());
+				} else {
+					includedDatabases.add(nsStr);
+				}
+			}
+		}
 	}
 
 }

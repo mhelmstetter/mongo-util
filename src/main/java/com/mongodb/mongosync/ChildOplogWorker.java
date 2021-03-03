@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -41,6 +42,20 @@ public class ChildOplogWorker implements Runnable {
 	public void stop() {
 		shutdown = true;
 	}
+	
+	private void flush() {
+		for (Map.Entry<String, List<WriteModel<BsonDocument>>> entry : writeModelsMap.entrySet()) {
+			String ns = entry.getKey();
+			List<WriteModel<BsonDocument>> models = entry.getValue();
+			if (models.size() > 0) {
+				Namespace namespace = new Namespace(ns);
+				BulkWriteOutput output = applyOperationsHelper.applyBulkWriteModelsOnCollection(namespace, models);
+				models.clear();
+				oplogTailMonitor.updateStatus(output);
+				oplogTailMonitor.setLatestTimestamp(lastTimestamp);
+			}
+		}
+	}
 
 	@Override
 	public void run() {
@@ -50,10 +65,18 @@ public class ChildOplogWorker implements Runnable {
 			try {
 				BsonDocument currentDocument = null;
 				try {
-					currentDocument = workQueue.take();
+					currentDocument = workQueue.poll(10, TimeUnit.SECONDS);
 				} catch (InterruptedException e) {
-					
-				} 
+					if (shutdown) {
+						logger.debug("{}: interruped, breaking", shardId);
+						break;
+					}
+				}
+				
+				if (currentDocument == null) {
+					flush();
+					continue;
+				}
 				
 				String ns = currentDocument.getString("ns").getValue();
 				Namespace namespace = new Namespace(ns);
@@ -91,6 +114,8 @@ public class ChildOplogWorker implements Runnable {
 			}
 			
 		}
+		logger.debug("{}: child flush", shardId);
+		flush();
 		
 	}
 

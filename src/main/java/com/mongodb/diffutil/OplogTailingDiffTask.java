@@ -57,7 +57,7 @@ public class OplogTailingDiffTask implements Callable<OplogTailingDiffTaskResult
     private MongoClient destMongoClient;
     
 //    private BlockingQueue<Runnable> workQueue;
-//    protected ThreadPoolExecutor pool = null;
+//    protected ThreadPoolExecutor executor = null;
 //    private ExecutorCompletionService<DiffResult> completionService;
 //    private Monitor monitor;
     
@@ -74,8 +74,8 @@ public class OplogTailingDiffTask implements Callable<OplogTailingDiffTaskResult
         this.destMongoClient = destClient.getShardMongoClient(destShardId);
         
 //        workQueue = new LinkedBlockingQueue<Runnable>(queueSize);
-//        pool = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5));
-//        completionService = new ExecutorCompletionService<DiffResult>(pool);
+//        executor = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5));
+//        completionService = new ExecutorCompletionService<DiffResult>(executor);
     }
     
     private DiffResult diff(Set<Object> buffer, String sourceShardId, Namespace ns, MongoClient sourceClient, MongoClient destClient) throws Exception {
@@ -202,7 +202,7 @@ public class OplogTailingDiffTask implements Callable<OplogTailingDiffTaskResult
                 	if (buffersCount >= batchSize) {
                 		
                 		//DiffTask diffTask = new DiffTask(Collections.unmodifiableSet(buffer), sourceShardId, oplogSummary.getNs(), sourceMongoClient, destMongoClient, taskCount);
-                		//futures.add(pool.submit(diffTask));
+                		//futures.add(executor.submit(diffTask));
                 		DiffResult diffResult = diff(buffer, sourceShardId, oplogSummary.getNs(), sourceMongoClient, destMongoClient);
                 		result.addDiffResult(diffResult);
                         taskCount++;
@@ -218,7 +218,7 @@ public class OplogTailingDiffTask implements Callable<OplogTailingDiffTaskResult
                 Set<Object> buffer = entry.getValue();
                 
                 //DiffTask diffTask = new DiffTask(Collections.unmodifiableSet(buffer), sourceShardId, ns, sourceMongoClient, destMongoClient, taskCount);
-                //futures.add(pool.submit(diffTask));
+                //futures.add(executor.submit(diffTask));
                 DiffResult diffResult = diff(buffer, sourceShardId, ns, sourceMongoClient, destMongoClient);
                 result.addDiffResult(diffResult);
                 taskCount++;
@@ -240,7 +240,7 @@ public class OplogTailingDiffTask implements Callable<OplogTailingDiffTaskResult
 //        	result.addDiffResult(diffResult);
 //        }
 //        
-//        pool.shutdown();
+//        executor.shutdown();
 //        
         return result;
     }

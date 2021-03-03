@@ -285,8 +285,10 @@ public class ShardConfigSyncApp {
         boolean actionFound = false;
         if (line.hasOption(COLL_COUNTS)) {
             actionFound = true;
-            sync.setDoChunkCounts(line.hasOption(CHUNK_COUNTS));
             sync.compareShardCounts();
+        } else if (line.hasOption(CHUNK_COUNTS)) {
+        	actionFound = true;
+        	sync.compareChunkCounts();
         } else if (line.hasOption(FLUSH_ROUTER)) {
             actionFound = true;
             sync.flushRouterConfig();

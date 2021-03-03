@@ -3,6 +3,8 @@ package com.mongodb.shardsync;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.exists;
+import static com.mongodb.client.model.Filters.gte;
+import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.regex;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
@@ -68,6 +70,7 @@ import com.mongodb.mongomirror.MongoMirrorRunner;
 import com.mongodb.mongomirror.MongoMirrorStatus;
 import com.mongodb.mongomirror.MongoMirrorStatusInitialSync;
 import com.mongodb.mongomirror.MongoMirrorStatusOplogSync;
+import com.mongodb.mongosync.ChunkCloneTask;
 
 import picocli.CommandLine.Command;
 
@@ -1036,12 +1039,25 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 		}
 	}
-
+	
 	private long[] doCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
+		return doCounts(sourceDb, destDb, collectionName, null);
+	}
+
+	private long[] doCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName, Bson query) {
 
 		long[] result = new long[2];
-		Long sourceCount = sourceShardClient.getFastCollectionCount(sourceDb, collectionName).longValue();
-		Long destCount = destShardClient.getFastCollectionCount(destDb, collectionName).longValue();
+		Long sourceCount = null;
+		Long destCount = null;
+		if (query == null) {
+			sourceCount = sourceShardClient.getFastCollectionCount(sourceDb, collectionName).longValue();
+			destCount = destShardClient.getFastCollectionCount(destDb, collectionName).longValue();
+		} else {
+			//db.getCollection(collectionName).countDocuments();
+			sourceCount = sourceDb.getCollection(collectionName).countDocuments(query);
+			destCount = destDb.getCollection(collectionName).countDocuments(query);
+		}
+		
 		result[0] = sourceCount;
 		result[1] = destCount;
 		
@@ -1054,21 +1070,78 @@ public class ShardConfigSync implements Callable<Integer> {
 			logger.debug(String.format("%s.%s count matches: %s", sourceDb.getName(), collectionName, sourceCount));
 			return result;
 		} else {
-			logger.warn(String.format("%s.%s count MISMATCH - source: %s, dest: %s", sourceDb.getName(), collectionName,
-					sourceCount, destCount));
+			logger.warn(String.format("%s.%s count MISMATCH - source: %s, dest: %s, query: %s", sourceDb.getName(), collectionName,
+					sourceCount, destCount, query));
 			return result;
+		}
+	}
+	
+	public void compareChunkCounts() {
+		for (String databaseName : sourceShardClient.listDatabaseNames()) {
+			MongoDatabase db = sourceShardClient.getMongoClient().getDatabase(databaseName);
+
+			if (databaseName.equals("admin") || databaseName.equals("config")
+					|| databaseName.contentEquals("local")) {
+				continue;
+			}
+
+			for (Document collectionInfo : db.listCollections()) {
+				String collectionName = (String) collectionInfo.get("name");
+				if (collectionName.endsWith(".create")) {
+					continue;
+				}
+				
+				Namespace ns = new Namespace(databaseName, collectionName);
+				if (filtered && !includeNamespaces.contains(ns)) {
+					logger.debug("compareChunkCounts skipping {}, filtered", ns);
+					continue;
+				}
+				compareChunkCounts(ns);
+			}
 		}
 	}
 
 	// TODO - this is incomplete
-	private void compareChunkCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
-		String ns = sourceDb.getName() + "." + collectionName;
-		MongoCollection<Document> sourceChunksColl = sourceShardClient.getChunksCollection();
-		FindIterable<Document> sourceChunks = sourceChunksColl.find(eq("ns", ns)).sort(Sorts.ascending("ns", "min"));
-
-		MongoCollection<Document> destChunksColl = destShardClient.getChunksCollection();
-		Iterator<Document> destChunks = destChunksColl.find(eq("ns", ns)).sort(Sorts.ascending("ns", "min")).iterator();
-
+	public void compareChunkCounts(Namespace ns) {
+		destShardClient.populateCollectionsMap();
+		Document shardCollection = destShardClient.getCollectionsMap().get(ns.getNamespace());
+		if (shardCollection == null) {
+			logger.warn("Collection {} is not sharded, cannot do chunk compare", ns);
+		} else {
+			MongoDatabase sourceDb = sourceShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
+			MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
+			
+			Document shardKeysDoc = (Document) shardCollection.get("key");
+			Set<String> shardKeys = shardKeysDoc.keySet();
+		
+			// use dest chunks as reference, may be smaller
+			MongoCollection<Document> chunksCollection = destShardClient.getChunksCollection();
+			// int chunkCount = (int)sourceChunksColl.countDocuments(eq("ns",
+			// ns.getNamespace()));
+	
+			FindIterable<Document> sourceChunks = chunksCollection.find(eq("ns", ns.getNamespace()))
+					.sort(Sorts.ascending("min"));
+			for (Document sourceChunk : sourceChunks) {
+				String id = sourceChunk.getString("_id");
+				// each chunk is inclusive of min and exclusive of max
+				Document min = (Document) sourceChunk.get("min");
+				Document max = (Document) sourceChunk.get("max");
+				Bson chunkQuery = null;
+	
+				if (shardKeys.size() > 1) {
+					List<Bson> filters = new ArrayList<Bson>(shardKeys.size());
+					for (String key : shardKeys) {
+						filters.add(and(gte(key, min.get(key)), lt(key, max.get(key))));
+					}
+					chunkQuery = and(filters);
+				} else {
+					String key = shardKeys.iterator().next();
+					chunkQuery = and(gte(key, min.get(key)), lt(key, max.get(key)));
+				}
+				
+				long[] result = doCounts(sourceDb, destDb, ns.getCollectionName(), chunkQuery);
+			}
+		}
 	}
 
 	public void compareCollectionUuids() {

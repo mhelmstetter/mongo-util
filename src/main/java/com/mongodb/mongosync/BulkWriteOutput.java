@@ -10,11 +10,11 @@ import com.mongodb.client.model.WriteModel;
 
 public class BulkWriteOutput {
     private final BulkWriteResult result;
-    private final int duplicateKeyExceptionCount;
-    private final int deletedCount;
-    private final int modifiedCount;
-    private final int insertedCount;
-    private final int upsertedCount;
+    private int duplicateKeyExceptionCount;
+    private int deletedCount;
+    private int modifiedCount;
+    private int insertedCount;
+    private int upsertedCount;
     private List<WriteModel<BsonDocument>> failedOps = Collections.emptyList();
 
     public BulkWriteOutput(BulkWriteResult bulkWriteResult) {
@@ -43,6 +43,26 @@ public class BulkWriteOutput {
         this.insertedCount = insertedCount;
         this.upsertedCount = upsertedCount;
         this.duplicateKeyExceptionCount = duplicateKeyExceptionCount;
+    }
+    
+    public void incDeleted(int d) {
+    	this.deletedCount += d;
+    }
+    
+    public void incModified(int m) {
+    	this.modifiedCount += m;
+    }
+    
+    public void incInserted(int i) {
+    	this.insertedCount += i;
+    }
+    
+    public void incUpserted(int u) {
+    	this.upsertedCount += u;
+    }
+    
+    public void incDuplicateKeyExceptionCount(int d) {
+    	this.duplicateKeyExceptionCount += d;
     }
 
     public int getSuccessfulWritesCount() {

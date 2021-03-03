@@ -139,7 +139,7 @@ public abstract class AbstractMongoReplayUtil {
         pool.pause();
         
         
-        //pool.prestartAllCoreThreads();
+        //executor.prestartAllCoreThreads();
 
         monitor = new Monitor(Thread.currentThread());
         monitor.setPool(pool);
@@ -154,7 +154,7 @@ public abstract class AbstractMongoReplayUtil {
             Thread.yield();
             try {
                 Thread.sleep(5000);
-                logger.debug("Waiting for pool");
+                logger.debug("Waiting for executor");
             } catch (InterruptedException e) {
                 // reset interrupted status
                 Thread.interrupted();
@@ -171,7 +171,7 @@ public abstract class AbstractMongoReplayUtil {
             }
             // harmless - this means the monitor wants to exit
             // if anything went wrong, the monitor will log it
-            logger.warn("interrupted while waiting for pool termination");
+            logger.warn("interrupted while waiting for executor termination");
         }
 
         halt();

@@ -1,5 +1,6 @@
 package com.mongodb.mongosync;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.Vector;
@@ -11,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoException;
+import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -30,14 +32,13 @@ public class ApplyOperationsHelper  {
 	private OplogTailMonitor oplogTailMonitor;
 	private ShardClient destShardClient;
 	private String shardId;
-	BulkWriteOptions bulkWriteOptions = new BulkWriteOptions();
+	private final static BulkWriteOptions bulkWriteOptions = new BulkWriteOptions();
 	
 	
 	public ApplyOperationsHelper(String shardId, OplogTailMonitor oplogTailMonitor, ShardClient destShardClient) {
 		this.shardId = shardId;
 		this.oplogTailMonitor = oplogTailMonitor;
 		this.destShardClient = destShardClient;
-		bulkWriteOptions.ordered(true);
 	}
 	
 	
@@ -88,33 +89,56 @@ public class ApplyOperationsHelper  {
 	public BulkWriteOutput applyBulkWriteModelsOnCollection(Namespace namespace, List<WriteModel<BsonDocument>> operations)
 			throws MongoException {
 		MongoCollection<BsonDocument> collection = destShardClient.getCollectionRaw(namespace);
+		BulkWriteResult bulkWriteResult = null;
+		BulkWriteOutput output = null;
 		try {
 			//BulkWriteResult bulkWriteResult = applyBulkWriteModelsOnCollection(collection, operations, originalOps);
-			BulkWriteResult bulkWriteResult = collection.bulkWrite(operations, bulkWriteOptions);
-			BulkWriteOutput output = new BulkWriteOutput(bulkWriteResult);
+			bulkWriteResult = collection.bulkWrite(operations, bulkWriteOptions);
+			output = new BulkWriteOutput(bulkWriteResult);
 			return output;
 		} catch (MongoBulkWriteException err) {
-			
-			logger.error("{} bulk write error: {}", shardId, err.getWriteErrors().toString());
-//			if (err.getWriteErrors().size() == operations.size()) {
-//				// every doc in this batch is error. just move on
-////				logger.debug(
-////						"[IGNORE] Ignoring all the {} write operations for the {} batch as they all failed with duplicate key exception. (already applied previously)",
-////						operations.size(), namespace);
-//				return new BulkWriteOutput(0, 0, 0, 0, operations.size());
-//			}
-////			logger.warn(
-////					"[WARN] the {} bulk write operations for the {} batch failed with exceptions. applying them one by one. error: {}",
-////					operations.size(), namespace, err.getWriteErrors().toString());
-////			return applySoloBulkWriteModelsOnCollection(operations, collection);
+			List<BulkWriteError> errors = err.getWriteErrors();
+			bulkWriteResult = err.getWriteResult();
+			output = new BulkWriteOutput(bulkWriteResult);
+			if (errors.size() == operations.size()) {
+				logger.error("{} bulk write errors, all {} operations failed: {}", shardId, err);
+				return output;
+			} else {
+				for (BulkWriteError bwe : errors) {
+					int index = bwe.getIndex();
+					operations.remove(index);
+				}
+				//logger.debug("{} retrying {} operations", shardId, operations.size());
+				return applySoloBulkWriteModelsOnCollection(operations, collection, output);
+			}
 		} catch (Exception ex) {
 			logger.error("{} unknown error: {}", shardId, ex.getMessage(), ex);
-
-//			return applySoloBulkWriteModelsOnCollection(operations, collection);
 		}
-		// TODO FIXME
 		return new BulkWriteOutput(0, 0, 0, 0, operations.size());
 	}
+	
+	private BulkWriteOutput applySoloBulkWriteModelsOnCollection(List<WriteModel<BsonDocument>> operations, 
+			MongoCollection<BsonDocument> collection, BulkWriteOutput output) {
+        BulkWriteResult soloResult = null;
+        for (WriteModel<BsonDocument> op : operations) {
+            List<WriteModel<BsonDocument>> soloBulkOp = new ArrayList<>();
+            soloBulkOp.add(op);
+            try {
+            	soloResult = collection.bulkWrite(operations, bulkWriteOptions);
+            	output.incDeleted(soloResult.getDeletedCount());
+            	output.incInserted(soloResult.getInsertedCount());
+            	output.incModified(soloResult.getModifiedCount());
+            	output.incUpserted(soloResult.getUpserts().size());
+            } catch (MongoBulkWriteException bwe) {
+                output.incDuplicateKeyExceptionCount(1);
+            } catch (Exception soloErr) {
+            	output.incDuplicateKeyExceptionCount(1);
+                logger.error("[BULK-WRITE-RETRY] unknown exception occurred while applying solo op {} on collection: {}; error {}",
+                        op.toString(), collection.getNamespace().getFullName(), soloErr.toString());
+            }
+        }
+        return output;
+    }
 	
 	public static WriteModel<BsonDocument> getWriteModelForOperation(BsonDocument operation) throws MongoException {
 		String message;

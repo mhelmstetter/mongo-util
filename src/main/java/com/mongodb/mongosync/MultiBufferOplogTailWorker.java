@@ -3,13 +3,16 @@ package com.mongodb.mongosync;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.gte;
+import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.ne;
+import static com.mongodb.client.model.Filters.nin;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -100,10 +103,20 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 		MongoCollection<BsonDocument> oplog = local.getCollection("oplog.rs", BsonDocument.class);
 
 		MongoCursor<BsonDocument> cursor = null;
-		// TODO - should we ignore no-ops
-		// appears that mongomirror does not for keeping the timestamp up to date
-		Bson query = and(gte("ts", shardTimestamp.getTimestamp()), ne("op", "n"));
-		// Bson query = gte("ts", shardTimestamp.getTimestamp());
+		
+		Set<String> includedNamespaces = options.getIncludedNamespaceStrings();
+		Set<String> excludedNamespaces = options.getExcludedNamespaceStrings();
+		
+		Bson query = null;
+		if (includedNamespaces.isEmpty() && excludedNamespaces.isEmpty()) {
+			query = and(gte("ts", shardTimestamp.getTimestamp()), ne("op", "n"));
+		} else {
+			if (excludedNamespaces.size() > 0) {
+				query = and(gte("ts", shardTimestamp.getTimestamp()), ne("op", "n"), nin("ns", excludedNamespaces));
+			} else {
+				query = and(gte("ts", shardTimestamp.getTimestamp()), ne("op", "n"), in("ns", includedNamespaces));
+			}
+		}
 
 		long start = System.currentTimeMillis();
 		long count;
@@ -141,21 +154,27 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 		stopChildExecutors();
 
 	}
+	
+	private int getCombinedHashModulo(String ns, BsonValue id) {
+		int hash = 7;
+		hash = 31 * hash +  (id == null ? 0 : id.hashCode());
+		hash = 31 * hash + (ns == null ? 0 : ns.hashCode());
+		if (hash >= 0) {
+			hash = hash % numChildWorkers;
+		} else {
+			hash = -hash % numChildWorkers;
+		}
+		return hash;
+	}
 
 	protected void addToBuffer(BsonDocument doc) throws InterruptedException {
 		if (currentNs.endsWith(".$cmd")) {
 			logger.debug("$cmd: {}", doc);
 		}
-//		BsonValue id = getIdForOperation(doc);
-//		if (id == null) {
-//			return null;
-//		}
-//		Integer hashKey = getModuloKeyForBsonValue(id);
-		
-		Integer nsKey = getModuloKeyForNamespace(currentNs);
-		ArrayBlockingQueue<BsonDocument> childQueue = childQueues.get(nsKey);
+		BsonValue id = getIdForOperation(doc);
+		Integer hashKey = getCombinedHashModulo(currentNs, id);
+		ArrayBlockingQueue<BsonDocument> childQueue = childQueues.get(hashKey);
 		childQueue.put(doc);
-
 	}
 
 	private BsonValue getIdForOperation(BsonDocument operation) throws MongoException {
@@ -221,6 +240,10 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 	protected synchronized void stop() {
 		logger.debug("{}: OplogTailWorker got stop signal", shardId);
 		this.shutdown = true;
+		
+		for (ChildOplogWorker worker : childWorkers) {
+			worker.stop();
+		}
 
 		int i = 0;
 		for (ExecutorService executor : childExecutors) {
