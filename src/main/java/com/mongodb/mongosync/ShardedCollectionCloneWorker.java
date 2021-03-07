@@ -71,14 +71,14 @@ public class ShardedCollectionCloneWorker extends AbstractCollectionCloneWorker 
 		Set<String> includedNamespaces = options.getIncludedNamespaceStrings();
 		Set<String> excludedNamespaces = options.getExcludedNamespaceStrings();
 		
-		if (!includedNamespaces.isEmpty() || !excludedNamespaces.isEmpty()) {
-			Bson query = null;
-			if (excludedNamespaces.size() > 0 && excludedNamespaces.size() < includedNamespaces.size()) {
-				query = nin("ns", excludedNamespaces);
-			} else {
-				query = in("ns", includedNamespaces);
-			}
-		}
+//		if (!includedNamespaces.isEmpty() || !excludedNamespaces.isEmpty()) {
+//			Bson query = null;
+//			if (excludedNamespaces.size() > 0 && excludedNamespaces.size() < includedNamespaces.size()) {
+//				query = nin("ns", excludedNamespaces);
+//			} else {
+//				query = in("ns", includedNamespaces);
+//			}
+//		}
 		
 		chunkCloneResults = new ArrayList<>();
 		

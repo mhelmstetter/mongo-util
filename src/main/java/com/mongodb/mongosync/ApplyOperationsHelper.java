@@ -85,21 +85,21 @@ public class ApplyOperationsHelper  {
 		models = null;
 	}
 	
-	
-	public BulkWriteOutput applyBulkWriteModelsOnCollection(Namespace namespace, List<WriteModel<BsonDocument>> operations)
+	public BulkWriteOutput applyBulkWriteModelsOnCollection(Namespace namespace, List<WriteModel<BsonDocument>> operations, final BulkWriteOutput output)
 			throws MongoException {
 		MongoCollection<BsonDocument> collection = destShardClient.getCollectionRaw(namespace);
 		BulkWriteResult bulkWriteResult = null;
-		BulkWriteOutput output = null;
 		try {
 			//BulkWriteResult bulkWriteResult = applyBulkWriteModelsOnCollection(collection, operations, originalOps);
 			bulkWriteResult = collection.bulkWrite(operations, bulkWriteOptions);
-			output = new BulkWriteOutput(bulkWriteResult);
+			output.increment(bulkWriteResult);
+			//output = new BulkWriteOutput(bulkWriteResult);
 			return output;
 		} catch (MongoBulkWriteException err) {
 			List<BulkWriteError> errors = err.getWriteErrors();
 			bulkWriteResult = err.getWriteResult();
-			output = new BulkWriteOutput(bulkWriteResult);
+			output.increment(bulkWriteResult, errors.size());
+			//output = new BulkWriteOutput(bulkWriteResult);
 			if (errors.size() == operations.size()) {
 				logger.error("{} bulk write errors, all {} operations failed: {}", shardId, err);
 				return output;
@@ -109,12 +109,20 @@ public class ApplyOperationsHelper  {
 					operations.remove(index);
 				}
 				//logger.debug("{} retrying {} operations", shardId, operations.size());
-				return applySoloBulkWriteModelsOnCollection(operations, collection, output);
+				//logger.warn("{}: bulk write errors", shardId, err);
+				return applyBulkWriteModelsOnCollection(namespace, operations, output);
+				//return applySoloBulkWriteModelsOnCollection(operations, collection, output);
 			}
 		} catch (Exception ex) {
 			logger.error("{} unknown error: {}", shardId, ex.getMessage(), ex);
 		}
 		return new BulkWriteOutput(0, 0, 0, 0, operations.size());
+		
+	}
+	
+	public BulkWriteOutput applyBulkWriteModelsOnCollection(Namespace namespace, List<WriteModel<BsonDocument>> operations)
+			throws MongoException {
+		return applyBulkWriteModelsOnCollection(namespace, operations, new BulkWriteOutput());
 	}
 	
 	private BulkWriteOutput applySoloBulkWriteModelsOnCollection(List<WriteModel<BsonDocument>> operations, 
@@ -179,6 +187,7 @@ public class ApplyOperationsHelper  {
 	}
 	
 	private static WriteModel<BsonDocument> getInsertWriteModel(BsonDocument operation) {
+		String ns = operation.getString("ns").getValue();
 		BsonDocument document = operation.getDocument("o");
 		// TODO can we get duplicate key here?
 		return new InsertOneModel<>(document);

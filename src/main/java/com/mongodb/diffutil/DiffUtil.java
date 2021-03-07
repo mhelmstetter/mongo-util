@@ -4,6 +4,7 @@ import static com.mongodb.client.model.Filters.eq;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -11,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
+import org.bson.BsonDateTime;
 import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -195,7 +197,15 @@ public class DiffUtil {
 						logger.error(String.format("%s - docs equal, but hash mismatch, id: %s", currentNs, id));
 						keysMisordered++;
 					} else {
-						logger.error(String.format("%s - doc hash mismatch, id: %s", currentNs, id));
+						BsonDateTime sourceDate = sourceDoc.getDateTime("date");
+						BsonDateTime destDate = null;
+						if (sourceDate != null) {
+							destDate = destDoc.getDateTime("date");
+							logger.error(String.format("%s - doc hash mismatch, id: %s, sourceDate: %s, destDate: %s", 
+									currentNs, id, new Date(sourceDate.getValue()), new Date(destDate.getValue())));
+						} else {
+							logger.error(String.format("%s - doc hash mismatch, id: %s", currentNs, id));
+						}
 						hashMismatched++;
 					}
 

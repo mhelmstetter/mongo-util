@@ -5,7 +5,6 @@ import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 import java.io.File;
 import java.io.IOException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -16,7 +15,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -39,7 +37,6 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
-import com.mongodb.client.MongoIterable;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardTimestamp;
@@ -65,6 +62,7 @@ public class MongoSync {
     private final static String OPLOG_THREADS = "oplogThreads";
     private final static String OPLOG_QUEUE_SIZE = "oplogQueueSize";
     private final static String NAME = "name";
+    private final static String OPLOG_TRANSFORMERS = "oplogTransformers";
     
     private static Options options;
     private static CommandLine line;
@@ -90,10 +88,12 @@ public class MongoSync {
         sourceShardClient = new ShardClient("source", mongoSyncOptions.getSourceMongoUri());
         sourceShardClient.init();
         sourceShardClient.populateShardMongoClients();
+        mongoSyncOptions.setSourceShardClient(sourceShardClient);
         
         destShardClient = new ShardClient("dest", mongoSyncOptions.getDestMongoUri());
         destShardClient.init();
         destShardClient.populateShardMongoClients();
+        mongoSyncOptions.setDestShardClient(destShardClient);
         
         //sourceShardClient.populateCollectionsMap(mongoSyncOptions.getNamespacesToMigrate());
         stopSourceBalancer();
@@ -351,6 +351,7 @@ public class MongoSync {
         options.addOption(OptionBuilder.withArgName("batch size").hasArg().withLongOpt("batchSize").create("b"));
         options.addOption(OptionBuilder.withArgName("Namespace filter").hasArgs().withLongOpt("filter").create("f"));
         options.addOption(OptionBuilder.withArgName("Exclude namespace").hasArgs().withLongOpt("excludeNamespace").create("x"));
+        options.addOption(OptionBuilder.withArgName("Oplog transformer").hasArg().withLongOpt(OPLOG_TRANSFORMERS).create("o"));
         options.addOption(OptionBuilder.withArgName("Drop destination databases, but preserve config metadata")
                 .withLongOpt(DROP_DEST_DBS).create(DROP_DEST_DBS));
         options.addOption(OptionBuilder.withArgName("Cleanup and previous/old timestamp files")
@@ -407,7 +408,7 @@ public class MongoSync {
         return defaultConfig;
     }
     
-    protected void parseArgs() {
+    protected void parseArgs() throws ClassNotFoundException {
         
         
         Configuration config = readProperties();
@@ -417,7 +418,7 @@ public class MongoSync {
         mongoSyncOptions.setSourceMongoUri(line.getOptionValue("s", config.getString(SOURCE_URI)));
         mongoSyncOptions.setDestMongoUri(line.getOptionValue("d", config.getString(DEST_URI)));
         
-
+        mongoSyncOptions.setOplogTransformers(line.getOptionValue("o", config.getString(OPLOG_TRANSFORMERS)));
         
         String threadsStr = line.getOptionValue("t");
         if (threadsStr != null) {
@@ -437,6 +438,8 @@ public class MongoSync {
         mongoSyncOptions.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
         mongoSyncOptions.setCleanTimestampFiles(line.hasOption(CLEAN_TIMESTAMPS));
         mongoSyncOptions.setUseMultiThreadedOplogTailWorkers(line.hasOption(MULTI_OPLOG_WORKER));
+        
+        
         
         String oplogThreadsStr = line.getOptionValue(OPLOG_THREADS);
         if (oplogThreadsStr != null) {

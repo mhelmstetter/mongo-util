@@ -1,11 +1,9 @@
 package com.mongodb.mongosync;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.BlockingQueue;
 
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -23,7 +21,7 @@ public class OplogTailMonitor implements Runnable {
     private long modifiedCount;
     private long insertedCount;
     private long upsertedCount;
-    private long failedOpsCount;
+    //private long failedOpsCount;
 	
 	BsonTimestamp latestTimestamp;
 	
@@ -33,9 +31,9 @@ public class OplogTailMonitor implements Runnable {
 	//private ClientSession sourceSession;
 	private String shardId;
 	
-	private Map<Integer, ArrayBlockingQueue<BsonDocument>> childQueues;
+	private Map<Integer, BlockingQueue<BsonDocument>> childQueues;
 	
-	public OplogTailMonitor(TimestampFile timestampFile, ShardClient sourceShardClient, Map<Integer, ArrayBlockingQueue<BsonDocument>> childQueues) {
+	public OplogTailMonitor(TimestampFile timestampFile, ShardClient sourceShardClient, Map<Integer, BlockingQueue<BsonDocument>> childQueues) {
 		this.timestampFile = timestampFile;
 		this.sourceShardClient = sourceShardClient;
 		this.shardId = timestampFile.getShardId();
@@ -74,19 +72,19 @@ public class OplogTailMonitor implements Runnable {
 			
 			int queuedTasks = 0;
 			if (childQueues != null) {
-				for (Map.Entry<Integer, ArrayBlockingQueue<BsonDocument>> entry : childQueues.entrySet()) {
-					ArrayBlockingQueue<BsonDocument> queue = entry.getValue();
+				for (Map.Entry<Integer, BlockingQueue<BsonDocument>> entry : childQueues.entrySet()) {
+					BlockingQueue<BsonDocument> queue = entry.getValue();
 					int queueSize = queue.size();
 					logger.debug("{} - executor {} - queue size: {}", shardId, entry.getKey(), queueSize);
 					queuedTasks += queueSize;
 				}
-				logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, failed: {}, dupeKey: {}, queuedTasks: {}",
-						shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, failedOpsCount, duplicateKeyExceptionCount,
+				logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, dupeKey: {}, queuedTasks: {}",
+						shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, duplicateKeyExceptionCount,
 						queuedTasks);
 				
 			} else {
-				logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, failed: {}, dupeKey: {}",
-						shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, failedOpsCount, duplicateKeyExceptionCount);
+				logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, dupeKey: {}",
+						shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, duplicateKeyExceptionCount);
 			}
 			
 		} catch (Exception e) {
@@ -100,7 +98,6 @@ public class OplogTailMonitor implements Runnable {
 		modifiedCount += output.getModifiedCount();
 		insertedCount += output.getInsertedCount();
 		upsertedCount += output.getUpsertedCount();
-		failedOpsCount += output.getFailedOps().size();
 	}
 
 }

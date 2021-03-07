@@ -13,9 +13,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -23,6 +24,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.bson.conversions.Bson;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.mongodb.CursorType;
 import com.mongodb.MongoException;
 import com.mongodb.client.MongoCollection;
@@ -44,11 +46,11 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 //	Map<Integer, ThreadPoolExecutor> executors;
 	private int numChildWorkers;
 
-	private List<ChildOplogWorker> childWorkers;
+	private Map<Integer, ChildOplogWorker> childWorkers;
 	private List<ExecutorService> childExecutors;
 	// private ArrayBlockingQueue<BsonDocument> childQueues;
 	
-	private Map<Integer, ArrayBlockingQueue<BsonDocument>> childQueues;
+	private Map<Integer, BlockingQueue<BsonDocument>> childQueues;
 
 	public MultiBufferOplogTailWorker(ShardTimestamp shardTimestamp, TimestampFile timestampFile,
 			ShardClient sourceShardClient, ShardClient destShardClient, MongoSyncOptions options) throws IOException {
@@ -59,7 +61,7 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 		this.options = options;
 		this.numChildWorkers = options.getOplogThreads();
 
-		childWorkers = new ArrayList<>(numChildWorkers);
+		childWorkers = new HashMap<>(numChildWorkers);
 		childExecutors = new ArrayList<>(numChildWorkers);
 		childQueues = new HashMap<>(numChildWorkers);
 		
@@ -71,17 +73,25 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 
 	private void startChildExecutors() {
 		for (int i = 0; i < numChildWorkers; i++) {
-			ArrayBlockingQueue<BsonDocument> childQueue = new ArrayBlockingQueue<>(options.getOplogQueueSize());
+			BlockingQueue<BsonDocument> childQueue = new LinkedBlockingQueue<>(options.getOplogQueueSize());
 			childQueues.put(i, childQueue);
-			ChildOplogWorker worker = new ChildOplogWorker(shardId, childQueue, applyOperationsHelper, oplogTailMonitor);
-			childWorkers.add(worker);
-			ExecutorService executor = Executors.newFixedThreadPool(1);
+			ChildOplogWorker worker = new ChildOplogWorker(shardId, childQueue, applyOperationsHelper, oplogTailMonitor, options);
+			childWorkers.put(i, worker);
+			ExecutorService executor = Executors.newFixedThreadPool(1,  new ThreadFactoryBuilder()
+					.setNameFormat("child-oplog-worker_" + shardId + "_" + i).setDaemon(true).build());
 			childExecutors.add(executor);
 			executor.execute(worker);
 		}
 	}
 
 	private void stopChildExecutors() {
+		
+		for (ChildOplogWorker worker : childWorkers.values()) {
+			logger.debug("{}: final flush()", shardId);
+			worker.flush(0);
+		}
+		
+		
 		for (ExecutorService executor : childExecutors) {
 			executor.shutdown();
 			while (!executor.isTerminated()) {
@@ -134,6 +144,10 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 					continue;
 				}
 				currentNs = doc.getString("ns").getValue();
+				if (! options.includeNamespace(currentNs)) {
+					continue;
+				}
+				
 				if (currentNs == null || currentNs.equals("") || currentNs.startsWith("config.")) {
 					continue;
 				}
@@ -149,7 +163,11 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 		} catch (Exception e) {
 			logger.error("{}: tail error", shardId, e);
 		} finally {
-			cursor.close();
+			try {
+				cursor.close();
+			} catch (Exception e) {
+			}
+			
 		}
 		stopChildExecutors();
 
@@ -173,8 +191,16 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 		}
 		BsonValue id = getIdForOperation(doc);
 		Integer hashKey = getCombinedHashModulo(currentNs, id);
-		ArrayBlockingQueue<BsonDocument> childQueue = childQueues.get(hashKey);
+		BlockingQueue<BsonDocument> childQueue = childQueues.get(hashKey);
+		//logger.debug("{}: child queue {} size {}", shardId, hashKey, childQueue.size());
+		//childQueue.put(doc);
+		//boolean inserted = childQueue.offer(doc, 5, TimeUnit.SECONDS);
 		childQueue.put(doc);
+		if (childQueue.size() >= 5000) {
+			ChildOplogWorker worker = childWorkers.get(hashKey);
+			//logger.debug("{}: forcing worker flush()", shardId);
+			worker.flush(5000);
+		}
 	}
 
 	private BsonValue getIdForOperation(BsonDocument operation) throws MongoException {
@@ -241,7 +267,7 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 		logger.debug("{}: OplogTailWorker got stop signal", shardId);
 		this.shutdown = true;
 		
-		for (ChildOplogWorker worker : childWorkers) {
+		for (ChildOplogWorker worker : childWorkers.values()) {
 			worker.stop();
 		}
 
