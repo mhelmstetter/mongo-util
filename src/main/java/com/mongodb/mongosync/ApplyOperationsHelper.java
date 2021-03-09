@@ -32,7 +32,8 @@ public class ApplyOperationsHelper  {
 	private OplogTailMonitor oplogTailMonitor;
 	private ShardClient destShardClient;
 	private String shardId;
-	private final static BulkWriteOptions bulkWriteOptions = new BulkWriteOptions();
+	private final static BulkWriteOptions orderedBulkWriteOptions = new BulkWriteOptions();
+	private final static BulkWriteOptions unorderedBulkWriteOptions = new BulkWriteOptions().ordered(false);
 	
 	
 	public ApplyOperationsHelper(String shardId, OplogTailMonitor oplogTailMonitor, ShardClient destShardClient) {
@@ -42,97 +43,79 @@ public class ApplyOperationsHelper  {
 	}
 	
 	
-
-	public void applyOperations(List<BsonDocument> operations) throws Exception {
-		
-		List<WriteModel<BsonDocument>> models = new Vector<>();
-		
-
-		Namespace namespace = null;
-		BsonTimestamp lastTimestamp = null;
-		
-		
-		for (BsonDocument currentDocument : operations) {
-			String ns = currentDocument.getString("ns").getValue();
-			if (namespace == null) {
-				namespace = new Namespace(ns);
-			}
-			String op = currentDocument.getString("op").getValue();
-			if (op.equals("c")) {
-				continue;
-				//performRunCommand(currentDocument);
-			} 
-			
-			WriteModel<BsonDocument> model = getWriteModelForOperation(currentDocument);
-			if (model != null) {
-				models.add(model);
-			} else {
-				// if the command is $cmd for create index or create collection, there would not
-				// be any write model.
-				logger.warn(String.format(
-						"ignoring oplog entry. could not convert the document to model. Given document is [%s]",
-						currentDocument.toJson()));
-			}
-			lastTimestamp = currentDocument.getTimestamp("ts");
-		}
-
-		if (models.size() > 0) {
-			BulkWriteOutput output = applyBulkWriteModelsOnCollection(namespace, models);
-			oplogTailMonitor.updateStatus(output);
-			oplogTailMonitor.setLatestTimestamp(lastTimestamp);
-		}
-		operations = null;
-		models = null;
-	}
-	
-	public BulkWriteOutput applyBulkWriteModelsOnCollection(Namespace namespace, List<WriteModel<BsonDocument>> operations, final BulkWriteOutput output)
+	private void applyBulkWriteModelsOnCollection(Namespace namespace, OplogBatch batch, List<WriteModel<BsonDocument>> writeModels,
+			boolean useOrdered,
+			final BulkWriteOutput output)
 			throws MongoException {
 		MongoCollection<BsonDocument> collection = destShardClient.getCollectionRaw(namespace);
 		BulkWriteResult bulkWriteResult = null;
+		
 		try {
 			//BulkWriteResult bulkWriteResult = applyBulkWriteModelsOnCollection(collection, operations, originalOps);
-			bulkWriteResult = collection.bulkWrite(operations, bulkWriteOptions);
+			if (useOrdered) {
+				//logger.debug("{}: using ordered batch, {} ops", shardId, writeModels.size());
+				bulkWriteResult = collection.bulkWrite(writeModels, orderedBulkWriteOptions);
+			} else {
+				//logger.debug("{}: using un-ordered batch, {} ops", shardId, writeModels.size());
+				bulkWriteResult = collection.bulkWrite(writeModels, unorderedBulkWriteOptions);
+			}
+			
 			output.increment(bulkWriteResult);
-			//output = new BulkWriteOutput(bulkWriteResult);
-			return output;
 		} catch (MongoBulkWriteException err) {
 			List<BulkWriteError> errors = err.getWriteErrors();
 			bulkWriteResult = err.getWriteResult();
 			output.increment(bulkWriteResult, errors.size());
 			//output = new BulkWriteOutput(bulkWriteResult);
-			if (errors.size() == operations.size()) {
+			if (errors.size() == writeModels.size()) {
 				logger.error("{} bulk write errors, all {} operations failed: {}", shardId, err);
-				return output;
 			} else {
-				for (BulkWriteError bwe : errors) {
-					int index = bwe.getIndex();
-					operations.remove(index);
+				if (useOrdered) {
+					for (BulkWriteError bwe : errors) {
+						int index = bwe.getIndex();
+						//operations.remove(index);
+						batch.removeWriteModel(writeModels.get(index), true);
+					}
+					//logger.debug("{} retrying {} operations, errorCount: {}", shardId, batch.size(), errors.size());
+					//logger.warn("{}: bulk write errors", shardId, err);
+					batch.clearUnordered();
+					applyBulkWriteModelsOnCollection(namespace, batch, output);
+					//return applySoloBulkWriteModelsOnCollection(operations, collection, output);
 				}
-				//logger.debug("{} retrying {} operations", shardId, operations.size());
-				//logger.warn("{}: bulk write errors", shardId, err);
-				return applyBulkWriteModelsOnCollection(namespace, operations, output);
-				//return applySoloBulkWriteModelsOnCollection(operations, collection, output);
 			}
 		} catch (Exception ex) {
 			logger.error("{} unknown error: {}", shardId, ex.getMessage(), ex);
 		}
-		return new BulkWriteOutput(0, 0, 0, 0, operations.size());
-		
 	}
 	
-	public BulkWriteOutput applyBulkWriteModelsOnCollection(Namespace namespace, List<WriteModel<BsonDocument>> operations)
+	public BulkWriteOutput applyBulkWriteModelsOnCollection(Namespace namespace, OplogBatch oplogBatch) {
+		BulkWriteOutput output = new BulkWriteOutput();
+		applyBulkWriteModelsOnCollection(namespace, oplogBatch, output);
+		return output;
+	}
+	
+	private void applyBulkWriteModelsOnCollection(Namespace namespace, OplogBatch oplogBatch, final BulkWriteOutput output)
 			throws MongoException {
-		return applyBulkWriteModelsOnCollection(namespace, operations, new BulkWriteOutput());
+		
+		List<WriteModel<BsonDocument>> orderedWriteModels = oplogBatch.getOrderedWriteModels();
+		if (!orderedWriteModels.isEmpty()) {
+			applyBulkWriteModelsOnCollection(namespace, oplogBatch, orderedWriteModels, true, output);
+		}
+		List<WriteModel<BsonDocument>> unorderedWriteModels = oplogBatch.getUnorderedWriteModels();
+		if (!unorderedWriteModels.isEmpty()) {
+			applyBulkWriteModelsOnCollection(namespace, oplogBatch, unorderedWriteModels, false, output);
+		}
 	}
 	
 	private BulkWriteOutput applySoloBulkWriteModelsOnCollection(List<WriteModel<BsonDocument>> operations, 
 			MongoCollection<BsonDocument> collection, BulkWriteOutput output) {
         BulkWriteResult soloResult = null;
+        int i = 1;
         for (WriteModel<BsonDocument> op : operations) {
             List<WriteModel<BsonDocument>> soloBulkOp = new ArrayList<>();
             soloBulkOp.add(op);
             try {
-            	soloResult = collection.bulkWrite(operations, bulkWriteOptions);
+            	soloResult = collection.bulkWrite(operations, orderedBulkWriteOptions);
+            	logger.debug("{}: retry {} of {} - {}", shardId, i, operations.size(), output);
             	output.incDeleted(soloResult.getDeletedCount());
             	output.incInserted(soloResult.getInsertedCount());
             	output.incModified(soloResult.getModifiedCount());
@@ -144,6 +127,7 @@ public class ApplyOperationsHelper  {
                 logger.error("[BULK-WRITE-RETRY] unknown exception occurred while applying solo op {} on collection: {}; error {}",
                         op.toString(), collection.getNamespace().getFullName(), soloErr.toString());
             }
+            i++;
         }
         return output;
     }

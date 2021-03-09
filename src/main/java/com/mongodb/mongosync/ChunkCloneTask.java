@@ -60,49 +60,64 @@ public class ChunkCloneTask implements Callable<ChunkCloneResult> {
 	@Override
 	public ChunkCloneResult call() throws Exception {
 		
+		ChunkCloneResult result = cloneChunk();
+		if (result == null) {
+			logger.warn("problem cloning chunk, retrying, ns: {}, query: {}", ns, chunkQuery);
+			result = cloneChunk();
+			if (result != null) {
+				logger.debug("chunk clone retry success, ns: {}, query: {}", ns, chunkQuery);
+			}
+		}
+		return result;
+	}
+	
+	private ChunkCloneResult cloneChunk() {
 		ChunkCloneResult result = new ChunkCloneResult(ns);
-		
 		MongoCursor<RawBsonDocument> cursor = null;
-        
-        List<RawBsonDocument> docsBuffer = new ArrayList<>(options.getBatchSize());
-        
-        try {
-        	if (chunkQuery == null) {
-        		cursor = sourceCollection.find().sort(eq("$natural", 1)).noCursorTimeout(true).iterator();
-        	} else {
-        		// sort(eq("$natural", 1))
-        		cursor = sourceCollection.find(chunkQuery).noCursorTimeout(true).iterator();
-        	}
-        	int count = 0;
-            while (cursor.hasNext()) {
-                RawBsonDocument doc = cursor.next();
-                result.sourceCount++;
-                docsBuffer.add(doc);
-                
-                if (docsBuffer.size() >= options.getBatchSize()) {
-                    doInsert(docsBuffer, result);
-                    docsBuffer.clear();
-                }
-                
-                count++;
-                if (count > 1 && count % 1000000 == 0) {
-                	logger.debug("{}: read {} docs for chunk clone", ns, count);
-                }
-            }
-            // flush any remaining from the buffer
-            if (docsBuffer.size() > 0) {
-                doInsert(docsBuffer, result);
-                docsBuffer.clear();
-            }
-            
-        } catch (MongoException me) {
-        	logger.error("fatal error cloning chunk, ns: {}", ns, me);;
+		try {
+			
+	        List<RawBsonDocument> docsBuffer = new ArrayList<>(options.getBatchSize());
+	        
+			if (chunkQuery == null) {
+	    		cursor = sourceCollection.find().sort(eq("$natural", 1)).noCursorTimeout(true).iterator();
+	    	} else {
+	    		cursor = sourceCollection.find(chunkQuery).noCursorTimeout(true).iterator();
+	    	}
+	    	int count = 0;
+	        while (cursor.hasNext()) {
+	            RawBsonDocument doc = cursor.next();
+	            result.sourceCount++;
+	            docsBuffer.add(doc);
+	            
+	            if (docsBuffer.size() >= options.getBatchSize()) {
+	                doInsert(docsBuffer, result);
+	                docsBuffer.clear();
+	            }
+	            
+	            count++;
+	            if (count > 1 && count % 1000000 == 0) {
+	            	logger.debug("{}: read {} docs for chunk clone", ns, count);
+	            }
+	        }
+	        // flush any remaining from the buffer
+	        if (docsBuffer.size() > 0) {
+	            doInsert(docsBuffer, result);
+	            docsBuffer.clear();
+	        }
+		} catch (MongoException me) {
+        	logger.error("fatal error cloning chunk, ns: {}", ns, me);
+        	result = null;
         } finally {
-        	if (cursor != null) {
-        		cursor.close();
-        	}
-        }
-        return result;
+			try {
+				if (cursor != null) {
+	        		cursor.close();
+	        	}
+			} catch (Exception e) {
+			}
+			
+		}
+		return result;
+		
 	}
 	
     protected void doInsert(final List<RawBsonDocument> docsBuffer, final ChunkCloneResult result) {

@@ -30,7 +30,6 @@ import java.util.concurrent.Callable;
 
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.exec.ExecuteException;
-import org.bson.BsonMaxKey;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -38,7 +37,6 @@ import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
-import org.bson.types.MaxKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,7 +68,6 @@ import com.mongodb.mongomirror.MongoMirrorRunner;
 import com.mongodb.mongomirror.MongoMirrorStatus;
 import com.mongodb.mongomirror.MongoMirrorStatusInitialSync;
 import com.mongodb.mongomirror.MongoMirrorStatusOplogSync;
-import com.mongodb.mongosync.ChunkCloneTask;
 
 import picocli.CommandLine.Command;
 

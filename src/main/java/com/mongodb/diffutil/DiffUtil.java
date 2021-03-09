@@ -60,6 +60,9 @@ public class DiffUtil {
 	private String currentDbName;
 	private String currentCollectionName;
 	private String currentNs;
+	
+	private boolean reportMissing = true;
+	private boolean reportMatches = false;
 
 	long totalDbs = 0;
 	long missingDbs = 0;
@@ -348,24 +351,35 @@ public class DiffUtil {
 						if (sourceKey != null && destKey != null) {
 							compare = comparator.compare(sourceKey, destKey);
 						} else if (sourceKey == null) {
-							logger.error(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							if (reportMissing) {
+								logger.error(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							}
 							totalMissingDocs++;
 							continue;
 						} else if (destKey == null) {
-							logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+							if (reportMissing) {
+								logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+							}
 							totalMissingDocs++;
 							continue;
 						}
 
 						if (compare < 0) {
-							logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+							if (reportMissing) {
+								logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+							}
 							totalMissingDocs++;
 							destNext = destDoc;
 						} else if (compare > 0) {
-							logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							if (reportMissing) {
+								logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							}
 							totalMissingDocs++;
 							sourceNext = sourceDoc;
 						} else {
+							if (reportMatches) {
+								logger.debug("match on {}, _id: {}", collectionName, sourceKey);
+							}
 							totalMatches++;
 						}
 					}
@@ -409,6 +423,14 @@ public class DiffUtil {
 				}
 			}
 		}
+	}
+
+	public void setReportMissing(boolean reportMissing) {
+		this.reportMissing = reportMissing;
+	}
+
+	public void setReportMatches(boolean reportMatches) {
+		this.reportMatches = reportMatches;
 	}
 
 }

@@ -13,11 +13,13 @@ public class MongoSyncOptions {
 
 	private int threads = 4;
 	private int batchSize = 5000;
+	private int oplogBatchSize = 5000;
 	private String sourceMongoUri;
 	private String destMongoUri;
 	private boolean dropDestDbs;
 	private boolean cleanTimestampFiles;
 	private boolean useMultiThreadedOplogTailWorkers = false;
+	private boolean initialSyncOnly;
 	private int oplogThreads = 4;
 	private int oplogQueueSize = 50;
 
@@ -233,6 +235,22 @@ public class MongoSyncOptions {
 
 	public void setDestShardClient(ShardClient destShardClient) {
 		this.destShardClient = destShardClient;
+	}
+
+	public int getOplogBatchSize() {
+		return oplogBatchSize;
+	}
+
+	public void setOplogBatchSize(int oplogBatchSize) {
+		this.oplogBatchSize = oplogBatchSize;
+	}
+
+	public boolean isInitialSyncOnly() {
+		return initialSyncOnly;
+	}
+
+	public void setInitialSyncOnly(boolean initialSyncOnly) {
+		this.initialSyncOnly = initialSyncOnly;
 	}
 
 }

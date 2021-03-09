@@ -31,9 +31,9 @@ public class OplogTailMonitor implements Runnable {
 	//private ClientSession sourceSession;
 	private String shardId;
 	
-	private Map<Integer, BlockingQueue<BsonDocument>> childQueues;
+	private Map<Integer, BlockingQueue<OplogQueueEntry>> childQueues;
 	
-	public OplogTailMonitor(TimestampFile timestampFile, ShardClient sourceShardClient, Map<Integer, BlockingQueue<BsonDocument>> childQueues) {
+	public OplogTailMonitor(TimestampFile timestampFile, ShardClient sourceShardClient, Map<Integer, BlockingQueue<OplogQueueEntry>> childQueues) {
 		this.timestampFile = timestampFile;
 		this.sourceShardClient = sourceShardClient;
 		this.shardId = timestampFile.getShardId();
@@ -72,8 +72,8 @@ public class OplogTailMonitor implements Runnable {
 			
 			int queuedTasks = 0;
 			if (childQueues != null) {
-				for (Map.Entry<Integer, BlockingQueue<BsonDocument>> entry : childQueues.entrySet()) {
-					BlockingQueue<BsonDocument> queue = entry.getValue();
+				for (Map.Entry<Integer, BlockingQueue<OplogQueueEntry>> entry : childQueues.entrySet()) {
+					BlockingQueue<OplogQueueEntry> queue = entry.getValue();
 					int queueSize = queue.size();
 					logger.debug("{} - executor {} - queue size: {}", shardId, entry.getKey(), queueSize);
 					queuedTasks += queueSize;

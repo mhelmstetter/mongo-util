@@ -31,6 +31,9 @@ public class DiffUtilApp {
     private final static String COMPARE_DOCUMENTS = "compareDocuments";
     
     private final static String COMPARE_IDS = "compareIds";
+    
+    private final static String NO_REPORT_MISSING = "noReportMissing";
+    private final static String REPORT_MATCHES = "reportMatches";
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -47,6 +50,10 @@ public class DiffUtilApp {
                 .withLongOpt(COMPARE_DOCUMENTS).create(COMPARE_DOCUMENTS));
         options.addOption(OptionBuilder.withArgName("Compare ids ")
                 .withLongOpt(COMPARE_IDS).create(COMPARE_IDS));
+        options.addOption(OptionBuilder.withArgName("Do not report missing docs")
+                .withLongOpt(NO_REPORT_MISSING).create(NO_REPORT_MISSING));
+        options.addOption(OptionBuilder.withArgName("Report missing docs")
+                .withLongOpt(NO_REPORT_MISSING).create(REPORT_MATCHES));
 
         CommandLineParser parser = new GnuParser();
         

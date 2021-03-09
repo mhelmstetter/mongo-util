@@ -61,6 +61,8 @@ public class MongoSync {
     private final static String MULTI_OPLOG_WORKER = "multiWorker";
     private final static String OPLOG_THREADS = "oplogThreads";
     private final static String OPLOG_QUEUE_SIZE = "oplogQueueSize";
+    private final static String OPLOG_BATCH_SIZE = "oplogBatchSize";
+    private final static String INITIAL_SYNC = "initialSync";
     private final static String NAME = "name";
     private final static String OPLOG_TRANSFORMERS = "oplogTransformers";
     
@@ -289,7 +291,12 @@ public class MongoSync {
         	logger.debug("Skippping initial sync, timestamp file(s) exist");
         }
         
-        tailOplogs();
+        if (mongoSyncOptions.isInitialSyncOnly()) {
+        	logger.debug("Skippping oplog tailing, initialSyncOnly is set");
+        } else {
+        	tailOplogs();
+        }
+        
         
     }
     
@@ -347,6 +354,7 @@ public class MongoSync {
         options.addOption(OptionBuilder.withArgName("source cluster mongo uri").hasArg().withLongOpt(SOURCE_URI).create("s"));
         options.addOption(OptionBuilder.withArgName("destination cluster mongo uri").hasArg().withLongOpt(DEST_URI).create("d"));
         options.addOption(OptionBuilder.withArgName("split destination chunks").withLongOpt(SPLIT_CHUNKS).create(SPLIT_CHUNKS));
+        options.addOption(OptionBuilder.withArgName("initial sync only (no oplog tail)").withLongOpt(INITIAL_SYNC).create(INITIAL_SYNC));
         options.addOption(OptionBuilder.withArgName("# threads").hasArg().withLongOpt("threads").create("t"));
         options.addOption(OptionBuilder.withArgName("batch size").hasArg().withLongOpt("batchSize").create("b"));
         options.addOption(OptionBuilder.withArgName("Namespace filter").hasArgs().withLongOpt("filter").create("f"));
@@ -362,6 +370,8 @@ public class MongoSync {
                 .withLongOpt(OPLOG_THREADS).create(OPLOG_THREADS));
         options.addOption(OptionBuilder.withArgName("oplog queue size (per shard)").hasArg()
                 .withLongOpt(OPLOG_QUEUE_SIZE).create(OPLOG_QUEUE_SIZE));
+        options.addOption(OptionBuilder.withArgName("oplog batch size").hasArg()
+                .withLongOpt(OPLOG_BATCH_SIZE).create(OPLOG_BATCH_SIZE));
         
         options.addOption(OptionBuilder.withArgName("name for this sync process")
                 .withLongOpt(NAME).create(NAME));
@@ -436,6 +446,7 @@ public class MongoSync {
         String[] excludes = line.getOptionValues("x");
         mongoSyncOptions.setIncludesExcludes(includes, excludes);
         mongoSyncOptions.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
+        mongoSyncOptions.setInitialSyncOnly(line.hasOption(INITIAL_SYNC));
         mongoSyncOptions.setCleanTimestampFiles(line.hasOption(CLEAN_TIMESTAMPS));
         mongoSyncOptions.setUseMultiThreadedOplogTailWorkers(line.hasOption(MULTI_OPLOG_WORKER));
         
@@ -451,6 +462,13 @@ public class MongoSync {
         if (oplogQueueSizeStr != null) {
             int oplogQueueSize = Integer.parseInt(oplogQueueSizeStr);
             mongoSyncOptions.setOplogQueueSize(oplogQueueSize);
+        }
+        
+        // OPLOG_BATCH_SIZE
+        String oplogBatchSizeStr = line.getOptionValue(OPLOG_BATCH_SIZE);
+        if (oplogBatchSizeStr != null) {
+            int oplogBatchSize = Integer.parseInt(oplogBatchSizeStr);
+            mongoSyncOptions.setOplogBatchSize(oplogBatchSize);
         }
         
     }

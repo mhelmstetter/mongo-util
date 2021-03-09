@@ -5,7 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -23,13 +23,13 @@ public class ChildOplogWorker implements Runnable {
 	protected static final Logger logger = LoggerFactory.getLogger(ChildOplogWorker.class);
 	
 	private String shardId;
-	private BlockingQueue<BsonDocument> workQueue;
+	private BlockingQueue<OplogQueueEntry> workQueue;
 	private ApplyOperationsHelper applyOperationsHelper;
 	private OplogTailMonitor oplogTailMonitor;
 	
 	private boolean shutdown = false;
 	
-	private Map<String, List<WriteModel<BsonDocument>>> writeModelsMap;
+	private Map<String, OplogBatch> oplogBatches;
 	
 	private BsonTimestamp lastTimestamp = null;
 	
@@ -37,13 +37,13 @@ public class ChildOplogWorker implements Runnable {
 	
 	private Map<String, LookupTransformer> lookupTransformers;
 	
-	public ChildOplogWorker(String shardId, BlockingQueue<BsonDocument> workQueue, 
+	public ChildOplogWorker(String shardId, BlockingQueue<OplogQueueEntry> workQueue, 
 			ApplyOperationsHelper applyOperationsHelper, OplogTailMonitor oplogTailMonitor, MongoSyncOptions options) {
 		this.shardId = shardId;
 		this.workQueue = workQueue;
 		this.applyOperationsHelper = applyOperationsHelper;
 		this.oplogTailMonitor = oplogTailMonitor;
-		this.writeModelsMap = new ConcurrentHashMap<>();
+		this.oplogBatches = new HashMap<>();
 		this.options = options;
 		initializeTransformers();
 	}
@@ -64,28 +64,27 @@ public class ChildOplogWorker implements Runnable {
 		shutdown = true;
 	}
 	
-	public void flush(int minThreshold) {
-		synchronized (writeModelsMap) {
-			for (Map.Entry<String, List<WriteModel<BsonDocument>>> entry : writeModelsMap.entrySet()) {
+	private void flush(int minThreshold) {
+		//synchronized (writeModelsMap) {
+			for (Map.Entry<String, OplogBatch> entry : oplogBatches.entrySet()) {
 				Namespace ns = new Namespace(entry.getKey());
-				List<WriteModel<BsonDocument>> models = entry.getValue();
-				flush(minThreshold, ns, models);
+				flush(minThreshold, ns, entry.getValue());
 			}
-		}
+		//}
 			
 	}
 	
-	private void flush(int minThreshold, Namespace ns, List<WriteModel<BsonDocument>> models) {
+	private void flush(int minThreshold, Namespace ns, OplogBatch oplogBatch) {
 		BulkWriteOutput output = null;
-		synchronized(models) {
-			if (models.size() > minThreshold) {
-				output = applyOperationsHelper.applyBulkWriteModelsOnCollection(ns, models);
-				models.clear();
+		//synchronized(models) {
+			if (oplogBatch.size() > minThreshold) {
+				output = applyOperationsHelper.applyBulkWriteModelsOnCollection(ns, oplogBatch);
+				oplogBatch.clear();
 			}
-		}
+		//}
 		if (output != null) {
 			oplogTailMonitor.updateStatus(output);
-			oplogTailMonitor.setLatestTimestamp(lastTimestamp);
+			oplogTailMonitor.setLatestTimestamp(new BsonTimestamp(lastTimestamp.getValue()));
 		}
 	}
 	
@@ -96,11 +95,11 @@ public class ChildOplogWorker implements Runnable {
 		while (!shutdown) {
 			
 			try {
-				BsonDocument currentDocument = null;
+				OplogQueueEntry currentQueueEntry = null;
 				
 				try {
-					//currentDocument = workQueue.poll(5, TimeUnit.SECONDS);
-					currentDocument = workQueue.take();
+					currentQueueEntry = workQueue.poll(5, TimeUnit.SECONDS);
+					//currentDocument = workQueue.take();
 				} catch (InterruptedException e) {
 					if (shutdown) {
 						logger.debug("{}: interruped, breaking", shardId);
@@ -108,10 +107,11 @@ public class ChildOplogWorker implements Runnable {
 					}
 				}
 				
-//				if (currentDocument == null) {
-//					//flush(5000);
-//					continue;
-//				}
+				if (currentQueueEntry == null) {
+					flush(options.getOplogBatchSize());
+					continue;
+				}
+				BsonDocument currentDocument = currentQueueEntry.doc;
 				
 				String ns = currentDocument.getString("ns").getValue();
 				Namespace namespace = new Namespace(ns);
@@ -120,10 +120,10 @@ public class ChildOplogWorker implements Runnable {
 					continue;
 				} 
 				
-				List<WriteModel<BsonDocument>> models = writeModelsMap.get(ns);
-				if (models == null) {
-					models = new ArrayList<>(5000);
-					writeModelsMap.put(ns, models);
+				OplogBatch batch = oplogBatches.get(ns);
+				if (batch == null) {
+					batch = new OplogBatch(options.getOplogBatchSize());
+					oplogBatches.put(ns, batch);
 				}
 				
 				if (lookupTransformers != null && op.equals("u")) {
@@ -147,9 +147,9 @@ public class ChildOplogWorker implements Runnable {
 				
 				WriteModel<BsonDocument> model = ApplyOperationsHelper.getWriteModelForOperation(currentDocument);
 				if (model != null) {
-					synchronized(models) {
-						models.add(model);
-					}
+					//synchronized(oplogBatches) {
+						batch.addWriteModel(model, currentQueueEntry.id);
+					//}
 				} else {
 					// if the command is $cmd for create index or create collection, there would not
 					// be any write model.
@@ -158,7 +158,7 @@ public class ChildOplogWorker implements Runnable {
 				}
 				lastTimestamp = currentDocument.getTimestamp("ts");
 				
-				//flush(5000, namespace, models);
+				flush(options.getOplogBatchSize(), namespace, batch);
 				
 			} catch (Exception e) {
 				logger.error("{}: ChildOplogWorker error", shardId, e);
