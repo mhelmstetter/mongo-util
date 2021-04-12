@@ -37,6 +37,8 @@ public class ChildOplogWorker implements Runnable {
 	
 	private Map<String, LookupTransformer> lookupTransformers;
 	
+	private long lastFlushMillis;
+	
 	public ChildOplogWorker(String shardId, BlockingQueue<OplogQueueEntry> workQueue, 
 			ApplyOperationsHelper applyOperationsHelper, OplogTailMonitor oplogTailMonitor, MongoSyncOptions options) {
 		this.shardId = shardId;
@@ -76,16 +78,23 @@ public class ChildOplogWorker implements Runnable {
 	
 	private void flush(int minThreshold, Namespace ns, OplogBatch oplogBatch) {
 		BulkWriteOutput output = null;
-		//synchronized(models) {
-			if (oplogBatch.size() > minThreshold) {
-				output = applyOperationsHelper.applyBulkWriteModelsOnCollection(ns, oplogBatch);
-				oplogBatch.clear();
-			}
-		//}
+		long current = System.currentTimeMillis();
+		long elapsed = current - lastFlushMillis;
+		
+		
+		int size = oplogBatch.size();
+		if (size > minThreshold || (size > 0 && elapsed > 15000)) {
+			//logger.debug("flush: oplogBatch.size: {}, minThreshold: {}, elapsed: {}", oplogBatch.size(), minThreshold, elapsed);
+			output = applyOperationsHelper.applyBulkWriteModelsOnCollection(ns, oplogBatch);
+			oplogBatch.clear();
+			lastFlushMillis = current;
+		}
+		
 		if (output != null) {
 			oplogTailMonitor.updateStatus(output);
 			oplogTailMonitor.setLatestTimestamp(new BsonTimestamp(lastTimestamp.getValue()));
 		}
+		
 	}
 	
 

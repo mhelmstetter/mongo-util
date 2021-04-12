@@ -26,7 +26,7 @@ public class OplogTailingDiffTaskResult extends DiffResult {
 		builder.append(keysMisordered);
 		builder.append(", hashMismatched=");
 		builder.append(hashMismatched);
-		builder.append(", total=");
+		builder.append(", sourceTotal=");
 		builder.append(total);
 		builder.append("]");
 		return builder.toString();

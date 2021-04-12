@@ -171,7 +171,7 @@ public class OplogTailingDiffTask implements Callable<OplogTailingDiffTaskResult
     @Override
     public OplogTailingDiffTaskResult call() throws Exception {
         
-    	ShardTimestamp shardTimestamp = sourceClient.populateLatestOplogTimestamp(sourceShardId);
+    	ShardTimestamp shardTimestamp = sourceClient.populateLatestOplogTimestamp(sourceShardId, null);
     	
     	OplogTailingDiffTaskResult result = new OplogTailingDiffTaskResult(sourceShardId);
     	

@@ -4,10 +4,7 @@ import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.lt;
-import static com.mongodb.client.model.Filters.in;
-import static com.mongodb.client.model.Filters.nin;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -54,9 +51,7 @@ public class ShardedCollectionCloneWorker extends AbstractCollectionCloneWorker 
 		logger.debug("ShardedCollectionCloneWorker starting shutdown");
 		executor.shutdown();
 		try {
-			if (!executor.awaitTermination(Duration.ofMinutes(60).toMillis(), TimeUnit.MILLISECONDS)) {
-				logger.warn("ShardedCollectionCloneWorker executor did not finish within wait time");
-			}
+			executor.awaitTermination(999, TimeUnit.DAYS);
 		} catch (InterruptedException e) {
 			logger.warn("ShardedCollectionCloneWorker interrupted");
 			Thread.currentThread().interrupt();
@@ -146,12 +141,13 @@ public class ShardedCollectionCloneWorker extends AbstractCollectionCloneWorker 
 			Set<String> shardKeys = shardKeysDoc.keySet();
 
 			// use dest chunks as reference, may be smaller
-			MongoCollection<Document> chunksCollection = destShardClient.getChunksCollection();
+			MongoCollection<Document> chunksCollection = sourceShardClient.getChunksCollection();
 			// int chunkCount = (int)sourceChunksColl.countDocuments(eq("ns",
 			// ns.getNamespace()));
 
 			FindIterable<Document> sourceChunks = chunksCollection.find(eq("ns", ns.getNamespace()))
 					.sort(Sorts.ascending("min"));
+			int i = 0;
 			for (Document sourceChunk : sourceChunks) {
 				String id = sourceChunk.getString("_id");
 				// each chunk is inclusive of min and exclusive of max
@@ -172,7 +168,9 @@ public class ShardedCollectionCloneWorker extends AbstractCollectionCloneWorker 
 
 				ChunkCloneTask task = new ChunkCloneTask(ns, sourceShardClient, destShardClient, chunkQuery, options);
 				chunkCloneResults.add(executor.submit(task));
+				i++;
 			}
+			logger.debug("{}: {} chunks processed / tasks submitted for chunk clone", ns, i);
 		}
 	}
 

@@ -1,5 +1,7 @@
 package com.mongodb.mongosync;
 
+import org.bson.conversions.Bson;
+
 import com.mongodb.model.Namespace;
 
 public class ChunkCloneResult {
@@ -9,12 +11,15 @@ public class ChunkCloneResult {
 	public long successCount;
 	public long errorCount;
 	public long duplicateKeyCount;
+	public long skippedCount;
 	private Namespace ns;
+	private Bson chunkQuery;
 	
-	public ChunkCloneResult(Namespace ns) {
+	public ChunkCloneResult(Namespace ns, Bson chunkQuery) {
 		this.ns = ns;
+		this.chunkQuery = chunkQuery;
 	}
-	
+
 	@Override
 	public String toString() {
 		StringBuilder builder = new StringBuilder();
@@ -28,6 +33,10 @@ public class ChunkCloneResult {
 		builder.append(errorCount);
 		builder.append(", duplicateKeyCount=");
 		builder.append(duplicateKeyCount);
+		builder.append(", skippedCount=");
+		builder.append(skippedCount);
+//		builder.append(", chunkQuery=");
+//		builder.append(chunkQuery);
 		builder.append("]");
 		return builder.toString();
 	}

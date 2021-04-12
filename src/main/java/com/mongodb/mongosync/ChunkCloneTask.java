@@ -72,17 +72,34 @@ public class ChunkCloneTask implements Callable<ChunkCloneResult> {
 	}
 	
 	private ChunkCloneResult cloneChunk() {
-		ChunkCloneResult result = new ChunkCloneResult(ns);
+		ChunkCloneResult result = new ChunkCloneResult(ns, chunkQuery);
 		MongoCursor<RawBsonDocument> cursor = null;
 		try {
-			
+			long sourceTotal;
 	        List<RawBsonDocument> docsBuffer = new ArrayList<>(options.getBatchSize());
 	        
 			if (chunkQuery == null) {
+				sourceTotal = sourceCollection.countDocuments();
 	    		cursor = sourceCollection.find().sort(eq("$natural", 1)).noCursorTimeout(true).iterator();
 	    	} else {
+	    		sourceTotal = sourceCollection.countDocuments(chunkQuery);
+	    		if (options.isSkipChunkSyncIfMatchingCounts()) {
+	    			
+	    			if (sourceTotal > 0) {
+	    				long destCount = destCollection.countDocuments(chunkQuery);
+	    				if (sourceTotal == destCount) {
+	    					result.skippedCount = sourceTotal;
+	    					return result;
+	    				}
+ 	    			} else {
+ 	    				return result;
+ 	    			}
+	    		}
 	    		cursor = sourceCollection.find(chunkQuery).noCursorTimeout(true).iterator();
+	    		
 	    	}
+			long start = System.currentTimeMillis();
+	        long last = start;
 	    	int count = 0;
 	        while (cursor.hasNext()) {
 	            RawBsonDocument doc = cursor.next();
@@ -92,11 +109,23 @@ public class ChunkCloneTask implements Callable<ChunkCloneResult> {
 	            if (docsBuffer.size() >= options.getBatchSize()) {
 	                doInsert(docsBuffer, result);
 	                docsBuffer.clear();
+	                
+	                long current = System.currentTimeMillis();
+                    long delta = (current - last) / 1000;
+                    if (delta >= 30) {
+                    	Long percent = null;
+                    	if (sourceTotal > 0) {
+                    		percent = (result.sourceCount / sourceTotal);
+                    	}
+                        logger.debug("{} - cloned {} / {} documents, {} %", 
+                        		ns, result.sourceCount, sourceTotal, percent);
+                        last = current;
+                    }
 	            }
 	            
 	            count++;
 	            if (count > 1 && count % 1000000 == 0) {
-	            	logger.debug("{}: read {} docs for chunk clone", ns, count);
+	            	logger.debug("{}: read {} docs for chunk clone, query: {}", ns, count, chunkQuery);
 	            }
 	        }
 	        // flush any remaining from the buffer
@@ -128,7 +157,7 @@ public class ChunkCloneTask implements Callable<ChunkCloneResult> {
             result.successCount += docsBuffer.size();
             
         } catch (MongoBulkWriteException bwe) {
-            //logger.warn(String.format("%s - insertMany() error : %s", ns, bwe.getMessage()));
+            logger.warn(String.format("%s - insertMany() error : %s", ns, bwe.getMessage()));
         	List<BulkWriteError> errors = bwe.getWriteErrors();
         	
         	int batchDuplicateKeyCount = getDuplicateKeyErrorCount(errors);

@@ -82,6 +82,12 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
         logger.debug(String.format("%s - cloned %s documents, errorCount: %s, duplicateKeyCount: %s", ns, successCount, errorCount, duplicateKeyCount));
         logger.debug(String.format("Done cloning %s, %s documents in %f seconds", ns, successCount, dur));
     }
+
+	@Override
+	public void shutdown() {
+		// TODO Auto-generated method stub
+		
+	}
     
 
 

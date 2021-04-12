@@ -26,6 +26,8 @@ public abstract class AbstractCollectionCloneWorker {
     protected static final Logger logger = LoggerFactory.getLogger(AbstractCollectionCloneWorker.class);
 
     public abstract void run();
+    
+    public abstract void shutdown();
 
     protected Namespace ns;
     protected Document shardCollection;

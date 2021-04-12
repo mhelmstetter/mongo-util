@@ -67,7 +67,7 @@ public class ApplyOperationsHelper  {
 			output.increment(bulkWriteResult, errors.size());
 			//output = new BulkWriteOutput(bulkWriteResult);
 			if (errors.size() == writeModels.size()) {
-				logger.error("{} bulk write errors, all {} operations failed: {}", shardId, err);
+				//logger.error("{} bulk write errors, all {} operations failed: {}", shardId, err);
 			} else {
 				if (useOrdered) {
 					for (BulkWriteError bwe : errors) {

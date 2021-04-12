@@ -17,7 +17,7 @@ public class GetLatestOplogTimestampTask implements Callable<ShardTimestamp> {
 
     @Override
     public ShardTimestamp call() throws Exception {
-        return client.populateLatestOplogTimestamp(shardName);
+        return client.populateLatestOplogTimestamp(shardName, null);
     }
 
 }

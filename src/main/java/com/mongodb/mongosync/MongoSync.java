@@ -10,11 +10,13 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -37,6 +39,7 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
+import com.mongodb.client.MongoIterable;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardTimestamp;
@@ -65,6 +68,8 @@ public class MongoSync {
     private final static String INITIAL_SYNC = "initialSync";
     private final static String NAME = "name";
     private final static String OPLOG_TRANSFORMERS = "oplogTransformers";
+    private final static String CHUNK_SKIP = "skipMatchingCountChunks";
+    private final static String SHARD_LIST = "shardList";
     
     private static Options options;
     private static CommandLine line;
@@ -74,9 +79,9 @@ public class MongoSync {
     private ShardClient sourceShardClient;
     private ShardClient destShardClient;
     
-    //private ExecutorService initialSyncExecutor;
+    private ExecutorService initialSyncExecutor;
     
-    private ShardedCollectionCloneWorker initialSyncWorker;
+    private AbstractCollectionCloneWorker initialSyncWorker;
     private ExecutorService oplogTailExecutor;
     
     private List<AbstractOplogTailWorker> oplogTailWorkers;
@@ -87,9 +92,20 @@ public class MongoSync {
     private boolean doInitialSync = true;
     
     private void initialize() throws IOException {
-        sourceShardClient = new ShardClient("source", mongoSyncOptions.getSourceMongoUri());
+    	
+    	Set<String> shardList = mongoSyncOptions.getShardList();
+        boolean filtered = false;
+        if (shardList != null && shardList.size() > 0) {
+        	filtered = true;
+        	logger.debug("shard filtered mode, {} shards", shardList.size());
+        	sourceShardClient = new ShardClient("source", mongoSyncOptions.getSourceMongoUri(), shardList);
+        } else {
+        	sourceShardClient = new ShardClient("source", mongoSyncOptions.getSourceMongoUri());
+        }
+    	
         sourceShardClient.init();
         sourceShardClient.populateShardMongoClients();
+        sourceShardClient.populateCollectionsMap();
         mongoSyncOptions.setSourceShardClient(sourceShardClient);
         
         destShardClient = new ShardClient("dest", mongoSyncOptions.getDestMongoUri());
@@ -165,11 +181,11 @@ public class MongoSync {
         
     }
     
-//    private void cloneCollection(Namespace ns) {
-//        Runnable worker = new CollectionCloneWorker(ns, sourceShardClient, destShardClient, mongoSyncOptions);
-//        initialSyncExecutor.execute(worker);
-//        
-//    }
+    private void cloneCollection(Namespace ns) {
+        Runnable worker = new CollectionCloneWorker(ns, sourceShardClient, destShardClient, mongoSyncOptions);
+        initialSyncExecutor.execute(worker);
+        
+    }
     
     private void shardedInitialSync() {
     	logger.debug("Starting sharded initial sync");
@@ -184,48 +200,51 @@ public class MongoSync {
     }
     
     
-//    private void initialSync() {
-//    	logger.debug("Starting initial sync");
-//        initialSyncExecutor = Executors.newFixedThreadPool(mongoSyncOptions.getThreads());
-//        
-//        MongoIterable<String> dbNames = sourceShardClient.listDatabaseNames();
-//        for (String dbName : dbNames) {
-//        	
-//        	if (excludeDbCheck(dbName)) {
-//        		continue;
-//        	}
-//            	
-//        	if (mongoSyncOptions.isDropDestDbs()) {
-//        		destShardClient.dropDatabase(dbName);
-//        	}
-//        	
-//        	List<String> collectionNames = new ArrayList<>();
-//            sourceShardClient.listCollectionNames(dbName).into(collectionNames);
-//            logger.debug("{}: collection count: {}", dbName, collectionNames.size());
-//            for (String collectionName : collectionNames) {
-//                if (collectionName.equals("system.profile") || collectionName.equals("system.indexes")) {
-//                    continue;
-//                }
-//                Namespace ns = new Namespace(dbName, collectionName);
-//                if (mongoSyncOptions.excludeNamespace(ns)) {
-//                	continue;
-//                }
-//                cloneCollection(ns);
-//            }
-//        }
-//
-//        initialSyncExecutor.shutdown();
-//		try {
-//			if (!initialSyncExecutor.awaitTermination(Duration.ofMinutes(120).toMillis(), TimeUnit.MILLISECONDS)) {
-//				logger.warn("ShardedCollectionCloneWorker executor did not finish within wait time");
-//			}
-//		} catch (InterruptedException e) {
-//			logger.warn("ShardedCollectionCloneWorker interrupted");
-//			Thread.currentThread().interrupt();
-//
-//		}
-//        logger.debug("Initial sync complete");
-//    }
+    private void initialSync() {
+    	logger.debug("Starting initial sync");
+        initialSyncExecutor = Executors.newFixedThreadPool(mongoSyncOptions.getThreads());
+        
+        MongoIterable<String> dbNames = sourceShardClient.listDatabaseNames();
+        for (String dbName : dbNames) {
+        	
+        	if (excludeDbCheck(dbName)) {
+        		continue;
+        	}
+            	
+        	if (mongoSyncOptions.isDropDestDbs()) {
+        		destShardClient.dropDatabase(dbName);
+        	}
+        	
+        	List<String> collectionNames = new ArrayList<>();
+            sourceShardClient.listCollectionNames(dbName).into(collectionNames);
+            logger.debug("{}: collection count: {}", dbName, collectionNames.size());
+            for (String collectionName : collectionNames) {
+                if (collectionName.equals("system.profile") || collectionName.equals("system.indexes")) {
+                    continue;
+                }
+                if (! mongoSyncOptions.includeCollection(dbName, collectionName)) {
+                	continue;
+                }
+                Namespace ns = new Namespace(dbName, collectionName);
+                
+                
+                if (mongoSyncOptions.excludeNamespace(ns)) {
+                	continue;
+                }
+                cloneCollection(ns);
+            }
+        }
+
+        initialSyncExecutor.shutdown();
+		try {
+			initialSyncExecutor.awaitTermination(999, TimeUnit.DAYS);
+		} catch (InterruptedException e) {
+			logger.warn("ShardedCollectionCloneWorker interrupted");
+			Thread.currentThread().interrupt();
+
+		}
+        logger.debug("Initial sync complete");
+    }
     
     private void tailOplogs() {
         Collection<Shard> shards = sourceShardClient.getShardsMap().values();
@@ -234,6 +253,8 @@ public class MongoSync {
         
         oplogTailExecutor = Executors.newFixedThreadPool(shards.size());
         oplogTailWorkers = new ArrayList<>(shards.size());
+        
+        
         for (Shard shard : shards) {
         	createWorker(shard.getId());
         }
@@ -287,6 +308,7 @@ public class MongoSync {
         }
         if (doInitialSync) {
         	shardedInitialSync();
+        	//initialSync();
         } else {
         	logger.debug("Skippping initial sync, timestamp file(s) exist");
         }
@@ -355,6 +377,7 @@ public class MongoSync {
         options.addOption(OptionBuilder.withArgName("destination cluster mongo uri").hasArg().withLongOpt(DEST_URI).create("d"));
         options.addOption(OptionBuilder.withArgName("split destination chunks").withLongOpt(SPLIT_CHUNKS).create(SPLIT_CHUNKS));
         options.addOption(OptionBuilder.withArgName("initial sync only (no oplog tail)").withLongOpt(INITIAL_SYNC).create(INITIAL_SYNC));
+        options.addOption(OptionBuilder.withArgName("skip initial sync of chunks with matching counts").withLongOpt(CHUNK_SKIP).create(CHUNK_SKIP));
         options.addOption(OptionBuilder.withArgName("# threads").hasArg().withLongOpt("threads").create("t"));
         options.addOption(OptionBuilder.withArgName("batch size").hasArg().withLongOpt("batchSize").create("b"));
         options.addOption(OptionBuilder.withArgName("Namespace filter").hasArgs().withLongOpt("filter").create("f"));
@@ -430,6 +453,8 @@ public class MongoSync {
         
         mongoSyncOptions.setOplogTransformers(line.getOptionValue("o", config.getString(OPLOG_TRANSFORMERS)));
         
+        mongoSyncOptions.setShardList(line.getOptionValue(SHARD_LIST, config.getString(SHARD_LIST)));
+        
         String threadsStr = line.getOptionValue("t");
         if (threadsStr != null) {
             int threads = Integer.parseInt(threadsStr);
@@ -446,7 +471,8 @@ public class MongoSync {
         String[] excludes = line.getOptionValues("x");
         mongoSyncOptions.setIncludesExcludes(includes, excludes);
         mongoSyncOptions.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
-        mongoSyncOptions.setInitialSyncOnly(line.hasOption(INITIAL_SYNC));
+        
+        mongoSyncOptions.setSkipChunkSyncIfMatchingCounts(line.hasOption(CHUNK_SKIP));
         mongoSyncOptions.setCleanTimestampFiles(line.hasOption(CLEAN_TIMESTAMPS));
         mongoSyncOptions.setUseMultiThreadedOplogTailWorkers(line.hasOption(MULTI_OPLOG_WORKER));
         

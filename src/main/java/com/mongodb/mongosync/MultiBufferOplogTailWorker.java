@@ -1,11 +1,6 @@
 package com.mongodb.mongosync;
 
-import static com.mongodb.client.model.Filters.and;
-import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.gte;
-import static com.mongodb.client.model.Filters.in;
-import static com.mongodb.client.model.Filters.ne;
-import static com.mongodb.client.model.Filters.nin;
+import static com.mongodb.client.model.Filters.*;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -49,6 +44,8 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 	private Map<Integer, ChildOplogWorker> childWorkers;
 	private List<ExecutorService> childExecutors;
 	// private ArrayBlockingQueue<BsonDocument> childQueues;
+	
+	ScheduledExecutorService monitorExecutor;
 	
 	private Map<Integer, BlockingQueue<OplogQueueEntry>> childQueues;
 
@@ -106,7 +103,7 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 
 	public void run() {
 		startChildExecutors();
-		ScheduledExecutorService monitorExecutor = Executors.newScheduledThreadPool(1);
+		monitorExecutor = Executors.newScheduledThreadPool(1);
 		monitorExecutor.scheduleAtFixedRate(oplogTailMonitor, 0L, 30L, TimeUnit.SECONDS);
 
 		MongoDatabase local = sourceShardClient.getShardMongoClient(shardId).getDatabase("local");
@@ -119,12 +116,12 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 		
 		Bson query = null;
 		if (includedNamespaces.isEmpty() && excludedNamespaces.isEmpty()) {
-			query = and(gte("ts", shardTimestamp.getTimestamp()), ne("op", "n"));
+			query = and(gt("ts", shardTimestamp.getTimestamp()), ne("op", "n"));
 		} else {
 			if (excludedNamespaces.size() > 0) {
-				query = and(gte("ts", shardTimestamp.getTimestamp()), ne("op", "n"), nin("ns", excludedNamespaces));
+				query = and(gt("ts", shardTimestamp.getTimestamp()), ne("op", "n"), nin("ns", excludedNamespaces));
 			} else {
-				query = and(gte("ts", shardTimestamp.getTimestamp()), ne("op", "n"), in("ns", includedNamespaces));
+				query = and(gt("ts", shardTimestamp.getTimestamp()), ne("op", "n"), in("ns", includedNamespaces));
 			}
 		}
 
@@ -271,13 +268,20 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 			try {
 				logger.debug("{}: starting shutdown of executor {}", shardId, i++);
 				executor.shutdown();
-				executor.awaitTermination(60, TimeUnit.SECONDS);
+				executor.awaitTermination(240, TimeUnit.SECONDS);
 			} catch (InterruptedException e) {
 				logger.error("Timed out waiting for executor to complete", e);
 			}
 		}
-		logger.debug("{}: executors shutdown", shardId);
-
+		logger.debug("{}: child executors shutdown", shardId);
+		
+		try {
+			monitorExecutor.shutdown();
+			monitorExecutor.awaitTermination(60, TimeUnit.SECONDS);
+		} catch (InterruptedException e) {
+			logger.error("Timed out waiting for monitor executor to complete", e);
+		}
+		logger.debug("{}: monitor shutdown", shardId);
 	}
 
 

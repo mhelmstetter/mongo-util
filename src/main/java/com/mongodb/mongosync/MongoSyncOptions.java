@@ -1,8 +1,10 @@
 package com.mongodb.mongosync;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -19,6 +21,7 @@ public class MongoSyncOptions {
 	private boolean dropDestDbs;
 	private boolean cleanTimestampFiles;
 	private boolean useMultiThreadedOplogTailWorkers = false;
+	private boolean skipChunkSyncIfMatchingCounts = false;
 	private boolean initialSyncOnly;
 	private int oplogThreads = 4;
 	private int oplogQueueSize = 50;
@@ -34,6 +37,7 @@ public class MongoSyncOptions {
 	private Set<Namespace> excludedNamespaces = new HashSet<Namespace>();
 	private Set<String> excludedNamespaceStrings = new HashSet<String>();
 	private Set<String> excludedDatabases = new HashSet<String>();
+	private Set<String> shardList;
 
 	private Map<String, String> transformersMap = new HashMap<>();
 
@@ -251,6 +255,25 @@ public class MongoSyncOptions {
 
 	public void setInitialSyncOnly(boolean initialSyncOnly) {
 		this.initialSyncOnly = initialSyncOnly;
+	}
+
+	public boolean isSkipChunkSyncIfMatchingCounts() {
+		return skipChunkSyncIfMatchingCounts;
+	}
+
+	public void setSkipChunkSyncIfMatchingCounts(boolean skipChunkSyncIfMatchingCounts) {
+		this.skipChunkSyncIfMatchingCounts = skipChunkSyncIfMatchingCounts;
+	}
+	
+	public void setShardList(String shardListStr) {
+		if (shardListStr != null) {
+			String[] shardListArray = shardListStr.split(",");
+			this.shardList = new HashSet<String>(Arrays.asList(shardListArray));
+		}
+	}
+
+	public Set<String> getShardList() {
+		return shardList;
 	}
 
 }

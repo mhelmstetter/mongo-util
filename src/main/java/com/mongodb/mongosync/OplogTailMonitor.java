@@ -2,7 +2,6 @@ package com.mongodb.mongosync;
 
 import java.io.IOException;
 import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 
 import org.bson.BsonDocument;
@@ -51,42 +50,45 @@ public class OplogTailMonitor implements Runnable {
 		latestTimestamp = document.getTimestamp("ts");
 		//logger.debug("{}: setLatestTimestamp: {}", shardId, latestTimestamp.getTime());
     }
+	
+	private void processLoop() {
+		try {
+			timestampFile.update(latestTimestamp);
+		} catch (IOException e) {
+			logger.error("error updating timestamp file", e);
+		}
+		
+		BsonTimestamp sourceTs = sourceShardClient.getLatestOplogTimestamp(shardId);
+		Integer lagSeconds = null;
+		
+		if (latestTimestamp != null) {
+			lagSeconds = sourceTs.getTime() - latestTimestamp.getTime();
+		}
+		
+		//
+		
+		int queuedTasks = 0;
+		if (childQueues != null) {
+			for (Map.Entry<Integer, BlockingQueue<OplogQueueEntry>> entry : childQueues.entrySet()) {
+				BlockingQueue<OplogQueueEntry> queue = entry.getValue();
+				int queueSize = queue.size();
+				logger.debug("{} - executor {} - queue size: {}", shardId, entry.getKey(), queueSize);
+				queuedTasks += queueSize;
+			}
+			logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, dupeKey: {}, queuedTasks: {}",
+					shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, duplicateKeyExceptionCount,
+					queuedTasks);
+			
+		} else {
+			logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, dupeKey: {}",
+					shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, duplicateKeyExceptionCount);
+		}
+	}
 
 	@Override
 	public void run() {
 		try {
-			try {
-				timestampFile.update(latestTimestamp);
-			} catch (IOException e) {
-				logger.error("error updating timestamp file", e);
-			}
-			
-			BsonTimestamp sourceTs = sourceShardClient.getLatestOplogTimestamp(shardId);
-			Integer lagSeconds = null;
-			
-			if (latestTimestamp != null) {
-				lagSeconds = sourceTs.getTime() - latestTimestamp.getTime();
-			}
-			
-			//
-			
-			int queuedTasks = 0;
-			if (childQueues != null) {
-				for (Map.Entry<Integer, BlockingQueue<OplogQueueEntry>> entry : childQueues.entrySet()) {
-					BlockingQueue<OplogQueueEntry> queue = entry.getValue();
-					int queueSize = queue.size();
-					logger.debug("{} - executor {} - queue size: {}", shardId, entry.getKey(), queueSize);
-					queuedTasks += queueSize;
-				}
-				logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, dupeKey: {}, queuedTasks: {}",
-						shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, duplicateKeyExceptionCount,
-						queuedTasks);
-				
-			} else {
-				logger.debug("{} - lagSeconds: {}, inserted: {}, modified: {}, upserted: {}, deleted: {}, dupeKey: {}",
-						shardId, lagSeconds, insertedCount, modifiedCount, upsertedCount, deletedCount, duplicateKeyExceptionCount);
-			}
-			
+			processLoop();
 		} catch (Exception e) {
 			logger.error("monitor error", e);
 		}
