@@ -21,7 +21,6 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
     @Override
     public void run() {
     	
-        //splitVector("foo.bar");
         MongoCursor<RawBsonDocument> cursor = null;
         
         long start = System.currentTimeMillis();
@@ -29,7 +28,6 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
         successCount = 0;
         errorCount = 0;
         try {
-            // TODO .hint(new Document("_id", 1)) when storage engine is WT
             cursor = sourceCollection.find().sort(eq("$natural", 1)).noCursorTimeout(true).iterator();
             
             Number total = getCount();
@@ -84,6 +82,12 @@ public class CollectionCloneWorker extends AbstractCollectionCloneWorker impleme
         logger.debug(String.format("%s - cloned %s documents, errorCount: %s, duplicateKeyCount: %s", ns, successCount, errorCount, duplicateKeyCount));
         logger.debug(String.format("Done cloning %s, %s documents in %f seconds", ns, successCount, dur));
     }
+
+	@Override
+	public void shutdown() {
+		// TODO Auto-generated method stub
+		
+	}
     
 
 

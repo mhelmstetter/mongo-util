@@ -1,10 +1,6 @@
 package com.mongodb.shardsync;
 
-import static com.mongodb.client.model.Filters.and;
-import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.in;
-import static com.mongodb.client.model.Filters.ne;
-import static com.mongodb.client.model.Filters.regex;
+import static com.mongodb.client.model.Filters.*;
 import static com.mongodb.client.model.Projections.include;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
@@ -64,6 +60,11 @@ import com.mongodb.model.ShardTimestamp;
  *
  */
 public class ShardClient {
+	
+	public enum ShardClientType {
+		SHARDED,
+		REPLICA_SET
+	}
 
 	private static Logger logger = LoggerFactory.getLogger(ShardClient.class);
 	
@@ -82,6 +83,7 @@ public class ShardClient {
 	
 	public final static Set<String> excludedSystemDbs = new HashSet<>(Arrays.asList("system", "local", "config", "admin"));
 
+	private ShardClientType shardClientType = ShardClientType.SHARDED;
 	private String name;
 	private String version;
 	private List<Integer> versionArray;
@@ -206,7 +208,11 @@ public class ShardClient {
 			}
 			String rsName = StringUtils.substringBefore(sh.getHost(), "/");
 			sh.setRsName(rsName);
-			shardsMap.put(sh.getId(), sh);
+			if (this.shardIdFilter == null) {
+				shardsMap.put(sh.getId(), sh);
+			} else if (shardIdFilter.contains(sh.getId())) {
+				shardsMap.put(sh.getId(), sh);
+			}
 		}
 
 		if (patternedUri) {
@@ -395,15 +401,36 @@ public class ShardClient {
 	}
 	
 	public BsonTimestamp getLatestOplogTimestamp(String shardId) {
+		return getLatestOplogTimestamp(shardId, null);
+	}
+	
+	public BsonTimestamp getLatestOplogTimestamp(String shardId, Bson query) {
 		MongoClient client = shardMongoClients.get(shardId);
 		MongoCollection<Document> coll = client.getDatabase("local").getCollection("oplog.rs");
-		Document doc = coll.find().comment("getLatestOplogTimestamp").projection(include("ts")).sort(eq("$natural", -1)).first();
+		Document doc = null;
+		if (query != null) {
+			doc = coll.find(query).comment("getLatestOplogTimestamp").projection(include("ts")).sort(eq("$natural", -1)).first();
+		} else {
+			doc = coll.find().comment("getLatestOplogTimestamp").projection(include("ts")).sort(eq("$natural", -1)).first();
+		}
 		BsonTimestamp ts = (BsonTimestamp) doc.get("ts");
 		return ts;
 	}
 
-	public ShardTimestamp populateLatestOplogTimestamp(String shardId) {
-		BsonTimestamp ts = getLatestOplogTimestamp(shardId);
+	public ShardTimestamp populateLatestOplogTimestamp(String shardId, String startingTs) {
+		Bson query = null;
+		if (startingTs != null) {
+			if (startingTs.contains(",")) {
+				String[] tsParts = startingTs.split(",");
+				int seconds = Integer.parseInt(tsParts[0]);
+				int increment = Integer.parseInt(tsParts[1]);
+				query = gt("ts", new BsonTimestamp(seconds, increment));
+			} else {
+				throw new IllegalArgumentException("Error parsing timestamp no comma found, expected format ts,increment");
+			}
+			
+		}
+		BsonTimestamp ts = getLatestOplogTimestamp(shardId, query);
 		ShardTimestamp st = new ShardTimestamp(shardId, ts);
 		this.getShardsMap().get(shardId).setSyncStartTimestamp(st);
 		return st;
@@ -485,7 +512,7 @@ public class ShardClient {
 	}
 
 	public Number getFastCollectionCount(MongoDatabase db, String collectionName) {
-		return db.getCollection(collectionName).countDocuments();
+		return db.getCollection(collectionName).estimatedDocumentCount();
 	}
 
 	public Number getCollectionCount(String dbName, String collectionName) {
@@ -826,6 +853,7 @@ public class ShardClient {
 			Document indexInfo = indexSpec.getSourceSpec().decode(codec);
 			// BsonDocument indexInfo = indexSpec.getSourceSpec().clone();
 			indexInfo.remove("v");
+			indexInfo.append("background", true);
 			Number expireAfterSeconds = (Number) indexInfo.get("expireAfterSeconds");
 			if (expireAfterSeconds != null && extendTtl) {
 
@@ -1076,6 +1104,14 @@ public class ShardClient {
 
 	public boolean isMongos() {
 		return mongos;
+	}
+
+	public ShardClientType getShardClientType() {
+		return shardClientType;
+	}
+
+	public void setShardClientType(ShardClientType shardClientType) {
+		this.shardClientType = shardClientType;
 	}
 
 }

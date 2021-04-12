@@ -30,7 +30,7 @@ public class DummyCloneWorker extends AbstractCollectionCloneWorker implements R
         errorCount = 0;
         try {
             cursor = sourceCollection.find().noCursorTimeout(true).hint(new Document("_id", 1)).iterator();
-            //Number total = ShardClient.getFastCollectionCount(sourceDb, sourceCollection);
+            //Number sourceTotal = ShardClient.getFastCollectionCount(sourceDb, sourceCollection);
             logger.debug(String.format("%s - starting", ns));
             while (cursor.hasNext()) {
                 RawBsonDocument doc = cursor.next();
@@ -73,6 +73,13 @@ public class DummyCloneWorker extends AbstractCollectionCloneWorker implements R
         Double dur = (end - start)/1000.0;
         logger.debug(String.format("Done cloning %s, %s documents in %f seconds. errorCount: %s", ns, successCount, dur, errorCount));
     }
+
+
+	@Override
+	public void shutdown() {
+		// TODO Auto-generated method stub
+		
+	}
     
 
 

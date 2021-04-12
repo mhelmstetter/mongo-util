@@ -29,8 +29,12 @@ public class DiffUtilApp {
     private final static String COLL_COUNTS = "compareCounts";
     //private final static String CHUNK_COUNTS = "chunkCounts";
     private final static String COMPARE_DOCUMENTS = "compareDocuments";
+    private final static String COMPARE_DOCUMENTS_QUERY = "compareDocumentsQuery";
     
     private final static String COMPARE_IDS = "compareIds";
+    
+    private final static String NO_REPORT_MISSING = "noReportMissing";
+    private final static String REPORT_MATCHES = "reportMatches";
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -40,12 +44,20 @@ public class DiffUtilApp {
         options.addOption(OptionBuilder.withArgName("Destination cluster connection uri").hasArgs().withLongOpt("dest").create("d"));
         options.addOption(OptionBuilder.withArgName("Configuration properties file").hasArgs().withLongOpt("config")
                 .isRequired(false).create("c"));
+        options.addOption(OptionBuilder.withArgName("Include namespace").hasArgs().withLongOpt("includeNamespace").create("f"));
         options.addOption(OptionBuilder.withArgName("Compare counts only")
                 .withLongOpt(COLL_COUNTS).create(COLL_COUNTS));
-        options.addOption(OptionBuilder.withArgName("Compare all documents in all collections")
+        options.addOption(OptionBuilder.withArgName("Compare all documents in all collections, using parallel cursors")
                 .withLongOpt(COMPARE_DOCUMENTS).create(COMPARE_DOCUMENTS));
+        options.addOption(OptionBuilder.withArgName("Compare all documents in all collections, using per document query match")
+                .withLongOpt(COMPARE_DOCUMENTS_QUERY).create(COMPARE_DOCUMENTS_QUERY));
         options.addOption(OptionBuilder.withArgName("Compare ids ")
                 .withLongOpt(COMPARE_IDS).create(COMPARE_IDS));
+        options.addOption(OptionBuilder.withArgName("Do not report missing docs")
+                .withLongOpt(NO_REPORT_MISSING).create(NO_REPORT_MISSING));
+        options.addOption(OptionBuilder.withArgName("Report missing docs")
+                .withLongOpt(REPORT_MATCHES).create(REPORT_MATCHES));
+        
 
         CommandLineParser parser = new GnuParser();
         
@@ -79,7 +91,11 @@ public class DiffUtilApp {
         } else  {
             propsFile = new File("diff-util.properties");
             if (! propsFile.exists()) {
-                logger.warn("Default config file diff-util.properties not found, using command line options only");
+            	propsFile = new File("shard-sync.properties");
+            }
+            
+            if (! propsFile.exists()) {
+                logger.warn("Default config files diff-util.properties or shard-sync.properties, not found, using command line options only");
                 return prop;
             }
         }
@@ -98,16 +114,33 @@ public class DiffUtilApp {
         DiffUtil sync = new DiffUtil();
         sync.setSourceClusterUri(line.getOptionValue("s", configFileProps.getProperty(SOURCE_URI)));
         sync.setDestClusterUri(line.getOptionValue("d", configFileProps.getProperty(DEST_URI)));
+        
+        if (line.hasOption(REPORT_MATCHES)) {
+        	sync.setReportMatches(true);
+        }
+        if (line.hasOption(NO_REPORT_MISSING)) {
+        	sync.setReportMissing(false);
+        }
+        
+        
+        String[] includes = line.getOptionValues("f"); 
+        sync.setIncludes(includes);
+        
         sync.init();
         if (line.hasOption(COLL_COUNTS)) {
-            //sync.compareShardCounts();
+            sync.compareShardCounts();
         }
         if (line.hasOption(COMPARE_DOCUMENTS)) {
-            sync.compareDocuments();
+            sync.compareDocuments(true);
+        }
+        if (line.hasOption(COMPARE_DOCUMENTS_QUERY)) {
+            sync.compareDocuments(false);
         }
         if (line.hasOption(COMPARE_IDS)) {
             sync.compareIds();
         }
+        
+        
 
     }
 

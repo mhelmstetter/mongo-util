@@ -3,6 +3,8 @@ package com.mongodb.shardsync;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.exists;
+import static com.mongodb.client.model.Filters.gte;
+import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.regex;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
@@ -16,6 +18,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -28,7 +31,6 @@ import java.util.concurrent.Callable;
 
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.exec.ExecuteException;
-import org.bson.BsonMaxKey;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -36,7 +38,6 @@ import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
-import org.bson.types.MaxKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -297,7 +298,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			MongoDatabase sourceDb = client.getDatabase(dbName);
 			for (String collectionName : sourceDb.listCollectionNames()) {
 				Namespace ns = new Namespace(dbName, collectionName);
-				if (filterCheck(ns) || ! filterSet.contains(ns.getNamespace())) {
+				if (filterCheck(ns) || (filterSet != null && ! filterSet.contains(ns.getNamespace()))) {
 					continue;
 				}
 				
@@ -315,19 +316,19 @@ public class ShardConfigSync implements Callable<Integer> {
 	public void syncIndexesShards(boolean createMissing, boolean extendTtl) {
 		logger.debug(String.format("Starting syncIndexes: extendTtl: %s", extendTtl));
 		destShardClient.populateShardMongoClients();
-		sourceShardClient.populateCollectionsMap();
+		sourceShardClient.populateShardMongoClients();
 		
-		Map<String, Document> map = sourceShardClient.getCollectionsMap();
-		Set<String> filterSet = map.keySet();
+		//Map<String, Document> map = sourceShardClient.getCollectionsMap();
+		//Set<String> filterSet = Collections.emptySet();
 		
-		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), filterSet);
+		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
 		Map<String, Map<Namespace, Set<IndexSpec>>> destShardsIndexSpecs = new HashMap<>();
 		
 		// TODO fix for shard to rs
 		for (Map.Entry<String, MongoClient> entry : destShardClient.getShardMongoClients().entrySet()) {
 			String shardName = entry.getKey();
 			MongoClient destClient = entry.getValue();
-			Map<Namespace, Set<IndexSpec>> destShardIndexSpecs = getIndexSpecs(destClient, filterSet);
+			Map<Namespace, Set<IndexSpec>> destShardIndexSpecs = getIndexSpecs(destClient, null);
 			destShardsIndexSpecs.put(shardName, destShardIndexSpecs);
 		}
 		
@@ -353,8 +354,13 @@ public class ShardConfigSync implements Callable<Integer> {
             		}
             		
             	} else {
-            		logger.debug(String.format("%s - missing dest indexes %s missing on shard %s, creating", ns, diff, shardName));
-            		destShardClient.createIndexes(shardName, ns, diff, extendTtl);
+            		if (createMissing) {
+            			logger.debug(String.format("%s - missing dest indexes %s missing on shard %s, creating", ns, diff, shardName));
+                		destShardClient.createIndexes(shardName, ns, diff, extendTtl);
+            		} else {
+            			logger.debug(String.format("%s - missing dest indexes %s missing on shard %s", ns, diff, shardName));
+            		}
+            		
             	}
 
             }
@@ -475,16 +481,16 @@ public class ShardConfigSync implements Callable<Integer> {
 		if (nsFilter != null) {
 			chunkQuery.append("ns", nsFilter);
 		}
-		// logger.debug("chunkQuery: " + chunkQuery);
-		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find(chunkQuery).noCursorTimeout(true)
-				.sort(Sorts.ascending("ns", "min"));
+		
+		List<RawBsonDocument> sourceChunks = new ArrayList<>();
+		sourceChunksColl.find().sort(Sorts.ascending("ns", "min")).into(sourceChunks);
+		
 
 		String lastNs = null;
 		int currentCount = 0;
 
-		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
+		for (RawBsonDocument chunk : sourceChunks) {
 
-			RawBsonDocument chunk = sourceChunksIterator.next();
 			String ns = chunk.getString("ns").getValue();
 			if (filterCheck(ns)) {
 				continue;
@@ -1030,45 +1036,110 @@ public class ShardConfigSync implements Callable<Integer> {
 					destTotal += result[1];
 					collCount++;
 				}
-				logger.debug("Database {} - source count total: {}, dest count total {}", dbName, sourceTotal, destTotal);
+				logger.debug("Database {} - source count sourceTotal: {}, dest count sourceTotal {}", dbName, sourceTotal, destTotal);
 			} else {
 				logger.warn(String.format("Destination db not found, name: %s", dbName));
 			}
 		}
 	}
-
+	
 	private long[] doCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
+		return doCounts(sourceDb, destDb, collectionName, null);
+	}
+
+	private long[] doCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName, Bson query) {
 
 		long[] result = new long[2];
-		Long sourceCount = sourceShardClient.getFastCollectionCount(sourceDb, collectionName).longValue();
-		Long destCount = destShardClient.getFastCollectionCount(destDb, collectionName).longValue();
+		Long sourceCount = null;
+		Long destCount = null;
+		if (query == null) {
+			sourceCount = sourceDb.getCollection(collectionName).countDocuments();
+			destCount = destDb.getCollection(collectionName).countDocuments();
+		} else {
+			//db.getCollection(collectionName).countDocuments();
+			sourceCount = sourceDb.getCollection(collectionName).countDocuments(query);
+			destCount = destDb.getCollection(collectionName).countDocuments(query);
+		}
+		
 		result[0] = sourceCount;
 		result[1] = destCount;
-		
-//		if (sourceCount == null && destCount == null) {
-//			logger.debug(String.format("%s.%s count matches: %s", sourceDb.getName(), collectionName, 0));
-//			return result;
-//		} else if (sourceCount != null && sourceCount.equals(destCount)) {
 		
 		if (sourceCount.equals(destCount)) {
 			logger.debug(String.format("%s.%s count matches: %s", sourceDb.getName(), collectionName, sourceCount));
 			return result;
 		} else {
-			logger.warn(String.format("%s.%s count MISMATCH - source: %s, dest: %s", sourceDb.getName(), collectionName,
-					sourceCount, destCount));
+			logger.warn(String.format("%s.%s count MISMATCH - source: %s, dest: %s, query: %s", sourceDb.getName(), collectionName,
+					sourceCount, destCount, query));
 			return result;
+		}
+	}
+	
+	public void compareChunkCounts() {
+		for (String databaseName : sourceShardClient.listDatabaseNames()) {
+			MongoDatabase db = sourceShardClient.getMongoClient().getDatabase(databaseName);
+
+			if (databaseName.equals("admin") || databaseName.equals("config")
+					|| databaseName.contentEquals("local")) {
+				continue;
+			}
+
+			for (Document collectionInfo : db.listCollections()) {
+				String collectionName = (String) collectionInfo.get("name");
+				if (collectionName.endsWith(".create")) {
+					continue;
+				}
+				
+				Namespace ns = new Namespace(databaseName, collectionName);
+				if (filtered && !includeNamespaces.contains(ns)) {
+					logger.debug("compareChunkCounts skipping {}, filtered", ns);
+					continue;
+				}
+				compareChunkCounts(ns);
+			}
 		}
 	}
 
 	// TODO - this is incomplete
-	private void compareChunkCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
-		String ns = sourceDb.getName() + "." + collectionName;
-		MongoCollection<Document> sourceChunksColl = sourceShardClient.getChunksCollection();
-		FindIterable<Document> sourceChunks = sourceChunksColl.find(eq("ns", ns)).sort(Sorts.ascending("ns", "min"));
-
-		MongoCollection<Document> destChunksColl = destShardClient.getChunksCollection();
-		Iterator<Document> destChunks = destChunksColl.find(eq("ns", ns)).sort(Sorts.ascending("ns", "min")).iterator();
-
+	public void compareChunkCounts(Namespace ns) {
+		destShardClient.populateCollectionsMap();
+		Document shardCollection = destShardClient.getCollectionsMap().get(ns.getNamespace());
+		if (shardCollection == null) {
+			logger.warn("Collection {} is not sharded, cannot do chunk compare", ns);
+		} else {
+			MongoDatabase sourceDb = sourceShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
+			MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
+			
+			Document shardKeysDoc = (Document) shardCollection.get("key");
+			Set<String> shardKeys = shardKeysDoc.keySet();
+		
+			// use dest chunks as reference, may be smaller
+			MongoCollection<Document> chunksCollection = destShardClient.getChunksCollection();
+			// int chunkCount = (int)sourceChunksColl.countDocuments(eq("ns",
+			// ns.getNamespace()));
+	
+			FindIterable<Document> sourceChunks = chunksCollection.find(eq("ns", ns.getNamespace()))
+					.sort(Sorts.ascending("min"));
+			for (Document sourceChunk : sourceChunks) {
+				String id = sourceChunk.getString("_id");
+				// each chunk is inclusive of min and exclusive of max
+				Document min = (Document) sourceChunk.get("min");
+				Document max = (Document) sourceChunk.get("max");
+				Bson chunkQuery = null;
+	
+				if (shardKeys.size() > 1) {
+					List<Bson> filters = new ArrayList<Bson>(shardKeys.size());
+					for (String key : shardKeys) {
+						filters.add(and(gte(key, min.get(key)), lt(key, max.get(key))));
+					}
+					chunkQuery = and(filters);
+				} else {
+					String key = shardKeys.iterator().next();
+					chunkQuery = and(gte(key, min.get(key)), lt(key, max.get(key)));
+				}
+				
+				long[] result = doCounts(sourceDb, destDb, ns.getCollectionName(), chunkQuery);
+			}
+		}
 	}
 
 	public void compareCollectionUuids() {
@@ -1386,7 +1457,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		logger.debug("cleanupOrphans()");
 		sourceShardClient.populateCollectionsMap();
 		sourceShardClient.populateShardMongoClients();
-		CleanupOrphaned cleaner = new CleanupOrphaned(sourceShardClient);
+		CleanupOrphaned cleaner = new CleanupOrphaned(sourceShardClient, includeNamespaces);
 		cleaner.cleanupOrphans(cleanupOrphansSleepMillis);
 	}
 
@@ -1394,7 +1465,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		logger.debug("cleanupOrphansDest()");
 		destShardClient.populateCollectionsMap();
 		destShardClient.populateShardMongoClients();
-		CleanupOrphaned cleaner = new CleanupOrphaned(destShardClient);
+		CleanupOrphaned cleaner = new CleanupOrphaned(destShardClient, includeNamespaces);
 		cleaner.cleanupOrphans(cleanupOrphansSleepMillis);
 	}
 
@@ -1529,12 +1600,12 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	}
 	
-	public void mongomirrorTailFromLatestOplogTs()  throws IOException {
-		logger.debug("Starting mongomirrorTailFromLatestOplogTs");
+	public void mongomirrorTailFromLatestOplogTs(String startingTs)  throws IOException {
+		logger.debug("Starting mongomirrorTailFromTs, startingTs: {}", startingTs);
 		sourceShardClient.populateShardMongoClients();
 		Collection<Shard> shards = sourceShardClient.getShardsMap().values();
 		for (Shard shard : shards) {
-			ShardTimestamp st = sourceShardClient.populateLatestOplogTimestamp(shard.getId());
+			ShardTimestamp st = sourceShardClient.populateLatestOplogTimestamp(shard.getId(), startingTs);
 			logger.debug(st.toString());
 			try {
 				BufferedWriter writer = new BufferedWriter(new FileWriter(new File(shard.getId() + ".timestamp")));
@@ -1551,14 +1622,27 @@ public class ShardConfigSync implements Callable<Integer> {
 		mongomirror();
 	}
 	
+	public void mongomirrorTailFromTs(String ts) throws IOException {
+		String[] tsParts = ts.split(",");
+		int seconds = Integer.parseInt(tsParts[0]);
+		int increment = Integer.parseInt(tsParts[1]);
+		BsonTimestamp bsonTs = new BsonTimestamp(seconds, increment);
+		mongomirrorTailFromTs(bsonTs);
+	}
+	
 	public void mongomirrorTailFromNow() throws IOException {
 		
 		
 		long now = System.currentTimeMillis();
 		long nowSeconds = now/1000l;
 		BsonTimestamp nowBson = new BsonTimestamp((int)nowSeconds, 1);
-		logger.debug(String.format("Starting mongomirrorTailFromNow, now: %s, nowSeconds: %s, nowBson: %s", 
+		logger.debug(String.format("Starting mongomirrorTailFromTs, now: %s, nowSeconds: %s, nowBson: %s", 
 				now, nowSeconds, nowBson));
+		mongomirrorTailFromTs(nowBson);
+	}
+	
+	private void mongomirrorTailFromTs(BsonTimestamp nowBson) throws IOException {
+		
 		
 		//sourceShardClient.populateShardMongoClients();
 		Collection<Shard> shards = sourceShardClient.getShardsMap().values();
@@ -1578,7 +1662,6 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 		}
 		mongomirror();
-		
 	}
 
 	public void mongomirror() throws ExecuteException, IOException {

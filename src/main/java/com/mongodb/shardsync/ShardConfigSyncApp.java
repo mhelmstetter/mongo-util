@@ -58,6 +58,7 @@ public class ShardConfigSyncApp {
     private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
     private final static String DRY_RUN = "dryRun";
+    private final static String TAIL_FROM_TS = "tailFromTs";
     private final static String TAIL_FROM_NOW = "tailFromNow";
     private final static String TAIL_FROM_LATEST_OPLOG_TS = "tailFromLatestOplogTs";
     private final static String SHARD_COLLECTIONS = "shardCollections";
@@ -66,6 +67,7 @@ public class ShardConfigSyncApp {
     private final static String CLEANUP_ORPHANS_SLEEP = "cleanupOrphansSleep";
     private final static String CLEANUP_ORPHANS_DEST = "cleanupOrphansDest";
     private final static String SYNC_INDEXES = "syncIndexes";
+    private final static String COMPARE_INDEXES = "compareIndexes";
     private final static String EXTEND_TTL = "extendTtl";
     
     private final static String SSL_ALLOW_INVALID_HOSTNAMES = "sslAllowInvalidHostnames";
@@ -122,6 +124,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(CREATE_CHUNKS).create());
         options.addOption(OptionBuilder.withArgName("Copy indexes from source to dest")
                 .withLongOpt(SYNC_INDEXES).create(SYNC_INDEXES));
+        options.addOption(OptionBuilder.withArgName("Compare indexes from source to dest")
+                .withLongOpt(COMPARE_INDEXES).create(COMPARE_INDEXES));
         options.addOption(OptionBuilder.withArgName("Extend TTL expiration (use with syncIndexes)")
                 .withLongOpt(EXTEND_TTL).create(EXTEND_TTL));
         options.addOption(OptionBuilder.withArgName("Skip the flushRouterConfig step")
@@ -142,6 +146,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(TAIL_FROM_NOW).create(TAIL_FROM_NOW));
         options.addOption(OptionBuilder.withArgName("mongomirror tail only starting from latest oplog ts")
                 .withLongOpt(TAIL_FROM_LATEST_OPLOG_TS).create(TAIL_FROM_LATEST_OPLOG_TS));
+        options.addOption(OptionBuilder.withArgName("mongomirror tail only from specificed oplog ts (ts,increment format)")
+                .withLongOpt(TAIL_FROM_TS).hasArg().create(TAIL_FROM_TS));
         options.addOption(OptionBuilder.withArgName("mongomirror namespace filter").hasArgs()
         		.withLongOpt("filter").create("f"));
         options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArgs()
@@ -285,8 +291,10 @@ public class ShardConfigSyncApp {
         boolean actionFound = false;
         if (line.hasOption(COLL_COUNTS)) {
             actionFound = true;
-            sync.setDoChunkCounts(line.hasOption(CHUNK_COUNTS));
             sync.compareShardCounts();
+        } else if (line.hasOption(CHUNK_COUNTS)) {
+        	actionFound = true;
+        	sync.compareChunkCounts();
         } else if (line.hasOption(FLUSH_ROUTER)) {
             actionFound = true;
             sync.flushRouterConfig();
@@ -320,6 +328,10 @@ public class ShardConfigSyncApp {
             actionFound = true;
             boolean extendTtl = line.hasOption(EXTEND_TTL);
             sync.syncIndexesShards(true, extendTtl);
+        } else if (line.hasOption(COMPARE_INDEXES)) {
+            actionFound = true;
+            boolean extendTtl = line.hasOption(EXTEND_TTL);
+            sync.syncIndexesShards(false, extendTtl);
         }  else if (line.hasOption("z")) {
             actionFound = true;
             sync.diffChunks(line.getOptionValue("z"));
@@ -381,7 +393,9 @@ public class ShardConfigSyncApp {
             if (line.hasOption(TAIL_FROM_NOW)) {
             	sync.mongomirrorTailFromNow();
             } else if (line.hasOption(TAIL_FROM_LATEST_OPLOG_TS)) {
-            	sync.mongomirrorTailFromLatestOplogTs();
+            	sync.mongomirrorTailFromLatestOplogTs(null);
+            } else if (line.hasOption(TAIL_FROM_TS)) {
+            	sync.mongomirrorTailFromTs(line.getOptionValue(TAIL_FROM_TS));
             } else {
             	sync.mongomirror();
             }

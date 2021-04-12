@@ -84,7 +84,7 @@ public class Monitor extends Thread {
     private void cleanup() {
         pool.shutdownNow();
 
-        logger.trace("waiting for pool to terminate");
+        logger.trace("waiting for executor to terminate");
 
         try {
             pool.awaitTermination(30, TimeUnit.SECONDS);
@@ -107,7 +107,7 @@ public class Monitor extends Thread {
         long currentMillis;
 
         // if anything goes wrong, the futuretask knows how to stop us
-        // hence, we do nothing with the pool in this loop
+        // hence, we do nothing with the executor in this loop
         int count = 0;
         logger.trace("looping every " + sleepMillis);
         while (running && !isInterrupted()) {
@@ -132,9 +132,9 @@ public class Monitor extends Thread {
                         + pool.getCorePoolSize() + ", active="
                         + pool.getActiveCount());
                 
-                // hack, resume pool as it may never get full
+                // hack, resume executor as it may never get full
                 if (count >= 2 && pool.isPaused()) {
-                    logger.debug("pool is paused, resuming");
+                    logger.debug("executor is paused, resuming");
                     pool.resume();
                 }
                 

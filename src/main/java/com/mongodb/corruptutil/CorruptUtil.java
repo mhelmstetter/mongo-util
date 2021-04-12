@@ -66,7 +66,7 @@ public class CorruptUtil {
         
         executor.shutdown();
         while (!executor.isTerminated()) {
-            logger.debug("Waiting for pool to terminate");
+            logger.debug("Waiting for executor to terminate");
             Thread.sleep(1000);
         }
         logger.debug("CorruptUtil complete");

@@ -83,7 +83,7 @@ public class MongoReplay extends AbstractMongoReplayUtil {
 		}
 		logger.debug("DONE processing results");
 		if (pool.isPaused()) {
-			logger.debug("pool is paused, resuming");
+			logger.debug("executor is paused, resuming");
 			pool.resume();
 		}
 		close();

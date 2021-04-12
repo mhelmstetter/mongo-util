@@ -27,8 +27,8 @@ public class PausableThreadPoolExecutor extends ThreadPoolExecutor {
     private Condition condition;
 
     /**
-     * @param corePoolSize    The size of the pool
-     * @param maximumPoolSize The maximum size of the pool
+     * @param corePoolSize    The size of the executor
+     * @param maximumPoolSize The maximum size of the executor
      * @param keepAliveTime   The amount of time you wish to keep a single task alive
      * @param unit            The unit of time that the keep alive time represents
      * @param workQueue       The queue that holds your tasks
@@ -90,7 +90,7 @@ public class PausableThreadPoolExecutor extends ThreadPoolExecutor {
     }
 
     /**
-     * Resume pool execution
+     * Resume executor execution
      */
     public void resume() {
         lock.lock();

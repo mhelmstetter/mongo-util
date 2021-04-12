@@ -1,5 +1,6 @@
 package com.mongodb.mongosync;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.Vector;
@@ -11,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoException;
+import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -30,91 +32,107 @@ public class ApplyOperationsHelper  {
 	private OplogTailMonitor oplogTailMonitor;
 	private ShardClient destShardClient;
 	private String shardId;
-	BulkWriteOptions bulkWriteOptions = new BulkWriteOptions();
+	private final static BulkWriteOptions orderedBulkWriteOptions = new BulkWriteOptions();
+	private final static BulkWriteOptions unorderedBulkWriteOptions = new BulkWriteOptions().ordered(false);
 	
 	
 	public ApplyOperationsHelper(String shardId, OplogTailMonitor oplogTailMonitor, ShardClient destShardClient) {
 		this.shardId = shardId;
 		this.oplogTailMonitor = oplogTailMonitor;
 		this.destShardClient = destShardClient;
-		bulkWriteOptions.ordered(true);
 	}
 	
 	
-
-	public void applyOperations(List<BsonDocument> operations) throws Exception {
-		
-		List<WriteModel<BsonDocument>> models = new Vector<>();
-		
-
-		Namespace namespace = null;
-		BsonTimestamp lastTimestamp = null;
-		
-		
-		for (BsonDocument currentDocument : operations) {
-			String ns = currentDocument.getString("ns").getValue();
-			if (namespace == null) {
-				namespace = new Namespace(ns);
-			}
-			String op = currentDocument.getString("op").getValue();
-			if (op.equals("c")) {
-				continue;
-				//performRunCommand(currentDocument);
-			} 
-			
-			WriteModel<BsonDocument> model = getWriteModelForOperation(currentDocument);
-			if (model != null) {
-				models.add(model);
-			} else {
-				// if the command is $cmd for create index or create collection, there would not
-				// be any write model.
-				logger.warn(String.format(
-						"ignoring oplog entry. could not convert the document to model. Given document is [%s]",
-						currentDocument.toJson()));
-			}
-			lastTimestamp = currentDocument.getTimestamp("ts");
-		}
-
-		if (models.size() > 0) {
-			BulkWriteOutput output = applyBulkWriteModelsOnCollection(namespace, models, operations);
-			oplogTailMonitor.updateStatus(output);
-			oplogTailMonitor.setLatestTimestamp(lastTimestamp);
-		}
-		operations = null;
-		models = null;
-	}
-	
-	private BulkWriteOutput applyBulkWriteModelsOnCollection(Namespace namespace, List<WriteModel<BsonDocument>> operations, List<BsonDocument> originalOps)
+	private void applyBulkWriteModelsOnCollection(Namespace namespace, OplogBatch batch, List<WriteModel<BsonDocument>> writeModels,
+			boolean useOrdered,
+			final BulkWriteOutput output)
 			throws MongoException {
 		MongoCollection<BsonDocument> collection = destShardClient.getCollectionRaw(namespace);
+		BulkWriteResult bulkWriteResult = null;
+		
 		try {
 			//BulkWriteResult bulkWriteResult = applyBulkWriteModelsOnCollection(collection, operations, originalOps);
-			BulkWriteResult bulkWriteResult = collection.bulkWrite(operations, bulkWriteOptions);
-			operations = null;
-			BulkWriteOutput output = new BulkWriteOutput(bulkWriteResult);
-			return output;
-		} catch (MongoBulkWriteException err) {
-			if (err.getWriteErrors().size() == operations.size()) {
-				// every doc in this batch is error. just move on
-//				logger.debug(
-//						"[IGNORE] Ignoring all the {} write operations for the {} batch as they all failed with duplicate key exception. (already applied previously)",
-//						operations.size(), namespace);
-				return new BulkWriteOutput(0, 0, 0, 0, operations.size());
+			if (useOrdered) {
+				//logger.debug("{}: using ordered batch, {} ops", shardId, writeModels.size());
+				bulkWriteResult = collection.bulkWrite(writeModels, orderedBulkWriteOptions);
+			} else {
+				//logger.debug("{}: using un-ordered batch, {} ops", shardId, writeModels.size());
+				bulkWriteResult = collection.bulkWrite(writeModels, unorderedBulkWriteOptions);
 			}
-//			logger.warn(
-//					"[WARN] the {} bulk write operations for the {} batch failed with exceptions. applying them one by one. error: {}",
-//					operations.size(), namespace, err.getWriteErrors().toString());
-//			return applySoloBulkWriteModelsOnCollection(operations, collection);
+			
+			output.increment(bulkWriteResult);
+		} catch (MongoBulkWriteException err) {
+			List<BulkWriteError> errors = err.getWriteErrors();
+			bulkWriteResult = err.getWriteResult();
+			output.increment(bulkWriteResult, errors.size());
+			//output = new BulkWriteOutput(bulkWriteResult);
+			if (errors.size() == writeModels.size()) {
+				//logger.error("{} bulk write errors, all {} operations failed: {}", shardId, err);
+			} else {
+				if (useOrdered) {
+					for (BulkWriteError bwe : errors) {
+						int index = bwe.getIndex();
+						//operations.remove(index);
+						batch.removeWriteModel(writeModels.get(index), true);
+					}
+					//logger.debug("{} retrying {} operations, errorCount: {}", shardId, batch.size(), errors.size());
+					//logger.warn("{}: bulk write errors", shardId, err);
+					batch.clearUnordered();
+					applyBulkWriteModelsOnCollection(namespace, batch, output);
+					//return applySoloBulkWriteModelsOnCollection(operations, collection, output);
+				}
+			}
 		} catch (Exception ex) {
 			logger.error("{} unknown error: {}", shardId, ex.getMessage(), ex);
-
-//			return applySoloBulkWriteModelsOnCollection(operations, collection);
 		}
-		// TODO FIXME
-		return new BulkWriteOutput(0, 0, 0, 0, operations.size());
 	}
 	
-	private static WriteModel<BsonDocument> getWriteModelForOperation(BsonDocument operation) throws MongoException {
+	public BulkWriteOutput applyBulkWriteModelsOnCollection(Namespace namespace, OplogBatch oplogBatch) {
+		BulkWriteOutput output = new BulkWriteOutput();
+		applyBulkWriteModelsOnCollection(namespace, oplogBatch, output);
+		return output;
+	}
+	
+	private void applyBulkWriteModelsOnCollection(Namespace namespace, OplogBatch oplogBatch, final BulkWriteOutput output)
+			throws MongoException {
+		
+		List<WriteModel<BsonDocument>> orderedWriteModels = oplogBatch.getOrderedWriteModels();
+		if (!orderedWriteModels.isEmpty()) {
+			applyBulkWriteModelsOnCollection(namespace, oplogBatch, orderedWriteModels, true, output);
+		}
+		List<WriteModel<BsonDocument>> unorderedWriteModels = oplogBatch.getUnorderedWriteModels();
+		if (!unorderedWriteModels.isEmpty()) {
+			applyBulkWriteModelsOnCollection(namespace, oplogBatch, unorderedWriteModels, false, output);
+		}
+	}
+	
+	private BulkWriteOutput applySoloBulkWriteModelsOnCollection(List<WriteModel<BsonDocument>> operations, 
+			MongoCollection<BsonDocument> collection, BulkWriteOutput output) {
+        BulkWriteResult soloResult = null;
+        int i = 1;
+        for (WriteModel<BsonDocument> op : operations) {
+            List<WriteModel<BsonDocument>> soloBulkOp = new ArrayList<>();
+            soloBulkOp.add(op);
+            try {
+            	soloResult = collection.bulkWrite(operations, orderedBulkWriteOptions);
+            	logger.debug("{}: retry {} of {} - {}", shardId, i, operations.size(), output);
+            	output.incDeleted(soloResult.getDeletedCount());
+            	output.incInserted(soloResult.getInsertedCount());
+            	output.incModified(soloResult.getModifiedCount());
+            	output.incUpserted(soloResult.getUpserts().size());
+            } catch (MongoBulkWriteException bwe) {
+                output.incDuplicateKeyExceptionCount(1);
+            } catch (Exception soloErr) {
+            	output.incDuplicateKeyExceptionCount(1);
+                logger.error("[BULK-WRITE-RETRY] unknown exception occurred while applying solo op {} on collection: {}; error {}",
+                        op.toString(), collection.getNamespace().getFullName(), soloErr.toString());
+            }
+            i++;
+        }
+        return output;
+    }
+	
+	public static WriteModel<BsonDocument> getWriteModelForOperation(BsonDocument operation) throws MongoException {
 		String message;
 		WriteModel<BsonDocument> model = null;
 		switch (operation.getString("op").getValue()) {
@@ -153,6 +171,7 @@ public class ApplyOperationsHelper  {
 	}
 	
 	private static WriteModel<BsonDocument> getInsertWriteModel(BsonDocument operation) {
+		String ns = operation.getString("ns").getValue();
 		BsonDocument document = operation.getDocument("o");
 		// TODO can we get duplicate key here?
 		return new InsertOneModel<>(document);

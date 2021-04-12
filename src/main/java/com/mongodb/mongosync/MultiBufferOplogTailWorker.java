@@ -1,96 +1,200 @@
 package com.mongodb.mongosync;
 
+import static com.mongodb.client.model.Filters.*;
+
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.Set;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
+import org.bson.conversions.Bson;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.mongodb.CursorType;
 import com.mongodb.MongoException;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
+import com.mongodb.client.MongoDatabase;
 import com.mongodb.model.ShardTimestamp;
 import com.mongodb.shardsync.ShardClient;
-import com.mongodb.util.BlockWhenQueueFull;
 
+/**
+ * This is the "parent" worker, 1 worker per shard. It will spawn child workers
+ * working on a subset of oplog entries by collection/_id hash
+ *
+ */
 public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implements Runnable {
 
-	Map<String, Map<Integer, List<BsonDocument>>> buffers;
-	
-	private Map<Integer, ArrayBlockingQueue<Runnable>> workQueues;
-	Map<Integer, ThreadPoolExecutor> executors;
-	private int numWorkQueues;
+//	Map<String, Map<Integer, List<BsonDocument>>> buffers;
+//	
+//	private Map<Integer, ArrayBlockingQueue<Runnable>> workQueues;
+//	Map<Integer, ThreadPoolExecutor> executors;
+	private int numChildWorkers;
 
+	private Map<Integer, ChildOplogWorker> childWorkers;
+	private List<ExecutorService> childExecutors;
+	// private ArrayBlockingQueue<BsonDocument> childQueues;
 	
-	public MultiBufferOplogTailWorker(ShardTimestamp shardTimestamp, TimestampFile timestampFile, 
-			ShardClient sourceShardClient, ShardClient destShardClient,
-			MongoSyncOptions options) throws IOException {
+	ScheduledExecutorService monitorExecutor;
+	
+	private Map<Integer, BlockingQueue<OplogQueueEntry>> childQueues;
+
+	public MultiBufferOplogTailWorker(ShardTimestamp shardTimestamp, TimestampFile timestampFile,
+			ShardClient sourceShardClient, ShardClient destShardClient, MongoSyncOptions options) throws IOException {
 		this.shardId = shardTimestamp.getShardName();
 		this.shardTimestamp = shardTimestamp;
 		this.sourceShardClient = sourceShardClient;
 		this.destShardClient = destShardClient;
 		this.options = options;
-		this.numWorkQueues = options.getOplogThreads();
+		this.numChildWorkers = options.getOplogThreads();
+
+		childWorkers = new HashMap<>(numChildWorkers);
+		childExecutors = new ArrayList<>(numChildWorkers);
+		childQueues = new HashMap<>(numChildWorkers);
 		
-		workQueues = new HashMap<>(numWorkQueues);
-		executors = new HashMap<>(numWorkQueues);
-		
-		buffers = new HashMap<>();
-		for (int i = 0; i < numWorkQueues; i++) {
-			ArrayBlockingQueue<Runnable> workQueue = new ArrayBlockingQueue<Runnable>(options.getOplogQueueSize());
-			workQueues.put(i, workQueue);
-			ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
-			executors.put(i, pool);
-	        //pool.prestartAllCoreThreads();
-		}
-		
-		oplogTailMonitor = new OplogTailMonitor(timestampFile, sourceShardClient, executors);
+		// childQueues = new ArrayBlockingQueue<>(options.getOplogQueueSize());
+
+		oplogTailMonitor = new OplogTailMonitor(timestampFile, sourceShardClient, childQueues);
 		this.applyOperationsHelper = new ApplyOperationsHelper(shardId, oplogTailMonitor, destShardClient);
 	}
+
+	private void startChildExecutors() {
+		for (int i = 0; i < numChildWorkers; i++) {
+			BlockingQueue<OplogQueueEntry> childQueue = new LinkedBlockingQueue<>(options.getOplogQueueSize());
+			childQueues.put(i, childQueue);
+			ChildOplogWorker worker = new ChildOplogWorker(shardId, childQueue, applyOperationsHelper, oplogTailMonitor, options);
+			childWorkers.put(i, worker);
+			ExecutorService executor = Executors.newFixedThreadPool(1,  new ThreadFactoryBuilder()
+					.setNameFormat("child-oplog-worker_" + shardId + "_" + i).setDaemon(true).build());
+			childExecutors.add(executor);
+			executor.execute(worker);
+		}
+	}
+
+	private void stopChildExecutors() {
+		
+		for (ChildOplogWorker worker : childWorkers.values()) {
+			logger.debug("{}: stopping worker", shardId);
+			worker.stop();
+		}
+		
+		
+		for (ExecutorService executor : childExecutors) {
+			executor.shutdown();
+			while (!executor.isTerminated()) {
+				try {
+					Thread.sleep(10000);
+				} catch (InterruptedException e) {
+				}
+			}
+		}
+		logger.debug("{}: childExecutors shutdown", shardId);
+	}
+
+	public void run() {
+		startChildExecutors();
+		monitorExecutor = Executors.newScheduledThreadPool(1);
+		monitorExecutor.scheduleAtFixedRate(oplogTailMonitor, 0L, 30L, TimeUnit.SECONDS);
+
+		MongoDatabase local = sourceShardClient.getShardMongoClient(shardId).getDatabase("local");
+		MongoCollection<BsonDocument> oplog = local.getCollection("oplog.rs", BsonDocument.class);
+
+		MongoCursor<BsonDocument> cursor = null;
+		
+		Set<String> includedNamespaces = options.getIncludedNamespaceStrings();
+		Set<String> excludedNamespaces = options.getExcludedNamespaceStrings();
+		
+		Bson query = null;
+		if (includedNamespaces.isEmpty() && excludedNamespaces.isEmpty()) {
+			query = and(gt("ts", shardTimestamp.getTimestamp()), ne("op", "n"));
+		} else {
+			if (excludedNamespaces.size() > 0) {
+				query = and(gt("ts", shardTimestamp.getTimestamp()), ne("op", "n"), nin("ns", excludedNamespaces));
+			} else {
+				query = and(gt("ts", shardTimestamp.getTimestamp()), ne("op", "n"), in("ns", includedNamespaces));
+			}
+		}
+
+		long start = System.currentTimeMillis();
+		long count;
+		try {
+
+			logger.debug("{}: starting oplog tail query: {}", shardId, query);
+			count = 0;
+			cursor = oplog.find(query).sort(eq("$natural", 1)).oplogReplay(true).noCursorTimeout(true)
+					.cursorType(CursorType.TailableAwait).iterator();
+			while (cursor.hasNext() && !shutdown) {
+				BsonDocument doc = cursor.next();
+				String op = doc.getString("op").getValue();
+
+				if (op.equals("n") || op.equals("c")) {
+					continue;
+				}
+				currentNs = doc.getString("ns").getValue();
+				if (! options.includeNamespace(currentNs)) {
+					continue;
+				}
+				
+				if (currentNs == null || currentNs.equals("") || currentNs.startsWith("config.")) {
+					continue;
+				}
+
+				addToBuffer(doc);
+				count++;
+			}
+
+			long end = System.currentTimeMillis();
+			Double dur = (end - start) / 1000.0;
+			logger.debug("{}: oplog tail complete, {} operations applied in {} seconds", shardId, count, dur);
+
+		} catch (Exception e) {
+			logger.error("{}: tail error", shardId, e);
+		} finally {
+			try {
+				cursor.close();
+			} catch (Exception e) {
+			}
+			
+		}
+		stopChildExecutors();
+
+	}
 	
-	protected Integer addToBuffer(BsonDocument doc) {
+	private int getCombinedHashModulo(String ns, BsonValue id) {
+		int hash = 7;
+		hash = 31 * hash +  (id == null ? 0 : id.hashCode());
+		hash = 31 * hash + (ns == null ? 0 : ns.hashCode());
+		if (hash >= 0) {
+			hash = hash % numChildWorkers;
+		} else {
+			hash = -hash % numChildWorkers;
+		}
+		return hash;
+	}
+
+	protected void addToBuffer(BsonDocument doc) throws InterruptedException {
 		if (currentNs.endsWith(".$cmd")) {
 			logger.debug("$cmd: {}", doc);
 		}
 		BsonValue id = getIdForOperation(doc);
-		if (id == null) {
-			return null;
-		}
-		Integer hashKey = getModuloKeyForBsonValue(id);
-		
-		List<BsonDocument> buffer = null;
-		Map<Integer, List<BsonDocument>> bmap = buffers.get(currentNs);
-		if (bmap == null) {
-			bmap = new HashMap<>();
-			buffers.put(currentNs, bmap);
-			//buffer = Collections.synchronizedList(new ArrayList<>(options.getBatchSize()));
-			buffer = new ArrayList<>(options.getBatchSize());
-			bmap.put(hashKey, buffer);
-		} else {
-			buffer = bmap.get(hashKey);
-			if (buffer == null) {
-				//buffer = Collections.synchronizedList(new ArrayList<>(options.getBatchSize()));
-				buffer = new ArrayList<>(options.getBatchSize());
-				bmap.put(hashKey, buffer);
-			}
-		}
-		buffer.add(doc);
-		
-		if (buffer.size() >= options.getBatchSize()) {
-			List<BsonDocument> oldBuffer = buffer;
-			buffer = new ArrayList<>(options.getBatchSize());
-			bmap.put(hashKey, buffer);
-        	flushBuffer(oldBuffer, hashKey);
-        }
-		return hashKey;
+		Integer hashKey = getCombinedHashModulo(currentNs, id);
+		BlockingQueue<OplogQueueEntry> childQueue = childQueues.get(hashKey);
+		//logger.debug("{}: child queue {} size {}", shardId, hashKey, childQueue.size());
+		//childQueue.put(doc);
+		//boolean inserted = childQueue.offer(doc, 5, TimeUnit.SECONDS);
+		childQueue.put(new OplogQueueEntry(doc, id));
 	}
-	
+
 	private BsonValue getIdForOperation(BsonDocument operation) throws MongoException {
 		String opType = operation.getString("op").getValue();
 		switch (opType) {
@@ -127,90 +231,58 @@ public class MultiBufferOplogTailWorker extends AbstractOplogTailWorker implemen
 		}
 		return null;
 	}
-	
+
 	private Integer getModuloKeyForBsonValue(BsonValue val) {
 		Integer key = null;
 		int hash = val.hashCode();
 		if (hash >= 0) {
-			key = hash % numWorkQueues;
+			key = hash % numChildWorkers;
 		} else {
-			key = -hash % numWorkQueues;
+			key = -hash % numChildWorkers;
 		}
 		return key;
 	}
-	
+
 	private Integer getModuloKeyForNamespace(String ns) {
 		Integer key = null;
 		int hash = ns.hashCode();
 		if (hash >= 0) {
-			key = hash % numWorkQueues;
+			key = hash % numChildWorkers;
 		} else {
-			key = -hash % numWorkQueues;
+			key = -hash % numChildWorkers;
 		}
 		return key;
 	}
-	
-	protected void flushBuffer(List<BsonDocument> buffer, Integer hashKey) throws MongoException {
-		
-		if (buffer.size() > 0) {
-			applyOperations(currentNs, buffer, hashKey);
-		}
-	}
-	
-	private void applyOperations(String ns, List<BsonDocument> operations, Integer hashKey) throws MongoException {
-		//Integer key = getModuloKeyForNamespace(ns);
-		ApplyOperationsTask task = new ApplyOperationsTask(applyOperationsHelper, operations);
-		ThreadPoolExecutor executor = executors.get(hashKey);
-		try {
-			executor.execute(task);
-		} catch (RejectedExecutionException ree) {
-			logger.error("{}: error executing task", shardId, ree);
-		}
-		
-	}
-	
+
 	@Override
 	protected synchronized void stop() {
 		logger.debug("{}: OplogTailWorker got stop signal", shardId);
 		this.shutdown = true;
 		
-		
-		try {
-			flushBuffers();
-		} catch (MongoException | IOException e1) {
-			logger.error("error flushing buffers", e1);
+		for (ChildOplogWorker worker : childWorkers.values()) {
+			worker.stop();
 		}
-		logger.debug("{}: buffers flushed", shardId);
-		
+
 		int i = 0;
-		for (ThreadPoolExecutor executor : executors.values()) {
+		for (ExecutorService executor : childExecutors) {
 			try {
 				logger.debug("{}: starting shutdown of executor {}", shardId, i++);
-		        executor.shutdown();
-		        executor.awaitTermination(60, TimeUnit.SECONDS);
-		      } catch (InterruptedException e) {
-		        logger.error("Timed out waiting for executor to complete", e);
-		      }
-		}
-		logger.debug("{}: executors shutdown", shardId);
-		      
-		    
-	}
-
-	@Override
-	protected synchronized void flushBuffers() throws MongoException, IOException {
-		
-		for (Map.Entry<String, Map<Integer, List<BsonDocument>>> buffersEntry : buffers.entrySet()) {
-			Map<Integer, List<BsonDocument>> bmap = buffersEntry.getValue();
-			String ns = buffersEntry.getKey();
-			if (bmap.size() > 0) {
-				
-				for (Map.Entry<Integer, List<BsonDocument>> entry : bmap.entrySet()) {
-					List<BsonDocument> buffer = entry.getValue();
-					applyOperations(ns, buffer, entry.getKey());
-					buffer.clear();
-				}
+				executor.shutdown();
+				executor.awaitTermination(240, TimeUnit.SECONDS);
+			} catch (InterruptedException e) {
+				logger.error("Timed out waiting for executor to complete", e);
 			}
 		}
+		logger.debug("{}: child executors shutdown", shardId);
+		
+		try {
+			monitorExecutor.shutdown();
+			monitorExecutor.awaitTermination(60, TimeUnit.SECONDS);
+		} catch (InterruptedException e) {
+			logger.error("Timed out waiting for monitor executor to complete", e);
+		}
+		logger.debug("{}: monitor shutdown", shardId);
 	}
+
+
 }

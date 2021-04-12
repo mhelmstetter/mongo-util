@@ -26,6 +26,8 @@ public abstract class AbstractCollectionCloneWorker {
     protected static final Logger logger = LoggerFactory.getLogger(AbstractCollectionCloneWorker.class);
 
     public abstract void run();
+    
+    public abstract void shutdown();
 
     protected Namespace ns;
     protected Document shardCollection;
@@ -41,9 +43,9 @@ public abstract class AbstractCollectionCloneWorker {
     
     List<WriteModel<RawBsonDocument>> writesBuffer;
     
-    protected List<Document> hashesBuffer;
+    //protected List<Document> hashesBuffer;
     //protected InsertManyOptions insertManyOptions;
-    protected BulkWriteOptions bulkWriteOptions;
+    protected final static BulkWriteOptions bulkWriteOptions = new BulkWriteOptions();
     
     protected long successCount;
     protected long errorCount;
@@ -57,24 +59,24 @@ public abstract class AbstractCollectionCloneWorker {
         this.destShardClient = destShardClient;
         this.options = options;
         
-        sourceDb = sourceShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
-        sourceCollection = sourceDb.getCollection(ns.getCollectionName(), RawBsonDocument.class);
+        if (ns != null) {
+        	sourceDb = sourceShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
+            sourceCollection = sourceDb.getCollection(ns.getCollectionName(), RawBsonDocument.class);
+            
+            destDb = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
+            destCollection = destDb.getCollection(ns.getCollectionName(), RawBsonDocument.class);
+            shardCollection = sourceShardClient.getCollectionsMap().get(ns.getNamespace());
+        }
         
-        destDb = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
-        destCollection = destDb.getCollection(ns.getCollectionName(), RawBsonDocument.class);
         
         docsBuffer = new ArrayList<RawBsonDocument>(options.getBatchSize());
         writesBuffer = new ArrayList<>(options.getBatchSize());
         
-        hashesBuffer = new ArrayList<Document>(options.getBatchSize());
+        //hashesBuffer = new ArrayList<Document>(options.getBatchSize());
         
-        shardCollection = sourceShardClient.getCollectionsMap().get(ns.getNamespace());
         
         //insertManyOptions = new InsertManyOptions();
         //insertManyOptions.ordered(false);
-        
-        bulkWriteOptions = new BulkWriteOptions();
-        bulkWriteOptions.ordered(false);
     }
     
     protected static BsonValue getId(RawBsonDocument doc) {

@@ -2,9 +2,11 @@ package com.mongodb.diffutil;
 
 import static com.mongodb.client.model.Filters.in;
 
+import java.util.Date;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
+import org.bson.BsonDateTime;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
@@ -15,9 +17,7 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.model.DiffState;
 import com.mongodb.model.Namespace;
-import com.mongodb.model.OplogSummary;
 import com.mongodb.util.DiffUtils;
 
 
