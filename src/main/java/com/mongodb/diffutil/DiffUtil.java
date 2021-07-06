@@ -123,9 +123,8 @@ public class DiffUtil {
 
 	public void compareDocuments(boolean parallelCursorMode) {
 		
-		
 		boolean filtered = !includedCollections.isEmpty();
-		
+
 		logger.debug("Starting compareDocuments mode, filtered {}", filtered);
 
 		for (String dbName : sourceDbInfoMap.keySet()) {
@@ -566,7 +565,7 @@ public class DiffUtil {
 					
 					if (filtered) {
 						Set<String> colls = includedCollections.get(dbName);
-						if (! colls.contains(collectionName)) {
+						if (! (colls.contains(collectionName) || colls.contains("*"))) {
 							continue;
 						}
 					}
@@ -700,7 +699,8 @@ public class DiffUtil {
 					}
 					
 					Namespace ns = new Namespace(dbName, collectionName);
-					if (filtered && !includedNamespaces.contains(ns)) {
+                    Namespace nsWildCard = new Namespace(dbName, "*");
+					if (filtered && !(includedNamespaces.contains(ns) || includedNamespaces.contains(nsWildCard))) {
 						//logger.debug("include: " + includeNamespaces);
 						continue;
 					}
