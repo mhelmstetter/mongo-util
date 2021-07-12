@@ -1,6 +1,7 @@
 package com.mongodb.model;
 
-import org.bson.BsonBoolean;
+import org.bson.BsonType;
+import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 
 public class IndexSpec {
@@ -26,9 +27,32 @@ public class IndexSpec {
 			this.expireAfterSeconds = sourceSpec.getNumber("expireAfterSeconds").doubleValue();
 		}
 		
-		this.sparse = sourceSpec.getBoolean("sparse", BsonBoolean.FALSE).getValue();
-		this.background = sourceSpec.getBoolean("background", BsonBoolean.FALSE).getValue();
-		this.unique = sourceSpec.getBoolean("unique", BsonBoolean.FALSE).getValue();
+		this.sparse = getBoolean(sourceSpec, "sparse");
+		this.background = getBoolean(sourceSpec, "background");
+		this.unique = getBoolean(sourceSpec, "unique");
+	}
+	
+	private static boolean getBoolean(RawBsonDocument sourceSpec, String key) {
+		BsonValue value = sourceSpec.get(key);
+		if (value != null) {
+			BsonType type = value.getBsonType();
+			switch(type) {
+            case BOOLEAN:
+              return sourceSpec.getBoolean(key).getValue();
+            case DOUBLE:
+            	double d = sourceSpec.getDouble(key).getValue();
+            	return !(d == 0.0);
+            case INT32:
+            	int i = sourceSpec.getInt32(key).getValue();
+            	return !(i == 0);
+            case INT64:
+            	long l = sourceSpec.getInt64(key).getValue();
+            	return !(l == 0L);
+            default:
+              return false;
+            }
+		}
+		return false;
 	}
 	
 	public static IndexSpec fromDocument(RawBsonDocument sourceSpec) {
