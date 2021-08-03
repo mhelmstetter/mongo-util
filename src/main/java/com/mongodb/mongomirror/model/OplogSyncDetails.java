@@ -1,4 +1,4 @@
-package com.mongodb.mongomirror;
+package com.mongodb.mongomirror.model;
 
 import java.time.Duration;
 

@@ -1,12 +1,18 @@
-package com.mongodb.mongomirror;
+package com.mongodb.mongomirror.model;
 
 import java.util.Map;
 import java.util.TreeMap;
 
 public class MongoMirrorStatusInitialSync extends MongoMirrorStatus {
     
-    public final static String INITIAL_SYNC = "initial sync";
+    public MongoMirrorStatusInitialSync(String stage, String phase, String errorMessage) {
+		super(stage, phase, errorMessage);
+	}
+
+	public final static String INITIAL_SYNC = "initial sync";
     public final static String PHASE_COPYING_INDEXES = "copying indexes";
+    
+    private InitialSyncDetails topLevelDetails;
     
     private Map<String, InitialSyncDetails> details = new TreeMap<>();
 
@@ -43,9 +49,16 @@ public class MongoMirrorStatusInitialSync extends MongoMirrorStatus {
     }
     
     public double getCompletionPercent() {
-        double totalBytes = getTotalBytes();
-        double copiedBytes = getCopiedBytes();
-        double cs = 0.0;
+        double totalBytes, copiedBytes;
+        
+        if (topLevelDetails != null) {
+        	copiedBytes = topLevelDetails.getCopiedBytes();
+        	totalBytes = topLevelDetails.getTotalBytes();
+        } else {
+        	totalBytes = getTotalBytes();
+        	copiedBytes = getCopiedBytes();
+        }
+        
         if (totalBytes > 0) {
             return (copiedBytes / totalBytes) * 100.0;
         } else {
@@ -53,5 +66,13 @@ public class MongoMirrorStatusInitialSync extends MongoMirrorStatus {
         }
         
     }
+
+	public InitialSyncDetails getTopLevelDetails() {
+		return topLevelDetails;
+	}
+
+	public void setTopLevelDetails(InitialSyncDetails topLevelDetails) {
+		this.topLevelDetails = topLevelDetails;
+	}
 
 }

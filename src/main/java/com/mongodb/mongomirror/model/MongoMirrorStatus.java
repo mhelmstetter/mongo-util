@@ -1,4 +1,4 @@
-package com.mongodb.mongomirror;
+package com.mongodb.mongomirror.model;
 
 public class MongoMirrorStatus {
 
@@ -6,11 +6,16 @@ public class MongoMirrorStatus {
     protected String phase;
     protected String errorMessage;
 
-    public MongoMirrorStatus() {
-        super();
-    }
     
-    public boolean isInitialSync() {
+    
+    public MongoMirrorStatus(String stage, String phase, String errorMessage) {
+		super();
+		this.stage = stage;
+		this.phase = phase;
+		this.errorMessage = errorMessage;
+	}
+
+	public boolean isInitialSync() {
         return this instanceof MongoMirrorStatusInitialSync;
     }
     

@@ -28,6 +28,8 @@ import com.mongodb.atlas.model.Measurement;
 import com.mongodb.atlas.model.MeasurementDataPoint;
 import com.mongodb.atlas.model.MeasurementsResult;
 import com.mongodb.atlas.model.ProcessesResult;
+import com.mongodb.atlas.model.Project;
+import com.mongodb.atlas.model.ProjectsResult;
 import com.mongodb.util.ByteSizesUtil;
 
 import retrofit2.Call;
@@ -57,6 +59,13 @@ public class AtlasUtil {
                 fromProviders(PojoCodecProvider.builder().automatic(true).build()));
 
         MongoClientURI source = new MongoClientURI(mongoUri);
+    }
+    
+    public List<Project> getProjects() throws IOException {
+    	Call<ProjectsResult> callSync = service.getProjects();
+    	Response<ProjectsResult> response = callSync.execute();
+    	ProjectsResult projects = response.body();
+    	return projects.getProjects();
     }
 
     public List<Cluster> getClusters(String groupId) throws IOException {

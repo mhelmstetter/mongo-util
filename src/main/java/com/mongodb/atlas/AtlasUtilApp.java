@@ -1,5 +1,7 @@
 package com.mongodb.atlas;
 
+import java.util.List;
+
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
@@ -7,6 +9,9 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
+
+import com.mongodb.atlas.model.Cluster;
+import com.mongodb.atlas.model.Project;
 
 public class AtlasUtilApp {
     
@@ -27,7 +32,7 @@ public class AtlasUtilApp {
         options.addOption(OptionBuilder.withArgName("API key").hasArgs().withLongOpt("key")
                 .isRequired(true).create("k"));
         options.addOption(OptionBuilder.withArgName("Group Id").hasArgs().withLongOpt("groupId")
-                .isRequired(true).create("g"));
+                .isRequired(false).create("g"));
 
         
 
@@ -60,8 +65,24 @@ public class AtlasUtilApp {
         
         AtlasUtil util = new AtlasUtil(line.getOptionValue("u"), line.getOptionValue("k"), "mongodb://localhost:27017/atlasMetrics");
         
+        String group = line.getOptionValue("g");
+        if (group != null) {
+        	List<Cluster> clusters = util.getClusters(group);
+        	for (Cluster c : clusters) {
+        		System.out.println(c);
+        	}
+        } else {
+        	List<Project> projects = util.getProjects();
+        	for (Project p : projects) {
+        		System.out.println(p);
+        		List<Cluster> clusters = util.getClusters(p.getId());
+        		for (Cluster c : clusters) {
+            		System.out.println(c);
+            	}
+        	}
+        }
 
-        util.getClusters(line.getOptionValue("g"));
+        
     }
 
 }

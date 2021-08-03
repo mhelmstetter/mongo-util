@@ -19,7 +19,13 @@ import org.slf4j.LoggerFactory;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.mongodb.model.Namespace;
+import com.mongodb.mongomirror.model.InitialSyncDetails;
+import com.mongodb.mongomirror.model.MongoMirrorStatus;
+import com.mongodb.mongomirror.model.MongoMirrorStatusInitialSync;
+import com.mongodb.mongomirror.model.MongoMirrorStatusOplogSync;
 import com.mongodb.util.HttpUtils;
 
 public class MongoMirrorRunner {
@@ -66,13 +72,12 @@ public class MongoMirrorRunner {
     private Logger logger;
     
     private HttpUtils httpUtils;
-    private Gson gson;
+    //private Gson gson;
     
     public MongoMirrorRunner(String id) {
         this.id = id;
         logger = LoggerFactory.getLogger(this.getClass().getName() + "." + id);
         httpUtils = new HttpUtils();
-        gson = new GsonBuilder().create();
     }
    
     public void execute(boolean dryRun) throws ExecuteException, IOException {
@@ -132,21 +137,60 @@ public class MongoMirrorRunner {
     @SuppressWarnings("rawtypes")
     public MongoMirrorStatus checkStatus() {
         String statusStr = null;
-        MongoMirrorStatus status = null;
+        Gson gson = new GsonBuilder().create();
         try {
             statusStr = httpUtils.doGetAsString(String.format("http://localhost:%s", httpStatusPort));
-            if (statusStr.contains("\"stage\":\"initial sync\"")) {
-                if (statusStr.contains("\"applying oplog entries\"")) {
-                    status = gson.fromJson(statusStr, MongoMirrorStatusOplogSync.class);
-                } else {
-                    status = gson.fromJson(statusStr, MongoMirrorStatusInitialSync.class);
-                }
-                
-            } else if (statusStr.contains("\"stage\":\"oplog sync\"")) {
-                status = gson.fromJson(statusStr, MongoMirrorStatusOplogSync.class);
-            } else {
-                status = gson.fromJson(statusStr, MongoMirrorStatus.class);
+            
+            //System.out.println(statusStr);
+            
+            JsonObject statusJson = new JsonParser().parse(statusStr).getAsJsonObject();
+            
+            String stage = null;
+            String phase = null;
+            String errorMessage = null;
+            
+            if (statusJson.has("stage")) {
+            	stage = statusJson.get("stage").getAsString();
             }
+            
+            if (statusJson.has("phase")) {
+            	phase = statusJson.get("phase").getAsString();
+            }
+            
+            if (statusJson.has("errorMessage")) {
+            	errorMessage = statusJson.get("errorMessage").getAsString();
+            }
+            
+            if ("initial sync".equals(stage)) {
+            	
+            	MongoMirrorStatusInitialSync status = new MongoMirrorStatusInitialSync(stage, phase, errorMessage);
+            	
+            	if (statusJson.has("details")) {
+            		
+            		JsonObject statusDetails = statusJson.get("details").getAsJsonObject();
+            		
+            		if (statusDetails.has("copiedBytesAllColl")) {
+            			InitialSyncDetails details = new InitialSyncDetails();
+            			status.setTopLevelDetails(details);
+            			details.setCopiedBytes(statusDetails.get("copiedBytesAllColl").getAsLong());
+            			details.setTotalBytes(statusDetails.get("totalBytesAllColl").getAsLong());
+            			
+                	} else {
+                		status = gson.fromJson(statusJson, MongoMirrorStatusInitialSync.class);
+                	}
+            	} else {
+            		logger.warn("InitialSyncDetails was missing from http status output");
+            	}
+            	return status;
+            } else if ("applying oplog entries".equals(phase) || "oplog sync".equals(phase)) {
+            	//MongoMirrorStatusOplogSync status = new MongoMirrorStatusOplogSync(stage, phase, errorMessage);
+            	MongoMirrorStatusOplogSync status = gson.fromJson(statusJson, MongoMirrorStatusOplogSync.class);
+            	return status;
+            } else {
+            	MongoMirrorStatus status = new MongoMirrorStatus(stage, phase, errorMessage);
+            	return status;
+            }
+
         } catch (IOException e) {
             logger.error(statusStr);
             logger.error("Error checking mongomirror status: " + e.getMessage());
@@ -154,7 +198,7 @@ public class MongoMirrorRunner {
             logger.error(statusStr);
             logger.error("Error checking mongomirror status", e);
         }
-        return status;
+        return null;
     }
     
     private void addArg(String argName) {

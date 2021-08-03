@@ -66,9 +66,9 @@ import com.mongodb.model.Shard;
 import com.mongodb.model.ShardCollection;
 import com.mongodb.model.ShardTimestamp;
 import com.mongodb.mongomirror.MongoMirrorRunner;
-import com.mongodb.mongomirror.MongoMirrorStatus;
-import com.mongodb.mongomirror.MongoMirrorStatusInitialSync;
-import com.mongodb.mongomirror.MongoMirrorStatusOplogSync;
+import com.mongodb.mongomirror.model.MongoMirrorStatus;
+import com.mongodb.mongomirror.model.MongoMirrorStatusInitialSync;
+import com.mongodb.mongomirror.model.MongoMirrorStatusOplogSync;
 
 import picocli.CommandLine.Command;
 
@@ -1765,10 +1765,8 @@ public class ShardConfigSync implements Callable<Integer> {
 
 		while (true) {
 			try {
-				Thread.sleep(5 * 1000);
+				Thread.sleep(2000);
 			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
 			}
 
 			for (MongoMirrorRunner mongomirror : mongomirrors) {

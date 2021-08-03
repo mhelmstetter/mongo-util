@@ -5,6 +5,7 @@ import com.mongodb.atlas.model.ClustersResult;
 import com.mongodb.atlas.model.DatabasesResult;
 import com.mongodb.atlas.model.MeasurementsResult;
 import com.mongodb.atlas.model.ProcessesResult;
+import com.mongodb.atlas.model.ProjectsResult;
 
 import retrofit2.Call;
 import retrofit2.http.GET;
@@ -13,6 +14,9 @@ import retrofit2.http.Query;
 
 public interface AtlasApi {
     
+	@GET("groups")
+    Call<ProjectsResult> getProjects();
+	
     @GET("groups/{groupId}/clusters")
     Call<ClustersResult> getClusters(@Path("groupId") String groupId);
     

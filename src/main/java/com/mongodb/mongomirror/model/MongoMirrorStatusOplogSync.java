@@ -1,11 +1,15 @@
-package com.mongodb.mongomirror;
+package com.mongodb.mongomirror.model;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 public class MongoMirrorStatusOplogSync extends MongoMirrorStatus {
     
-    private OplogSyncDetails details;
+    public MongoMirrorStatusOplogSync(String stage, String phase, String errorMessage) {
+		super(stage, phase, errorMessage);
+	}
+
+	private OplogSyncDetails details;
 
     public OplogSyncDetails getDetails() {
         return details;

@@ -1,10 +1,13 @@
-package com.mongodb.mongomirror;
+package com.mongodb.mongomirror.model;
 
 public class InitialSyncDetails {
 
     private Boolean complete;
+    
     private Long copiedBytes;
+    
     private Long totalBytes;
+    
 
     public Boolean getComplete() {
         return complete;
