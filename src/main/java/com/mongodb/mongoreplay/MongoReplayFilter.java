@@ -150,9 +150,9 @@ public class MongoReplayFilter {
                     channel.write(buffer);
                     continue;
                 }
-                byte[] bytes = (byte[]) raw.get("body");
+                byte[] bodyBytes = (byte[]) raw.get("body");
 
-                if (bytes.length == 0) {
+                if (bodyBytes.length == 0) {
                     logger.trace("body length was 0");
                     continue;
                 }
@@ -180,7 +180,7 @@ public class MongoReplayFilter {
                 if (header != null) {
                     int opcode = (Integer) header.get("opcode");
                     incrementOpcodeSeenCount(opcode);
-                    ByteBufferBsonInput bsonInput = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(bytes)));
+                    ByteBufferBsonInput bsonInput = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(bodyBytes)));
                     BsonBinaryReader reader = new BsonBinaryReader(bsonInput);
 
                     parsedHeader = MessageHeader.parse(bsonInput);
@@ -346,84 +346,105 @@ public class MongoReplayFilter {
                         // TODO - we could probably do some filtering, e.g.
                         // system dbs?
                     	
-                    	
-                        //ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
-                        //channel.write(buffer);
-//                        written++;
-//                        
-//                        logger.debug("header len: " + parsedHeader.getMessageLength());
-//                    	
-//                        // bytes.length
-//                        
-//                        //byte[] slice = Arrays.copyOfRange(bytes, 16, parsedHeader.getMessageLength());
-//                        p2013(bytes, channel);
-                    	
-                    	Document commandDoc = null;
-                    	CommandResult commandResult = null;
-                    	String databaseName = null;
-                    	
                     	int messageLength = parsedHeader.getMessageLength();
+                    	header.put("messagelength", messageLength-4);
                     	
-                    	int flags = bsonInput.readInt32();
-                        boolean moreSections = true;
-                        while (moreSections) {
-                            byte kindByte = bsonInput.readByte();
-                            
-                            logger.debug(" position: " + bsonInput.getPosition() + ", kind: " + kindByte);
-                            
-                            if (kindByte == 0) {
-                                commandDoc = documentCodec.decode(reader, decoderContext);
-                                
-                                moreSections = messageLength > bsonInput.getPosition();
-                                
-                                databaseName = commandDoc.getString("$db");
-                                if (databaseName == null || databaseName.equals("local") || databaseName.equals("admin")) {
-                                    continue;
-                                }
-                                
-                                commandDoc.remove("lsid");
-                                commandDoc.remove("$db");
-                                commandDoc.remove("$readPreference");
-                                
-                                if (! moreSections) {
-//                                    if (commandDoc.containsKey("count")) {
-//                                        System.out.println();
-//                                    }
-                                	//commandResult = processCommand(databaseName, commandDoc);
-                                }
-                                
-                            } else {
-                                //logger.warn("ignored OP_MSG having Section kind 1");
-                                //ignored++;
-                                int p0 = bsonInput.getPosition();
-                                int size = bsonInput.readInt32();
-                                String seq = bsonInput.readCString();
-                                int p1 = bsonInput.getPosition();
-                                int remaining = size - (p1 - p0);
-                                
-                                byte[] mb = new byte[remaining];
-                                
-                                bsonInput.readBytes(mb);
-                                
-                                BsonBinaryReader r2 = new BsonBinaryReader(ByteBuffer.wrap(mb));
-                                Document d1 = documentCodec.decode(r2, decoderContext);
-                                
-                                if (commandDoc != null && commandDoc.containsKey("insert")) {
-                                    commandDoc.put("documents", Arrays.asList(d1));
-                                    //commandResult = processCommand(databaseName, commandDoc);
-                                } else if (commandDoc != null && commandDoc.containsKey("update")) {
-                                    commandDoc.put("updates", Arrays.asList(d1));
-                                    //commandResult = processCommand(databaseName, commandDoc);
-                                } else if (commandDoc != null && commandDoc.containsKey("delete")) {
-                                    commandDoc.put("deletes", Arrays.asList(d1));
-                                    //commandResult = processCommand(databaseName, commandDoc);
-                                } else {
-                                    logger.debug("wtf: " + commandDoc);
-                                }
-                                
-                                moreSections = messageLength > bsonInput.getPosition();
-                            }
-                        }
+                    	int pos = bsonInput.getPosition();
+
+                    	BasicOutputBuffer rawOut = new BasicOutputBuffer();
+                        BsonBinaryWriter writer = new BsonBinaryWriter(rawOut);
+                        rawOut.writeInt(messageLength-4);
+                        rawOut.writeInt(parsedHeader.getRequestId());
+                        rawOut.writeInt(parsedHeader.getResponseTo());
+                        rawOut.writeInt(2013);
+                        rawOut.writeInt(0); // flags
+                        byte[] slice = Arrays.copyOfRange(bodyBytes, 20, messageLength-4);
+                        rawOut.write(slice);
+                        
+                    	raw.put("body", rawOut.toByteArray());
+                    	
+                    	ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
+                        channel.write(buffer);
+                    	
+//                    	
+//                    	
+//                    	boolean hasCRC = (flags & 1) == 1;
+//                    	
+//                    	if (hasCRC) {
+//                    		
+//                    		
+//
+//                    		BasicOutputBuffer headerOut = new BasicOutputBuffer();
+//                            BsonBinaryWriter headerWriter = new BsonBinaryWriter(headerOut);
+//                            
+////                            headerWriter.writeInt32(messageLength);
+////                            headerWriter.writeInt32(parsedHeader.getRequestId());
+////                            headerWriter.writeInt32(parsedHeader.getResponseTo());
+////                            headerWriter.writeInt32(2013);
+//
+////                           
+//                            
+//                            ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(header));
+//                            //channel.write(headerWriter.);
+//                            
+//                            //documentCodec.encode(headerWriter, header, EncoderContext.builder().build());
+//                            
+//                            raw.put("header", headerOut.toByteArray());
+//
+////                            BasicOutputBuffer rawOut = new BasicOutputBuffer();
+////                            BsonBinaryWriter writer = new BsonBinaryWriter(rawOut);
+////                            
+////                            rawOut.write(bytes);
+//                            
+//                            //ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
+//                            
+//                            raw.put("body", bytes);
+//                            buffer = ByteBuffer.wrap(encoder.encode(obj));
+//                            channel.write(buffer);
+//                            
+//
+////                            documentCodec.encode(writer, commandDoc, EncoderContext.builder().build());
+////
+////                            int size1 = writer.getBsonOutput().getPosition();
+////                            header.put("messagelength", size1);
+////                            // System.out.println("obj: " + obj);
+////                            raw.put("body", rawOut.toByteArray());
+////                            ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
+////                            channel.write(buffer);
+////                            written++;
+////                            
+////                    		System.out.println("removing crc");
+////                    		
+////                    		BasicOutputBuffer rawOut = new BasicOutputBuffer();
+////                            BsonBinaryWriter writer = new BsonBinaryWriter(rawOut);
+////                            
+////                            
+////
+////                            
+////                            rawOut.writeInt(parsedHeader.getRequestId());
+////                            rawOut.writeInt(parsedHeader.getResponseTo());
+////                            rawOut.writeInt(2013);
+////                            channel.write(ByteBuffer.wrap(rawOut.getInternalBuffer()));
+//                    		
+//                    		
+////                          
+//                    	} else {
+//                    		ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
+//                            channel.write(buffer);
+//                            
+//                    		
+//                    	}
+//                    	
+//                        
+////                        written++;
+////                        
+////                        logger.debug("header len: " + parsedHeader.getMessageLength());
+////                    	
+////                        // bytes.length
+////                        
+////                        //byte[] slice = Arrays.copyOfRange(bytes, 16, parsedHeader.getMessageLength());
+////                        p2013(bytes, channel);
+                    	
                     }
                 } else {
                     logger.debug("Header was null, WTF?");
