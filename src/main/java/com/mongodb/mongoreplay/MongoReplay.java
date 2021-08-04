@@ -53,6 +53,7 @@ public class MongoReplay extends AbstractMongoReplayUtil {
 	@SuppressWarnings("unchecked")
 	private void processResults() {
 		logger.debug("Processing results");
+		int count = 0;
 		for (Future<?> future : futures) {
 			Object res = null;
 			try {
@@ -67,7 +68,7 @@ public class MongoReplay extends AbstractMongoReplayUtil {
 
 			if (res instanceof ReplayResult) {
 				ReplayResult result = (ReplayResult) res;
-				
+				accumulateResult(result);
 			} else if (res instanceof String) {
 				logger.debug("String result: " + res);
 			} else if (res instanceof List) {
@@ -106,6 +107,10 @@ public class MongoReplay extends AbstractMongoReplayUtil {
 		maxNamespaceLen++;
 		maxShapeLen++;
 
+		if (maxShapeLen < 14) {
+			maxShapeLen = 14;
+		}
+		
 		String formatString = "%-" + maxNamespaceLen + "s %-" + maxShapeLen
 				+ "s %-16s %-10d %-10.0f %-10.0f %-10.0f %-10.0f";
 		String headerFormatString = "%-" + maxNamespaceLen + "s %-" + maxShapeLen

@@ -258,12 +258,16 @@ public class Replayer {
             } else if (opcode == 2013) {  // OP_MSG
                 int flags = bsonInput.readInt32();
                 boolean moreSections = true;
+                Document k0 = null;
+                Document d1 = null;
+                int count = 0;
                 while (moreSections) {
                     byte kindByte = bsonInput.readByte();
-                    
+                    count++;
                     if (kindByte == 0) {
-                        commandDoc = documentCodec.decode(reader, decoderContext);
-                        
+                    	
+                    	commandDoc = documentCodec.decode(reader, decoderContext);
+                        k0 = commandDoc;
                         moreSections = messageLength > bsonInput.getPosition();
                         
                         databaseName = commandDoc.getString("$db");
@@ -275,16 +279,14 @@ public class Replayer {
                         commandDoc.remove("$db");
                         commandDoc.remove("$readPreference");
                         
-                        if (! moreSections) {
-//                            if (commandDoc.containsKey("count")) {
-//                                System.out.println();
-//                            }
-                        	commandResult = processCommand(databaseName, commandDoc);
-                        }
+//                        if (! moreSections) {
+////                            if (commandDoc.containsKey("count")) {
+////                                System.out.println();
+////                            }
+//                        	commandResult = processCommand(databaseName, commandDoc);
+//                        }
                         
                     } else {
-                        //logger.warn("ignored OP_MSG having Section kind 1");
-                        //ignored++;
                         int p0 = bsonInput.getPosition();
                         int size = bsonInput.readInt32();
                         String seq = bsonInput.readCString();
@@ -296,24 +298,53 @@ public class Replayer {
                         bsonInput.readBytes(mb);
                         
                         BsonBinaryReader r2 = new BsonBinaryReader(ByteBuffer.wrap(mb));
-                        Document d1 = documentCodec.decode(r2, decoderContext);
+                        d1 = documentCodec.decode(r2, decoderContext);
                         
-                        if (commandDoc != null && commandDoc.containsKey("insert")) {
-                            commandDoc.put("documents", Arrays.asList(d1));
-                            commandResult = processCommand(databaseName, commandDoc);
-                        } else if (commandDoc != null && commandDoc.containsKey("update")) {
-                            commandDoc.put("updates", Arrays.asList(d1));
-                            commandResult = processCommand(databaseName, commandDoc);
-                        } else if (commandDoc != null && commandDoc.containsKey("delete")) {
-                            commandDoc.put("deletes", Arrays.asList(d1));
-                            commandResult = processCommand(databaseName, commandDoc);
-                        } else {
-                            logger.debug("wtf: " + commandDoc);
+                        if (seq == null) {
+                        	logger.warn("null seq");
+                        	return null;
                         }
+                        
+//                        if (seq.equals("documents")) {
+//                        	commandDoc.put("documents", Arrays.asList(d1));
+//                            commandResult = processCommand(databaseName, commandDoc);
+//                        } else {
+//                        	logger.debug("seq: " + seq);
+//                        }
+                        
+//                        if (commandDoc != null && commandDoc.containsKey("insert")) {
+//                            
+//                        } else if (commandDoc != null && commandDoc.containsKey("update")) {
+//                            commandDoc.put("updates", Arrays.asList(d1));
+//                            commandResult = processCommand(databaseName, commandDoc);
+//                        } else if (commandDoc != null && commandDoc.containsKey("delete")) {
+//                            commandDoc.put("deletes", Arrays.asList(d1));
+//                            commandResult = processCommand(databaseName, commandDoc);
+//                        } else {
+//                            //logger.debug("wtf: " + commandDoc);
+//                            return null;
+//                        }
                         
                         moreSections = messageLength > bsonInput.getPosition();
                     }
                 }
+                if (k0 != null && d1 != null) {
+                	if (k0.containsKey("insert")) {
+                		String collName = k0.getString("insert");
+                		commandDoc.put("documents", Arrays.asList(d1));
+                		commandResult = processCommand(databaseName, commandDoc);
+                	} else if (k0.containsKey("update")) {
+                		commandDoc.put("updates", Arrays.asList(d1));
+                		commandResult = processCommand(databaseName, commandDoc);
+                	} else {
+                		//System.out.println("here");
+                	}
+                } else if (commandDoc.containsKey("find")) {
+                	commandResult = processCommand(databaseName, commandDoc);
+                } else {
+                	//System.out.println("here");
+                }
+                
                     
             } else {
                 logger.warn("ignored opcode: " + opcode);
