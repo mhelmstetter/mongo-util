@@ -3,12 +3,18 @@ package com.mongodb.atlas;
 import com.mongodb.atlas.model.Cluster;
 import com.mongodb.atlas.model.ClustersResult;
 import com.mongodb.atlas.model.DatabasesResult;
+import com.mongodb.atlas.model.LogCollectionJob;
+import com.mongodb.atlas.model.LogCollectionJobRequest;
 import com.mongodb.atlas.model.MeasurementsResult;
 import com.mongodb.atlas.model.ProcessesResult;
 import com.mongodb.atlas.model.ProjectsResult;
 
+import okhttp3.ResponseBody;
 import retrofit2.Call;
+import retrofit2.http.Body;
 import retrofit2.http.GET;
+import retrofit2.http.Headers;
+import retrofit2.http.POST;
 import retrofit2.http.Path;
 import retrofit2.http.Query;
 
@@ -44,5 +50,15 @@ public interface AtlasApi {
     @GET("groups/{groupId}/processes/{hostId}/databases/{databaseName}/measurements?granularity=PT24H&period=PT24H")
     Call<MeasurementsResult> getDatabaseMeasurements(@Path("groupId") String groupId,
             @Path("hostId") String hostId, @Path("databaseName") String databaseName);
+    
+    @Headers("Content-Type: application/json")
+    @POST("groups/{groupId}/logCollectionJobs")
+    Call<LogCollectionJob> startLogCollectionJob(@Path("groupId") String groupId, 
+    		@Body LogCollectionJobRequest logCollectionJobRequest);
+    
+    
+//    @GET("groups/{groupId}/clusters/{hostId}/logs/FTDC")
+//    Call<ResponseBody> getFtdc(@Path("groupId") String groupId,
+//            @Path("hostId") String hostId, @Query("startDate") long startDate);
 
 }

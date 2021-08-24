@@ -18,7 +18,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -31,6 +30,7 @@ import java.util.concurrent.Callable;
 
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.exec.ExecuteException;
+import org.bson.BSONException;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -306,7 +306,14 @@ public class ShardConfigSync implements Callable<Integer> {
 				sourceIndexSpecs.put(ns, indexSpecs);
 				MongoCollection<RawBsonDocument> collection = sourceDb.getCollection(collectionName, RawBsonDocument.class);
 				for (RawBsonDocument sourceSpec : collection.listIndexes(RawBsonDocument.class)) {
-					indexSpecs.add(IndexSpec.fromDocument(sourceSpec));
+					IndexSpec spec = null;
+					try {
+						spec = IndexSpec.fromDocument(sourceSpec);
+						indexSpecs.add(spec);
+					} catch (BSONException be) {
+						logger.error("Error getting index spec: {}", spec);
+					}
+					
 				}
 			}
 		}

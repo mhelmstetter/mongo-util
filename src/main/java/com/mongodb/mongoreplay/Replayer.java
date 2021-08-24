@@ -279,13 +279,6 @@ public class Replayer {
                         commandDoc.remove("$db");
                         commandDoc.remove("$readPreference");
                         
-//                        if (! moreSections) {
-////                            if (commandDoc.containsKey("count")) {
-////                                System.out.println();
-////                            }
-//                        	commandResult = processCommand(databaseName, commandDoc);
-//                        }
-                        
                     } else {
                         int p0 = bsonInput.getPosition();
                         int size = bsonInput.readInt32();
@@ -304,26 +297,6 @@ public class Replayer {
                         	logger.warn("null seq");
                         	return null;
                         }
-                        
-//                        if (seq.equals("documents")) {
-//                        	commandDoc.put("documents", Arrays.asList(d1));
-//                            commandResult = processCommand(databaseName, commandDoc);
-//                        } else {
-//                        	logger.debug("seq: " + seq);
-//                        }
-                        
-//                        if (commandDoc != null && commandDoc.containsKey("insert")) {
-//                            
-//                        } else if (commandDoc != null && commandDoc.containsKey("update")) {
-//                            commandDoc.put("updates", Arrays.asList(d1));
-//                            commandResult = processCommand(databaseName, commandDoc);
-//                        } else if (commandDoc != null && commandDoc.containsKey("delete")) {
-//                            commandDoc.put("deletes", Arrays.asList(d1));
-//                            commandResult = processCommand(databaseName, commandDoc);
-//                        } else {
-//                            //logger.debug("wtf: " + commandDoc);
-//                            return null;
-//                        }
                         
                         moreSections = messageLength > bsonInput.getPosition();
                     }

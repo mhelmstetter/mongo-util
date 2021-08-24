@@ -11,10 +11,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -55,6 +54,7 @@ import org.xerial.snappy.Snappy;
 
 import com.mongodb.MongoClient;
 import com.mongodb.mongoreplay.opcodes.MessageHeader;
+import com.mongodb.mongoreplay.opcodes.Section;
 
 /**
  * Filter a mongoreplay bson file
@@ -66,8 +66,9 @@ public class MongoReplayFilter {
 
 	private final BasicBSONEncoder encoder;
 	private final BSONDecoder decoder;
+	private static final EncoderContext encoderContext = EncoderContext.builder().build();
 
-	private final static DecoderContext decoderContext = DecoderContext.builder().build();
+	//private final static DecoderContext decoderContext = DecoderContext.builder().build();
 
 	CodecRegistry registry = fromRegistries(fromProviders(new UuidCodecProvider(UuidRepresentation.STANDARD)),
 			MongoClient.getDefaultCodecRegistry());
@@ -90,6 +91,9 @@ public class MongoReplayFilter {
 	MessageHeader parsedHeader;
 
 	private List<FileChannel> fileChannels;
+	private FileChannel channel;
+	
+	LinkedList<Document> documents = new LinkedList<>();
 
 	public MongoReplayFilter() {
 		this.encoder = new BasicBSONEncoder();
@@ -106,12 +110,12 @@ public class MongoReplayFilter {
 		}
 	}
 
-	private FileChannel getOutputFileChannel(Long seenNum) {
+	private void setOutputFileChannel(Long seenNum) {
 		int index = 0;
 		if (seenNum != null) {
 			index = seenNum.intValue() % splits;
 		}
-		return fileChannels.get(index);
+		channel = fileChannels.get(index);
 	}
 
 	@SuppressWarnings({ "unused", "unchecked" })
@@ -140,7 +144,7 @@ public class MongoReplayFilter {
 				Long seenconnectionnum = (Long) obj.get("seenconnectionnum");
 				// logger.debug("seen: " + seenconnectionnum);
 
-				FileChannel channel = getOutputFileChannel(seenconnectionnum);
+				setOutputFileChannel(seenconnectionnum);
 
 				raw = (BSONObject) obj.get("rawop");
 				if (raw == null) {
@@ -227,7 +231,7 @@ public class MongoReplayFilter {
 						commandDoc.remove("projection");
 						BasicOutputBuffer tmpBuff = new BasicOutputBuffer();
 						BsonBinaryWriter tmpWriter = new BsonBinaryWriter(tmpBuff);
-						documentCodec.encode(tmpWriter, commandDoc, EncoderContext.builder().build());
+						documentCodec.encode(tmpWriter, commandDoc, encoderContext);
 						int commandDocSize = tmpBuff.getSize();
 
 						BasicOutputBuffer rawOut = new BasicOutputBuffer();
@@ -245,7 +249,7 @@ public class MongoReplayFilter {
 						rawOut.writeInt(0); // skip
 						rawOut.writeInt(-1); // return - these values don't seem to matter
 
-						documentCodec.encode(writer, commandDoc, EncoderContext.builder().build());
+						documentCodec.encode(writer, commandDoc, encoderContext);
 
 						int size1 = writer.getBsonOutput().getPosition();
 						header.put("messagelength", size1);
@@ -290,7 +294,7 @@ public class MongoReplayFilter {
 
 						BasicOutputBuffer tmpBuff = new BasicOutputBuffer();
 						BsonBinaryWriter tmpWriter = new BsonBinaryWriter(tmpBuff);
-						documentCodec.encode(tmpWriter, commandDoc, EncoderContext.builder().build());
+						documentCodec.encode(tmpWriter, commandDoc, encoderContext);
 						int commandDocSize = tmpBuff.getSize();
 
 						BasicOutputBuffer rawOut = new BasicOutputBuffer();
@@ -309,7 +313,7 @@ public class MongoReplayFilter {
 						rawOut.writeInt(-1); // return - these values don't seem
 												// to matter
 
-						documentCodec.encode(writer, commandDoc, EncoderContext.builder().build());
+						documentCodec.encode(writer, commandDoc, encoderContext);
 
 						int size1 = writer.getBsonOutput().getPosition();
 
@@ -328,10 +332,6 @@ public class MongoReplayFilter {
 					} else if (opcode == 2013) {
 
 						process2013(bsonInput, reader, channel, parsedHeader.getMessageLength());
-
-//						Integer req = (Integer) header.get("requestid");
-//						System.out.println("req: " + req + ",  pos: " + bsonInput.getPosition() + ", len: "
-//								+ parsedHeader.getMessageLength());
 
 					} else {
 						logger.debug("Header was null, WTF?");
@@ -355,10 +355,10 @@ public class MongoReplayFilter {
 		System.err.println(String.format("%s objects read, %s filtered objects written", count, written));
 	}
 
-	private void transcode2013(Document commandDoc, String collectionName, FileChannel channel) throws IOException {
+	private void transcode2013(Document commandDoc, String collectionName) throws IOException {
 		BasicOutputBuffer tmpBuff = new BasicOutputBuffer();
 		BsonBinaryWriter tmpWriter = new BsonBinaryWriter(tmpBuff);
-		documentCodec.encode(tmpWriter, commandDoc, EncoderContext.builder().build());
+		documentCodec.encode(tmpWriter, commandDoc, encoderContext);
 		int commandDocSize = tmpBuff.getSize();
 
 		BasicOutputBuffer rawOut = new BasicOutputBuffer();
@@ -376,7 +376,7 @@ public class MongoReplayFilter {
 		rawOut.writeInt(0); // skip
 		rawOut.writeInt(-1); // return - these values don't seem to matter
 
-		documentCodec.encode(writer, commandDoc, EncoderContext.builder().build());
+		documentCodec.encode(writer, commandDoc, encoderContext);
 
 		int size1 = writer.getBsonOutput().getPosition();
 		header.put("messagelength", size1);
@@ -392,63 +392,85 @@ public class MongoReplayFilter {
 	 * Note this implementation assumes that the header has already been consumed.
 	 */
 	private void process2013(ByteBufferBsonInput bsonInput, BsonBinaryReader reader, FileChannel channel, int messageLength) throws IOException {
+		documents.clear();
+		int kindZeroCount = 0;
+		int count = 0;
 		int flags = bsonInput.readInt32();
 		boolean moreSections = true;
-		Document k0 = null;
-		Document d1 = null;
 		String databaseName = null;
 		Document commandDoc = null;
-		int count = 0;
+		
+		Section currentSection = null;
 		while (moreSections) {
 			
 			byte kindByte = bsonInput.readByte();
+			currentSection = new Section(kindByte);
 			count++;
 			if (kindByte == 0) {
-
-				commandDoc = documentCodec.decode(reader, decoderContext);
-				k0 = commandDoc;
+				kindZeroCount++;
+				
+				commandDoc = documentCodec.decode(reader, DecoderContext.builder().build());
 				moreSections = messageLength > bsonInput.getPosition();
 
 				databaseName = commandDoc.getString("$db");
 				if (databaseName == null || databaseName.equals("local")
-						|| databaseName.equals("admin")) {
-					continue;
+						|| databaseName.equals("admin")
+						|| commandDoc.containsKey("getMore") 
+						|| commandDoc.containsKey("ping")) {
+					return;
 				}
 
 				commandDoc.remove("lsid");
 				commandDoc.remove("$db");
 				commandDoc.remove("$readPreference");
-
-//                if (! moreSections) {
-////                    if (commandDoc.containsKey("count")) {
-////                        System.out.println();
-////                    }
-//                	commandResult = processCommand(databaseName, commandDoc);
-//                }
+				commandDoc.remove("txnNumber");
+				
+				currentSection.setDocument(commandDoc);
+				documents.addFirst(commandDoc);
 
 			} else if (kindByte == 1) {
-				int p0 = bsonInput.getPosition();
+				int x0 = bsonInput.getPosition();
 				try {
 
 					int size = bsonInput.readInt32();
-					String seq = bsonInput.readCString();
-					int p1 = bsonInput.getPosition();
-					int remaining = size - (p1 - p0);
-
-					byte[] mb = new byte[remaining];
-
-					bsonInput.readBytes(mb);
-
-					BsonBinaryReader r2 = new BsonBinaryReader(ByteBuffer.wrap(mb));
-					d1 = documentCodec.decode(r2, decoderContext);
-
-					if (seq == null) {
-						logger.warn("null seq");
+					String messageIdentifier = bsonInput.readCString();
+					
+					int x1 = bsonInput.getPosition();
+					int remaining = size - (x1 -x0);
+					
+					if (messageIdentifier == null) {
+						logger.warn("null messageIdentifier");
 						return;
 					}
+					
+					currentSection.setSize(size);
+					currentSection.setMessageIdentifier(messageIdentifier);
+					
+					int docCount = 0;
+					int currentSize;
+					do {
+						int p0 = bsonInput.getPosition();
+
+						byte[] mb = new byte[remaining];
+						bsonInput.readBytes(mb);
+						BsonBinaryReader r2 = new BsonBinaryReader(ByteBuffer.wrap(mb));
+						
+						
+						
+						Document d = documentCodec.decode(r2, DecoderContext.builder().build());
+						documents.add(d);
+						currentSection.addDocument(d);
+						int p1 = bsonInput.getPosition();
+						currentSize = p1 - p0;
+						docCount++;
+					} while (currentSize < remaining);
+					
+					if (docCount > 1) {
+						logger.debug("***** docCount: " + docCount);
+					}
+					
 					moreSections = messageLength > bsonInput.getPosition();
 				} catch (BsonSerializationException bse) {
-					System.out.println("p0: " + p0);
 					Integer req = (Integer) header.get("requestid");
 					System.out.println("*** req: " + req + ",  pos: " + bsonInput.getPosition()
 							+ ", len: " + parsedHeader.getMessageLength());
@@ -462,43 +484,79 @@ public class MongoReplayFilter {
 				moreSections = false;
 			}
 
-			if (k0 != null) {
-				commandDoc.remove("txnNumber");
-				
-				if (k0.containsKey("insert")) {
-					String collName = k0.getString("insert");
-					commandDoc.put("documents", Arrays.asList(d1));
-					// commandResult = processCommand(databaseName, commandDoc);
-					this.transcode2013(commandDoc, collName, channel);
-				} else if (k0.containsKey("update")) {
-					commandDoc.put("updates", Arrays.asList(d1));
-					// commandResult = processCommand(databaseName, commandDoc);
-				} else if (commandDoc.containsKey("find")) {
-					String collName = commandDoc.getString("find");
-					transcode2013(commandDoc, collName, channel);
-					
-				} else if (commandDoc.containsKey("aggregate")) {
-					String collName = commandDoc.getString("aggregate");
-					transcode2013(commandDoc, collName, channel);
-					
-				} else if (commandDoc.containsKey("count")) {
-					String collName = commandDoc.getString("count");
-					transcode2013(commandDoc, collName, channel);
-				} else if (commandDoc.containsKey("delete")) {
-					String collName = commandDoc.getString("delete");
-					transcode2013(commandDoc, collName, channel);
-				}  else if (commandDoc.containsKey("ismaster") || commandDoc.containsKey("getMore")
-						|| commandDoc.containsKey("isMaster") || commandDoc.containsKey("ping") 
-						|| commandDoc.containsKey("saslStart") || commandDoc.containsKey("saslContinue")) {
-					continue;
-				} else {
-					logger.warn("ignored command: " + commandDoc);
-				}
-			}
-			
-			// System.out.println(header);
 		}
+		
+		if (kindZeroCount != 1) {
+			logger.error("Invalid kindZeroCount {}", kindZeroCount);
+			return;
+		}
+		
+		
+		BasicOutputBuffer rawOut = new BasicOutputBuffer();
+		BsonBinaryWriter writer = new BsonBinaryWriter(rawOut);
+	
+		
+		rawOut.writeInt(0); // dummy length
+		rawOut.writeInt(parsedHeader.getRequestId());
+		rawOut.writeInt(parsedHeader.getResponseTo());
+		rawOut.writeInt(2013);
+		rawOut.writeInt(0); // flag bits
+		int position = 0;
+		for (Document document : documents) {
+			if (position == 0) {
+				rawOut.writeByte(0); // kind byte
+			} else {
+				rawOut.writeByte(1); // kind byte 
+			}
+			int beforeSize = rawOut.getSize();
+			documentCodec.encode(writer, document, encoderContext);
+			int afterSize = rawOut.getSize();
+			int docSize = afterSize - beforeSize;
+			//logger.debug("doc size: " + docSize);
+		}
+		//documentCodec.encode(writer, commandDoc, encoderContext);
+
+		int size1 = writer.getBsonOutput().getPosition();
+		header.put("messagelength", size1);
+		header.put("opcode", 2013);
+		// System.out.println("obj: " + obj);
+		raw.put("body", rawOut.toByteArray());
+		ByteBuffer buffer = ByteBuffer.wrap(encoder.encode(obj));
+		channel.write(buffer);
+		written++;
+		
+		
+			
+			
+		if (commandDoc.containsKey("insert")) {
+			String collName = commandDoc.getString("insert");
+			this.transcode2013(commandDoc, collName);
+		} else if (commandDoc.containsKey("update")) {
+			//commandDoc.put("updates", Arrays.asList(d1));
+		} else if (commandDoc.containsKey("find")) {
+			String collName = commandDoc.getString("find");
+			transcode2013(commandDoc, collName);
+			
+		} else if (commandDoc.containsKey("aggregate")) {
+			String collName = commandDoc.getString("aggregate");
+			transcode2013(commandDoc, collName);
+			
+		} else if (commandDoc.containsKey("count")) {
+			String collName = commandDoc.getString("count");
+			transcode2013(commandDoc, collName);
+		} else if (commandDoc.containsKey("delete")) {
+			String collName = commandDoc.getString("delete");
+			transcode2013(commandDoc, collName);
+		}  else if (commandDoc.containsKey("getMore") || commandDoc.containsKey("ping")) {
+			
+			return;
+		} else {
+			logger.warn("ignored command: " + commandDoc);
+		}
+		
 	}
+	
+
 
 	public BSONObject readObject(final byte[] bytes) {
 		BSONCallback bsonCallback = new BasicBSONCallback();

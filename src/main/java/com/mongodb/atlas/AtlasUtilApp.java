@@ -1,5 +1,13 @@
 package com.mongodb.atlas;
 
+import java.time.DayOfWeek;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 
 import org.apache.commons.cli.CommandLine;
@@ -67,20 +75,32 @@ public class AtlasUtilApp {
         
         String group = line.getOptionValue("g");
         if (group != null) {
+        	
+        	ZonedDateTime d = LocalDate.now().atStartOfDay(ZoneId.of("UTC")).with(TemporalAdjusters.previous( DayOfWeek.MONDAY ));
+        	
+        	//LocalDateTime d = LocalDateTime.now(ZoneId.of("UTC")).atStartOfDay().with(TemporalAdjusters.previous( DayOfWeek.MONDAY ));
+        	Instant i = d.toInstant();
+        	long startDate = i.toEpochMilli();
+        	
         	List<Cluster> clusters = util.getClusters(group);
         	for (Cluster c : clusters) {
         		System.out.println(c);
         	}
+        	
+        	util.getLogs(group, "atlas-7d8hfg-shard-15", startDate);
+        	
         } else {
         	List<Project> projects = util.getProjects();
         	for (Project p : projects) {
         		System.out.println(p);
         		List<Cluster> clusters = util.getClusters(p.getId());
         		for (Cluster c : clusters) {
+        			
             		System.out.println(c);
             	}
         	}
         }
+        AtlasServiceGenerator.shutdown();
 
         
     }

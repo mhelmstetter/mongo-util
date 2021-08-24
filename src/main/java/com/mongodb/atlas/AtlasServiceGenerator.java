@@ -10,7 +10,6 @@ import com.mongodb.okhttp.digest.Credentials;
 import com.mongodb.okhttp.digest.DigestAuthenticator;
 
 import okhttp3.OkHttpClient;
-import okhttp3.Request;
 import okhttp3.logging.HttpLoggingInterceptor;
 import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
@@ -23,6 +22,8 @@ public class AtlasServiceGenerator {
             .addConverterFactory(GsonConverterFactory.create());
 
     private static Retrofit retrofit = builder.build();
+    
+    private static OkHttpClient client;
 
     //private static OkHttpClient.Builder httpClient = new OkHttpClient.Builder();
 
@@ -42,15 +43,20 @@ public class AtlasServiceGenerator {
         final DigestAuthenticator authenticator = new DigestAuthenticator(new Credentials(username, apiKey));
         final Map<String, CachingAuthenticator> authCache = new ConcurrentHashMap<>();
         
-        final OkHttpClient client = new OkHttpClient.Builder()
+        client = new OkHttpClient.Builder()
                 .authenticator(new CachingAuthenticatorDecorator(authenticator, authCache))
                 .addInterceptor(new AuthenticationCacheInterceptor(authCache))
+               .addInterceptor(logging)
                 .build();
         
             builder.client(client);
             retrofit = builder.build();
 
         return retrofit.create(serviceClass);
+    }
+    
+    public static void shutdown() {
+    	client.connectionPool().evictAll();
     }
 
 }

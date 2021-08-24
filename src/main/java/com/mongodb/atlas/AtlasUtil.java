@@ -3,7 +3,11 @@ package com.mongodb.atlas;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +28,8 @@ import com.mongodb.atlas.model.ClustersResult;
 import com.mongodb.atlas.model.Database;
 import com.mongodb.atlas.model.DatabasesResult;
 import com.mongodb.atlas.model.DatabasesStats;
+import com.mongodb.atlas.model.LogCollectionJob;
+import com.mongodb.atlas.model.LogCollectionJobRequest;
 import com.mongodb.atlas.model.Measurement;
 import com.mongodb.atlas.model.MeasurementDataPoint;
 import com.mongodb.atlas.model.MeasurementsResult;
@@ -32,10 +38,13 @@ import com.mongodb.atlas.model.Project;
 import com.mongodb.atlas.model.ProjectsResult;
 import com.mongodb.util.ByteSizesUtil;
 
+import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.Response;
 
 public class AtlasUtil {
+	
+	private final static String[] FTDC_LOGS = {"FTDC"};
     
     private static Logger logger = LoggerFactory.getLogger(AtlasUtil.class);
 
@@ -115,6 +124,62 @@ public class AtlasUtil {
             return procList; 
         }
         
+    }
+    
+    public void getLogs(String groupId, String hostId, long startDate) throws IOException {
+    	LogCollectionJobRequest req = new LogCollectionJobRequest();
+    	req.setResourceType("REPLICASET");
+    	req.setResourceName(hostId);
+    	req.setLogTypes(FTDC_LOGS);
+    	Call<LogCollectionJob> logCall = service.startLogCollectionJob(groupId, req);
+    	Response<LogCollectionJob> logResponse = logCall.execute();
+    	LogCollectionJob job =  logResponse.body();
+    	
+//    	Call<ResponseBody> callSync = service.getFtdc(groupId, hostId, startDate);
+//        Response<ResponseBody> response = callSync.execute();
+//        ResponseBody body = response.body();
+//        File file = new File(hostId);
+//        InputStream inputStream = null;
+//        OutputStream outputStream = null;
+//
+//        try {
+//            byte[] fileReader = new byte[4096];
+//
+//            long fileSize = body.contentLength();
+//            long fileSizeDownloaded = 0;
+//
+//            inputStream = body.byteStream();
+//            outputStream = new FileOutputStream(file);
+//
+//            while (true) {
+//                int read = inputStream.read(fileReader);
+//
+//                if (read == -1) {
+//                    break;
+//                }
+//
+//                outputStream.write(fileReader, 0, read);
+//
+//                fileSizeDownloaded += read;
+//
+//                logger.debug("file download: " + fileSizeDownloaded + " of " + fileSize);
+//            }
+//
+//            outputStream.flush();
+//        } catch (IOException e) {
+//        	logger.error("Error processing FTDC download", e);
+//        } finally {
+//            if (inputStream != null) {
+//                inputStream.close();
+//            }
+//
+//            if (outputStream != null) {
+//                outputStream.close();
+//            }
+//            if (body != null) {
+//            	body.close();
+//            }
+//        }
     }
 
     public void getMeasurements(String groupId, String hostId) throws IOException {
