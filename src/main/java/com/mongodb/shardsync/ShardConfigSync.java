@@ -311,7 +311,7 @@ public class ShardConfigSync implements Callable<Integer> {
 						spec = IndexSpec.fromDocument(sourceSpec);
 						indexSpecs.add(spec);
 					} catch (BSONException be) {
-						logger.error("Error getting index spec: {}", spec);
+						logger.error("Error getting index spec: {}", sourceSpec);
 					}
 					
 				}
