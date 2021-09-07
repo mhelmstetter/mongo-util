@@ -169,8 +169,7 @@ public class ShardClient {
 			Integer dbgrid = dbgridResult.getInteger("isdbgrid");
 			mongos = dbgrid.equals(1);
 		} catch (MongoException mce) {
-			logger.error(String.format("%s error checking mongos", name), mce);
-			throw mce;
+			// ignore not supported
 		}
 
 		configDb = mongoClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);

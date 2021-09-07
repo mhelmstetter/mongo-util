@@ -137,59 +137,10 @@ public class MongoMirrorRunner {
     @SuppressWarnings("rawtypes")
     public MongoMirrorStatus checkStatus() {
         String statusStr = null;
-        Gson gson = new GsonBuilder().create();
+        
         try {
             statusStr = httpUtils.doGetAsString(String.format("http://localhost:%s", httpStatusPort));
-            
-            //System.out.println(statusStr);
-            
-            JsonObject statusJson = new JsonParser().parse(statusStr).getAsJsonObject();
-            
-            String stage = null;
-            String phase = null;
-            String errorMessage = null;
-            
-            if (statusJson.has("stage")) {
-            	stage = statusJson.get("stage").getAsString();
-            }
-            
-            if (statusJson.has("phase")) {
-            	phase = statusJson.get("phase").getAsString();
-            }
-            
-            if (statusJson.has("errorMessage")) {
-            	errorMessage = statusJson.get("errorMessage").getAsString();
-            }
-            
-            if ("initial sync".equals(stage)) {
-            	
-            	MongoMirrorStatusInitialSync status = new MongoMirrorStatusInitialSync(stage, phase, errorMessage);
-            	
-            	if (statusJson.has("details")) {
-            		
-            		JsonObject statusDetails = statusJson.get("details").getAsJsonObject();
-            		
-            		if (statusDetails.has("copiedBytesAllColl")) {
-            			InitialSyncDetails details = new InitialSyncDetails();
-            			status.setTopLevelDetails(details);
-            			details.setCopiedBytes(statusDetails.get("copiedBytesAllColl").getAsLong());
-            			details.setTotalBytes(statusDetails.get("totalBytesAllColl").getAsLong());
-            			
-                	} else {
-                		status = gson.fromJson(statusJson, MongoMirrorStatusInitialSync.class);
-                	}
-            	} else {
-            		logger.warn("InitialSyncDetails was missing from http status output");
-            	}
-            	return status;
-            } else if ("applying oplog entries".equals(phase) || "oplog sync".equals(phase)) {
-            	//MongoMirrorStatusOplogSync status = new MongoMirrorStatusOplogSync(stage, phase, errorMessage);
-            	MongoMirrorStatusOplogSync status = gson.fromJson(statusJson, MongoMirrorStatusOplogSync.class);
-            	return status;
-            } else {
-            	MongoMirrorStatus status = new MongoMirrorStatus(stage, phase, errorMessage);
-            	return status;
-            }
+            return parseStatus(statusStr);
 
         } catch (IOException e) {
             logger.error(statusStr);
@@ -199,6 +150,59 @@ public class MongoMirrorRunner {
             logger.error("Error checking mongomirror status", e);
         }
         return null;
+    }
+    
+    public MongoMirrorStatus parseStatus(String statusStr) {
+    	System.out.println(statusStr);
+    	Gson gson = new GsonBuilder().create();
+    	
+        JsonObject statusJson = new JsonParser().parse(statusStr).getAsJsonObject();
+        
+        String stage = null;
+        String phase = null;
+        String errorMessage = null;
+        
+        if (statusJson.has("stage")) {
+        	stage = statusJson.get("stage").getAsString();
+        }
+        
+        if (statusJson.has("phase")) {
+        	phase = statusJson.get("phase").getAsString();
+        }
+        
+        if (statusJson.has("errorMessage")) {
+        	errorMessage = statusJson.get("errorMessage").getAsString();
+        }
+        
+        if ("initial sync".equals(stage)) {
+        	
+        	MongoMirrorStatusInitialSync status = new MongoMirrorStatusInitialSync(stage, phase, errorMessage);
+        	
+        	if (statusJson.has("details")) {
+        		
+        		JsonObject statusDetails = statusJson.get("details").getAsJsonObject();
+        		
+        		if (statusDetails.has("copiedBytesAllColl")) {
+        			InitialSyncDetails details = new InitialSyncDetails();
+        			status.setTopLevelDetails(details);
+        			details.setCopiedBytes(statusDetails.get("copiedBytesAllColl").getAsLong());
+        			details.setTotalBytes(statusDetails.get("totalBytesAllColl").getAsLong());
+        			
+            	} else {
+            		status = gson.fromJson(statusJson, MongoMirrorStatusInitialSync.class);
+            	}
+        	} else {
+        		logger.warn("InitialSyncDetails was missing from http status output");
+        	}
+        	return status;
+        } else if ("applying oplog entries".equals(phase) || "oplog sync".equals(phase)) {
+        	//MongoMirrorStatusOplogSync status = new MongoMirrorStatusOplogSync(stage, phase, errorMessage);
+        	MongoMirrorStatusOplogSync status = gson.fromJson(statusJson, MongoMirrorStatusOplogSync.class);
+        	return status;
+        } else {
+        	MongoMirrorStatus status = new MongoMirrorStatus(stage, phase, errorMessage);
+        	return status;
+        }
     }
     
     private void addArg(String argName) {
