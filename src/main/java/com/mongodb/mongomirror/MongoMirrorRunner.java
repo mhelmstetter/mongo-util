@@ -153,7 +153,6 @@ public class MongoMirrorRunner {
     }
     
     public MongoMirrorStatus parseStatus(String statusStr) {
-    	System.out.println(statusStr);
     	Gson gson = new GsonBuilder().create();
     	
         JsonObject statusJson = new JsonParser().parse(statusStr).getAsJsonObject();

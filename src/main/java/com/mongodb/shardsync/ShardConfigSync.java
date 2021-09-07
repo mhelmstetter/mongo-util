@@ -221,7 +221,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			
 			List<Shard> destList = new ArrayList<Shard>(destShardClient.getShardsMap().values());
 			
-			if (shardMap == null && sourceShardsMap.size() != destList.size()) {
+			if (shardMap == null && sourceShardsMap.size() != destList.size() && !shardToRs) {
 				throw new IllegalArgumentException(String.format("disparate shard counts requires shardMap to be defined, sourceShardCount: %s, destShardCount: %s", 
 						sourceShardsMap.size(), destList.size()));
 			}
@@ -1529,9 +1529,12 @@ public class ShardConfigSync implements Callable<Integer> {
 
 		logger.debug("shardToRs() starting");
 
+		List<MongoMirrorRunner> mongomirrors = new ArrayList<>(sourceShardClient.getShardsMap().size());
+		int httpStatusPort = mongoMirrorStartPort;
 		for (Shard source : sourceShardClient.getShardsMap().values()) {
 			logger.debug("sourceShard: " + source.getId());
 			MongoMirrorRunner mongomirror = new MongoMirrorRunner(source.getId());
+			mongomirrors.add(mongomirror);
 
 			// Source setup
 			mongomirror.setSourceHost(source.getHost());
@@ -1596,6 +1599,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			mongomirror.setBookmarkFile(source.getId() + ".timestamp");
 
 			mongomirror.setNumParallelCollections(numParallelCollections);
+			mongomirror.setHttpStatusPort(httpStatusPort++);
 			mongomirror.execute(dryRun);
 			try {
 				Thread.sleep(sleepMillis);
@@ -1604,6 +1608,8 @@ public class ShardConfigSync implements Callable<Integer> {
 				e.printStackTrace();
 			}
 		}
+		
+		pollMongomirrorStatus(mongomirrors);
 
 	}
 	
@@ -1766,10 +1772,15 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 		}
 		
+		pollMongomirrorStatus(mongomirrors);
+
+	}
+	
+	public void pollMongomirrorStatus(List<MongoMirrorRunner> mongomirrors) {
 		if (dryRun) {
 			return;
 		}
-
+		
 		while (true) {
 			try {
 				Thread.sleep(2000);
@@ -1806,7 +1817,6 @@ public class ShardConfigSync implements Callable<Integer> {
 
 			}
 		}
-
 	}
 
 	public void setMongomirrorBinary(String binaryPath) {
