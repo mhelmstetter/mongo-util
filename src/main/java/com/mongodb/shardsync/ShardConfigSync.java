@@ -259,8 +259,9 @@ public class ShardConfigSync implements Callable<Integer> {
 			throw new IllegalArgumentException("source connection must be to a mongos router");
 		}
 		
-		checkDestShardClientIsMongos();
-		
+		if (sourceClusterPattern != null) {
+			checkDestShardClientIsMongos();
+		}
 	}
 	
 	private void checkDestShardClientIsMongos() {
