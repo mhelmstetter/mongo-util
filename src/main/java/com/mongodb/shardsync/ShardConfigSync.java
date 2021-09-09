@@ -255,13 +255,11 @@ public class ShardConfigSync implements Callable<Integer> {
 		// reverse map
 		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
 		
-		if (! sourceShardClient.isMongos()) {
+		if (sourceClusterPattern != null && ! sourceShardClient.isMongos()) {
 			throw new IllegalArgumentException("source connection must be to a mongos router");
 		}
 		
-		if (sourceClusterPattern != null) {
-			checkDestShardClientIsMongos();
-		}
+		checkDestShardClientIsMongos();
 	}
 	
 	private void checkDestShardClientIsMongos() {
