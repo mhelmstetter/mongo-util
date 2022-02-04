@@ -503,15 +503,16 @@ public class DiffUtil {
 										logger.error(String.format("%s - docs equal, but hash mismatch, id: %s", currentNs, id));
 										keysMisordered++;
 									} else {
-										BsonDateTime sourceDate = sourceDoc.getDateTime("date");
-										BsonDateTime destDate = null;
-										if (sourceDate != null) {
-											destDate = destDoc.getDateTime("date");
-											logger.error(String.format("%s - doc hash mismatch, id: %s, sourceDate: %s, destDate: %s", 
-													currentNs, id, new Date(sourceDate.getValue()), new Date(destDate.getValue())));
-										} else {
-											logger.error(String.format("%s - doc hash mismatch, id: %s", currentNs, id));
-										}
+//										BsonDateTime sourceDate = sourceDoc.getDateTime("date");
+//										BsonDateTime destDate = null;
+//										if (sourceDate != null) {
+//											destDate = destDoc.getDateTime("date");
+//											logger.error(String.format("%s - doc hash mismatch, id: %s, sourceDate: %s, destDate: %s", 
+//													currentNs, id, new Date(sourceDate.getValue()), new Date(destDate.getValue())));
+//										} else {
+//											logger.error(String.format("%s - doc hash mismatch, id: %s", currentNs, id));
+//										}
+										logger.error(String.format("%s - doc hash mismatch, id: %s", currentNs, id));
 										hashMismatched++;
 									}
 
@@ -622,10 +623,10 @@ public class DiffUtil {
 						if (sourceKey != null && destKey != null) {
 							compare = comparator.compare(sourceKey, destKey);
 						} else if (sourceKey == null) {
-//							if (reportMissing) {
-//								logger.error(String.format("%s - fail: %s missing on source", collectionName, destKey));
-//							}
-//							totalMissingDocs++;
+							if (reportMissing) {
+								logger.error(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							}
+							totalMissingDocs++;
 							continue;
 						} else if (destKey == null) {
 							if (reportMissing) {
@@ -642,10 +643,10 @@ public class DiffUtil {
 							totalMissingDocs++;
 							destNext = destDoc;
 						} else if (compare > 0) {
-//							if (reportMissing) {
-//								logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
-//							}
-//							totalMissingDocs++;
+							if (reportMissing) {
+								logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							}
+							totalMissingDocs++;
 							sourceNext = sourceDoc;
 						} else {
 							if (reportMatches) {
