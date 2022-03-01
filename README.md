@@ -67,14 +67,26 @@ java -cp mongo-util.jar com.mongodb.mongoreplay.MongoReplayFilter -f record04102
 The output file will be written with the same name + `.FILTERED`.
 
 
-DiffUtil
+DiffUtil / "jdiff"
 -----------------
 Download:
 ```
 wget -O mongo-util.jar https://github.com/mhelmstetter/mongo-util/blob/master/bin/mongo-util.jar?raw=true
 ```
-
-Run:
+Alias:
 ```
-java -cp mongo-util.jar com.mongodb.diffutil.DiffUtilApp
+alias jdiff='java -cp ~/mongo-util/bin/mongo-util.jar com.mongodb.diffutil.DiffUtilApp'
+```
+There are 3 modes that you may find useful:
+Diff counts:
+```
+jdiff --compareCounts
+```
+Diff document _ids
+```
+jdiff --compareIds
+```
+Compare full document hashes
+```
+jdiff --compareDocuments
 ```
