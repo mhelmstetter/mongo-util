@@ -263,7 +263,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 	
 	private void checkDestShardClientIsMongos() {
-		if (!destShardClient.isMongos() && !shardToRs) {
+		if (!destShardClient.isMongos() && !shardToRs && destRsPattern != null) {
 			throw new IllegalArgumentException("dest connection must be to a mongos router unless using shardToRs");
 		}
 	}

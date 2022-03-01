@@ -186,7 +186,7 @@ public class ApplyOperationsHelper  {
 			update.remove("$v");
 		}
 
-		// if the update operation is not using $set then use replaceOne
+		// if the update operation is not using $set/$push, etc then use replaceOne
 		Set<String> docKeys = update.keySet();
 		if (docKeys.iterator().next().startsWith("$")) {
 			return new UpdateOneModel<BsonDocument>(find, update);
