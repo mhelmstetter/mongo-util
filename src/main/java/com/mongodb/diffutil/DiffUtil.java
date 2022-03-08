@@ -537,6 +537,13 @@ public class DiffUtil {
 				missingDbs++;
 			}
 		}
+		
+		totalCollections++;
+		totalMatches += matches;
+		totalKeysMisordered += keysMisordered;
+		totalHashMismatched += hashMismatched;
+		totalMissingDocs += missing;
+		
 		logger.debug(
 				String.format("%s dbs compared, %s collections compared, missingDbs %s, idMatches: %s, missingDocs: %s",
 						totalDbs, totalCollections, missingDbs, totalMatches, totalMissingDocs));
