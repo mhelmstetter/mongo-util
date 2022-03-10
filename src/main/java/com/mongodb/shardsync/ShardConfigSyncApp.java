@@ -33,6 +33,10 @@ public class ShardConfigSyncApp {
     private final static String SOURCE_RS_PATTERN = "sourceRsPattern";
     private final static String DEST_RS_PATTERN = "destRsPattern";
     
+    // Advanced option for manaually overriding the hostnames / bypassing discovery
+    private final static String SOURCE_RS_MANUAL = "sourceRsManual";
+    private final static String DEST_RS_MANUAL = "destRsManual";
+    
     private final static String MONGOMIRROR_BINARY = "mongomirrorBinary";
 
     private final static String DROP_DEST_DBS = "dropDestDbs";
@@ -245,6 +249,10 @@ public class ShardConfigSyncApp {
         sync.setSourceClusterPattern(config.getString(SOURCE_URI_PATTERN));
         sync.setDestClusterPattern(config.getString(DEST_URI_PATTERN));
         
+        sync.setSourceRsManual(config.getStringArray(SOURCE_RS_MANUAL));
+        sync.setDestRsManual(config.getStringArray(DEST_RS_MANUAL));
+        
+        
         sync.setDestCsrsUri(config.getString(DEST_CSRS_URI));
         
         sync.setSourceRsPattern(config.getString(SOURCE_RS_PATTERN));
@@ -307,9 +315,10 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(COMPARE_AND_MOVE_CHUNKS)) {
             actionFound = true;
             if (nonPrivilegedMode) {
-            	sync.compareAndMoveChunks(true);
+            	sync.compareAndMoveChunks(true, false);
             } else {
-            	sync.compareAndMovePrivileged();
+            	//sync.compareAndMovePrivileged();
+            	sync.compareAndMoveChunks(true, false);
             }
             
         } else if (line.hasOption(COMPARE_COLLECTION_UUIDS)) {

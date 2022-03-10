@@ -117,10 +117,14 @@ public class ShardClient {
 	private Collection<String> shardIdFilter;
 
 	private boolean patternedUri;
+	private boolean manualShardHosts;
 	private boolean mongos;
 	private String connectionStringPattern;
 	private String rsPattern;
 	private String csrsUri;
+	
+	// Advanced only, for manual configuration / overriding discovery
+	private String[] rsStringsManual;
 
 	public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter) {
 
@@ -151,6 +155,8 @@ public class ShardClient {
 	}
 
 	public void init() {
+		this.manualShardHosts = rsStringsManual != null && rsStringsManual.length > 0;
+		
 		if (csrsUri != null) {
 			logger.debug(name + " csrsUri: " + csrsUri);
 			this.csrsConnectionString = new ConnectionString(csrsUri);
@@ -202,7 +208,7 @@ public class ShardClient {
 //        		continue;
 //        	}
 
-			if (!patternedUri) {
+			if (!patternedUri && !manualShardHosts) {
 				logger.debug(String.format("%s: populateShardList shard: %s", name, sh.getHost()));
 			}
 			String rsName = StringUtils.substringBefore(sh.getHost(), "/");
@@ -236,6 +242,23 @@ public class ShardClient {
 				logger.debug(String.format("%s: populateShardList formatted shard name: %s", name, sh.getHost()));
 			}
 
+		} else if (manualShardHosts) {
+			shardsMap.clear();
+			for (String rsString : rsStringsManual) {
+				
+				if (!rsString.contains("/")) {
+					throw new IllegalArgumentException(String.format("Invalid format for %sRsManual, expecting rsName/host1:port,host2:port,host3:port", name));
+				}
+				String rsName = StringUtils.substringBefore(rsString, "/");
+				
+				Shard sh = new Shard();
+				sh.setId(rsName);
+				sh.setRsName(rsName);
+				sh.setHost(String.format("%s/%s", rsName, StringUtils.substringAfter(rsString, "/")));
+				shardsMap.put(sh.getId(), sh);
+				logger.debug("{}: populateShardList added manual shard connection: %s", name, sh.getHost());
+			}
+			
 		}
 
 		logger.debug(name + ": populateShardList complete, " + shardsMap.size() + " shards added");
@@ -540,8 +563,13 @@ public class ShardClient {
 	}
 
 	public MongoCollection<RawBsonDocument> getChunksCollectionRawPrivileged() {
-		MongoDatabase configDb = csrsMongoClient.getDatabase("config");
-		return configDb.getCollection("chunks", RawBsonDocument.class);
+		if (csrsMongoClient != null) {
+			MongoDatabase configDb = csrsMongoClient.getDatabase("config");
+			return configDb.getCollection("chunks", RawBsonDocument.class);
+		} else {
+			return getChunksCollectionRaw();
+		}
+		
 	}
 
 	public MongoCollection<Document> getDatabasesCollection() {
@@ -1111,6 +1139,14 @@ public class ShardClient {
 
 	public void setShardClientType(ShardClientType shardClientType) {
 		this.shardClientType = shardClientType;
+	}
+
+	public String[] getRsStringsManual() {
+		return rsStringsManual;
+	}
+
+	public void setRsStringsManual(String[] rsStringsManual) {
+		this.rsStringsManual = rsStringsManual;
 	}
 
 }
