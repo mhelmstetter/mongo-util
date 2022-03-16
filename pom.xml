@@ -11,7 +11,7 @@
 		<jpa.version>2.0.0</jpa.version>
 		<hibernate.version>4.1.9.Final</hibernate.version>
 		<slf4j.version>1.7.30</slf4j.version>
-		<logback.version>1.2.3</logback.version>
+		<logback.version>1.2.11</logback.version>
 		<aspectj.version>1.6.12</aspectj.version>
 		<jodatime.version>2.3</jodatime.version>
 		<spring.data.mongo.version>1.2.1.RELEASE</spring.data.mongo.version>
