@@ -34,7 +34,9 @@ import org.bson.BSONException;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
+import org.bson.UuidRepresentation;
 import org.bson.codecs.DocumentCodec;
+import org.bson.codecs.UuidCodecProvider;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
@@ -57,7 +59,6 @@ import com.mongodb.client.model.Accumulators;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
-import com.mongodb.client.result.UpdateResult;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
 import com.mongodb.model.IndexSpec;
@@ -75,7 +76,7 @@ import picocli.CommandLine.Command;
 @Command(name = "shardSync", mixinStandardHelpOptions = true, version = "shardSync 1.0")
 public class ShardConfigSync implements Callable<Integer> {
 	
-	private final static DocumentCodec codec = new DocumentCodec();
+	//private final static DocumentCodec codec = new DocumentCodec();
 
 	DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm_ss");
 
@@ -159,9 +160,11 @@ public class ShardConfigSync implements Callable<Integer> {
 	private boolean sslAllowInvalidCertificates;
 	
 	private boolean skipFlushRouterConfig;
-
-	CodecRegistry registry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
-			fromProviders(PojoCodecProvider.builder().automatic(true).build()));
+	
+    
+    CodecRegistry registry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
+			fromProviders(new UuidCodecProvider(UuidRepresentation.STANDARD),
+					PojoCodecProvider.builder().automatic(true).build()));
 
 	DocumentCodec documentCodec = new DocumentCodec(registry);
 
@@ -752,7 +755,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			if (firstChunk) {
 				destShardClient.createChunk(chunk, true, true);
 			} else {
-				Document newDoc = chunk.decode(codec);
+				Document newDoc = chunk.decode(documentCodec);
 				newDoc.append("shard", mappedShard);
 				newDoc.append("lastmod", new BsonTimestamp(ts++, 0));
 				newDoc.append("lastmodEpoch", collectionMeta.get("lastmodEpoch"));

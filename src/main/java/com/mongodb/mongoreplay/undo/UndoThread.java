@@ -3,7 +3,7 @@ package com.mongodb.mongoreplay.undo;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import com.mongodb.MongoClient;
+import com.mongodb.client.MongoClient;
 
 public class UndoThread extends Thread {
 

@@ -1,10 +1,5 @@
 package com.mongodb.diffutil;
 
-import java.util.HashSet;
-import java.util.Set;
-
-import com.mongodb.model.Namespace;
-
 public class DiffOptions {
     
     private int threads = 4;

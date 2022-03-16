@@ -19,8 +19,10 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
@@ -41,8 +43,11 @@ public class CorruptUtil {
     private ExecutorService executor;
     
     public CorruptUtil(String sourceUriStr) {
-        MongoClientURI source = new MongoClientURI(sourceUriStr);
-        sourceClient = new MongoClient(source);
+    	ConnectionString connectionString = new ConnectionString(sourceUriStr);
+    	MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+                .applyConnectionString(connectionString)
+                .build();
+    	sourceClient = MongoClients.create(mongoClientSettings);
     }
     
     public void run() throws InterruptedException {

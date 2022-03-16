@@ -2,17 +2,19 @@ package com.mongodb.util;
 
 import org.bson.Document;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 
 public class ConnStormRunnable extends Thread {
 
     private MongoClient mongoClient;
     private ConnStorm storm;
 
-    private MongoClientURI uri;
+    private ConnectionString uri;
 
-    public ConnStormRunnable(MongoClientURI uri, ConnStorm storm) {
+    public ConnStormRunnable(ConnectionString uri, ConnStorm storm) {
         this.uri = uri;
         this.storm = storm;
     }
@@ -28,7 +30,10 @@ public class ConnStormRunnable extends Thread {
                 }
             }
 
-            mongoClient = new MongoClient(uri);
+            MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+                    .applyConnectionString(uri)
+                    .build();
+    		MongoClient mongoClient = MongoClients.create(mongoClientSettings);
             mongoClient.getDatabase("admin").runCommand(new Document("ping", 1));
             try {
                 Thread.sleep(5);

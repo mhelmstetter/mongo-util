@@ -9,6 +9,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonString;
 
 import com.mongodb.ReadConcernLevel;
+import com.mongodb.ReadPreference;
 import com.mongodb.WriteConcern;
 
 public class ReplayOptions {
@@ -25,9 +26,19 @@ public class ReplayOptions {
     
     private BsonDocument readConcernDocument;
     
+    private ReadPreference readPreference;
+    
     // readConcern: { level: "majority" }
     
-    public ReplayOptions() {
+    public ReadPreference getReadPreference() {
+		return readPreference;
+	}
+
+	public void setReadPreference(ReadPreference readPreference) {
+		this.readPreference = readPreference;
+	}
+
+	public ReplayOptions() {
     	ignoredCollections.add("system.sessions");
     }
 

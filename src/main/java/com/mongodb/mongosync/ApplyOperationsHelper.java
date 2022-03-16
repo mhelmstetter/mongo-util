@@ -3,10 +3,8 @@ package com.mongodb.mongosync;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.Vector;
 
 import org.bson.BsonDocument;
-import org.bson.BsonTimestamp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -44,7 +44,7 @@ public class MongoExport implements Callable<Integer> {
         try {
             
             MongoCollection<Document> mongoCollection = db.getCollection(collectionName);
-            long totalDocs = mongoCollection.count();
+            long totalDocs = mongoCollection.countDocuments();
             cursor = mongoCollection.find().iterator();
             
             while (cursor.hasNext()) {

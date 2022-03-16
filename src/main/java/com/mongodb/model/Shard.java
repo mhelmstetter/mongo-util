@@ -1,7 +1,5 @@
 package com.mongodb.model;
 
-import org.bson.BsonTimestamp;
-
 public class Shard {
 
     private String id;

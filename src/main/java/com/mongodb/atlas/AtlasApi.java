@@ -9,7 +9,6 @@ import com.mongodb.atlas.model.MeasurementsResult;
 import com.mongodb.atlas.model.ProcessesResult;
 import com.mongodb.atlas.model.ProjectsResult;
 
-import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.http.Body;
 import retrofit2.http.GET;

@@ -20,16 +20,6 @@
 
 package com.mongodb.okhttp.digest;
 
-import com.mongodb.okhttp.digest.fromhttpclient.BasicHeaderValueFormatter;
-import com.mongodb.okhttp.digest.fromhttpclient.BasicHeaderValueParser;
-import com.mongodb.okhttp.digest.fromhttpclient.BasicNameValuePair;
-import com.mongodb.okhttp.digest.fromhttpclient.CharArrayBuffer;
-import com.mongodb.okhttp.digest.fromhttpclient.HeaderElement;
-import com.mongodb.okhttp.digest.fromhttpclient.HttpEntityDigester;
-import com.mongodb.okhttp.digest.fromhttpclient.NameValuePair;
-import com.mongodb.okhttp.digest.fromhttpclient.ParserCursor;
-import com.mongodb.okhttp.digest.fromhttpclient.UnsupportedDigestAlgorithmException;
-
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.Charset;
@@ -45,8 +35,17 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringTokenizer;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+
+import com.mongodb.okhttp.digest.fromhttpclient.BasicHeaderValueFormatter;
+import com.mongodb.okhttp.digest.fromhttpclient.BasicHeaderValueParser;
+import com.mongodb.okhttp.digest.fromhttpclient.BasicNameValuePair;
+import com.mongodb.okhttp.digest.fromhttpclient.CharArrayBuffer;
+import com.mongodb.okhttp.digest.fromhttpclient.HeaderElement;
+import com.mongodb.okhttp.digest.fromhttpclient.HttpEntityDigester;
+import com.mongodb.okhttp.digest.fromhttpclient.NameValuePair;
+import com.mongodb.okhttp.digest.fromhttpclient.ParserCursor;
+import com.mongodb.okhttp.digest.fromhttpclient.UnsupportedDigestAlgorithmException;
 
 import okhttp3.Headers;
 import okhttp3.Request;

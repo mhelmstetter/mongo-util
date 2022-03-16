@@ -8,8 +8,10 @@ import java.nio.channels.FileChannel;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
@@ -19,8 +21,12 @@ public class MongoDump {
     private MongoClient mongoClient;
     
     public MongoDump(String mongoUri) {
-        MongoClientURI connectionString = new MongoClientURI(mongoUri);
-        mongoClient = new MongoClient(connectionString);
+    	
+    	ConnectionString connectionString = new ConnectionString(mongoUri);
+		MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+                .applyConnectionString(connectionString)
+                .build();
+		MongoClient mongoClient = MongoClients.create(mongoClientSettings);
         mongoClient.getDatabase("admin").runCommand(new Document("ping",1));
     }
     
@@ -36,7 +42,7 @@ public class MongoDump {
             FileChannel channel = fos.getChannel();
             MongoDatabase db = mongoClient.getDatabase(databaseName);
             MongoCollection<RawBsonDocument> mongoCollection = db.getCollection(collectionName, RawBsonDocument.class);
-            long totalDocs = mongoCollection.count();
+            long totalDocs = mongoCollection.countDocuments();
             cursor = mongoCollection.find().iterator();
             
             while (cursor.hasNext()) {

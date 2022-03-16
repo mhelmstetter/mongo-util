@@ -10,8 +10,6 @@ import java.util.zip.CRC32;
 import org.apache.commons.codec.binary.Base32;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.codec.binary.Hex;
-import org.bson.BSON;
-import org.bson.BSONObject;
 
 /** The codec utils. */
 public final class CodecUtils {
@@ -66,18 +64,6 @@ public final class CodecUtils {
     try {
       hasher.update(pV.getBytes(ENCODING));
     } catch (final UnsupportedEncodingException e) {
-      throw new IllegalArgumentException(e);
-    }
-
-    return hasher.getValue();
-  }
-
-  public static long crc32(final BSONObject pV) {
-    final CRC32 hasher = _crc32Hasher.get();
-
-    try {
-      hasher.update(BSON.encode(pV));
-    } catch (final Exception e) {
       throw new IllegalArgumentException(e);
     }
 

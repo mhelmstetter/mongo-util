@@ -1,10 +1,10 @@
 package com.mongodb.okhttp.digest;
 
+import java.io.IOException;
+
 import okhttp3.Authenticator;
 import okhttp3.Request;
 import okhttp3.Route;
-
-import java.io.IOException;
 
 /**
  * A subinterface for authenticators which support auth sessions.

@@ -1,5 +1,7 @@
 package com.mongodb.mongoreplay;
 
+import static java.util.Collections.singletonList;
+
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
@@ -20,12 +22,10 @@ import org.bson.io.ByteBufferBsonInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoClient;
 import com.mongodb.MongoCommandException;
 import com.mongodb.WriteConcern;
+import com.mongodb.client.MongoClient;
 import com.mongodb.util.ShapeUtil;
-
-import static java.util.Collections.singletonList;
 
 public class Replayer {
 
@@ -349,7 +349,8 @@ public class Replayer {
                 if (replayOptions.getReadConcern() != null) {
                     commandDoc.put("readConcern", replayOptions.getReadConcern());
                 }
-                executeResult = mongoClient.getDatabase(db).runCommand(commandDoc, mongoClient.getReadPreference());
+                
+                executeResult = mongoClient.getDatabase(db).runCommand(commandDoc, replayOptions.getReadPreference());
                  
             } else {
                 

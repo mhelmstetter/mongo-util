@@ -12,8 +12,10 @@ import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
 import org.bson.Document;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 
 public class ConnStorm {
     
@@ -26,14 +28,17 @@ public class ConnStorm {
     
     public void execute() {
         
-        MongoClientURI uri = new MongoClientURI(mongoUriStr);
-        MongoClient mongoClient = new MongoClient(uri);
+    	ConnectionString connectionString = new ConnectionString(mongoUriStr);
+		MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+                .applyConnectionString(connectionString)
+                .build();
+		MongoClient mongoClient = MongoClients.create(mongoClientSettings);
         mongoClient.getDatabase("admin").runCommand(new Document("ping",1));
         
         runners = new ArrayList<ConnStormRunnable>(threads);
         
         for (int i = 0; i < threads; i++) {
-            ConnStormRunnable runnable = new ConnStormRunnable(uri, this);
+            ConnStormRunnable runnable = new ConnStormRunnable(connectionString, this);
             //Thread thread = new Thread(runnable, "ConnStormRunnable_" + i);
             runnable.start();
             runners.add(runnable);

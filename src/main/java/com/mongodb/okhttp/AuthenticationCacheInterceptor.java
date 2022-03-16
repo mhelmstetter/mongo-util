@@ -1,20 +1,19 @@
 package com.mongodb.okhttp;
 
-import com.mongodb.okhttp.digest.CachingAuthenticator;
+import static java.net.HttpURLConnection.HTTP_PROXY_AUTH;
+import static java.net.HttpURLConnection.HTTP_UNAUTHORIZED;
 
 import java.io.IOException;
 import java.util.Map;
 
+import com.mongodb.okhttp.digest.CachingAuthenticator;
+
 import okhttp3.Connection;
-import okhttp3.HttpUrl;
 import okhttp3.Interceptor;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.Route;
 import okhttp3.internal.platform.Platform;
-
-import static java.net.HttpURLConnection.HTTP_PROXY_AUTH;
-import static java.net.HttpURLConnection.HTTP_UNAUTHORIZED;
 
 /**
  * An HTTP Request interceptor that adds previous auth headers in to the same host. This enables the

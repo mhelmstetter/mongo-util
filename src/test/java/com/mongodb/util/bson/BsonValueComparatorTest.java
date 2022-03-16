@@ -1,12 +1,12 @@
 package com.mongodb.util.bson;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.RawBsonDocument;
 import org.bson.codecs.BsonDocumentCodec;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class BsonValueComparatorTest {
     

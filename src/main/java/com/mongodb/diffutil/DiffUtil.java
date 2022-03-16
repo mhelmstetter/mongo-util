@@ -23,8 +23,9 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
@@ -32,7 +33,6 @@ import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.ShardCollection;
-import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.DiffUtils;
 import com.mongodb.util.bson.BsonValueComparator;
 
@@ -88,15 +88,15 @@ public class DiffUtil {
 	@SuppressWarnings("unchecked")
 	public void init() {
 
-		MongoClientURI source = new MongoClientURI(sourceClusterUri);
+		ConnectionString source = new ConnectionString(sourceClusterUri);
 
-		sourceClient = new MongoClient(source);
+		sourceClient = MongoClients.create(source);
 		sourceClient.getDatabase("admin").runCommand(new Document("ping", 1));
 		logger.debug("Connected to source");
 
-		MongoClientURI dest = new MongoClientURI(destClusterUri);
+		ConnectionString dest = new ConnectionString(destClusterUri);
 
-		destClient = new MongoClient(dest);
+		destClient = MongoClients.create(dest);
 		destClient.getDatabase("admin").runCommand(new Document("ping", 1));
 
 		Document listDatabases = new Document("listDatabases", 1);

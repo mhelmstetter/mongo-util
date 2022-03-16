@@ -1,7 +1,5 @@
 package com.mongodb.mongostat;
 
-import java.util.List;
-
 import org.bson.Document;
 
 public class ServerStatus {

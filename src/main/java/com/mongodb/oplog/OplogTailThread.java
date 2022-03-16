@@ -8,10 +8,11 @@ import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.CursorType;
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCursorNotFoundException;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 
@@ -30,8 +31,12 @@ public class OplogTailThread {
     ThreadPoolExecutor pool;
 
     public OplogTailThread() {
-        MongoClientURI connectionString = new MongoClientURI("mongodb://localhost:27017/test?minPoolSize=10");
-        MongoClient mongoClient = new MongoClient(connectionString);
+        ConnectionString connectionString = new ConnectionString("mongodb://localhost:27017/test?minPoolSize=10");
+        
+        MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+                .applyConnectionString(connectionString)
+                .build();
+		MongoClient mongoClient = MongoClients.create(mongoClientSettings);
         local = mongoClient.getDatabase("local");
         oplog = local.getCollection("oplog.rs");
     }

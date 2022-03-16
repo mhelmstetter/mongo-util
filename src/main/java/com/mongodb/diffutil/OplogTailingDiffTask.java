@@ -10,14 +10,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -36,7 +30,6 @@ import com.mongodb.model.OplogSummary;
 import com.mongodb.model.ShardTimestamp;
 import com.mongodb.oplog.OplogUtil;
 import com.mongodb.shardsync.ShardClient;
-import com.mongodb.util.CallerBlocksPolicy;
 import com.mongodb.util.DiffUtils;
 
 public class OplogTailingDiffTask implements Callable<OplogTailingDiffTaskResult> {

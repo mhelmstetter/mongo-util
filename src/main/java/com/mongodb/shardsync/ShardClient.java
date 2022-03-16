@@ -1,6 +1,11 @@
 package com.mongodb.shardsync;
 
-import static com.mongodb.client.model.Filters.*;
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.gt;
+import static com.mongodb.client.model.Filters.in;
+import static com.mongodb.client.model.Filters.ne;
+import static com.mongodb.client.model.Filters.regex;
 import static com.mongodb.client.model.Projections.include;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
@@ -256,7 +261,7 @@ public class ShardClient {
 				sh.setRsName(rsName);
 				sh.setHost(String.format("%s/%s", rsName, StringUtils.substringAfter(rsString, "/")));
 				shardsMap.put(sh.getId(), sh);
-				logger.debug("{}: populateShardList added manual shard connection: %s", name, sh.getHost());
+				logger.debug("{}: populateShardList added manual shard connection: {}", name, sh.getHost());
 			}
 			
 		}

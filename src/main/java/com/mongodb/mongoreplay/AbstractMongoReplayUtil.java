@@ -37,11 +37,13 @@ import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.Mongo;
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
 import com.mongodb.ReadConcern;
 import com.mongodb.WriteConcern;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.internal.MongoClientImpl;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ClusterType;
 import com.mongodb.util.CallerBlocksPolicy;
@@ -103,30 +105,33 @@ public abstract class AbstractMongoReplayUtil {
 
     public void init() throws NoSuchMethodException, SecurityException, IllegalAccessException, IllegalArgumentException, InvocationTargetException {
         logger.debug("mongoUriStr: " + mongoUriStr);
-        MongoClientURI connectionString = new MongoClientURI(mongoUriStr);
         
-        mongoClient = new MongoClient(connectionString);
-        //readPreference = mongoClient.getMongoClientOptions().getReadPreference();
-        
-        WriteConcern wc = connectionString.getOptions().getWriteConcern();
+        ConnectionString connectionString = new ConnectionString(mongoUriStr);
+		MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+                .applyConnectionString(connectionString)
+                .build();
+		mongoClient = MongoClients.create(mongoClientSettings);
+		replayOptions.setReadPreference(connectionString.getReadPreference());
+		
+        WriteConcern wc = connectionString.getWriteConcern();
         if (wc != null && wc.getWObject() != null) {
         	replayOptions.setWriteConcern(wc.asDocument());
         }
         
         
-        ReadConcern readConcern = mongoClient.getReadConcern();
+        ReadConcern readConcern = connectionString.getReadConcern();
         if (readConcern != null && readConcern.getLevel() != null) {
             replayOptions.setReadConcernLevel(readConcern.getLevel());
             
         }
         
-        int seedListSize = mongoClient.getAllAddress().size();
+        int seedListSize = connectionString.getHosts().size();
         if (seedListSize == 1) {
             logger.warn("Only 1 host specified in seedlist");
         }
         mongoClient.getDatabase("admin").runCommand(new Document("ismaster", 1));
         
-        Method method = Mongo.class.getDeclaredMethod("getClusterDescription");
+        Method method = MongoClientImpl.class.getDeclaredMethod("getClusterDescription");
         method.setAccessible(true);
         ClusterDescription cd = (ClusterDescription)method.invoke(mongoClient);
         this.clusterType = cd.getType();

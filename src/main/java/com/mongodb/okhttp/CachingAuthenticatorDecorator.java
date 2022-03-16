@@ -1,15 +1,14 @@
 package com.mongodb.okhttp;
 
+import java.io.IOException;
+import java.util.Map;
+
 import com.mongodb.okhttp.digest.CachingAuthenticator;
 
 import okhttp3.Authenticator;
-import okhttp3.HttpUrl;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.Route;
-
-import java.io.IOException;
-import java.util.Map;
 
 /**
  * An authenticator decorator which saves the generated authentication headers for a specific host.

@@ -3,7 +3,6 @@ package com.mongodb.mongosync;
 import static com.mongodb.client.model.Filters.eq;
 
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 
 import org.bson.BsonDocument;
 import org.bson.BsonValue;

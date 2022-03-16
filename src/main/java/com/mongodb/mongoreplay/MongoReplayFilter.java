@@ -46,13 +46,14 @@ import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.EncoderContext;
 import org.bson.codecs.UuidCodecProvider;
 import org.bson.codecs.configuration.CodecRegistry;
+import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.io.BasicOutputBuffer;
 import org.bson.io.ByteBufferBsonInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xerial.snappy.Snappy;
 
-import com.mongodb.MongoClient;
+import com.mongodb.MongoClientSettings;
 import com.mongodb.mongoreplay.opcodes.MessageHeader;
 import com.mongodb.mongoreplay.opcodes.Section;
 
@@ -70,8 +71,10 @@ public class MongoReplayFilter {
 
 	//private final static DecoderContext decoderContext = DecoderContext.builder().build();
 
-	CodecRegistry registry = fromRegistries(fromProviders(new UuidCodecProvider(UuidRepresentation.STANDARD)),
-			MongoClient.getDefaultCodecRegistry());
+	CodecRegistry registry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
+			fromProviders(new UuidCodecProvider(UuidRepresentation.STANDARD),
+					PojoCodecProvider.builder().automatic(true).build()));
+
 	DocumentCodec documentCodec = new DocumentCodec(registry);
 
 	private String[] removeUpdateFields;

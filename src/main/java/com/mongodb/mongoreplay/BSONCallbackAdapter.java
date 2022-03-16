@@ -1,7 +1,5 @@
 package com.mongodb.mongoreplay;
 
-import static org.bson.io.Bits.readLong;
-
 import org.bson.AbstractBsonWriter;
 import org.bson.BSONCallback;
 import org.bson.BsonBinary;
@@ -224,5 +222,18 @@ public class BSONCallbackAdapter extends AbstractBsonWriter {
         public Context getParentContext() {
             return (Context) super.getParentContext();
         }
+    }
+    
+    static long readLong(final byte[] buffer, final int offset) {
+        long x = 0;
+        x |= (0xFFL & buffer[offset + 0]) << 0;
+        x |= (0xFFL & buffer[offset + 1]) << 8;
+        x |= (0xFFL & buffer[offset + 2]) << 16;
+        x |= (0xFFL & buffer[offset + 3]) << 24;
+        x |= (0xFFL & buffer[offset + 4]) << 32;
+        x |= (0xFFL & buffer[offset + 5]) << 40;
+        x |= (0xFFL & buffer[offset + 6]) << 48;
+        x |= (0xFFL & buffer[offset + 7]) << 56;
+        return x;
     }
 }

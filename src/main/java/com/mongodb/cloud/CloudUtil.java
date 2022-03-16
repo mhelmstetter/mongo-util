@@ -1,7 +1,6 @@
 package com.mongodb.cloud;
 
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
-import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -13,7 +12,6 @@ import org.bson.codecs.pojo.PojoCodecProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoClient;
 import com.mongodb.atlas.model.Database;
 import com.mongodb.atlas.model.DatabasesResult;
 import com.mongodb.atlas.model.DatabasesStats;
@@ -21,6 +19,7 @@ import com.mongodb.atlas.model.Measurement;
 import com.mongodb.atlas.model.MeasurementDataPoint;
 import com.mongodb.atlas.model.MeasurementsResult;
 import com.mongodb.atlas.model.ProcessesResult;
+import com.mongodb.client.MongoClient;
 import com.mongodb.cloud.model.Cluster;
 import com.mongodb.cloud.model.ClustersResult;
 import com.mongodb.cloud.model.Disk;
@@ -52,8 +51,7 @@ public class CloudUtil {
     }
     
     private void init() {
-        pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
-                fromProviders(PojoCodecProvider.builder().automatic(true).build()));
+    	pojoCodecRegistry = fromProviders(PojoCodecProvider.builder().automatic(true).build());
 
         //MongoClientURI source = new MongoClientURI(mongoUri);
 

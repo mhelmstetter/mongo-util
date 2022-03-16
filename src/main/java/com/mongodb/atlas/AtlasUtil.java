@@ -1,13 +1,8 @@
 package com.mongodb.atlas;
 
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
-import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -20,8 +15,7 @@ import org.bson.codecs.pojo.PojoCodecProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
 import com.mongodb.atlas.model.AWSInstanceSize;
 import com.mongodb.atlas.model.Cluster;
 import com.mongodb.atlas.model.ClustersResult;
@@ -36,9 +30,9 @@ import com.mongodb.atlas.model.MeasurementsResult;
 import com.mongodb.atlas.model.ProcessesResult;
 import com.mongodb.atlas.model.Project;
 import com.mongodb.atlas.model.ProjectsResult;
+import com.mongodb.client.MongoClient;
 import com.mongodb.util.ByteSizesUtil;
 
-import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.Response;
 
@@ -64,10 +58,8 @@ public class AtlasUtil {
     }
     
     private void init() {
-        pojoCodecRegistry = fromRegistries(MongoClient.getDefaultCodecRegistry(),
-                fromProviders(PojoCodecProvider.builder().automatic(true).build()));
-
-        MongoClientURI source = new MongoClientURI(mongoUri);
+    	pojoCodecRegistry = fromProviders(PojoCodecProvider.builder().automatic(true).build());
+        ConnectionString source = new ConnectionString(mongoUri);
     }
     
     public List<Project> getProjects() throws IOException {

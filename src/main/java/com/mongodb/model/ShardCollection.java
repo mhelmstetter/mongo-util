@@ -1,7 +1,6 @@
 package com.mongodb.model;
 
 import java.util.Date;
-import java.util.Map;
 
 import org.bson.Document;
 import org.bson.types.ObjectId;

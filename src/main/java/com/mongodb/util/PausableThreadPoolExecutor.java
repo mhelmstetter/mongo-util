@@ -10,8 +10,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.mongoreplay.AbstractMongoReplayUtil;
-
 /**
  * A light wrapper around the {@link ThreadPoolExecutor}. It allows for you to pause execution and
  * resume execution when ready. It is very handy for games that need to pause.

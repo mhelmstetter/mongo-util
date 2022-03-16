@@ -12,13 +12,14 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientURI;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
 import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.shardsync.ShardConfigSync;
 
 public class StatsUtil {
     
@@ -51,8 +52,12 @@ public class StatsUtil {
     }
 
     public void init() {
-        MongoClientURI source = new MongoClientURI(mongoUri);
-        client = new MongoClient(source);
+    	
+    	ConnectionString connectionString = new ConnectionString(mongoUri);
+		MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+                .applyConnectionString(connectionString)
+                .build();
+		client = MongoClients.create(mongoClientSettings);
     }
     
     public void getIndexes() {

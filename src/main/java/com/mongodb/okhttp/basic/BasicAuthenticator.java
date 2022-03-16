@@ -1,16 +1,16 @@
 package com.mongodb.okhttp.basic;
 
-import com.mongodb.okhttp.digest.CachingAuthenticator;
-import com.mongodb.okhttp.digest.Credentials;
+import static java.net.HttpURLConnection.HTTP_PROXY_AUTH;
 
 import java.io.IOException;
+
+import com.mongodb.okhttp.digest.CachingAuthenticator;
+import com.mongodb.okhttp.digest.Credentials;
 
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.Route;
 import okhttp3.internal.platform.Platform;
-
-import static java.net.HttpURLConnection.HTTP_PROXY_AUTH;
 
 /**
  * Standard HTTP basic authenticator.
