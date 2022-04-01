@@ -58,6 +58,7 @@ import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardTimestamp;
+import com.mongodb.util.MaskUtil;
 
 /**
  * This class encapsulates the client related objects needed for each source and
@@ -96,6 +97,8 @@ public class ShardClient {
 	private MongoClient mongoClient;
 	private MongoDatabase configDb;
 	private Map<String, Shard> shardsMap = new LinkedHashMap<String, Shard>();
+	
+	private Map<String, RawBsonDocument> chunksCache = new LinkedHashMap<>();
 
 	private Map<String, Shard> tertiaryShardsMap = new LinkedHashMap<String, Shard>();
 
@@ -152,7 +155,7 @@ public class ShardClient {
 
 		this.name = name;
 		this.shardIdFilter = shardIdFilter;
-		logger.debug(String.format("%s client, uri: %s", name, clusterUri));
+		logger.debug(String.format("%s client, uri: %s", name, MaskUtil.maskConnectionString(connectionString)));
 	}
 
 	public ShardClient(String name, String clusterUri) {
@@ -626,18 +629,28 @@ public class ShardClient {
 	}
 
 	public void flushRouterConfig() {
-		logger.debug(String.format("flushRouterConfig() for %s mongos routers", mongosMongoClients.size()));
-		for (Map.Entry<String, MongoClient> entry : mongosMongoClients.entrySet()) {
-			MongoClient client = entry.getValue();
-			Document flushRouterConfig = new Document("flushRouterConfig", true);
+		
+		Document flushRouterConfig = new Document("flushRouterConfig", true);
 
-			try {
-				logger.debug(String.format("flushRouterConfig for mongos %s", entry.getKey()));
-				client.getDatabase("admin").runCommand(flushRouterConfig);
-			} catch (MongoTimeoutException timeout) {
-				logger.debug("Timeout connecting", timeout);
-			}
+		try {
+			logger.debug(String.format("flushRouterConfig for mongos"));
+			mongoClient.getDatabase("admin").runCommand(flushRouterConfig);
+		} catch (MongoTimeoutException timeout) {
+			logger.debug("Timeout connecting", timeout);
 		}
+		
+//		logger.debug(String.format("flushRouterConfig() for %s mongos routers", mongosMongoClients.size()));
+//		for (Map.Entry<String, MongoClient> entry : mongosMongoClients.entrySet()) {
+//			MongoClient client = entry.getValue();
+//			Document flushRouterConfig = new Document("flushRouterConfig", true);
+//
+//			try {
+//				logger.debug(String.format("flushRouterConfig for mongos %s", entry.getKey()));
+//				client.getDatabase("admin").runCommand(flushRouterConfig);
+//			} catch (MongoTimeoutException timeout) {
+//				logger.debug("Timeout connecting", timeout);
+//			}
+//		}
 	}
 
 	public void stopBalancer() {
@@ -949,6 +962,45 @@ public class ShardClient {
 			lastNs = sourceNs;
 		}
 	}
+	
+	public static String getIdFromChunk(BsonDocument sourceChunk) {
+		RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
+		//ByteBuffer byteBuffer = sourceMin.getByteBuffer().asNIO();
+        //byte[] minBytes = new byte[byteBuffer.remaining()];
+        
+		String minHash = sourceMin.toJson();
+		
+		RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
+		//byteBuffer = sourceMax.getByteBuffer().asNIO();
+		//byte[] maxBytes = new byte[byteBuffer.remaining()];
+		String maxHash = sourceMax.toJson();
+		
+		String ns = sourceChunk.getString("ns").getValue();
+		//logger.debug(String.format("hash: %s_%s => %s_%s", sourceMin.toString(), sourceMax.toString(), minHash, maxHash));
+		return String.format("%s_%s_%s", ns, minHash, maxHash);
+		
+	}
+	
+	public Map<String, RawBsonDocument> loadChunksCache(Document chunkQuery) {
+		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
+		
+		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery).sort(Sorts.ascending("ns", "min"));
+		
+		int count = 0;
+		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
+			RawBsonDocument chunk = sourceChunksIterator.next();
+			String chunkId = getIdFromChunk(chunk);
+			chunksCache.put(chunkId, chunk);
+			count++;
+		}
+		logger.debug("{}: loaded {} chunks into chunksCache", name, count);
+		return chunksCache;
+	}
+	
+//	public boolean checkChunkExists(BsonDocument chunk) {
+//		String id = getIdFromChunk(chunk);
+//		return chunksCache.containsKey(id);
+//	}
 	
 	public boolean checkChunkExists(BsonDocument chunk) {
 		String ns = chunk.getString("ns").getValue();

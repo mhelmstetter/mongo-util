@@ -59,6 +59,7 @@ import com.mongodb.client.model.Accumulators;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
+import com.mongodb.client.result.DeleteResult;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
 import com.mongodb.model.IndexSpec;
@@ -75,6 +76,7 @@ import picocli.CommandLine.Command;
 
 @Command(name = "shardSync", mixinStandardHelpOptions = true, version = "shardSync 1.0")
 public class ShardConfigSync implements Callable<Integer> {
+	
 	
 	//private final static DocumentCodec codec = new DocumentCodec();
 
@@ -337,6 +339,28 @@ public class ShardConfigSync implements Callable<Integer> {
 	
 	public void syncIndexesShards(boolean createMissing, boolean extendTtl) {
 		logger.debug(String.format("Starting syncIndexes: extendTtl: %s", extendTtl));
+		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
+		
+		Map<Namespace, Set<IndexSpec>> destShardIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
+		
+		for (Map.Entry<Namespace, Set<IndexSpec>> sourceEntry : sourceIndexSpecs.entrySet()) {
+			Namespace ns = sourceEntry.getKey();
+            Set<IndexSpec> sourceSpecs = sourceEntry.getValue();
+            
+            //Set<IndexSpec> destSpecs = destShardIndexSpecs.get(ns);
+            
+            if (createMissing) {
+    			//logger.debug(String.format("%s - missing dest indexes %s missing, creating", ns, diff));
+        		destShardClient.createIndexes(null, ns, sourceSpecs, extendTtl);
+    		}
+			
+		}
+		
+		
+	}
+	
+	/*public void syncIndexesShards(boolean createMissing, boolean extendTtl) {
+		logger.debug(String.format("Starting syncIndexes: extendTtl: %s", extendTtl));
 		destShardClient.populateShardMongoClients();
 		sourceShardClient.populateShardMongoClients();
 		
@@ -388,6 +412,7 @@ public class ShardConfigSync implements Callable<Integer> {
             }
         }
 	}
+	*/
 	
 	public void migrateMetadata() throws InterruptedException {
 		migrateMetadata(true, true);
@@ -519,23 +544,21 @@ public class ShardConfigSync implements Callable<Integer> {
 			logger.debug("createDestChunksUsingSplitCommand started");
 		}
 		
-		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
-
 		Document chunkQuery = getChunkQuery();
+		logger.debug("chunkQuery: {}", chunkQuery);
 		if (nsFilter != null) {
 			chunkQuery.append("ns", nsFilter);
 		}
 		nsToShardsCompletionMap = getChunksNsToShardsMap(chunkQuery);
 		
-		List<RawBsonDocument> sourceChunks = new ArrayList<>();
-		sourceChunksColl.find().sort(Sorts.ascending("ns", "min")).into(sourceChunks);
-		
+		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
+		destShardClient.loadChunksCache(chunkQuery);
 
 		String lastNs = null;
 		int currentCount = 0;
 		boolean nsComplete = false;
 
-		for (RawBsonDocument chunk : sourceChunks) {
+		for (RawBsonDocument chunk : sourceChunksCache.values()) {
 
 			String ns = chunk.getString("ns").getValue();
 			if (filterCheck(ns)) {
@@ -697,6 +720,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
 		ReplaceOptions replaceOptions = new ReplaceOptions().upsert(true);
 		Document chunkQuery = getChunkQuery();
+		destShardClient.loadChunksCache(chunkQuery); // load it again to get new stuff
 		Map<String, Set<String>> nsToShardsMap = getChunksNsToShardsMap(chunkQuery);
 		
 		destShardClient.populateCollectionsMap();
@@ -834,23 +858,6 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	}
 	
-	private static String getHashIdFromChunk(RawBsonDocument sourceChunk) {
-		RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
-		//ByteBuffer byteBuffer = sourceMin.getByteBuffer().asNIO();
-        //byte[] minBytes = new byte[byteBuffer.remaining()];
-        
-		String minHash = sourceMin.toJson();
-		
-		RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
-		//byteBuffer = sourceMax.getByteBuffer().asNIO();
-		//byte[] maxBytes = new byte[byteBuffer.remaining()];
-		String maxHash = sourceMax.toJson();
-		
-		String ns = sourceChunk.getString("ns").getValue();
-		//logger.debug(String.format("hash: %s_%s => %s_%s", sourceMin.toString(), sourceMax.toString(), minHash, maxHash));
-		return String.format("%s_%s_%s", ns, minHash, maxHash);
-		
-	}
 	
 //	public void compareAndMovePrivileged() {
 //		
@@ -960,7 +967,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		FindIterable<RawBsonDocument> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min"));
 
 		for (RawBsonDocument destChunk : destChunks) {
-			String id = getHashIdFromChunk(destChunk);
+			String id = ShardClient.getIdFromChunk(destChunk);
 			//logger.debug("dest id: " + id);
 			String shard = destChunk.getString("shard").getValue();
 			destChunkMap.put(id, shard);
@@ -988,7 +995,7 @@ public class ShardConfigSync implements Callable<Integer> {
 
 		for (RawBsonDocument sourceChunk : sourceChunks) {
 			sourceTotalCount++;
-			String sourceId = getHashIdFromChunk(sourceChunk);
+			String sourceId = ShardClient.getIdFromChunk(sourceChunk);
 			//logger.debug("source id: " + sourceId);
 			
 			String sourceNs = sourceChunk.getString("ns").getValue();
@@ -1118,6 +1125,55 @@ public class ShardConfigSync implements Callable<Integer> {
 				logger.warn(String.format("Destination db not found, name: %s", dbName));
 			}
 		}
+	}
+	
+	public void cleanupPrevious() {
+
+		logger.debug("Starting cleanupPrevious");
+
+		Document listDatabases = new Document("listDatabases", 1);
+		Document destDatabases = destShardClient.adminCommand(listDatabases);
+
+		List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
+
+		populateDbMap(destDatabaseInfo, destDbInfoMap);
+		
+		Document nullFilter = new Document();
+
+		for (Document destInfo : destDatabaseInfo) {
+			String dbName = destInfo.getString("name");
+
+			MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(dbName);
+			List<String> destCollectionNames = new ArrayList<>();
+			
+			destDb.listCollectionNames().into(destCollectionNames);
+			for (String collectionName : destCollectionNames) {
+				if (collectionName.startsWith("system.")) {
+					continue;
+				}
+				
+				Namespace ns = new Namespace(dbName, collectionName);
+				if (filterCheck(ns)) {
+					continue;
+				}
+				
+				DeleteResult deleteResult = null;
+				try {
+					deleteResult = destDb.getCollection(collectionName).deleteMany(nullFilter);
+				} catch (MongoException me) {
+					logger.error("{}: delete error: {}",  ns, me.getMessage());
+				}
+				
+				if (deleteResult != null) {
+					long count = deleteResult.getDeletedCount();
+					if (count > 0) {
+						logger.debug("{}: deleted {} doucments on destination", ns, count);
+					}
+				}
+ 				
+			}
+		}
+		logger.debug("Finished cleanupPrevious");
 	}
 	
 	private long[] doCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {

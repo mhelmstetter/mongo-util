@@ -27,8 +27,11 @@ import com.mongodb.mongomirror.model.MongoMirrorStatus;
 import com.mongodb.mongomirror.model.MongoMirrorStatusInitialSync;
 import com.mongodb.mongomirror.model.MongoMirrorStatusOplogSync;
 import com.mongodb.util.HttpUtils;
+import com.mongodb.util.MaskUtil;
 
 public class MongoMirrorRunner {
+	
+	public final static String[] PASSWORD_KEYS = {"--password", "--destinationPassword"};
     
     private File mongomirrorBinary;
     private CommandLine cmdLine;
@@ -130,7 +133,8 @@ public class MongoMirrorRunner {
         DefaultExecutor executor = new DefaultExecutor();
         executor.setExitValue(1);
         executor.setStreamHandler(psh);
-        logger.debug("oplogTailExecutor.execute id: " + id + " cmdLine: " + cmdLine);
+        
+        logger.debug("mongomirror execute id: " + id + " cmdLine: " + MaskUtil.maskCommandLine(cmdLine, PASSWORD_KEYS));
     	executor.execute(cmdLine, executeResultHandler);
     }
     

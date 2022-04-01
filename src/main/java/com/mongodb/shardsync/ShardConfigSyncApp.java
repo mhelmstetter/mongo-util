@@ -73,6 +73,7 @@ public class ShardConfigSyncApp {
     private final static String SYNC_INDEXES = "syncIndexes";
     private final static String COMPARE_INDEXES = "compareIndexes";
     private final static String EXTEND_TTL = "extendTtl";
+    private final static String CLEANUP_PREVIOUS_RUN = "cleanupPreviousRun";
     
     private final static String SSL_ALLOW_INVALID_HOSTNAMES = "sslAllowInvalidHostnames";
     private final static String SSL_ALLOW_INVALID_CERTS = "sslAllowInvalidCertificates";
@@ -108,6 +109,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(COMPARE_AND_MOVE_CHUNKS).create(COMPARE_AND_MOVE_CHUNKS));
         options.addOption(OptionBuilder.withArgName("Compare all collection UUIDs")
                 .withLongOpt(COMPARE_COLLECTION_UUIDS).create(COMPARE_COLLECTION_UUIDS));
+        options.addOption(OptionBuilder.withArgName("Cleanup (remove) destination data")
+                .withLongOpt(CLEANUP_PREVIOUS_RUN).create(CLEANUP_PREVIOUS_RUN));
         
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata")
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
@@ -362,6 +365,9 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA)) {
             actionFound = true;
             sync.dropDestinationDatabasesAndConfigMetadata();
+        } else if (line.hasOption(CLEANUP_PREVIOUS_RUN)) {
+        	actionFound = true;
+        	sync.cleanupPrevious();
         }
         // 
         
@@ -369,7 +375,6 @@ public class ShardConfigSyncApp {
         if (line.hasOption(MONGO_MIRROR) && ! line.hasOption("r")) {
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", config.getString(MONGOMIRROR_BINARY));
-            
             boolean skipBuildIndexes = line.hasOption(SKIP_BUILD_INDEXES);
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
             
