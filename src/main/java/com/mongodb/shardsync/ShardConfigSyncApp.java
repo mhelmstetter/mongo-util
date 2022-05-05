@@ -1,6 +1,9 @@
 package com.mongodb.shardsync;
 
 import java.io.File;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -73,7 +76,8 @@ public class ShardConfigSyncApp {
     private final static String SYNC_INDEXES = "syncIndexes";
     private final static String COMPARE_INDEXES = "compareIndexes";
     private final static String EXTEND_TTL = "extendTtl";
-    private final static String CLEANUP_PREVIOUS_RUN = "cleanupPreviousRun";
+    private final static String CLEANUP_PREVIOUS_ALL = "cleanupPreviousAll";
+    private final static String CLEANUP_PREVIOUS_SHARDS = "cleanupPreviousShards";
     
     private final static String SSL_ALLOW_INVALID_HOSTNAMES = "sslAllowInvalidHostnames";
     private final static String SSL_ALLOW_INVALID_CERTS = "sslAllowInvalidCertificates";
@@ -84,11 +88,11 @@ public class ShardConfigSyncApp {
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
         options = new Options();
         options.addOption(new Option("help", "print this message"));
-        options.addOption(OptionBuilder.withArgName("Configuration properties file").hasArgs().withLongOpt("config")
+        options.addOption(OptionBuilder.withArgName("Configuration properties file").hasArg().withLongOpt("config")
                 .create("c"));
-        options.addOption(OptionBuilder.withArgName("Source cluster connection uri").hasArgs().withLongOpt(SOURCE_URI)
+        options.addOption(OptionBuilder.withArgName("Source cluster connection uri").hasArg().withLongOpt(SOURCE_URI)
                 .create("s"));
-        options.addOption(OptionBuilder.withArgName("Destination cluster connection uri").hasArgs().withLongOpt(DEST_URI)
+        options.addOption(OptionBuilder.withArgName("Destination cluster connection uri").hasArg().withLongOpt(DEST_URI)
                 .create("d"));
         
         options.addOption(OptionBuilder.withArgName("Drop destination databases, but preserve config metadata")
@@ -109,12 +113,14 @@ public class ShardConfigSyncApp {
                 .withLongOpt(COMPARE_AND_MOVE_CHUNKS).create(COMPARE_AND_MOVE_CHUNKS));
         options.addOption(OptionBuilder.withArgName("Compare all collection UUIDs")
                 .withLongOpt(COMPARE_COLLECTION_UUIDS).create(COMPARE_COLLECTION_UUIDS));
-        options.addOption(OptionBuilder.withArgName("Cleanup (remove) destination data")
-                .withLongOpt(CLEANUP_PREVIOUS_RUN).create(CLEANUP_PREVIOUS_RUN));
+        options.addOption(OptionBuilder.withArgName("Cleanup (remove) destination data on all shards")
+                .withLongOpt(CLEANUP_PREVIOUS_ALL).create(CLEANUP_PREVIOUS_ALL));
+        options.addOption(OptionBuilder.withArgName("Cleanup (remove) destination data on specified shards").hasArgs()
+                .withLongOpt(CLEANUP_PREVIOUS_SHARDS).create(CLEANUP_PREVIOUS_SHARDS));
         
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata")
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
-        options.addOption(OptionBuilder.withArgName("Shard mapping").hasArgs().withLongOpt(SHARD_MAP)
+        options.addOption(OptionBuilder.withArgName("Shard mapping").hasArg().withLongOpt(SHARD_MAP)
                 .isRequired(false).create("m"));
         options.addOption(OptionBuilder.withArgName("Disable autosplit on source cluster")
                 .withLongOpt(DISABLE_SOURCE_AUTOSPLIT).create());
@@ -157,7 +163,7 @@ public class ShardConfigSyncApp {
                 .withLongOpt(TAIL_FROM_TS).hasArg().create(TAIL_FROM_TS));
         options.addOption(OptionBuilder.withArgName("mongomirror namespace filter").hasArgs()
         		.withLongOpt("filter").create("f"));
-        options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArgs()
+        options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArg()
         		.withLongOpt(MONGOMIRROR_BINARY).create("p"));
         options.addOption(OptionBuilder.withArgName("mongomirror preserve dest UUIDs (not supported for Atlas dest)")
                 .withLongOpt(PRESERVE_UUIDS).create(PRESERVE_UUIDS));
@@ -365,11 +371,17 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA)) {
             actionFound = true;
             sync.dropDestinationDatabasesAndConfigMetadata();
-        } else if (line.hasOption(CLEANUP_PREVIOUS_RUN)) {
+        } else if (line.hasOption(CLEANUP_PREVIOUS_ALL)) {
         	actionFound = true;
-        	sync.cleanupPrevious();
+        	sync.cleanupPreviousAll();
+        } else if (line.hasOption(CLEANUP_PREVIOUS_SHARDS)) {
+        	actionFound = true;
+        	String[] shardNames = line.getOptionValues(CLEANUP_PREVIOUS_SHARDS);
+        	Set<String> shardNamesSet = new HashSet<>();
+        	shardNamesSet.addAll(Arrays.asList(shardNames));
+        	sync.cleanupPreviousShards(shardNamesSet);
         }
-        // 
+        
         
         // MONGOMIRROR_BINARY
         if (line.hasOption(MONGO_MIRROR) && ! line.hasOption("r")) {

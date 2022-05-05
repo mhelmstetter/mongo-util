@@ -19,6 +19,7 @@ import com.mongodb.client.model.DeleteOneModel;
 import com.mongodb.client.model.InsertOneModel;
 import com.mongodb.client.model.ReplaceOneModel;
 import com.mongodb.client.model.UpdateOneModel;
+import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.WriteModel;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
@@ -30,6 +31,8 @@ public class ApplyOperationsHelper  {
 	private OplogTailMonitor oplogTailMonitor;
 	private ShardClient destShardClient;
 	private String shardId;
+	
+	private final static UpdateOptions upsertOptions = new UpdateOptions().upsert(true);
 	private final static BulkWriteOptions orderedBulkWriteOptions = new BulkWriteOptions();
 	private final static BulkWriteOptions unorderedBulkWriteOptions = new BulkWriteOptions().ordered(false);
 	
@@ -131,6 +134,10 @@ public class ApplyOperationsHelper  {
     }
 	
 	public static WriteModel<BsonDocument> getWriteModelForOperation(BsonDocument operation) throws MongoException {
+		return getWriteModelForOperation(operation, false);
+	}
+	
+	public static WriteModel<BsonDocument> getWriteModelForOperation(BsonDocument operation, boolean upsert) throws MongoException {
 		String message;
 		WriteModel<BsonDocument> model = null;
 		switch (operation.getString("op").getValue()) {
@@ -138,7 +145,7 @@ public class ApplyOperationsHelper  {
 			model = getInsertWriteModel(operation);
 			break;
 		case "u":
-			model = getUpdateWriteModel(operation);
+			model = getUpdateWriteModel(operation, upsert);
 			break;
 		case "d":
 			model = getDeleteWriteModel(operation);
@@ -175,7 +182,7 @@ public class ApplyOperationsHelper  {
 		return new InsertOneModel<>(document);
 	}
 
-	private static WriteModel<BsonDocument> getUpdateWriteModel(BsonDocument operation) {
+	private static WriteModel<BsonDocument> getUpdateWriteModel(BsonDocument operation, boolean upsert) {
 		
 		BsonDocument find = operation.getDocument("o2");
 		BsonDocument update = operation.getDocument("o");
@@ -187,7 +194,12 @@ public class ApplyOperationsHelper  {
 		// if the update operation is not using $set/$push, etc then use replaceOne
 		Set<String> docKeys = update.keySet();
 		if (docKeys.iterator().next().startsWith("$")) {
-			return new UpdateOneModel<BsonDocument>(find, update);
+			if (upsert) {
+				return new UpdateOneModel<BsonDocument>(find, update, upsertOptions);
+			} else {
+				return new UpdateOneModel<BsonDocument>(find, update);
+			}
+			
 		} else {
 			return new ReplaceOneModel<BsonDocument>(find, update);
 		}

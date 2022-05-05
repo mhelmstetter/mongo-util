@@ -2,6 +2,7 @@ package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.lt;
@@ -30,6 +31,7 @@ import java.util.concurrent.Callable;
 
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.exec.ExecuteException;
+import org.apache.commons.lang3.StringUtils;
 import org.bson.BSONException;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
@@ -717,7 +719,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		
 		logger.debug("createDestChunksUsingInsert started");
 		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
-		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
+		//MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
 		ReplaceOptions replaceOptions = new ReplaceOptions().upsert(true);
 		Document chunkQuery = getChunkQuery();
 		destShardClient.loadChunksCache(chunkQuery); // load it again to get new stuff
@@ -735,8 +737,6 @@ public class ShardConfigSync implements Callable<Integer> {
 		String lastNs = null;
 		int currentCount = 0;
 		int ts = 1;
-		
-		Set<String> destShardNames = destShardClient.getShardsMap().keySet();
 
 		for (RawBsonDocument chunk : sourceChunks) {
 
@@ -858,108 +858,6 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	}
 	
-	
-//	public void compareAndMovePrivileged() {
-//		
-//		logger.debug("Starting compareAndMovePrivileged");
-//		
-//		Map<String, String> destChunkMap = readDestinationChunks();
-//		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
-//		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
-//		
-//		MongoCollection<RawBsonDocument> destChunksCollPriv = destShardClient.getChunksCollectionRawPrivileged();
-//		
-//		Document chunkQuery = getChunkQuery();
-//		AggregateIterable<Document> results = sourceShardClient.getChunksCollection().aggregate(Arrays.asList(
-//			Aggregates.match(chunkQuery),
-//			Aggregates.group("$ns", Accumulators.addToSet("shards", "$shard"))
-//        ));
-//		
-//		int movedCount = 0;
-//		int updatedCount = 0;
-//		int errorCount = 0;
-//		
-//		Map<String, Set<String>> nsToShardsMap = new HashMap<>();
-//        for (Document result : results) {
-//        	String ns = result.getString("_id");
-//        	if (filterCheck(ns)) {
-//				continue;
-//			}
-//        	List<String> shards = result.getList("shards",  String.class);
-//        	Set<String> mappedShards = new HashSet<>(shards.size());
-//        	for (String shard : shards) {
-//        		String mappedShard = this.getAltMapping(shard);
-//        		if (mappedShard == null) {
-//    				throw new IllegalArgumentException(
-//    						"No destination shard mapping found for source shard: " + shard);
-//    			}
-//        		mappedShards.add(mappedShard);
-//        		
-//        		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find(and(eq("ns", ns), eq("shard", shard)));
-//        		
-//        		boolean movedChunk = false;
-//        		for (RawBsonDocument sourceChunk : sourceChunks) {
-//        			String sourceId = getHashIdFromChunk(sourceChunk);
-//        			
-//        			String sourceNs = sourceChunk.getString("ns").getValue();
-//        			Namespace sourceNamespace = new Namespace(sourceNs);
-//        			
-//        			RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
-//        			RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
-//        			String sourceShard = sourceChunk.getString("shard").getValue();
-//        			
-//        			
-//        			//String sourceId = sourceChunk.getString("_id").getValue();
-//        			String destShard = destChunkMap.get(sourceId);
-//
-//        			if (destShard == null) {
-//        				logger.error("Chunk with _id " + sourceId + " not found on destination");
-//        				errorCount++;
-//
-//        			} else if (!mappedShard.equals(destShard)) {
-//        				
-//        				// We only need to moveChunk on 1 chunk per shard per ns
-//        				if (movedChunk) {
-//        					Document update = new Document("$set", new Document("shard", mappedShard));
-//        					Bson updateQuery = and(eq("ns", ns), eq("min", sourceMin), eq("max", sourceMax));
-//        					UpdateResult updateResult = destChunksCollPriv.updateOne(updateQuery, update);
-//        					if (updateResult.getModifiedCount() != 1) {
-//        						logger.error(String.format("Unexpected modifiedCount, chunk not updated ns: %s, min: %s, max: %s", ns, sourceMin, sourceMax));
-//        						errorCount++;
-//        					} else {
-//        						updatedCount++;
-//        					}
-//        					
-//        					try {
-//        						Number destCount = destShardClient.getCollectionCount(sourceNamespace.getDatabaseName(), sourceNamespace.getCollectionName());
-//        					} catch (MongoCommandException mce) {
-//        						String msg = mce.getErrorMessage();
-//        						logger.error(msg);
-//        					}
-//        					
-//        					
-//        				} else {
-//        					boolean moveSuccess = moveChunk(sourceNs, sourceMin, sourceMax, mappedShard);
-//        					if (moveSuccess) {
-//        						logger.debug(String.format("%s: moved chunk from %s to %s", sourceNs, destShard, mappedShard));
-//                				movedChunk = true;
-//                				movedCount++;
-//        					} else {
-//        						errorCount++;
-//        					}
-//            				
-//        				}
-//        			}
-//        			
-//        		}
-//        		
-//        	}
-//        	nsToShardsMap.put(ns, mappedShards);
-//        }
-//        logger.debug(String.format("Finished compareAndMovePrivileged movedCount: %s, updatedCount: %s, errorCount: %s", movedCount, updatedCount, errorCount));
-//		
-//	}
-	
 	private Map<String, String> readDestinationChunks() {
 		logger.debug("Reading destination chunks");
 		Map<String, String> destChunkMap = new HashMap<String, String>();
@@ -1036,7 +934,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			} else if (doMove && !mappedShard.equals(destShard)) {
 				//logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
 				if (doMove) {
-					boolean moveSuccess = moveChunk(sourceNs, sourceMin, sourceMax, mappedShard, ignoreMissing);
+					boolean moveSuccess = destShardClient.moveChunk(sourceNs, sourceMin, sourceMax, mappedShard, ignoreMissing);
 					if (! moveSuccess) {
 						errorCount++;
 					}
@@ -1127,9 +1025,101 @@ public class ShardConfigSync implements Callable<Integer> {
 		}
 	}
 	
-	public void cleanupPrevious() {
+	public void cleanupPreviousShards(Set<String> shardNames) {
 
-		logger.debug("Starting cleanupPrevious");
+		logger.debug("Starting cleanupPreviousShards: [{}]", StringUtils.join(shardNames, ", "));
+		
+		Set<String> destShardNames = destShardClient.getShardsMap().keySet();
+		boolean fatal = false;
+		for (String shardName : shardNames) {
+			if (! destShardNames.contains(shardName)) {
+				logger.error("cleanupPreviousShards shardName {} not found on destination", shardName);
+				fatal = true;
+			}
+		}
+		if (fatal) {
+			throw new IllegalArgumentException("cleanupPreviousShards: one or more shard names provided were not found on dest");
+		}
+		if (destShardNames.size() < 2) {
+			throw new IllegalArgumentException("cleanupPreviousShards: 2 or more shards required on destination to use this option");
+		}
+		destShardClient.populateShardMongoClients();
+		
+		Document listDatabases = new Document("listDatabases", 1);
+		Document destDatabases = destShardClient.adminCommand(listDatabases);
+
+		List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
+
+		populateDbMap(destDatabaseInfo, destDbInfoMap);
+		
+		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
+
+		for (Document destInfo : destDatabaseInfo) {
+			String dbName = destInfo.getString("name");
+
+			MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(dbName);
+			List<String> destCollectionNames = new ArrayList<>();
+			
+			destDb.listCollectionNames().into(destCollectionNames);
+			for (String collectionName : destCollectionNames) {
+				if (collectionName.startsWith("system.")) {
+					continue;
+				}
+				
+				Namespace ns = new Namespace(dbName, collectionName);
+				if (filterCheck(ns)) {
+					continue;
+				}
+				
+				for (String shardName : shardNames) {
+					
+					Set<String> t1 = new HashSet<>();
+					t1.add(shardName);
+					Set<String> otherShards = Sets.difference(destShardNames, t1);
+					if (! otherShards.isEmpty()) {
+						
+						logger.debug("current shard: {}, otherShards: {}", shardName, otherShards);
+						
+					}
+					
+					MongoDatabase db = destShardClient.getShardMongoClient(shardName).getDatabase(dbName);
+					
+					// find the first chunk that is on the shard where we are about to drop
+					RawBsonDocument firstChunk = destChunksColl.find(and(eq("ns", ns.getNamespace()), eq("shard", shardName))).first();
+					
+					if (firstChunk != null) {
+						logger.debug("first chunk {}", firstChunk);
+						logger.debug("dropping {} on shard {}", ns, shardName);
+						
+						String otherShard = otherShards.iterator().next();
+						boolean firstMove = destShardClient.moveChunk(firstChunk, otherShard, false);
+						
+						if (firstMove) {
+							logger.debug("firstMove done");
+							db.getCollection(collectionName).drop();
+							
+							// now move it back so that we get the UUID created correctly
+							destShardClient.moveChunk(firstChunk, shardName, false);
+						}
+						
+						
+					}
+					
+					
+					
+				}
+				
+				
+ 				
+			}
+		}
+		logger.debug("Finished cleanupPrevious");
+		
+	}
+	
+	public void cleanupPreviousAll() {
+
+		logger.debug("Starting cleanupPreviousAll");
 
 		Document listDatabases = new Document("listDatabases", 1);
 		Document destDatabases = destShardClient.adminCommand(listDatabases);
@@ -1283,21 +1273,6 @@ public class ShardConfigSync implements Callable<Integer> {
 		for (Document dbInfo : dbInfoList) {
 			databaseMap.put(dbInfo.getString("name"), dbInfo);
 		}
-	}
-
-	private boolean moveChunk(String namespace, RawBsonDocument min, RawBsonDocument max, String moveToShard, boolean ignoreMissing) {
-		Document moveChunkCmd = new Document("moveChunk", namespace);
-		moveChunkCmd.append("bounds", Arrays.asList(min, max));
-		moveChunkCmd.append("to", moveToShard);
-		try {
-			destShardClient.adminCommand(moveChunkCmd);
-		} catch (MongoCommandException mce) {
-			if (!ignoreMissing) {
-				logger.warn(String.format("moveChunk error ns: %s, message: %s", namespace, mce.getMessage()));
-			}
-			return false;
-		}
-		return true;
 	}
 
 	public void shardDestinationCollections() {

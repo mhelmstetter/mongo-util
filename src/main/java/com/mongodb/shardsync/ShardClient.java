@@ -28,6 +28,7 @@ import org.bson.BsonMaxKey;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
+import org.bson.UuidRepresentation;
 import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
@@ -168,11 +169,16 @@ public class ShardClient {
 		if (csrsUri != null) {
 			logger.debug(name + " csrsUri: " + csrsUri);
 			this.csrsConnectionString = new ConnectionString(csrsUri);
-			this.csrsMongoClientSettings = MongoClientSettings.builder().applyConnectionString(csrsConnectionString)
+			this.csrsMongoClientSettings = MongoClientSettings.builder()
+					.applyConnectionString(csrsConnectionString)
+					.uuidRepresentation(UuidRepresentation.STANDARD)
 					.build();
 			this.csrsMongoClient = MongoClients.create(csrsMongoClientSettings);
 		}
-		mongoClientSettings = MongoClientSettings.builder().applyConnectionString(connectionString).build();
+		mongoClientSettings = MongoClientSettings.builder()
+				.applyConnectionString(connectionString)
+				.uuidRepresentation(UuidRepresentation.STANDARD)
+				.build();
 		mongoClient = MongoClients.create(mongoClientSettings);
 
 		CodecRegistry pojoCodecRegistry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
@@ -299,6 +305,7 @@ public class ShardClient {
 				if (connectionString.getCredential() != null) {
 					settingsBuilder.credential(connectionString.getCredential());
 				}
+				settingsBuilder.uuidRepresentation(UuidRepresentation.STANDARD);
 				MongoClientSettings settings = settingsBuilder.build();
 
 				MongoClient mongoClient = MongoClients.create(settings);
@@ -332,6 +339,7 @@ public class ShardClient {
 				if (connectionString.getCredential() != null) {
 					settingsBuilder.credential(connectionString.getCredential());
 				}
+				settingsBuilder.uuidRepresentation(UuidRepresentation.STANDARD);
 				MongoClientSettings settings = settingsBuilder.build();
 				MongoClient mongoClient = MongoClients.create(settings);
 				mongosMongoClients.put(mongos.getId(), mongoClient);
@@ -406,7 +414,7 @@ public class ShardClient {
 			if (connectionString.getApplicationName() != null) {
 				settingsBuilder.applicationName(connectionString.getApplicationName());
 			}
-			
+			settingsBuilder.uuidRepresentation(UuidRepresentation.STANDARD);
 			MongoClientSettings settings = settingsBuilder.build();
 			MongoClient mongoClient = MongoClients.create(settings);
 			
@@ -1050,6 +1058,28 @@ public class ShardClient {
 				logger.warn("Chunk create failed: " + chunk);
 			}
 		}
+	}
+	
+	public boolean moveChunk(RawBsonDocument chunk, String moveToShard, boolean ignoreMissing) {
+		RawBsonDocument min = (RawBsonDocument) chunk.get("min");
+		RawBsonDocument max = (RawBsonDocument) chunk.get("max");
+		String ns = chunk.getString("ns").getValue();
+		return moveChunk(ns, min, max, moveToShard, ignoreMissing);
+	}
+	
+	public boolean moveChunk(String namespace, RawBsonDocument min, RawBsonDocument max, String moveToShard, boolean ignoreMissing) {
+		Document moveChunkCmd = new Document("moveChunk", namespace);
+		moveChunkCmd.append("bounds", Arrays.asList(min, max));
+		moveChunkCmd.append("to", moveToShard);
+		try {
+			adminCommand(moveChunkCmd);
+		} catch (MongoCommandException mce) {
+			if (!ignoreMissing) {
+				logger.warn(String.format("moveChunk error ns: %s, message: %s", namespace, mce.getMessage()));
+			}
+			return false;
+		}
+		return true;
 	}
 	
 	public List<Document> splitVector(Namespace ns, Document collectionMeta) {
