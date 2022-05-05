@@ -93,7 +93,7 @@ jdiff --compareDocuments
 
 MongoExport
 -----------
-This tool is fro exporting data from a MongoDB collection similar to the `mongoexport` utility. This tool will however provide the ability to cast all extended BSON types as strings. That is, any Date, UUID, Binary, or ObjectId will be cast as a String in order to produce "pure" JSON.
+This tool is for exporting data from a MongoDB collection similar to the `mongoexport` utility. This tool will however provide the ability to cast all extended BSON types as strings. That is, any Date, UUID, Binary, or ObjectId will be cast as a String in order to produce "pure" JSON.
 
 Download:
 ```
