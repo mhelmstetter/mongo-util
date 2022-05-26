@@ -90,3 +90,16 @@ Compare full document hashes
 ```
 jdiff --compareDocuments
 ```
+
+MongoExport
+-----------
+This tool is for exporting data from a MongoDB collection similar to the `mongoexport` utility. This tool will however provide the ability to cast all extended BSON types as strings. That is, any Date, UUID, Binary, or ObjectId will be cast as a String in order to produce "pure" JSON.
+
+Download:
+```
+wget -O mongo-util.jar https://github.com/mhelmstetter/mongo-util/blob/master/bin/mongo-util.jar?raw=true
+```
+
+Run:
+```
+java -cp mongo-util.jar com.mongodb.mongoexport.MongoExport --uri mongodb://localhost:27017 -d mydb -c myCollection -o myCollection.json
