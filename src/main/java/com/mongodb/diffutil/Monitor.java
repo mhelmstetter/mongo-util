@@ -93,7 +93,7 @@ public class Monitor extends Thread {
         logger.trace("looping every " + sleepMillis);
         while (running && !isInterrupted()) {
             // try to avoid thread starvation
-            yield();
+            Thread.yield();
             
             currentMillis = System.currentTimeMillis();
             long elapsed = currentMillis - lastDisplayMillis;
