@@ -98,7 +98,7 @@ public class DiffUtil {
 		List<Document> sourceDatabaseInfo = (List<Document>) sourceDatabases.get("databases");
 		List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
 
-		if (includedNamespaces.isEmpty()) {
+		if (includedNamespaces == null || includedNamespaces.isEmpty()) {
 			populateDbMap(sourceDatabaseInfo, sourceDbInfoMap);
 		} else {
 			for (Document dbInfo : sourceDatabaseInfo) {
@@ -758,6 +758,28 @@ public class DiffUtil {
 
 	public void setReportMatches(boolean reportMatches) {
 		this.reportMatches = reportMatches;
+	}
+
+	public void setIncludedNamespaces(Set<Namespace> includes) {
+		this.includedNamespaces = includes;
+		if (includes != null) {
+			for (Namespace ns : includes) {
+				String nsStr = ns.getNamespace();
+				if (nsStr.contains(".")) {
+					
+					includedNamespaceStrings.add(nsStr);
+					includedDatabases.add(ns.getDatabaseName());
+					Set<String> colls = includedCollections.get(ns.getDatabaseName());
+					if (colls == null) {
+						colls = new HashSet<>();
+						includedCollections.put(ns.getDatabaseName(), colls);
+					}
+					colls.add(ns.getCollectionName());
+				} else {
+					includedDatabases.add(nsStr);
+				}
+			}
+		}
 	}
 
 }
