@@ -353,19 +353,16 @@ public class DiffUtil {
 		logger.debug("Starting compare2 mode");
 		Document sort = new Document("_id", 1);
 		boolean filtered = !includedCollections.isEmpty();
-		
-		long missing = 0;
-		long matches = 0;
-		long keysMisordered = 0;
-		long hashMismatched = 0;
 
 		for (String dbName : sourceDbInfoMap.keySet()) {
 			Document destInfo = destDbInfoMap.get(dbName);
+			
+			if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config")) {
+				continue;
+			}
+			
 			if (destInfo != null) {
 
-				if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config")) {
-					continue;
-				}
 				ds.totalDbs++;
 
 				MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
@@ -383,7 +380,7 @@ public class DiffUtil {
 						}
 					}
 					ds.totalCollections++;
-					logger.debug(String.format("Starting namespace %s.%s", dbName, collectionName));
+					logger.debug(String.format("Starting collection %s, namespace %s.%s", ds.totalCollections, dbName, collectionName));
 					MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName,
 							RawBsonDocument.class);
 					MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName,
@@ -470,30 +467,21 @@ public class DiffUtil {
 
 									if (sourceDoc.equals(destDoc)) {
 										logger.error(String.format("%s - docs equal, but hash mismatch, id: %s", currentNs, id));
-										keysMisordered++;
+										ds.totalKeysMisordered++;
 									} else {
-//										BsonDateTime sourceDate = sourceDoc.getDateTime("date");
-//										BsonDateTime destDate = null;
-//										if (sourceDate != null) {
-//											destDate = destDoc.getDateTime("date");
-//											logger.error(String.format("%s - doc hash mismatch, id: %s, sourceDate: %s, destDate: %s", 
-//													currentNs, id, new Date(sourceDate.getValue()), new Date(destDate.getValue())));
-//										} else {
-//											logger.error(String.format("%s - doc hash mismatch, id: %s", currentNs, id));
-//										}
 										logger.error(String.format("%s - doc hash mismatch, id: %s", currentNs, id));
-										hashMismatched++;
+										ds.totalHashMismatched++;
 									}
 
 								} else {
-									matches++;
+									ds.totalMatches++;
 								}
 							} else {
 								logger.debug("Doc sizes not equal, source id: {}, dest id: {}" + sourceKey, destKey);
 								boolean xx = DiffUtils.compareDocuments(currentNs, sourceDoc, destDoc);
-								hashMismatched++;
+								ds.totalHashMismatched++;
 							}
-							ds.totalMatches++;
+							
 						}
 					}
 
@@ -506,12 +494,6 @@ public class DiffUtil {
 				ds.missingDbs++;
 			}
 		}
-		
-		ds.totalCollections++;
-		ds.totalMatches += matches;
-		ds.totalKeysMisordered += keysMisordered;
-		ds.totalHashMismatched += hashMismatched;
-		ds.totalMissingDocs += missing;
 		
 		logger.debug(
 				String.format("%s dbs compared, %s collections compared, missingDbs %s, idMatches: %s, missingDocs: %s",

@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.helmstetter</groupId>
 	<artifactId>mongo-util</artifactId>
-	<version>1.0.1</version>
+	<version>1.0.2</version>
 	
 	<name>mongo-util</name>
 	<description>MongoDB related utilities</description>
