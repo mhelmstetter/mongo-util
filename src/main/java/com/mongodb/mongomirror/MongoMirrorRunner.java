@@ -66,6 +66,7 @@ public class MongoMirrorRunner {
     private String writeConcern;
     private Boolean destinationNoSSL;
     private Boolean skipBuildIndexes;
+    private Boolean extendTtl;
     
     private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
     private Set<String> includeDatabases = new HashSet<String>();
@@ -105,6 +106,7 @@ public class MongoMirrorRunner {
         addArg("readPreference", readPreference);
         addArg("destinationNoSSL", destinationNoSSL);
         addArg("preserveUUIDs", preserveUUIDs);
+        addArg("extendTTL", extendTtl);
         
         addArg("drop", drop);
         addArg("bookmarkFile", bookmarkFile);
@@ -391,6 +393,10 @@ public class MongoMirrorRunner {
 
 	public void setCollStatsThreshold(Integer collStatsThreshold) {
 		this.collStatsThreshold = collStatsThreshold;
+	}
+
+	public void setExtendTtl(Boolean extendTtl) {
+		this.extendTtl = extendTtl;
 	}
 
 }

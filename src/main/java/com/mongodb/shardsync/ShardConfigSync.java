@@ -121,6 +121,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	private Integer collStatsThreshold;
 	private boolean dryRun;
 	private boolean shardToRs;
+	private boolean extendTtl;
 
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
@@ -1829,6 +1830,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				// TODO - this is only in "hacked" mongomirror
 				mongomirror.setDestinationNoSSL(true);
 			}
+			mongomirror.setExtendTtl(extendTtl);
 
 			for (Namespace ns : includeNamespaces) {
 				mongomirror.addIncludeNamespace(ns);
@@ -2074,5 +2076,9 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	public void setDestRsManual(String[] destRsManual) {
 		this.destRsManual = destRsManual;
+	}
+
+	public void setExtendTtl(boolean extendTtl) {
+		this.extendTtl = extendTtl;
 	}
 }

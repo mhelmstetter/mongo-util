@@ -389,6 +389,7 @@ public class ShardConfigSyncApp {
             String mongoMirrorPath = line.getOptionValue("p", config.getString(MONGOMIRROR_BINARY));
             boolean skipBuildIndexes = line.hasOption(SKIP_BUILD_INDEXES);
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
+            boolean extendTtl = line.hasOption(EXTEND_TTL);
             
             if (line.hasOption(COLL_STATS_THRESHOLD)) {
             	Integer collStatsThreshold = Integer.parseInt(line.getOptionValue(COLL_STATS_THRESHOLD));
@@ -415,6 +416,7 @@ public class ShardConfigSyncApp {
             sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
             sync.setPreserveUUIDs(preserveUUIDs);
             sync.setSkipBuildIndexes(skipBuildIndexes);
+            sync.setExtendTtl(extendTtl);
             
             if (line.hasOption(TAIL_FROM_NOW)) {
             	sync.mongomirrorTailFromNow();
