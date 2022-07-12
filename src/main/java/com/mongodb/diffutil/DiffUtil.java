@@ -77,6 +77,8 @@ public class DiffUtil {
 	long sourceCount;
 	long destCount;
 
+	private Map<Namespace, Namespace> mappedNamespaces;
+
 	@SuppressWarnings("unchecked")
 	public void init() {
 
@@ -762,6 +764,10 @@ public class DiffUtil {
 				}
 			}
 		}
+	}
+	
+	public void setMappedNamespaces(Map<Namespace, Namespace> mappedNamespaces) {
+		this.mappedNamespaces = mappedNamespaces;
 	}
 
 }
