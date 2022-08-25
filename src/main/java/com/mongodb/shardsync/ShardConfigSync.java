@@ -139,8 +139,6 @@ public class ShardConfigSync implements Callable<Integer> {
 	private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
 	private Set<String> includeDatabases = new HashSet<String>();
 	
-	private Map<String, Set<String>> nsToShardsCompletionMap;
-
 	// ugly, but we need a set of includeDatabases that we pass to mongomirror
 	// vs. the includes that we use elsewhere
 	private Set<String> includeDatabasesAll = new HashSet<String>();
@@ -513,36 +511,15 @@ public class ShardConfigSync implements Callable<Integer> {
 		return chunkQuery;
 	}
 	
-	private boolean updateChunkCompletionStatus(final RawBsonDocument chunk, String ns) {
-		String sourceShardName = chunk.getString("shard").getValue();
-		String mappedShard = this.getAltMapping(sourceShardName);
-		
-		Set<String> shards = nsToShardsCompletionMap.get(ns);
-		if (shards != null) {
-			if (shards.contains(mappedShard)) {
-				shards.remove(mappedShard);
-				if (shards.isEmpty()) {
-					logger.debug("{} has created 1 chunk for every shard", ns);
-					nsToShardsCompletionMap.remove(ns);
-					if (nsToShardsCompletionMap.isEmpty()) {
-						logger.debug("***** All namespaces have created 1 chunk for every shard", ns);
-						//return true;
-					}
-				}
-			}
-		}
-		return false;
-	}
-	
 	/**
 	 * Create chunks on the dest side using the "split" runCommand NOTE that this
 	 * will be very slow b/c of the locking process that happens with each chunk
 	 */
 	private void createDestChunksUsingSplitCommand() {
-		createDestChunksUsingSplitCommand(null, false);
+		createDestChunksUsingSplitCommand(null);
 	}
 	
-	private void createDestChunksUsingSplitCommand(String nsFilter, boolean shortCircuit) {
+	private void createDestChunksUsingSplitCommand(String nsFilter) {
 		if (nsFilter == null) {
 			logger.debug("createDestChunksUsingSplitCommand started");
 		}
@@ -552,14 +529,14 @@ public class ShardConfigSync implements Callable<Integer> {
 		if (nsFilter != null) {
 			chunkQuery.append("ns", nsFilter);
 		}
-		nsToShardsCompletionMap = getChunksNsToShardsMap(chunkQuery);
+		//nsToShardsCompletionMap = getChunksNsToShardsMap(chunkQuery);
 		
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
 		destShardClient.loadChunksCache(chunkQuery);
 
 		String lastNs = null;
 		int currentCount = 0;
-		boolean nsComplete = false;
+		//boolean nsComplete = false;
 
 		for (RawBsonDocument chunk : sourceChunksCache.values()) {
 
@@ -568,12 +545,8 @@ public class ShardConfigSync implements Callable<Integer> {
 				continue;
 			}
 			
-			if (shortCircuit && !nsToShardsCompletionMap.containsKey(ns)) {
-				continue;
-			}
-			
 			destShardClient.createChunk(chunk, true, true);
-			nsComplete = updateChunkCompletionStatus(chunk, ns);
+			//nsComplete = updateChunkCompletionStatus(chunk, ns);
 			currentCount++;
 			if (!ns.equals(lastNs) && lastNs != null) {
 				logger.debug(String.format("%s - created %s chunks", lastNs, currentCount));
@@ -714,10 +687,6 @@ public class ShardConfigSync implements Callable<Integer> {
 	 * simplicity and performance, but this requires special permissions in Atlas.
 	 */
 	private void createDestChunksUsingInsert() {
-		
-		this.createDestChunksUsingSplitCommand(null, true);
-		//compareAndMoveChunks(true, true);
-		
 		logger.debug("createDestChunksUsingInsert started");
 		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
 		//MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();

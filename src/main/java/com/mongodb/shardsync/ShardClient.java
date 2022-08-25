@@ -1032,12 +1032,12 @@ public class ShardClient {
 		}
 
 		BsonDocument max = (BsonDocument) chunk.get("max");
-		for (Iterator i = max.values().iterator(); i.hasNext();) {
-			Object next = i.next();
-			if (next instanceof MaxKey || next instanceof BsonMaxKey) {
-				return;
-			}
-		}
+//		for (Iterator i = max.values().iterator(); i.hasNext();) {
+//			Object next = i.next();
+//			if (next instanceof MaxKey || next instanceof BsonMaxKey) {
+//				return;
+//			}
+//		}
 
 
 		Document splitCommand = new Document("split", ns);
