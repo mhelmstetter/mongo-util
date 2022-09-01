@@ -330,6 +330,7 @@ public class ShardConfigSync implements Callable<Integer> {
 						indexSpecs.add(spec);
 					} catch (BSONException be) {
 						logger.error("Error getting index spec: {}", sourceSpec);
+						logger.error("error", be);
 					}
 					
 				}

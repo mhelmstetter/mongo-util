@@ -22,7 +22,9 @@ public class IndexSpec {
 		this.key = (RawBsonDocument)sourceSpec.get("key");
 		this.keyJsonString = key.toJson();
 		this.name = sourceSpec.getString("name").getValue();
-		this.namespace = new Namespace(sourceSpec.getString("ns").getValue());
+		if (sourceSpec.containsKey("ns")) {
+			this.namespace = new Namespace(sourceSpec.getString("ns").getValue());
+		}
 		if (sourceSpec.containsKey("expireAfterSeconds")) {
 			this.expireAfterSeconds = sourceSpec.getNumber("expireAfterSeconds").doubleValue();
 		}

@@ -13,6 +13,7 @@ import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -24,7 +25,6 @@ import java.util.UUID;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
-import org.bson.BsonMaxKey;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -33,7 +33,6 @@ import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
-import org.bson.types.MaxKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -257,18 +256,41 @@ public class ShardClient {
 			}
 
 		} else if (manualShardHosts) {
+			
+			// in some cases the rs name doesn't match the shard name
+			Map<String, String> rsNameToShardIdMap = new HashMap<>();
+			for (Shard shard : shardsMap.values()) {
+				rsNameToShardIdMap.put(shard.getRsName(), shard.getId());
+			}
 			shardsMap.clear();
+			
 			for (String rsString : rsStringsManual) {
 				
-				if (!rsString.contains("/")) {
-					throw new IllegalArgumentException(String.format("Invalid format for %sRsManual, expecting rsName/host1:port,host2:port,host3:port", name));
-				}
-				String rsName = StringUtils.substringBefore(rsString, "/");
-				
 				Shard sh = new Shard();
-				sh.setId(rsName);
-				sh.setRsName(rsName);
-				sh.setHost(String.format("%s/%s", rsName, StringUtils.substringAfter(rsString, "/")));
+				if (!rsString.contains("/")) {
+					if (rsString.contains(",")) {
+						throw new IllegalArgumentException(String.format("Invalid format for %sRsManual, expecting rsName/host1:port,host2:port,host3:port", name));
+					} else {
+						logger.warn(String.format("Config for %sRsManual is using standalone/direct connect", name));
+						sh.setHost(rsString);
+						String rsName = getRsNameFromHost(rsString);
+						sh.setRsName(rsName);
+						String shardId = rsNameToShardIdMap.get(rsName);
+						sh.setId(shardId);
+					}
+					
+				} else {
+					String rsName = StringUtils.substringBefore(rsString, "/");
+					sh.setRsName(rsName);
+					sh.setId(rsName);
+					sh.setHost(String.format("%s/%s", rsName, StringUtils.substringAfter(rsString, "/")));
+				}
+				
+				
+				
+				
+				
+				
 				shardsMap.put(sh.getId(), sh);
 				logger.debug("{}: populateShardList added manual shard connection: {}", name, sh.getHost());
 			}
@@ -276,6 +298,20 @@ public class ShardClient {
 		}
 
 		logger.debug(name + ": populateShardList complete, " + shardsMap.size() + " shards added");
+	}
+	
+	private String getRsNameFromHost(String host) {
+		String setName = null;
+		MongoClient tmp = MongoClients.create("mongodb://" + host);
+		Document result = tmp.getDatabase("admin").runCommand(new Document("isMaster", 1));
+		if (result.containsKey("setName")) {
+			setName = result.getString("setName");
+		} else {
+			logger.warn("Unable to get setName from isMaster result for host: {}", host);
+		}
+		tmp.close();
+		return setName;
+		
 	}
 
 	private void populateMongosList() {
@@ -390,21 +426,33 @@ public class ShardClient {
 		for (Shard shard : shardsMap.values()) {
 			String shardHost = shard.getHost();
 			String seeds = StringUtils.substringAfter(shardHost, "/");
-
-			logger.debug(name + " " + shard.getId() + " populateShardMongoClients() seeds: " + seeds);
-
-			String[] seedHosts = seeds.split(",");
-
+			
+			MongoClientSettings.Builder settingsBuilder = MongoClientSettings.builder();
 			List<ServerAddress> serverAddressList = new ArrayList<>();
-			for (String seed : seedHosts) {
-				String host = StringUtils.substringBefore(seed, ":");
-				Integer port = Integer.parseInt(StringUtils.substringAfter(seed, ":"));
-
+			
+			if (seeds.equals("")) {
+				logger.debug(name + " " + shard.getId() + " populateShardMongoClients() no rs string provided");
+			} else {
+				logger.debug(name + " " + shard.getId() + " populateShardMongoClients() seeds: " + seeds);
+			}
+			
+			
+			
+			if (seeds.contains(",")) {
+				String[] seedHosts = seeds.split(",");
+				for (String seed : seedHosts) {
+					String host = StringUtils.substringBefore(seed, ":");
+					Integer port = Integer.parseInt(StringUtils.substringAfter(seed, ":"));
+					serverAddressList.add(new ServerAddress(host, port));
+				}
+			} else {
+				String host = StringUtils.substringBefore(shardHost, ":");
+				Integer port = Integer.parseInt(StringUtils.substringAfter(shardHost, ":"));
 				serverAddressList.add(new ServerAddress(host, port));
 			}
-
-			MongoClientSettings.Builder settingsBuilder = MongoClientSettings.builder();
+			
 			settingsBuilder.applyToClusterSettings(builder -> builder.hosts(serverAddressList));
+			
 			if (connectionString.getSslEnabled() != null) {
 				settingsBuilder.applyToSslSettings(builder -> builder.enabled(connectionString.getSslEnabled()));
 			}
