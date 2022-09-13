@@ -830,6 +830,7 @@ public class ShardClient {
 		settings.updateOne(eq("_id", "autosplit"), update);
 	}
 
+	// TODO - honor filters
 	public void compareCollectionUuids() {
 		logger.debug(String.format("%s - Starting compareCollectionUuids", name));
 		populateShardMongoClients();

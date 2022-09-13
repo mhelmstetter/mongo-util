@@ -341,9 +341,10 @@ public class ShardConfigSync implements Callable<Integer> {
 	
 	public void syncIndexesShards(boolean createMissing, boolean extendTtl) {
 		logger.debug(String.format("Starting syncIndexes: extendTtl: %s", extendTtl));
+		sourceShardClient.populateShardMongoClients();
 		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
 		
-		Map<Namespace, Set<IndexSpec>> destShardIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
+		//Map<Namespace, Set<IndexSpec>> destShardIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
 		
 		for (Map.Entry<Namespace, Set<IndexSpec>> sourceEntry : sourceIndexSpecs.entrySet()) {
 			Namespace ns = sourceEntry.getKey();
