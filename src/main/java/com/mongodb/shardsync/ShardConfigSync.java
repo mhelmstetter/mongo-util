@@ -354,7 +354,7 @@ public class ShardConfigSync implements Callable<Integer> {
             
             if (createMissing) {
     			//logger.debug(String.format("%s - missing dest indexes %s missing, creating", ns, diff));
-        		destShardClient.createIndexes(null, ns, sourceSpecs, extendTtl);
+        		destShardClient.createIndexes(ns, sourceSpecs, extendTtl);
     		}
 			
 		}

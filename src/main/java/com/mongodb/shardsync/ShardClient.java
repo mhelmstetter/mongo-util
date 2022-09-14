@@ -941,9 +941,9 @@ public class ShardClient {
 		}
 	}
 
-	public void createIndexes(String shardName, Namespace ns, Set<IndexSpec> sourceSpecs, boolean extendTtl) {
-		MongoClient client = getShardMongoClient(shardName);
-		MongoDatabase db = client.getDatabase(ns.getDatabaseName());
+	public void createIndexes(Namespace ns, Set<IndexSpec> sourceSpecs, boolean extendTtl) {
+		//MongoClient client = getShardMongoClient(shardName);
+		MongoDatabase db = mongoClient.getDatabase(ns.getDatabaseName());
 
 		MongoCollection<Document> c = db.getCollection(ns.getCollectionName());
 		Document createIndexes = new Document("createIndexes", ns.getCollectionName());
@@ -955,7 +955,7 @@ public class ShardClient {
 			Document indexInfo = indexSpec.getSourceSpec().decode(codec);
 			// BsonDocument indexInfo = indexSpec.getSourceSpec().clone();
 			indexInfo.remove("v");
-			indexInfo.append("background", true);
+			indexInfo.remove("background");
 			Number expireAfterSeconds = (Number) indexInfo.get("expireAfterSeconds");
 			if (expireAfterSeconds != null && extendTtl) {
 

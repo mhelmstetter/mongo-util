@@ -13,7 +13,7 @@ public class IndexSpec {
 	private String name;
 	private Namespace namespace;
 	private boolean sparse;
-	private boolean background;
+	//private boolean background;
 	private boolean unique;
 	private Number expireAfterSeconds;
 	
@@ -30,7 +30,7 @@ public class IndexSpec {
 		}
 		
 		this.sparse = getBoolean(sourceSpec, "sparse");
-		this.background = getBoolean(sourceSpec, "background");
+		//this.background = getBoolean(sourceSpec, "background");
 		this.unique = getBoolean(sourceSpec, "unique");
 	}
 	
