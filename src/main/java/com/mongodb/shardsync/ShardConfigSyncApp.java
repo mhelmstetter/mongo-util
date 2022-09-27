@@ -297,7 +297,8 @@ public class ShardConfigSyncApp {
         
         boolean nonPrivilegedMode = line.hasOption(NON_PRIVILEGED) || config.getBoolean(NON_PRIVILEGED, false);
         sync.setNonPrivilegedMode(nonPrivilegedMode);
-        sync.setNoIndexRestore(line.hasOption(NO_INDEX_RESTORE));
+        boolean noIndexRestore = line.hasOption(NO_INDEX_RESTORE) || config.getBoolean(NON_PRIVILEGED, false);
+        sync.setNoIndexRestore(noIndexRestore);
         sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
         sync.setDropDestDbsAndConfigMetadata(line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA));
         sync.setSleepMillis(line.getOptionValue("x"));
@@ -402,7 +403,6 @@ public class ShardConfigSyncApp {
         if (line.hasOption(MONGO_MIRROR) && ! line.hasOption("r")) {
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", config.getString(MONGOMIRROR_BINARY));
-            boolean noIndexRestore = line.hasOption(NO_INDEX_RESTORE);
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
             boolean extendTtl = line.hasOption(EXTEND_TTL);
             
