@@ -46,7 +46,7 @@ public class ShardConfigSyncApp {
     private final static String DROP_DEST_DBS_AND_CONFIG_METADATA = "dropDestDbsAndConfigMeta";
     public final static String NON_PRIVILEGED = "nonPrivileged";
     private final static String PRESERVE_UUIDS = "preserveUUIDs";
-    private final static String SKIP_BUILD_INDEXES = "skipBuildIndexes";
+    private final static String NO_INDEX_RESTORE = "noIndexRestore";
     private final static String COMPRESSORS = "compressors";
     private final static String COLL_STATS_THRESHOLD = "collStatsThreshold";
     
@@ -176,7 +176,7 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("mongomirror preserve dest UUIDs (not supported for Atlas dest)")
                 .withLongOpt(PRESERVE_UUIDS).create(PRESERVE_UUIDS));
         options.addOption(OptionBuilder.withArgName("skip build indexes")
-                .withLongOpt(SKIP_BUILD_INDEXES).create(SKIP_BUILD_INDEXES));
+                .withLongOpt(NO_INDEX_RESTORE).create(NO_INDEX_RESTORE));
         options.addOption(OptionBuilder.withArgName("mongomirror compressors").hasArg()
                 .withLongOpt(COMPRESSORS).create(COMPRESSORS));
         options.addOption(OptionBuilder.withArgName("mongomirror collStatsThreshold").hasArg()
@@ -297,7 +297,7 @@ public class ShardConfigSyncApp {
         
         boolean nonPrivilegedMode = line.hasOption(NON_PRIVILEGED) || config.getBoolean(NON_PRIVILEGED, false);
         sync.setNonPrivilegedMode(nonPrivilegedMode);
-        sync.setSkipBuildIndexes(line.hasOption(SKIP_BUILD_INDEXES));
+        sync.setNoIndexRestore(line.hasOption(NO_INDEX_RESTORE));
         sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
         sync.setDropDestDbsAndConfigMetadata(line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA));
         sync.setSleepMillis(line.getOptionValue("x"));
@@ -402,7 +402,7 @@ public class ShardConfigSyncApp {
         if (line.hasOption(MONGO_MIRROR) && ! line.hasOption("r")) {
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", config.getString(MONGOMIRROR_BINARY));
-            boolean skipBuildIndexes = line.hasOption(SKIP_BUILD_INDEXES);
+            boolean noIndexRestore = line.hasOption(NO_INDEX_RESTORE);
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
             boolean extendTtl = line.hasOption(EXTEND_TTL);
             
@@ -430,7 +430,7 @@ public class ShardConfigSyncApp {
             sync.setMongomirrorBinary(mongoMirrorPath);
             sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
             sync.setPreserveUUIDs(preserveUUIDs);
-            sync.setSkipBuildIndexes(skipBuildIndexes);
+            sync.setNoIndexRestore(noIndexRestore);
             sync.setExtendTtl(extendTtl);
             
             if (line.hasOption(TAIL_FROM_NOW)) {

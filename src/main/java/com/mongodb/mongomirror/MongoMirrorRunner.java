@@ -65,7 +65,7 @@ public class MongoMirrorRunner {
     // Custom mongomirror options
     private String writeConcern;
     private Boolean destinationNoSSL;
-    private Boolean skipBuildIndexes;
+    private Boolean noIndexRestore;
     private Boolean extendTtl;
     
     private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
@@ -115,7 +115,7 @@ public class MongoMirrorRunner {
         addArg("writeConcern", writeConcern);
         addArg("httpStatusPort", httpStatusPort);
         addArg("oplogPath", oplogPath);
-        addArg("skipBuildIndexes", skipBuildIndexes);
+        addArg("noIndexRestore", noIndexRestore);
         addArg("collStatsThreshold", collStatsThreshold);
         
         for (Namespace ns : includeNamespaces) {
@@ -387,8 +387,8 @@ public class MongoMirrorRunner {
 		this.oplogPath = oplogPath;
 	}
 
-	public void setSkipBuildIndexes(Boolean skipBuildIndexes) {
-		this.skipBuildIndexes = skipBuildIndexes;
+	public void setNoIndexRestore(Boolean noIndexRestore) {
+		this.noIndexRestore = noIndexRestore;
 	}
 
 	public void setCollStatsThreshold(Integer collStatsThreshold) {

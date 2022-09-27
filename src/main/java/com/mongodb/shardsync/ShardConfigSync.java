@@ -127,7 +127,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	private String oplogBasePath;
 	private String bookmarkFilePrefix;
 	private boolean reverseSync;
-	private boolean skipBuildIndexes;
+	private boolean noIndexRestore;
 	private Integer collStatsThreshold;
 	private boolean dryRun;
 	private boolean shardToRs;
@@ -1943,9 +1943,9 @@ public class ShardConfigSync implements Callable<Integer> {
 			mongomirror.setWriteConcern(writeConcern);
 			mongomirror.setHttpStatusPort(httpStatusPort++);
 
-			logger.debug("here: skipBuildIndexes=" + skipBuildIndexes);
-			if (skipBuildIndexes) {
-				mongomirror.setSkipBuildIndexes(skipBuildIndexes);
+			logger.debug("noIndexRestore=" + noIndexRestore);
+			if (noIndexRestore) {
+				mongomirror.setNoIndexRestore(noIndexRestore);
 			}
 			if (compressors != null) {
 				mongomirror.setCompressors(compressors);
@@ -2082,8 +2082,8 @@ public class ShardConfigSync implements Callable<Integer> {
 		this.reverseSync = reverseSync;
 	}
 
-	public void setSkipBuildIndexes(boolean skipBuildIndexes) {
-		this.skipBuildIndexes = skipBuildIndexes;
+	public void setNoIndexRestore(boolean noIndexRestore) {
+		this.noIndexRestore = noIndexRestore;
 	}
 
 	public boolean isSkipFlushRouterConfig() {
