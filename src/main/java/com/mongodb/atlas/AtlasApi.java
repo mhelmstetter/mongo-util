@@ -1,5 +1,6 @@
 package com.mongodb.atlas;
 
+import com.mongodb.atlas.model.AtlasRole;
 import com.mongodb.atlas.model.Cluster;
 import com.mongodb.atlas.model.ClustersResult;
 import com.mongodb.atlas.model.DatabasesResult;
@@ -54,6 +55,11 @@ public interface AtlasApi {
     @POST("groups/{groupId}/logCollectionJobs")
     Call<LogCollectionJob> startLogCollectionJob(@Path("groupId") String groupId, 
     		@Body LogCollectionJobRequest logCollectionJobRequest);
+    
+    @Headers("Content-Type: application/json")
+    @POST("groups/{groupId}/customDBRoles/roles")
+    Call<AtlasRole> createCustomDbRole(@Path("groupId") String groupId, 
+    		@Body AtlasRole roleRequest);
     
     
 //    @GET("groups/{groupId}/clusters/{hostId}/logs/FTDC")

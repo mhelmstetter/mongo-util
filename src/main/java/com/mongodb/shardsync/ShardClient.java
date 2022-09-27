@@ -56,6 +56,7 @@ import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
+import com.mongodb.model.Role;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardTimestamp;
 import com.mongodb.util.MaskUtil;
@@ -104,6 +105,8 @@ public class ShardClient {
 
 	private ConnectionString connectionString;
 	private MongoClientSettings mongoClientSettings;
+	
+	private CodecRegistry pojoCodecRegistry;
 
 	private ConnectionString csrsConnectionString;
 	private MongoClientSettings csrsMongoClientSettings;
@@ -180,7 +183,7 @@ public class ShardClient {
 				.build();
 		mongoClient = MongoClients.create(mongoClientSettings);
 
-		CodecRegistry pojoCodecRegistry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
+		pojoCodecRegistry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
 				fromProviders(PojoCodecProvider.builder().automatic(true).build()));
 
 		try {
@@ -830,80 +833,7 @@ public class ShardClient {
 		settings.updateOne(eq("_id", "autosplit"), update);
 	}
 
-	// TODO - honor filters
-	public void compareCollectionUuids() {
-		logger.debug(String.format("%s - Starting compareCollectionUuids", name));
-		populateShardMongoClients();
 
-		List<String> dbNames = new ArrayList<>();
-		listDatabaseNames().into(dbNames);
-
-		Map<Namespace, Map<UUID, List<String>>> collectionUuidMappings = new TreeMap<>();
-
-		for (Map.Entry<String, MongoClient> entry : getShardMongoClients().entrySet()) {
-			MongoClient client = entry.getValue();
-			String shardName = entry.getKey();
-
-			for (String databaseName : client.listDatabaseNames()) {
-				MongoDatabase db = client.getDatabase(databaseName);
-
-				if (databaseName.equals("admin") || databaseName.equals("config")
-						|| databaseName.contentEquals("local")) {
-					continue;
-				}
-
-				for (Document collectionInfo : db.listCollections()) {
-					String collectionName = (String) collectionInfo.get("name");
-					if (collectionName.endsWith(".create")) {
-						continue;
-					}
-					Namespace ns = new Namespace(databaseName, collectionName);
-					Document info = (Document) collectionInfo.get("info");
-					UUID uuid = (UUID) info.get("uuid");
-
-					Map<UUID, List<String>> uuidMapping = collectionUuidMappings.get(ns);
-					if (uuidMapping == null) {
-						uuidMapping = new TreeMap<>();
-					}
-					collectionUuidMappings.put(ns, uuidMapping);
-
-					List<String> shardNames = uuidMapping.get(uuid);
-					if (shardNames == null) {
-						shardNames = new ArrayList<>();
-					}
-					uuidMapping.put(uuid, shardNames);
-					shardNames.add(shardName);
-
-					// logger.debug(entry.getKey() + " db: " + databaseName + "." + collectionName +
-					// " " + uuid);
-				}
-			}
-		}
-
-		int successCount = 0;
-		int failureCount = 0;
-
-		for (Map.Entry<Namespace, Map<UUID, List<String>>> mappingEntry : collectionUuidMappings.entrySet()) {
-			Namespace ns = mappingEntry.getKey();
-			Map<UUID, List<String>> uuidMappings = mappingEntry.getValue();
-			if (uuidMappings.size() == 1) {
-				successCount++;
-				logger.debug(String.format("%s ==> %s", ns, uuidMappings));
-			} else {
-				failureCount++;
-				logger.error(String.format("%s ==> %s", ns, uuidMappings));
-			}
-		}
-
-		if (failureCount == 0 && successCount > 0) {
-			logger.debug(String.format("%s - compareCollectionUuids complete: successCount: %s, failureCount: %s", name,
-					successCount, failureCount));
-		} else {
-			logger.error(String.format("%s - compareCollectionUuids complete: successCount: %s, failureCount: %s", name,
-					successCount, failureCount));
-		}
-
-	}
 
 	public void extendTtls(String shardName, Namespace ns, Set<IndexSpec> sourceSpecs) {
 		MongoClient client = getShardMongoClient(shardName);
@@ -939,6 +869,14 @@ public class ShardClient {
 
 			}
 		}
+	}
+	
+	public List<Role> getRoles() {
+		MongoDatabase db = mongoClient.getDatabase("admin").withCodecRegistry(pojoCodecRegistry);
+		MongoCollection<Role> shardsColl = db.getCollection("system.roles", Role.class);
+		final List<Role> roles = new ArrayList<>();
+		shardsColl.find().sort(Sorts.ascending("_id")).into(roles);
+		return roles;
 	}
 
 	public void createIndexes(Namespace ns, Set<IndexSpec> sourceSpecs, boolean extendTtl) {

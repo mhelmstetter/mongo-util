@@ -3,11 +3,11 @@ package com.mongodb.cloud;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.mongodb.okhttp.AuthenticationCacheInterceptor;
-import com.mongodb.okhttp.CachingAuthenticatorDecorator;
-import com.mongodb.okhttp.digest.CachingAuthenticator;
-import com.mongodb.okhttp.digest.Credentials;
-import com.mongodb.okhttp.digest.DigestAuthenticator;
+import com.burgstaller.okhttp.AuthenticationCacheInterceptor;
+import com.burgstaller.okhttp.CachingAuthenticatorDecorator;
+import com.burgstaller.okhttp.digest.CachingAuthenticator;
+import com.burgstaller.okhttp.digest.Credentials;
+import com.burgstaller.okhttp.digest.DigestAuthenticator;
 
 import okhttp3.OkHttpClient;
 import okhttp3.logging.HttpLoggingInterceptor;

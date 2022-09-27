@@ -2,7 +2,6 @@ package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.lt;
@@ -14,6 +13,8 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 
 import org.apache.commons.collections.MapUtils;
@@ -51,6 +53,10 @@ import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoCredential;
 import com.mongodb.MongoException;
+import com.mongodb.atlas.AtlasServiceGenerator;
+import com.mongodb.atlas.AtlasUtil;
+import com.mongodb.atlas.model.AtlasRole;
+import com.mongodb.atlas.model.Cluster;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
@@ -66,6 +72,7 @@ import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Namespace;
+import com.mongodb.model.Role;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardCollection;
 import com.mongodb.model.ShardTimestamp;
@@ -91,9 +98,12 @@ public class ShardConfigSync implements Callable<Integer> {
 	public final static int SECONDS_IN_YEAR = 31536000;
 
 	private final static Document LOCALE_SIMPLE = new Document("locale", "simple");
+	
+	private String atlasApiPublicKey;
+	private String atlasApiPrivateKey;
+	private String atlasProjectId;
 
 	private String sourceClusterUri;
-
 	private String destClusterUri;
 	
 	private String sourceClusterPattern;
@@ -416,6 +426,36 @@ public class ShardConfigSync implements Callable<Integer> {
         }
 	}
 	*/
+	
+	public void syncUsers() throws IOException {
+		
+		AtlasUtil atlasUtil = new AtlasUtil(atlasApiPublicKey, atlasApiPrivateKey);
+		
+//		List<Cluster> clusters = atlasUtil.getClusters(atlasProjectId);
+//		System.out.println(clusters);
+		
+		List<Role> roles = this.sourceShardClient.getRoles();
+		
+		List<AtlasRole> atlasRoles = UsersRolesManager.convertMongoRolesToAtlasRoles(roles);
+		
+		for (AtlasRole role : atlasRoles) {
+			try {
+				AtlasRole result = atlasUtil.createCustomDbRole(atlasProjectId, role);
+				logger.debug("Created custom db role: {}", role.getRoleName());
+			} catch (IOException e) {
+				logger.error("Error creating custom db role: {}", role.getRoleName(), e);
+			} catch (KeyManagementException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} catch (NoSuchAlgorithmException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		
+		AtlasServiceGenerator.shutdown();
+	}
+	
 	
 	public void migrateMetadata() throws InterruptedException {
 		migrateMetadata(true, true);
@@ -1236,9 +1276,86 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 		}
 	}
-
+	
+	// TODO - honor filters
 	public void compareCollectionUuids() {
-		destShardClient.compareCollectionUuids();
+		String name = "dest";
+		logger.debug(String.format("%s - Starting compareCollectionUuids", name));
+		destShardClient.populateShardMongoClients();
+
+		List<String> dbNames = new ArrayList<>();
+		destShardClient.listDatabaseNames().into(dbNames);
+
+		Map<Namespace, Map<UUID, List<String>>> collectionUuidMappings = new TreeMap<>();
+
+		for (Map.Entry<String, MongoClient> entry : destShardClient.getShardMongoClients().entrySet()) {
+			MongoClient client = entry.getValue();
+			String shardName = entry.getKey();
+
+			for (String databaseName : client.listDatabaseNames()) {
+				MongoDatabase db = client.getDatabase(databaseName);
+
+				if (databaseName.equals("admin") || databaseName.equals("config")
+						|| databaseName.contentEquals("local")) {
+					continue;
+				}
+
+				for (Document collectionInfo : db.listCollections()) {
+					String collectionName = (String) collectionInfo.get("name");
+					if (collectionName.endsWith(".create")) {
+						continue;
+					}
+					Namespace ns = new Namespace(databaseName, collectionName);
+					
+					if (filterCheck(ns)) {
+						continue;
+					}
+					
+					Document info = (Document) collectionInfo.get("info");
+					UUID uuid = (UUID) info.get("uuid");
+
+					Map<UUID, List<String>> uuidMapping = collectionUuidMappings.get(ns);
+					if (uuidMapping == null) {
+						uuidMapping = new TreeMap<>();
+					}
+					collectionUuidMappings.put(ns, uuidMapping);
+
+					List<String> shardNames = uuidMapping.get(uuid);
+					if (shardNames == null) {
+						shardNames = new ArrayList<>();
+					}
+					uuidMapping.put(uuid, shardNames);
+					shardNames.add(shardName);
+
+					// logger.debug(entry.getKey() + " db: " + databaseName + "." + collectionName +
+					// " " + uuid);
+				}
+			}
+		}
+
+		int successCount = 0;
+		int failureCount = 0;
+
+		for (Map.Entry<Namespace, Map<UUID, List<String>>> mappingEntry : collectionUuidMappings.entrySet()) {
+			Namespace ns = mappingEntry.getKey();
+			Map<UUID, List<String>> uuidMappings = mappingEntry.getValue();
+			if (uuidMappings.size() == 1) {
+				successCount++;
+				logger.debug(String.format("%s ==> %s", ns, uuidMappings));
+			} else {
+				failureCount++;
+				logger.error(String.format("%s ==> %s", ns, uuidMappings));
+			}
+		}
+
+		if (failureCount == 0 && successCount > 0) {
+			logger.debug(String.format("%s - compareCollectionUuids complete: successCount: %s, failureCount: %s", name,
+					successCount, failureCount));
+		} else {
+			logger.error(String.format("%s - compareCollectionUuids complete: successCount: %s, failureCount: %s", name,
+					successCount, failureCount));
+		}
+
 	}
 
 	private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
@@ -2051,5 +2168,17 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	public void setExtendTtl(boolean extendTtl) {
 		this.extendTtl = extendTtl;
+	}
+
+	public void setAtlasApiPublicKey(String atlasApiPublicKey) {
+		this.atlasApiPublicKey = atlasApiPublicKey;
+	}
+
+	public void setAtlasApiPrivateKey(String atlasApiPrivateKey) {
+		this.atlasApiPrivateKey = atlasApiPrivateKey;
+	}
+
+	public void setAtlasProjectId(String atlasProjectId) {
+		this.atlasProjectId = atlasProjectId;
 	}
 }

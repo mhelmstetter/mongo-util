@@ -69,36 +69,36 @@ public class AtlasUtilApp {
     public static void main(String[] args) throws Exception {
         CommandLine line = initializeAndParseCommandLineOptions(args);
         
-        AtlasUtil util = new AtlasUtil(line.getOptionValue("u"), line.getOptionValue("k"), "mongodb://localhost:27017/atlasMetrics");
-        
-        String group = line.getOptionValue("g");
-        if (group != null) {
-        	
-        	ZonedDateTime d = LocalDate.now().atStartOfDay(ZoneId.of("UTC")).with(TemporalAdjusters.previous( DayOfWeek.MONDAY ));
-        	
-        	//LocalDateTime d = LocalDateTime.now(ZoneId.of("UTC")).atStartOfDay().with(TemporalAdjusters.previous( DayOfWeek.MONDAY ));
-        	Instant i = d.toInstant();
-        	long startDate = i.toEpochMilli();
-        	
-        	List<Cluster> clusters = util.getClusters(group);
-        	for (Cluster c : clusters) {
-        		System.out.println(c);
-        	}
-        	
-        	util.getLogs(group, "atlas-7d8hfg-shard-15", startDate);
-        	
-        } else {
-        	List<Project> projects = util.getProjects();
-        	for (Project p : projects) {
-        		System.out.println(p);
-        		List<Cluster> clusters = util.getClusters(p.getId());
-        		for (Cluster c : clusters) {
-        			
-            		System.out.println(c);
-            	}
-        	}
-        }
-        AtlasServiceGenerator.shutdown();
+//        AtlasUtil util = new AtlasUtil(line.getOptionValue("u"), line.getOptionValue("k"));
+//        
+//        String group = line.getOptionValue("g");
+//        if (group != null) {
+//        	
+//        	ZonedDateTime d = LocalDate.now().atStartOfDay(ZoneId.of("UTC")).with(TemporalAdjusters.previous( DayOfWeek.MONDAY ));
+//        	
+//        	//LocalDateTime d = LocalDateTime.now(ZoneId.of("UTC")).atStartOfDay().with(TemporalAdjusters.previous( DayOfWeek.MONDAY ));
+//        	Instant i = d.toInstant();
+//        	long startDate = i.toEpochMilli();
+//        	
+//        	List<Cluster> clusters = util.getClusters(group);
+//        	for (Cluster c : clusters) {
+//        		System.out.println(c);
+//        	}
+//        	
+//        	util.getLogs(group, "atlas-7d8hfg-shard-15", startDate);
+//        	
+//        } else {
+//        	List<Project> projects = util.getProjects();
+//        	for (Project p : projects) {
+//        		System.out.println(p);
+//        		List<Cluster> clusters = util.getClusters(p.getId());
+//        		for (Cluster c : clusters) {
+//        			
+//            		System.out.println(c);
+//            	}
+//        	}
+//        }
+//        AtlasServiceGenerator.shutdown();
 
         
     }

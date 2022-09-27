@@ -7,7 +7,7 @@ public class Cluster {
 
     private Boolean backupEnabled;
     private String clusterType;
-    private Integer diskSizeGB;
+    private Double diskSizeGB;
     private String encryptionAtRestProvider;
     private String groupId;
     private String mongoDBVersion;
@@ -37,11 +37,11 @@ public class Cluster {
         this.clusterType = clusterType;
     }
 
-    public Integer getDiskSizeGB() {
+    public Double getDiskSizeGB() {
         return diskSizeGB;
     }
 
-    public void setDiskSizeGB(Integer diskSizeGB) {
+    public void setDiskSizeGB(Double diskSizeGB) {
         this.diskSizeGB = diskSizeGB;
     }
 

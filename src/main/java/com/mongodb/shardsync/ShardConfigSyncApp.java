@@ -54,6 +54,7 @@ public class ShardConfigSyncApp {
     private final static String CHUNK_COUNTS = "chunkCounts";
     private final static String FLUSH_ROUTER = "flushRouter";
     private final static String SYNC_METADATA = "syncMetadata";
+    private final static String SYNC_USERS = "syncUsers";
     private final static String COMPARE_CHUNKS = "compareChunks";
     private final static String COMPARE_COLLECTION_UUIDS = "compareCollectionUuids";
     private final static String DISABLE_SOURCE_AUTOSPLIT = "disableSourceAutosplit";
@@ -83,6 +84,11 @@ public class ShardConfigSyncApp {
     private final static String SSL_ALLOW_INVALID_CERTS = "sslAllowInvalidCertificates";
 
     private static final String SHARD_MAP = "shardMap";
+    
+    private static final String ATLAS_API_PUBLIC_KEY = "atlasApiPublicKey";
+    private static final String ATLAS_API_PRIVATE_KEY = "atlasApiPrivateKey";
+    private static final String ATLAS_PROJECT_ID = "atlasProjectId";
+    
     
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -120,6 +126,8 @@ public class ShardConfigSyncApp {
         
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata")
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
+        options.addOption(OptionBuilder.withArgName("Synchronize users and roles")
+                .withLongOpt(SYNC_USERS).create(SYNC_USERS));
         options.addOption(OptionBuilder.withArgName("Shard mapping").hasArg().withLongOpt(SHARD_MAP)
                 .isRequired(false).create("m"));
         options.addOption(OptionBuilder.withArgName("Disable autosplit on source cluster")
@@ -255,6 +263,10 @@ public class ShardConfigSyncApp {
         sync.setSourceClusterUri(line.getOptionValue("s", config.getString(SOURCE_URI)));
         sync.setDestClusterUri(line.getOptionValue("d", config.getString(DEST_URI)));
         
+        sync.setAtlasApiPublicKey(config.getString(ATLAS_API_PUBLIC_KEY));
+        sync.setAtlasApiPrivateKey(config.getString(ATLAS_API_PRIVATE_KEY));
+        sync.setAtlasProjectId(config.getString(ATLAS_PROJECT_ID));
+        
         sync.setSourceClusterPattern(config.getString(SOURCE_URI_PATTERN));
         sync.setDestClusterPattern(config.getString(DEST_URI_PATTERN));
         
@@ -336,6 +348,9 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(SYNC_METADATA)) {
             actionFound = true;
             sync.migrateMetadata();
+        } else if (line.hasOption(SYNC_USERS)) {
+            actionFound = true;
+            sync.syncUsers();
         }  else if (line.hasOption(SHARD_COLLECTIONS)) {
             actionFound = true;
             sync.shardCollections();

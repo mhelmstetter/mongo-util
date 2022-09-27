@@ -3,11 +3,11 @@ package com.mongodb.atlas;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.mongodb.okhttp.AuthenticationCacheInterceptor;
-import com.mongodb.okhttp.CachingAuthenticatorDecorator;
-import com.mongodb.okhttp.digest.CachingAuthenticator;
-import com.mongodb.okhttp.digest.Credentials;
-import com.mongodb.okhttp.digest.DigestAuthenticator;
+import com.burgstaller.okhttp.AuthenticationCacheInterceptor;
+import com.burgstaller.okhttp.CachingAuthenticatorDecorator;
+import com.burgstaller.okhttp.digest.CachingAuthenticator;
+import com.burgstaller.okhttp.digest.Credentials;
+import com.burgstaller.okhttp.digest.DigestAuthenticator;
 
 import okhttp3.OkHttpClient;
 import okhttp3.logging.HttpLoggingInterceptor;
@@ -41,11 +41,12 @@ public class AtlasServiceGenerator {
 
     public static <S> S createService(Class<S> serviceClass, String username, String apiKey) {
         final DigestAuthenticator authenticator = new DigestAuthenticator(new Credentials(username, apiKey));
-        final Map<String, CachingAuthenticator> authCache = new ConcurrentHashMap<>();
+        //final Map<String, CachingAuthenticator> authCache = new ConcurrentHashMap<>();
         
         client = new OkHttpClient.Builder()
-                .authenticator(new CachingAuthenticatorDecorator(authenticator, authCache))
-                .addInterceptor(new AuthenticationCacheInterceptor(authCache))
+                //.authenticator(new CachingAuthenticatorDecorator(authenticator, authCache))
+        		.authenticator(authenticator)
+                //.addInterceptor(new AuthenticationCacheInterceptor(authCache))
                .addInterceptor(logging)
                 .build();
         
