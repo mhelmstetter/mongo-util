@@ -330,6 +330,11 @@ public class ShardConfigSync implements Callable<Integer> {
 					continue;
 				}
 				
+				if (collectionName.equals("system.views")) {
+					logger.debug("Skipping view: {}", ns);	
+					continue;
+				}
+				
 				Set<IndexSpec> indexSpecs = new HashSet<>();
 				sourceIndexSpecs.put(ns, indexSpecs);
 				MongoCollection<RawBsonDocument> collection = sourceDb.getCollection(collectionName, RawBsonDocument.class);
