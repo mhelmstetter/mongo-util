@@ -322,6 +322,9 @@ public class ShardConfigSync implements Callable<Integer> {
 		if (ns.getDatabaseName().equals("config") || ns.getDatabaseName().equals("admin")) {
 			return true;
 		}
+		if (ns.getCollectionName().equals("system.profile") || ns.getCollectionName().equals("system.users")) {
+			return true;
+		}
 		return false;
 	}
 	
