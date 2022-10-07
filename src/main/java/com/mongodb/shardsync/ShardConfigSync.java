@@ -56,7 +56,6 @@ import com.mongodb.MongoException;
 import com.mongodb.atlas.AtlasServiceGenerator;
 import com.mongodb.atlas.AtlasUtil;
 import com.mongodb.atlas.model.AtlasRole;
-import com.mongodb.atlas.model.Cluster;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
@@ -65,6 +64,12 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Accumulators;
 import com.mongodb.client.model.Aggregates;
+import com.mongodb.client.model.Collation;
+import com.mongodb.client.model.CollationAlternate;
+import com.mongodb.client.model.CollationCaseFirst;
+import com.mongodb.client.model.CollationMaxVariable;
+import com.mongodb.client.model.CollationStrength;
+import com.mongodb.client.model.CreateCollectionOptions;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.result.DeleteResult;
@@ -320,17 +325,83 @@ public class ShardConfigSync implements Callable<Integer> {
 		return false;
 	}
 	
+	private void createCollections() {
+		MongoClient sourceClient = sourceShardClient.getMongoClient();
+		MongoClient destClient = destShardClient.getMongoClient();
+		for (String dbName : sourceClient.listDatabaseNames()) {
+			MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
+			for (Document collectionInfo : sourceDb.listCollections()) {
+				String collectionName = collectionInfo.getString("name");
+				Namespace ns = new Namespace(dbName, collectionName);
+				
+				if (filterCheck(ns)) {
+					continue;
+				}
+				String type = collectionInfo.getString("type");
+				if (collectionName.equals("system.views") || type.equals("view")) {
+					logger.warn("Skipping view: {}", ns);	
+					continue;
+				}
+				
+				try {
+					destClient.getDatabase(dbName).createCollection(collectionName, getCreateCollectionOptions(collectionInfo));
+				} catch (MongoException me) {
+					logger.error("createCollection failed, confirm that target is clean/empty", me);
+					throw me; // fatal
+				}
+				
+			}
+		}
+	}
+	
+	private CreateCollectionOptions getCreateCollectionOptions(Document collectionInfo) {
+		CreateCollectionOptions opts = new CreateCollectionOptions();
+		Document options = collectionInfo.get("options", Document.class);
+		
+		if (options.isEmpty()) {
+			return opts;
+		}
+		logger.warn("non default collection options: {}", collectionInfo);
+		
+		Document collationDoc = options.get("collation", Document.class);
+		if (collationDoc != null) {
+			Collation collation = getCollation(collationDoc);
+			opts.collation(collation);
+		}
+		
+		//Collation.builder().build();
+		//opts.collation(null)
+		return opts;
+	}
+	
+	private Collation getCollation(Document collation) {
+		Collation.Builder builder = Collation.builder();
+		builder.locale(collation.getString("locale"));
+		builder.caseLevel(collation.getBoolean("caseLevel"));
+		builder.collationCaseFirst(CollationCaseFirst.fromString(collation.getString("caseFirst")));
+		builder.collationStrength(CollationStrength.fromInt(collation.getInteger("strength")));
+		builder.numericOrdering(collation.getBoolean("numericOrdering"));
+		builder.collationAlternate(CollationAlternate.fromString(collation.getString("alternate")));
+		builder.collationMaxVariable(CollationMaxVariable.fromString(collation.getString("maxVariable")));
+		builder.normalization(collation.getBoolean("normalization"));
+		builder.backwards(collation.getBoolean("backwards"));
+		
+		return builder.build();
+	}
+	
 	private Map<Namespace, Set<IndexSpec>> getIndexSpecs(MongoClient client, Set<String> filterSet) {
 		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = new LinkedHashMap<>();
 		for (String dbName : client.listDatabaseNames()) {
 			MongoDatabase sourceDb = client.getDatabase(dbName);
-			for (String collectionName : sourceDb.listCollectionNames()) {
+			for (Document collectionInfo : sourceDb.listCollections()) {
+				String collectionName = collectionInfo.getString("name");
+				String type = collectionInfo.getString("type");
 				Namespace ns = new Namespace(dbName, collectionName);
 				if (filterCheck(ns) || (filterSet != null && ! filterSet.contains(ns.getNamespace()))) {
 					continue;
 				}
 				
-				if (collectionName.equals("system.views")) {
+				if (collectionName.equals("system.views") || type.equals("view")) {
 					logger.debug("Skipping view: {}", ns);	
 					continue;
 				}
@@ -472,6 +543,9 @@ public class ShardConfigSync implements Callable<Integer> {
 
 		stopBalancers();
 		// checkAutosplit();
+		
+		createCollections();
+		
 		
 		if (enableDestinationSharding) {
 			enableDestinationSharding();
@@ -1282,7 +1356,6 @@ public class ShardConfigSync implements Callable<Integer> {
 		}
 	}
 	
-	// TODO - honor filters
 	public void compareCollectionUuids() {
 		String name = "dest";
 		logger.debug(String.format("%s - Starting compareCollectionUuids", name));
@@ -1468,10 +1541,9 @@ public class ShardConfigSync implements Callable<Integer> {
 			shardCommand.append("numInitialChunks", 1);
 		}
 
-		// TODO fixme!!!
-//        if (sourceColl.getDefaultCollation() != null) {
-//            shardCommand.append("collation", LOCALE_SIMPLE);
-//        }
+        if (sourceColl.get("defaultCollation", Document.class) != null) {
+            shardCommand.append("collation", LOCALE_SIMPLE);
+        }
 
 		Document result = null;
 		try {
