@@ -372,8 +372,13 @@ public class ShardConfigSync implements Callable<Integer> {
 			opts.collation(collation);
 		}
 		
-		//Collation.builder().build();
-		//opts.collation(null)
+		Boolean capped = options.getBoolean("capped");
+		if (capped != null && capped) {
+			opts.capped(capped);
+			opts.maxDocuments(options.getLong("max"));
+			opts.sizeInBytes(options.getLong("size"));
+		}
+
 		return opts;
 	}
 	

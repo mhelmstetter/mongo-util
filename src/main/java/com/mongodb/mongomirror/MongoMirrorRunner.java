@@ -179,7 +179,7 @@ public class MongoMirrorRunner {
         	errorMessage = statusJson.get("errorMessage").getAsString();
         }
         
-        if ("initial sync".equals(stage)) {
+        if ("initial sync".equals(stage) && ! "applying oplog entries".equals(phase)) {
         	
         	MongoMirrorStatusInitialSync status = new MongoMirrorStatusInitialSync(stage, phase, errorMessage);
         	
