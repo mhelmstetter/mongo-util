@@ -348,6 +348,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				
 				try {
 					destClient.getDatabase(dbName).createCollection(collectionName, getCreateCollectionOptions(collectionInfo));
+					logger.debug("created collection {}.{}", dbName, collectionName);
 				} catch (MongoException me) {
 					logger.error("createCollection failed, confirm that target is clean/empty", me);
 					throw me; // fatal
