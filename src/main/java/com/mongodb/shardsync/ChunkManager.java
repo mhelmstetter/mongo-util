@@ -1,11 +1,16 @@
 package com.mongodb.shardsync;
 
 import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.bson.BsonDocument;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
+import org.bson.codecs.DecoderContext;
+import org.bson.codecs.DocumentCodec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +26,11 @@ public class ChunkManager {
 	private boolean filtered;
 	private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
 	private Set<String> includeDatabases = new HashSet<String>();
+	
+	private DocumentCodec codec = new DocumentCodec();
+	private DecoderContext decoderContext = DecoderContext.builder().build();
+	
+	private List<Document> optimizedChunks = new LinkedList<>();
 
 	/**
 	 * Create chunks and move them, using the "optimized" method to reduce the total
@@ -35,6 +45,8 @@ public class ChunkManager {
 		destShardClient.loadChunksCache(chunkQuery);
 
 		String lastNs = null;
+		String lastShard = null;
+		Document lastChunk = null;
 		int currentCount = 0;
 
 		for (RawBsonDocument chunk : sourceChunksCache.values()) {
@@ -43,8 +55,17 @@ public class ChunkManager {
 			if (filterCheck(ns)) {
 				continue;
 			}
-
-			// STUB - magic here
+			
+			String shard = chunk.getString("shard").getValue();
+			
+			if (ns.equals(lastNs) && shard.equals(lastShard)) {
+				BsonDocument max = (BsonDocument) chunk.get("max");
+				lastChunk.put("max", max);
+				
+			} else {
+				lastChunk = codec.decode(chunk.asBsonReader(), decoderContext);
+				optimizedChunks.add(lastChunk);
+			}
 			
 			currentCount++;
 			if (!ns.equals(lastNs) && lastNs != null) {
@@ -52,8 +73,11 @@ public class ChunkManager {
 				currentCount = 0;
 			}
 			lastNs = ns;
+			lastShard = shard;
+			
 		}
-		logger.debug(String.format("%s - created %s chunks", lastNs, currentCount));
+		logger.debug(String.format("optimized chunk count: %s", optimizedChunks.size()));
+		//logger.debug(String.format("%s - created %s chunks", lastNs, currentCount));
 		logger.debug("createAndMoveChunks complete");
 
 	}

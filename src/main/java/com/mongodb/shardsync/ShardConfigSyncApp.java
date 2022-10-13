@@ -354,7 +354,7 @@ public class ShardConfigSyncApp {
             sync.syncMetadata();
         } else if (line.hasOption(SYNC_METADATA_OPTIMIZED)) {
             actionFound = true;
-            sync.syncMetadata();
+            sync.syncMetadataOptimized();
         } else if (line.hasOption(SYNC_USERS)) {
             actionFound = true;
             sync.syncUsers();

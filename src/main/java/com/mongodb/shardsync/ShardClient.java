@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.UUID;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
@@ -29,6 +28,7 @@ import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.UuidRepresentation;
+import org.bson.codecs.DecoderContext;
 import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
@@ -1019,6 +1019,7 @@ public class ShardClient {
 		}
 
 		BsonDocument max = (BsonDocument) chunk.get("max");
+		
 //		for (Iterator i = max.values().iterator(); i.hasNext();) {
 //			Object next = i.next();
 //			if (next instanceof MaxKey || next instanceof BsonMaxKey) {
