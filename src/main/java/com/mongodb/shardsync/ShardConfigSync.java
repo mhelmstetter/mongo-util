@@ -540,46 +540,59 @@ public class ShardConfigSync implements Callable<Integer> {
 		AtlasServiceGenerator.shutdown();
 	}
 	
-	
-	public void migrateMetadata() throws InterruptedException {
-		migrateMetadata(true, true);
-	}
-
-	public void migrateMetadata(boolean enableDestinationSharding, boolean compareAndMove) throws InterruptedException {
-		logger.debug(String.format("Starting metadata sync/migration, %s: %s", 
-				ShardConfigSyncApp.NON_PRIVILEGED, nonPrivilegedMode));
-
-		stopBalancers();
-		// checkAutosplit();
-		
-		createCollections();
-		
-		
-		if (enableDestinationSharding) {
-			enableDestinationSharding();
-		}
-
-		sourceShardClient.populateCollectionsMap();
-		shardDestinationCollections();
-
+	public void createChunks() {
 		if (nonPrivilegedMode) {
 			createDestChunksUsingSplitCommand();
 		} else {
 			createDestChunksUsingInsert();
 			createShardTagsUsingInsert();
 		}
+	}
+	
 
-		if (compareAndMove) {
-			if (nonPrivilegedMode) {
-				compareAndMoveChunks(true, false);
-			} else {
-				//compareAndMovePrivileged();
-				compareAndMoveChunks(true, false);
-			}
+	public void syncMetadata() throws InterruptedException {
+		logger.debug(String.format("Starting metadata sync/migration, %s: %s", 
+				ShardConfigSyncApp.NON_PRIVILEGED, nonPrivilegedMode));
+
+		stopBalancers();
+		//checkAutosplit();
+		createCollections();
+		enableDestinationSharding();
+
+		sourceShardClient.populateCollectionsMap();
+		shardDestinationCollections();
+		createChunks();
+		compareAndMoveChunks(true, false);
+
+		if (! skipFlushRouterConfig) {
+			destShardClient.flushRouterConfig();
 		}
+	}
+	
+	private ChunkManager getChunkManager() {
+		ChunkManager chunkManager = new ChunkManager();
+		chunkManager.setSourceShardClient(sourceShardClient);
+		chunkManager.setDestShardClient(destShardClient);
+		chunkManager.setChunkQuery(getChunkQuery());
+		chunkManager.setFiltered(filtered);
+		chunkManager.setIncludeDatabases(includeDatabases);
+		chunkManager.setIncludeNamespaces(includeNamespaces);
+		return chunkManager;
+	}
+	
+	public void syncMetadataOptimized() {
+		logger.debug(String.format("Starting optimized metadata sync/migration, %s: %s", 
+				ShardConfigSyncApp.NON_PRIVILEGED, nonPrivilegedMode));
 		
+		stopBalancers();
+		createCollections();
+		enableDestinationSharding();
+		sourceShardClient.populateCollectionsMap();
+		shardDestinationCollections();
 		
-
+		ChunkManager chunkManager = getChunkManager();
+		chunkManager.createAndMoveChunks();
+		
 		if (! skipFlushRouterConfig) {
 			destShardClient.flushRouterConfig();
 		}
@@ -645,27 +658,16 @@ public class ShardConfigSync implements Callable<Integer> {
 	 * will be very slow b/c of the locking process that happens with each chunk
 	 */
 	private void createDestChunksUsingSplitCommand() {
-		createDestChunksUsingSplitCommand(null);
-	}
-	
-	private void createDestChunksUsingSplitCommand(String nsFilter) {
-		if (nsFilter == null) {
-			logger.debug("createDestChunksUsingSplitCommand started");
-		}
+		logger.debug("createDestChunksUsingSplitCommand started");
 		
 		Document chunkQuery = getChunkQuery();
 		logger.debug("chunkQuery: {}", chunkQuery);
-		if (nsFilter != null) {
-			chunkQuery.append("ns", nsFilter);
-		}
-		//nsToShardsCompletionMap = getChunksNsToShardsMap(chunkQuery);
 		
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
 		destShardClient.loadChunksCache(chunkQuery);
 
 		String lastNs = null;
 		int currentCount = 0;
-		//boolean nsComplete = false;
 
 		for (RawBsonDocument chunk : sourceChunksCache.values()) {
 
@@ -684,9 +686,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			lastNs = ns;
 		}
 		logger.debug(String.format("%s - created %s chunks", lastNs, currentCount));
-		if (nsFilter == null) {
-			logger.debug("createDestChunksUsingSplitCommand complete");
-		}
+		logger.debug("createDestChunksUsingSplitCommand complete");
 	}
 	
 	// TODO incomplete

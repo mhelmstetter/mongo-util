@@ -54,6 +54,7 @@ public class ShardConfigSyncApp {
     private final static String CHUNK_COUNTS = "chunkCounts";
     private final static String FLUSH_ROUTER = "flushRouter";
     private final static String SYNC_METADATA = "syncMetadata";
+    private final static String SYNC_METADATA_OPTIMIZED = "syncMetadataOptimized";
     private final static String SYNC_USERS = "syncUsers";
     private final static String COMPARE_CHUNKS = "compareChunks";
     private final static String COMPARE_COLLECTION_UUIDS = "compareCollectionUuids";
@@ -126,6 +127,8 @@ public class ShardConfigSyncApp {
         
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata")
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
+        options.addOption(OptionBuilder.withArgName("Synchronize shard metadata (optimized method)")
+                .withLongOpt(SYNC_METADATA_OPTIMIZED).create(SYNC_METADATA_OPTIMIZED));
         options.addOption(OptionBuilder.withArgName("Synchronize users and roles")
                 .withLongOpt(SYNC_USERS).create(SYNC_USERS));
         options.addOption(OptionBuilder.withArgName("Shard mapping").hasArg().withLongOpt(SHARD_MAP)
@@ -348,7 +351,10 @@ public class ShardConfigSyncApp {
         	sync.compareCollectionUuids();
         } else if (line.hasOption(SYNC_METADATA)) {
             actionFound = true;
-            sync.migrateMetadata();
+            sync.syncMetadata();
+        } else if (line.hasOption(SYNC_METADATA_OPTIMIZED)) {
+            actionFound = true;
+            sync.syncMetadata();
         } else if (line.hasOption(SYNC_USERS)) {
             actionFound = true;
             sync.syncUsers();
@@ -357,7 +363,7 @@ public class ShardConfigSyncApp {
             sync.shardCollections();
         }  else if (line.hasOption(CREATE_CHUNKS)) {
             actionFound = true;
-            sync.migrateMetadata(false, false);
+            sync.createChunks();
         } else if (line.hasOption(SYNC_INDEXES)) {
             actionFound = true;
             boolean extendTtl = line.hasOption(EXTEND_TTL);
