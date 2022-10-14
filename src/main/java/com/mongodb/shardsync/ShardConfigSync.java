@@ -1642,6 +1642,10 @@ public class ShardConfigSync implements Callable<Integer> {
 					|| databaseName.contains("$")) {
 				continue;
 			}
+			if (filtered && !includeDatabasesAll.contains(databaseName)) {
+				logger.trace("Database " + databaseName + " filtered, not sharding on destination");
+				continue;
+			}
 			String primary = database.getString("primary");
 			String xx = sourceToDestShardMap.get(primary);
 			String mappedPrimary = getAltMapping(primary);
@@ -1649,11 +1653,6 @@ public class ShardConfigSync implements Callable<Integer> {
             if (mappedPrimary == null) {
                 logger.warn("Shard mapping not found for shard " + primary);
             }
-
-			if (filtered && !includeDatabasesAll.contains(databaseName)) {
-				logger.trace("Database " + databaseName + " filtered, not sharding on destination");
-				continue;
-			}
 
 			Document dest = destShardClient.getConfigDb().getCollection("databases")
 					.find(new Document("_id", databaseName)).first();
