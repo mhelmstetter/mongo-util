@@ -383,7 +383,14 @@ public class ShardConfigSync implements Callable<Integer> {
 			} else {
 				logger.error("Unexpected type for max: {}, value: {}", max.getClass().getName(), max);
 			}
-			opts.sizeInBytes(options.getLong("size"));
+			Object size = options.get("size");
+			if (size instanceof Number) {
+				Number sizeNum = (Number)size;
+				opts.sizeInBytes(sizeNum.longValue());
+			} else {
+				logger.error("Unexpected type for size: {}, value: {}", size.getClass().getName(), size);
+			}
+			
 		}
 
 		return opts;
