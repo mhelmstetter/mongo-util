@@ -990,10 +990,10 @@ public class ShardConfigSync implements Callable<Integer> {
 	public void compareAndMoveChunks(boolean doMove, boolean ignoreMissing) {
 
 		Map<String, String> destChunkMap = readDestinationChunks();
-
-		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
-		List<RawBsonDocument> sourceChunks = new ArrayList<>();
-		sourceChunksColl.find().sort(Sorts.ascending("ns", "min")).into(sourceChunks);
+		Document chunkQuery = getChunkQuery();
+		logger.debug("chunkQuery: {}", chunkQuery);
+		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
+		destShardClient.loadChunksCache(chunkQuery);
 
 		String lastNs = null;
 		int currentCount = 0;
@@ -1004,7 +1004,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		int sourceTotalCount = 0;
 		int errorCount = 0;
 
-		for (RawBsonDocument sourceChunk : sourceChunks) {
+		for (RawBsonDocument sourceChunk : sourceChunksCache.values()) {
 			sourceTotalCount++;
 			String sourceId = ShardClient.getIdFromChunk(sourceChunk);
 			//logger.debug("source id: " + sourceId);
