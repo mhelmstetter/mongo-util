@@ -376,7 +376,13 @@ public class ShardConfigSync implements Callable<Integer> {
 		Boolean capped = options.getBoolean("capped");
 		if (capped != null && capped) {
 			opts.capped(capped);
-			opts.maxDocuments(options.getLong("max"));
+			Object max = options.get("max");
+			if (max instanceof Number) {
+				Number maxNum = (Number)max;
+				opts.maxDocuments(maxNum.longValue());
+			} else {
+				logger.error("Unexpected type for max: {}, value: {}", max.getClass().getName(), max);
+			}
 			opts.sizeInBytes(options.getLong("size"));
 		}
 
