@@ -71,7 +71,6 @@ public class ShardConfigSyncApp {
     private final static String TAIL_FROM_NOW = "tailFromNow";
     private final static String TAIL_FROM_LATEST_OPLOG_TS = "tailFromLatestOplogTs";
     private final static String SHARD_COLLECTIONS = "shardCollections";
-    private final static String CREATE_CHUNKS = "createChunks";
     private final static String CLEANUP_ORPHANS = "cleanupOrphans";
     private final static String CLEANUP_ORPHANS_SLEEP = "cleanupOrphansSleep";
     private final static String CLEANUP_ORPHANS_DEST = "cleanupOrphansDest";
@@ -144,8 +143,6 @@ public class ShardConfigSyncApp {
         
         options.addOption(OptionBuilder.withArgName("Shard destination collections")
                 .withLongOpt(SHARD_COLLECTIONS).create());
-        options.addOption(OptionBuilder.withArgName("Create destination chunks only")
-                .withLongOpt(CREATE_CHUNKS).create());
         options.addOption(OptionBuilder.withArgName("Copy indexes from source to dest")
                 .withLongOpt(SYNC_INDEXES).create(SYNC_INDEXES));
         options.addOption(OptionBuilder.withArgName("Compare indexes from source to dest")
@@ -260,67 +257,69 @@ public class ShardConfigSyncApp {
         CommandLine line = initializeAndParseCommandLineOptions(args);
         
         
-        Configuration config = readProperties();
+        Configuration properties = readProperties();
         
-        ShardConfigSync sync = new ShardConfigSync();
-        sync.setSourceClusterUri(line.getOptionValue("s", config.getString(SOURCE_URI)));
-        sync.setDestClusterUri(line.getOptionValue("d", config.getString(DEST_URI)));
+        SyncConfiguration config = new SyncConfiguration();
+        config.setSourceClusterUri(line.getOptionValue("s", properties.getString(SOURCE_URI)));
+        config.setDestClusterUri(line.getOptionValue("d", properties.getString(DEST_URI)));
         
-        sync.setAtlasApiPublicKey(config.getString(ATLAS_API_PUBLIC_KEY));
-        sync.setAtlasApiPrivateKey(config.getString(ATLAS_API_PRIVATE_KEY));
-        sync.setAtlasProjectId(config.getString(ATLAS_PROJECT_ID));
+        config.setAtlasApiPublicKey(properties.getString(ATLAS_API_PUBLIC_KEY));
+        config.setAtlasApiPrivateKey(properties.getString(ATLAS_API_PRIVATE_KEY));
+        config.setAtlasProjectId(properties.getString(ATLAS_PROJECT_ID));
         
-        sync.setSourceClusterPattern(config.getString(SOURCE_URI_PATTERN));
-        sync.setDestClusterPattern(config.getString(DEST_URI_PATTERN));
+        config.setSourceClusterPattern(properties.getString(SOURCE_URI_PATTERN));
+        config.setDestClusterPattern(properties.getString(DEST_URI_PATTERN));
         
-        sync.setSourceRsManual(config.getStringArray(SOURCE_RS_MANUAL));
-        sync.setDestRsManual(config.getStringArray(DEST_RS_MANUAL));
+        config.setSourceRsManual(properties.getStringArray(SOURCE_RS_MANUAL));
+        config.setDestRsManual(properties.getStringArray(DEST_RS_MANUAL));
         
         
-        sync.setDestCsrsUri(config.getString(DEST_CSRS_URI));
+        config.setDestCsrsUri(properties.getString(DEST_CSRS_URI));
         
-        sync.setSourceRsPattern(config.getString(SOURCE_RS_PATTERN));
-        sync.setDestRsPattern(config.getString(DEST_RS_PATTERN));
+        config.setSourceRsPattern(properties.getString(SOURCE_RS_PATTERN));
+        config.setDestRsPattern(properties.getString(DEST_RS_PATTERN));
         
-        if ((sync.getSourceClusterUri() == null && sync.getSourceClusterPattern() == null) 
-        	|| (sync.getDestClusterUri() == null && sync.getDestClusterPattern() == null)) {
+        if ((config.getSourceClusterUri() == null && config.getSourceClusterPattern() == null) 
+        	|| (config.getDestClusterUri() == null && config.getDestClusterPattern() == null)) {
             System.out.println(String.format("%s/%s and/or %s/%s options required", 
             		SOURCE_URI, DEST_URI, SOURCE_URI_PATTERN, DEST_URI_PATTERN));
             printHelpAndExit();
         }
         
-        String shardMaps = config.getString(SHARD_MAP);
+        String shardMaps = properties.getString(SHARD_MAP);
         if (shardMaps != null) {
-            sync.setShardMappings(shardMaps.split(","));
+        	config.setShardMap(shardMaps.split(","));
         } else {
-            sync.setShardMappings(line.getOptionValues("m"));
+        	config.setShardMap(line.getOptionValues("m"));
         }
         
-        sync.setNamespaceFilters(line.getOptionValues("f"));
+        config.setNamespaceFilters(line.getOptionValues("f"));
         
-        boolean nonPrivilegedMode = line.hasOption(NON_PRIVILEGED) || config.getBoolean(NON_PRIVILEGED, false);
-        sync.setNonPrivilegedMode(nonPrivilegedMode);
-        boolean noIndexRestore = line.hasOption(NO_INDEX_RESTORE) || config.getBoolean(NON_PRIVILEGED, false);
-        sync.setNoIndexRestore(noIndexRestore);
-        sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
-        sync.setDropDestDbsAndConfigMetadata(line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA));
-        sync.setSleepMillis(line.getOptionValue("x"));
-        sync.setNumParallelCollections(line.getOptionValue("y"));
-        sync.setWriteConcern(line.getOptionValue("w"));
-        sync.setDryRun(line.hasOption(DRY_RUN));
+        boolean nonPrivilegedMode = line.hasOption(NON_PRIVILEGED) || properties.getBoolean(NON_PRIVILEGED, false);
+        config.setNonPrivilegedMode(nonPrivilegedMode);
+        boolean noIndexRestore = line.hasOption(NO_INDEX_RESTORE) || properties.getBoolean(NON_PRIVILEGED, false);
+        config.setNoIndexRestore(noIndexRestore);
+        config.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
+        config.setDropDestDbsAndConfigMetadata(line.hasOption(DROP_DEST_DBS_AND_CONFIG_METADATA));
+        config.setSleepMillis(line.getOptionValue("x"));
+        config.setNumParallelCollections(line.getOptionValue("y"));
+        config.setWriteConcern(line.getOptionValue("w"));
+        config.setDryRun(line.hasOption(DRY_RUN));
         
-        sync.setSslAllowInvalidCertificates(line.hasOption(SSL_ALLOW_INVALID_CERTS));
-        sync.setSslAllowInvalidHostnames(line.hasOption(SSL_ALLOW_INVALID_HOSTNAMES));
+        config.setSslAllowInvalidCertificates(line.hasOption(SSL_ALLOW_INVALID_CERTS));
+        config.setSslAllowInvalidHostnames(line.hasOption(SSL_ALLOW_INVALID_HOSTNAMES));
         
-        if (line.hasOption(SKIP_FLUSH_ROUTER_CONFIG) || config.getBoolean(SKIP_FLUSH_ROUTER_CONFIG, false)) {
-        	sync.setSkipFlushRouterConfig(true);
+        if (line.hasOption(SKIP_FLUSH_ROUTER_CONFIG) || properties.getBoolean(SKIP_FLUSH_ROUTER_CONFIG, false)) {
+        	config.setSkipFlushRouterConfig(true);
         }
         
         if (line.hasOption("r")) {
-        	sync.setShardToRs(true);
+        	config.setShardToRs(true);
         }
         
-        sync.initializeShardMappings();
+        ShardConfigSync sync = new ShardConfigSync(config);
+        sync.initialize();
+        
         boolean actionFound = false;
         if (line.hasOption(COLL_COUNTS)) {
             actionFound = true;
@@ -361,9 +360,6 @@ public class ShardConfigSyncApp {
         }  else if (line.hasOption(SHARD_COLLECTIONS)) {
             actionFound = true;
             sync.shardCollections();
-        }  else if (line.hasOption(CREATE_CHUNKS)) {
-            actionFound = true;
-            sync.createChunks();
         } else if (line.hasOption(SYNC_INDEXES)) {
             actionFound = true;
             boolean extendTtl = line.hasOption(EXTEND_TTL);
@@ -372,9 +368,6 @@ public class ShardConfigSyncApp {
             actionFound = true;
             boolean extendTtl = line.hasOption(EXTEND_TTL);
             sync.syncIndexesShards(false, extendTtl);
-        }  else if (line.hasOption("z")) {
-            actionFound = true;
-            sync.diffChunks(line.getOptionValue("z"));
         } else if (line.hasOption("k")) {
             String opt = line.getOptionValue("k");
             boolean doSync = opt.equals("sync");
@@ -382,7 +375,7 @@ public class ShardConfigSyncApp {
             sync.diffShardedCollections(doSync);
         }  else if (line.hasOption(CLEANUP_ORPHANS)) {
             actionFound = true;
-            sync.setCleanupOrphansSleepMillis(line.getOptionValue(CLEANUP_ORPHANS_SLEEP));
+            config.setCleanupOrphansSleepMillis(line.getOptionValue(CLEANUP_ORPHANS_SLEEP));
             sync.cleanupOrphans();
         }  else if (line.hasOption(CLEANUP_ORPHANS_DEST)) {
             actionFound = true;
@@ -408,36 +401,36 @@ public class ShardConfigSyncApp {
         // MONGOMIRROR_BINARY
         if (line.hasOption(MONGO_MIRROR) && ! line.hasOption("r")) {
             actionFound = true;
-            String mongoMirrorPath = line.getOptionValue("p", config.getString(MONGOMIRROR_BINARY));
+            String mongoMirrorPath = line.getOptionValue("p", properties.getString(MONGOMIRROR_BINARY));
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
             boolean extendTtl = line.hasOption(EXTEND_TTL);
             
             if (line.hasOption(COLL_STATS_THRESHOLD)) {
             	Integer collStatsThreshold = Integer.parseInt(line.getOptionValue(COLL_STATS_THRESHOLD));
-            	sync.setCollStatsThreshold(collStatsThreshold);
-            } else if (config.getProperty(COLL_STATS_THRESHOLD) != null) {
-            	sync.setCollStatsThreshold(config.getInt(COLL_STATS_THRESHOLD));
+            	config.setCollStatsThreshold(collStatsThreshold);
+            } else if (properties.getProperty(COLL_STATS_THRESHOLD) != null) {
+            	config.setCollStatsThreshold(properties.getInt(COLL_STATS_THRESHOLD));
             }
             
             if (line.hasOption(COMPRESSORS)) {
-                sync.setCompressors(line.getOptionValue(COMPRESSORS));
+            	config.setCompressors(line.getOptionValue(COMPRESSORS));
             }
             if (line.hasOption(MONGOMIRROR_START_PORT)) {
             	Integer startPort = Integer.parseInt(line.getOptionValue(MONGOMIRROR_START_PORT));
-            	sync.setMongoMirrorStartPort(startPort);
+            	config.setMongoMirrorStartPort(startPort);
             }
-            sync.setOplogBasePath(line.getOptionValue(OPLOG_BASE_PATH));
-            sync.setBookmarkFilePrefix(line.getOptionValue(BOOKMARK_FILE_PREFIX));
+            config.setOplogBasePath(line.getOptionValue(OPLOG_BASE_PATH));
+            config.setBookmarkFilePrefix(line.getOptionValue(BOOKMARK_FILE_PREFIX));
             
             if (mongoMirrorPath == null) {
                 System.out.println("mongomirrorPath required");
                 printHelpAndExit();
             }
-            sync.setMongomirrorBinary(mongoMirrorPath);
-            sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
-            sync.setPreserveUUIDs(preserveUUIDs);
-            sync.setNoIndexRestore(noIndexRestore);
-            sync.setExtendTtl(extendTtl);
+            config.setMongomirrorBinary(mongoMirrorPath);
+            config.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
+            config.setPreserveUUIDs(preserveUUIDs);
+            config.setNoIndexRestore(noIndexRestore);
+            config.setExtendTtl(extendTtl);
             
             if (line.hasOption(TAIL_FROM_NOW)) {
             	sync.mongomirrorTailFromNow();
@@ -453,9 +446,9 @@ public class ShardConfigSyncApp {
         if (line.hasOption("r") && line.hasOption(MONGO_MIRROR)) {
         	logger.debug("shardToRs");
             actionFound = true;
-            String mongoMirrorPath = line.getOptionValue("p", config.getString(MONGOMIRROR_BINARY));
-            sync.setMongomirrorBinary(mongoMirrorPath);
-            sync.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
+            String mongoMirrorPath = line.getOptionValue("p", properties.getString(MONGOMIRROR_BINARY));
+            config.setMongomirrorBinary(mongoMirrorPath);
+            config.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
             sync.shardToRs();
         }
         

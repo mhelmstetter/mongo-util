@@ -2,10 +2,8 @@ package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.lt;
-import static com.mongodb.client.model.Filters.regex;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
@@ -18,11 +16,8 @@ import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,7 +26,6 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 
-import org.apache.commons.collections.MapUtils;
 import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BSONException;
@@ -56,14 +50,11 @@ import com.mongodb.MongoException;
 import com.mongodb.atlas.AtlasServiceGenerator;
 import com.mongodb.atlas.AtlasUtil;
 import com.mongodb.atlas.model.AtlasRole;
-import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
-import com.mongodb.client.model.Accumulators;
-import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Collation;
 import com.mongodb.client.model.CollationAlternate;
 import com.mongodb.client.model.CollationCaseFirst;
@@ -104,202 +95,38 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	private final static Document LOCALE_SIMPLE = new Document("locale", "simple");
 	
-	private String atlasApiPublicKey;
-	private String atlasApiPrivateKey;
-	private String atlasProjectId;
-
-	private String sourceClusterUri;
-	private String destClusterUri;
-	
-	private String sourceClusterPattern;
-	private String destClusterPattern;
-	
-	private String sourceRsPattern;
-	private String destRsPattern;
-	
-	// Advanced only, for manual configuration / overriding discovery
-	private String[] sourceRsManual;
-	private String[] destRsManual;
-	
-	private String destCsrsUri;
-
-	private boolean dropDestDbs;
-	private boolean dropDestDbsAndConfigMetadata;
-	private boolean nonPrivilegedMode = true;
-	private boolean doChunkCounts;
-	private boolean preserveUUIDs;
-	private String compressors;
-	private String oplogBasePath;
-	private String bookmarkFilePrefix;
-	private boolean reverseSync;
-	private boolean noIndexRestore;
-	private Integer collStatsThreshold;
-	private boolean dryRun;
-	private boolean shardToRs;
-	private boolean extendTtl;
-
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
-
-	private Map<String, String> sourceToDestShardMap = new HashMap<String, String>();
-	private Map<String, String> destToSourceShardMap = new HashMap<String, String>();
 	
-	private Map<String, String> altSourceToDestShardMap = new HashMap<String, String>();
+	private ChunkManager chunkManager;
 
 	private Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
 	private Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
 
-	private boolean filtered = false;
+	private SyncConfiguration config;
 
-	private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
-	private Set<String> includeDatabases = new HashSet<String>();
-	
-	// ugly, but we need a set of includeDatabases that we pass to mongomirror
-	// vs. the includes that we use elsewhere
-	private Set<String> includeDatabasesAll = new HashSet<String>();
-
-	private String[] shardMap;
-
-	private File mongomirrorBinary;
-
-	private long sleepMillis;
-
-	private String numParallelCollections;
-	private int mongoMirrorStartPort = 9001;
-
-	private String writeConcern;
-
-	private Long cleanupOrphansSleepMillis;
-
-	private String destVersion;
-	private List<Integer> destVersionArray;
-
-	private boolean sslAllowInvalidHostnames;
-	private boolean sslAllowInvalidCertificates;
-	
-	private boolean skipFlushRouterConfig;
-	
-    
-    CodecRegistry registry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
+	CodecRegistry registry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
 			fromProviders(new UuidCodecProvider(UuidRepresentation.STANDARD),
 					PojoCodecProvider.builder().automatic(true).build()));
 
 	DocumentCodec documentCodec = new DocumentCodec(registry);
 
-	public ShardConfigSync() {
+	public ShardConfigSync(SyncConfiguration config) {
 		logger.debug("ShardConfigSync starting");
+		this.config = config;
 	}
 	
 	@Override
     public Integer call() throws Exception {
 		return 0;
 	}
-
-	@SuppressWarnings("unchecked")
-	public void initializeShardMappings() {
-		logger.debug("Start initializeShardMappings()");
-		
-		String source = sourceClusterUri == null ? sourceClusterPattern : sourceClusterUri;
-		String dest = destClusterUri == null ? destClusterPattern : destClusterUri;
-		
-		
-		if (this.shardMap != null) {
-			// shardMap is for doing an uneven shard mapping, e.g. 10 shards on source
-			// down to 5 shards on destination
-			logger.debug("Custom n:m shard mapping");
-			
-			for (String mapping : shardMap) {
-				String[] mappings = mapping.split("\\|");
-				logger.debug(mappings[0] + " ==> " + mappings[1]);
-				sourceToDestShardMap.put(mappings[0], mappings[1]);
-			}
-			
-			
-			sourceShardClient = new ShardClient("source", source, sourceToDestShardMap.keySet());
-			destShardClient = new ShardClient("dest", dest, sourceToDestShardMap.values());
-			sourceShardClient.setRsPattern(sourceRsPattern);
-			destShardClient.setRsPattern(destRsPattern);
-			sourceShardClient.setRsStringsManual(sourceRsManual);
-			destShardClient.setRsStringsManual(destRsManual);
-			destShardClient.setCsrsUri(destCsrsUri);
-			
-			sourceShardClient.init();
-			destShardClient.init();
-			
-		} else {
-			logger.debug("Default 1:1 shard mapping");
-			
-			sourceShardClient = new ShardClient("source", source, null);
-			destShardClient = new ShardClient("dest", dest, null);
-			sourceShardClient.setRsPattern(sourceRsPattern);
-			destShardClient.setRsPattern(destRsPattern);
-			sourceShardClient.setRsStringsManual(sourceRsManual);
-			destShardClient.setRsStringsManual(destRsManual);
-			destShardClient.setCsrsUri(destCsrsUri);
-			
-			sourceShardClient.init();
-			destShardClient.init();
-			checkDestShardClientIsMongos();
-			
-			logger.debug("Source shard count: " + sourceShardClient.getShardsMap().size());
-			// default, just match up the shards 1:1
-			int index = 0;
-			
-			Map<String, Shard> sourceTertiaryMap = sourceShardClient.getTertiaryShardsMap();
-			
-			//Map<String, Shard> sourceShardsMap = sourceTertiaryMap.isEmpty() ?  sourceShardClient.getShardsMap() : sourceTertiaryMap;
-			Map<String, Shard> sourceShardsMap = sourceShardClient.getShardsMap();
-			
-			List<Shard> destList = new ArrayList<Shard>(destShardClient.getShardsMap().values());
-			
-			if (shardMap == null && sourceShardsMap.size() != destList.size() && !shardToRs) {
-				throw new IllegalArgumentException(String.format("disparate shard counts requires shardMap to be defined, sourceShardCount: %s, destShardCount: %s", 
-						sourceShardsMap.size(), destList.size()));
-			}
-			
-			if (! shardToRs) {
-				for (Iterator<Shard> i = sourceShardsMap.values().iterator(); i.hasNext();) {
-					Shard sourceShard = i.next();
-					Shard destShard = destList.get(index);
-					if (destShard != null) {
-						logger.debug(sourceShard.getId() + " ==> " + destShard.getId());
-						sourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
-					}
-					index++;
-				}
-				
-				index = 0;
-				for (Iterator<Shard> i = sourceTertiaryMap.values().iterator(); i.hasNext();) {
-					Shard sourceShard = i.next();
-					Shard destShard = destList.get(index);
-					if (destShard != null) {
-						logger.debug("altMapping: " + sourceShard.getId() + " ==> " + destShard.getId());
-						altSourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
-					}
-					index++;
-				}
-			}
-			
-			
-			
-		}
-		// reverse map
-		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
-		
-		if (sourceClusterPattern == null && ! sourceShardClient.isMongos()) {
-			throw new IllegalArgumentException("source connection must be to a mongos router");
-		}
-		
-		checkDestShardClientIsMongos();
-	}
 	
-	private void checkDestShardClientIsMongos() {
-		if (destRsPattern != null) {
-			return;
-		}
-		if (!destShardClient.isMongos() && !shardToRs) {
-			throw new IllegalArgumentException("dest connection must be to a mongos router unless using shardToRs");
-		}
+	public void initialize() {
+		chunkManager = new ChunkManager(config);
+		chunkManager.initalize();
+		this.sourceShardClient = config.getSourceShardClient();
+		this.destShardClient = config.getDestShardClient();
+		checkDestShardClientIsMongos();
 	}
 
 	public void shardCollections() {
@@ -309,23 +136,17 @@ public class ShardConfigSync implements Callable<Integer> {
 		shardDestinationCollections();
 	}
 	
-	private boolean filterCheck(String nsStr) {
-		Namespace ns = new Namespace(nsStr);
-		return filterCheck(ns);
+	public void flushRouterConfig() {
+		destShardClient.flushRouterConfig();
 	}
 	
-	private boolean filterCheck(Namespace ns) {
-		if (filtered && !includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
-			logger.trace("Namespace " + ns + " filtered, skipping");
-			return true;
+	private void checkDestShardClientIsMongos() {
+		if (config.getDestRsPattern() != null) {
+			return;
 		}
-		if (ns.getDatabaseName().equals("config") || ns.getDatabaseName().equals("admin")) {
-			return true;
+		if (!destShardClient.isMongos() && !config.isShardToRs()) {
+			throw new IllegalArgumentException("dest connection must be to a mongos router unless using shardToRs");
 		}
-		if (ns.getCollectionName().equals("system.profile") || ns.getCollectionName().equals("system.users")) {
-			return true;
-		}
-		return false;
 	}
 	
 	private void createCollections() {
@@ -337,7 +158,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				String collectionName = collectionInfo.getString("name");
 				Namespace ns = new Namespace(dbName, collectionName);
 				
-				if (filterCheck(ns)) {
+				if (config.filterCheck(ns)) {
 					continue;
 				}
 				String type = collectionInfo.getString("type");
@@ -419,7 +240,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				String collectionName = collectionInfo.getString("name");
 				String type = collectionInfo.getString("type");
 				Namespace ns = new Namespace(dbName, collectionName);
-				if (filterCheck(ns) || (filterSet != null && ! filterSet.contains(ns.getNamespace()))) {
+				if (config.filterCheck(ns) || (filterSet != null && ! filterSet.contains(ns.getNamespace()))) {
 					continue;
 				}
 				
@@ -470,64 +291,9 @@ public class ShardConfigSync implements Callable<Integer> {
 		
 	}
 	
-	/*public void syncIndexesShards(boolean createMissing, boolean extendTtl) {
-		logger.debug(String.format("Starting syncIndexes: extendTtl: %s", extendTtl));
-		destShardClient.populateShardMongoClients();
-		sourceShardClient.populateShardMongoClients();
-		
-		//Map<String, Document> map = sourceShardClient.getCollectionsMap();
-		//Set<String> filterSet = Collections.emptySet();
-		
-		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
-		Map<String, Map<Namespace, Set<IndexSpec>>> destShardsIndexSpecs = new HashMap<>();
-		
-		// TODO fix for shard to rs
-		for (Map.Entry<String, MongoClient> entry : destShardClient.getShardMongoClients().entrySet()) {
-			String shardName = entry.getKey();
-			MongoClient destClient = entry.getValue();
-			Map<Namespace, Set<IndexSpec>> destShardIndexSpecs = getIndexSpecs(destClient, null);
-			destShardsIndexSpecs.put(shardName, destShardIndexSpecs);
-		}
-		
-		for (Map.Entry<Namespace, Set<IndexSpec>> sourceEntry : sourceIndexSpecs.entrySet()) {
-            Namespace ns = sourceEntry.getKey();
-            Set<IndexSpec> sourceSpecs = sourceEntry.getValue();
-            
-        	for (Map.Entry<String, Map<Namespace, Set<IndexSpec>>> entry : destShardsIndexSpecs.entrySet()) {
-            	String shardName = entry.getKey();
-            	Map<Namespace, Set<IndexSpec>> shardIndexSpecsMap = entry.getValue();
-            	Set<IndexSpec> destSpec = shardIndexSpecsMap.get(ns);
-            	
-            	if (destSpec == null || sourceSpecs == null) {
-            		continue;
-            	}
-            	Set<IndexSpec> diff = Sets.difference(sourceSpecs, destSpec);
-            	
-            	if (diff.isEmpty()) {
-            		logger.debug(String.format("%s - all indexes match for shard %s, indexCount: %s", ns, shardName, sourceSpecs.size()));
-            		
-            		if (extendTtl) {
-            			destShardClient.extendTtls(shardName, ns, sourceSpecs);
-            		}
-            		
-            	} else {
-            		if (createMissing) {
-            			logger.debug(String.format("%s - missing dest indexes %s missing on shard %s, creating", ns, diff, shardName));
-                		destShardClient.createIndexes(shardName, ns, diff, extendTtl);
-            		} else {
-            			logger.debug(String.format("%s - missing dest indexes %s missing on shard %s", ns, diff, shardName));
-            		}
-            		
-            	}
-
-            }
-        }
-	}
-	*/
-	
 	public void syncUsers() throws IOException {
 		
-		AtlasUtil atlasUtil = new AtlasUtil(atlasApiPublicKey, atlasApiPrivateKey);
+		AtlasUtil atlasUtil = new AtlasUtil(config.atlasApiPublicKey, config.atlasApiPrivateKey);
 		
 //		List<Cluster> clusters = atlasUtil.getClusters(atlasProjectId);
 //		System.out.println(clusters);
@@ -538,7 +304,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		
 		for (AtlasRole role : atlasRoles) {
 			try {
-				AtlasRole result = atlasUtil.createCustomDbRole(atlasProjectId, role);
+				AtlasRole result = atlasUtil.createCustomDbRole(config.atlasProjectId, role);
 				logger.debug("Created custom db role: {}", role.getRoleName());
 			} catch (IOException e) {
 				logger.error("Error creating custom db role: {}", role.getRoleName(), e);
@@ -554,19 +320,10 @@ public class ShardConfigSync implements Callable<Integer> {
 		AtlasServiceGenerator.shutdown();
 	}
 	
-	public void createChunks() {
-		if (nonPrivilegedMode) {
-			createDestChunksUsingSplitCommand();
-		} else {
-			createDestChunksUsingInsert();
-			createShardTagsUsingInsert();
-		}
-	}
-	
 
 	public void syncMetadata() throws InterruptedException {
 		logger.debug(String.format("Starting metadata sync/migration, %s: %s", 
-				ShardConfigSyncApp.NON_PRIVILEGED, nonPrivilegedMode));
+				ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
 
 		stopBalancers();
 		//checkAutosplit();
@@ -575,28 +332,17 @@ public class ShardConfigSync implements Callable<Integer> {
 
 		sourceShardClient.populateCollectionsMap();
 		shardDestinationCollections();
-		createChunks();
-		compareAndMoveChunks(true, false);
+		chunkManager.createDestChunksUsingSplitCommand();
+		chunkManager.compareAndMoveChunks(true, false);
 
-		if (! skipFlushRouterConfig) {
+		if (! config.skipFlushRouterConfig) {
 			destShardClient.flushRouterConfig();
 		}
 	}
 	
-	private ChunkManager getChunkManager() {
-		ChunkManager chunkManager = new ChunkManager();
-		chunkManager.setSourceShardClient(sourceShardClient);
-		chunkManager.setDestShardClient(destShardClient);
-		chunkManager.setChunkQuery(getChunkQuery());
-		chunkManager.setFiltered(filtered);
-		chunkManager.setIncludeDatabases(includeDatabases);
-		chunkManager.setIncludeNamespaces(includeNamespaces);
-		return chunkManager;
-	}
-	
 	public void syncMetadataOptimized() {
 		logger.debug(String.format("Starting optimized metadata sync/migration, %s: %s", 
-				ShardConfigSyncApp.NON_PRIVILEGED, nonPrivilegedMode));
+				ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
 		
 		stopBalancers();
 		createCollections();
@@ -604,10 +350,9 @@ public class ShardConfigSync implements Callable<Integer> {
 		sourceShardClient.populateCollectionsMap();
 		shardDestinationCollections();
 		
-		ChunkManager chunkManager = getChunkManager();
 		chunkManager.createAndMoveChunks();
 		
-		if (! skipFlushRouterConfig) {
+		if (! config.skipFlushRouterConfig) {
 			destShardClient.flushRouterConfig();
 		}
 	}
@@ -615,7 +360,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	private void stopBalancers() {
 
 		logger.debug("stopBalancers started");
-		if (sourceClusterPattern == null) {
+		if (config.sourceClusterPattern == null) {
 			try {
 				sourceShardClient.stopBalancer();
 			} catch (MongoCommandException mce) {
@@ -625,7 +370,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			logger.debug("Skipping source balancer stop, patterned uri");
 		}
 		
-		if (destClusterPattern == null) {
+		if (config.destClusterPattern == null) {
 			try {
 				destShardClient.stopBalancer();
 			} catch (MongoCommandException mce) {
@@ -645,439 +390,14 @@ public class ShardConfigSync implements Callable<Integer> {
 	public void disableSourceAutosplit() {
 		sourceShardClient.disableAutosplit();
 	}
-	
-	@SuppressWarnings({ "rawtypes", "unchecked" })
-	private Document getChunkQuery() {
-		Document chunkQuery = new Document();
-		if (includeNamespaces.size() > 0 || includeDatabases.size() > 0) {
-			List inList = new ArrayList();
-			List orList = new ArrayList();
-			// Document orDoc = new Document("$or", orList);
-			chunkQuery.append("$or", orList);
-			Document inDoc = new Document("ns", new Document("$in", inList));
-			orList.add(inDoc);
-			// orDoc.append("ns", inDoc);
-			for (Namespace includeNs : includeNamespaces) {
-				inList.add(includeNs.getNamespace());
-			}
-			for (String dbName : includeDatabases) {
-				orList.add(regex("ns", "^" + dbName + "\\."));
-			}
-		}
-		return chunkQuery;
-	}
-	
-	/**
-	 * Create chunks on the dest side using the "split" runCommand NOTE that this
-	 * will be very slow b/c of the locking process that happens with each chunk
-	 */
-	private void createDestChunksUsingSplitCommand() {
-		logger.debug("createDestChunksUsingSplitCommand started");
-		
-		Document chunkQuery = getChunkQuery();
-		logger.debug("chunkQuery: {}", chunkQuery);
-		
-		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
-		destShardClient.loadChunksCache(chunkQuery);
 
-		String lastNs = null;
-		int currentCount = 0;
-
-		for (RawBsonDocument chunk : sourceChunksCache.values()) {
-
-			String ns = chunk.getString("ns").getValue();
-			if (filterCheck(ns)) {
-				continue;
-			}
-			
-			destShardClient.createChunk(chunk, true, true);
-			//nsComplete = updateChunkCompletionStatus(chunk, ns);
-			currentCount++;
-			if (!ns.equals(lastNs) && lastNs != null) {
-				logger.debug(String.format("%s - created %s chunks", lastNs, currentCount));
-				currentCount = 0;
-			}
-			lastNs = ns;
-		}
-		logger.debug(String.format("%s - created %s chunks", lastNs, currentCount));
-		logger.debug("createDestChunksUsingSplitCommand complete");
-	}
-	
-	// TODO incomplete
-	private void createMergedChunks() {
-		logger.debug("createMergedChunks started");
-		
-		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
-
-		Document chunkQuery = getChunkQuery();
-		
-		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find(chunkQuery).noCursorTimeout(true)
-				.sort(Sorts.ascending("ns", "min"));
-
-		String lastNs = null;
-		int currentCount = 0;
-
-		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
-
-			RawBsonDocument chunk = sourceChunksIterator.next();
-			String ns = chunk.getString("ns").getValue();
-			if (filterCheck(ns)) {
-				continue;
-			}
-			
-			if (!ns.equals(lastNs) && lastNs != null) {
-				logger.debug(String.format("%s - created %s chunks", lastNs, ++currentCount));
-				currentCount = 0;
-			}
-			
-			destShardClient.createChunk(chunk, true, true);
-			lastNs = ns;
-			currentCount++;
-			
-		}
-		logger.debug("createDestChunksUsingSplitCommand complete");
-	}
-
-	private String getAltMapping(String sourceShardName) {
-		if (! altSourceToDestShardMap.isEmpty()) {
-			String newKey = altSourceToDestShardMap.get(sourceShardName);
-			return newKey;
-			
-		} else {
-			return sourceToDestShardMap.get(sourceShardName);
-		}
-	}
-	
-	private String getSourceToDestShardMapping(String sourceShardName) {
-		if (! altSourceToDestShardMap.isEmpty()) {
-			String newKey = altSourceToDestShardMap.get(sourceShardName);
-			String result = destToSourceShardMap.get(newKey);
-			return result;
-			
-		} else {
-			return sourceToDestShardMap.get(sourceShardName);
-		}
-	}
-
-	@SuppressWarnings("unchecked")
-	private void createShardTagsUsingInsert() {
-		logger.debug("createShardTagsUsingInsert started");
-
-		MongoCollection<Document> sourceShardsColl = sourceShardClient.getShardsCollection();
-		FindIterable<Document> sourceShards = sourceShardsColl.find(exists("tags.0"));
-		for (Iterator<Document> it = sourceShards.iterator(); it.hasNext();) {
-			Document shard = it.next();
-			String sourceShardName = shard.getString("_id");
-			String mappedShard = sourceToDestShardMap.get(sourceShardName);
-			List<String> tags = (List<String>) shard.get("tags");
-
-			for (String tag : tags) {
-				Document command = new Document("addShardToZone", mappedShard).append("zone", tag);
-				logger.debug(String.format("addShardToZone('%s', '%s')", mappedShard, tag));
-				destShardClient.adminCommand(command);
-			}
-		}
-
-		MongoCollection<Document> sourceTagsColl = sourceShardClient.getTagsCollection();
-		FindIterable<Document> sourceTags = sourceTagsColl.find().sort(Sorts.ascending("ns", "min"));
-
-		for (Iterator<Document> it = sourceTags.iterator(); it.hasNext();) {
-
-			Document tag = it.next();
-			logger.trace("tag: " + tag);
-			String ns = tag.getString("ns");
-			Namespace sourceNs = new Namespace(ns);
-			if (filterCheck(sourceNs)) {
-				continue;
-			}
-
-			Document command = new Document("updateZoneKeyRange", ns);
-			command.append("min", tag.get("min"));
-			command.append("max", tag.get("max"));
-			command.append("zone", tag.get("tag"));
-			destShardClient.adminCommand(command);
-		}
-		logger.debug("createShardTagsUsingInsert complete");
-	}
-	
-	/**
-	 * return a map that aggregates all chunks, listing for each namespace
-	 * what shards have chunks
-	 */
-	private Map<String, Set<String>> getChunksNsToShardsMap(Document chunkQuery) {
-		AggregateIterable<Document> results = sourceShardClient.getChunksCollection().aggregate(Arrays.asList(
-			Aggregates.match(chunkQuery),
-			Aggregates.group("$ns", Accumulators.addToSet("shards", "$shard"))
-        ));
-		
-		Map<String, Set<String>> nsToShardsMap = new HashMap<>();
-        for (Document result : results) {
-        	String ns = result.getString("_id");
-        	List<String> shards = result.getList("shards",  String.class);
-        	Set<String> mappedShards = new HashSet<>(shards.size());
-        	for (String shard : shards) {
-        		String mappedShard = this.getAltMapping(shard);
-        		mappedShards.add(mappedShard);
-        	}
-        	nsToShardsMap.put(ns, mappedShards);
-        }
-        nsToShardsMap.remove("config.system.sessions");
-        return nsToShardsMap;
-	}
-
-	/**
-	 * Alternative to createDestChunksUsingSplitCommand(). Preferred approach for
-	 * simplicity and performance, but this requires special permissions in Atlas.
-	 */
-	private void createDestChunksUsingInsert() {
-		logger.debug("createDestChunksUsingInsert started");
-		MongoCollection<RawBsonDocument> sourceChunksColl = sourceShardClient.getChunksCollectionRaw();
-		//MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
-		ReplaceOptions replaceOptions = new ReplaceOptions().upsert(true);
-		Document chunkQuery = getChunkQuery();
-		destShardClient.loadChunksCache(chunkQuery); // load it again to get new stuff
-		Map<String, Set<String>> nsToShardsMap = getChunksNsToShardsMap(chunkQuery);
-		
-		destShardClient.populateCollectionsMap();
-		Map<String, Document> collectionsMap = destShardClient.getCollectionsMap();
-		
-		
-		FindIterable<RawBsonDocument> sourceChunksIt = sourceChunksColl.find(chunkQuery)
-				.sort(Sorts.ascending("ns", "min"));
-		List<RawBsonDocument> sourceChunks = new ArrayList<>();
-		sourceChunksIt.into(sourceChunks);
-
-		String lastNs = null;
-		int currentCount = 0;
-		int ts = 1;
-
-		for (RawBsonDocument chunk : sourceChunks) {
-
-			String ns = chunk.getString("ns").getValue();
-			
-			Document collectionMeta = collectionsMap.get(ns);
-			Namespace sourceNs = new Namespace(ns);
-			if (filterCheck(sourceNs)) {
-				continue;
-			}
-			
-			String sourceShardName = chunk.getString("shard").getValue();
-			//String mappedShard = sourceToDestShardMap.get(sourceShardName);
-			String mappedShard = this.getAltMapping(sourceShardName);
-			if (mappedShard == null) {
-				throw new IllegalArgumentException(String.format("mappedShard is null, sourceShardName: %s, chunk: %s", 
-						sourceShardName, chunk));
-			}
-			
-			
-			
-			// Here we intentionally set the shard to the incorrect shard
-			// we only need to do this for 1 chunk per namespace per shard.
-			// This is done so that moveChunk causes the collection UUID to be created.
-			// If we don't do this we would get UUID mismatches.
-			boolean firstChunk = false;
-			Set<String> shards = nsToShardsMap.get(ns);
-			if (shards.size() > 1 || !shards.contains(mappedShard)) {
-				Set<String> t1 = new HashSet<>();
-				t1.add(mappedShard);
-				Set<String> diff = Sets.difference(shards, t1);
-				if (! diff.isEmpty()) {
-					firstChunk = true;
-					String first = diff.iterator().next();
-					mappedShard = first;
-					shards.remove(mappedShard);
-				}
-			}
-			
-			if (firstChunk) {
-				destShardClient.createChunk(chunk, true, true);
-			} else {
-				Document newDoc = chunk.decode(documentCodec);
-				newDoc.append("shard", mappedShard);
-				newDoc.append("lastmod", new BsonTimestamp(ts++, 0));
-				newDoc.append("lastmodEpoch", collectionMeta.get("lastmodEpoch"));
-				
-				if (newDoc.containsKey("history")) {
-					newDoc.remove("history");
-				}
-
-				try {
-					// hack to avoid "Invalid BSON field name _id.x" for compound shard keys
-					RawBsonDocument rawDoc = new RawBsonDocument(newDoc, documentCodec);
-					destShardClient.getChunksCollectionRaw().replaceOne(eq("_id", rawDoc.get("_id")), rawDoc, replaceOptions);
-
-				} catch (MongoException mce) {
-					logger.error(String.format("command error for namespace %s", ns), mce);
-				}
-			}
-			
-			if (!ns.equals(lastNs) && lastNs != null) {
-				logger.debug(String.format("%s - created %s chunks", lastNs, ++currentCount));
-				currentCount = 0;
-			}
-
-			lastNs = ns;
-			currentCount++;
-		}
-
-		logger.debug("createDestChunksUsingInsert complete");
-	}
 
 	public void compareChunks() {
-		compareAndMoveChunks(false, false);
-	}
-
-	public void diffChunks(String dbName) {
-
-		Map<String, Document> sourceChunkMap = new HashMap<String, Document>();
-		MongoCollection<Document> sourceChunksColl = sourceShardClient.getChunksCollection();
-		FindIterable<Document> sourceChunks = sourceChunksColl.find(regex("ns", "^" + dbName + "\\."))
-				.sort(Sorts.ascending("ns", "min"));
-		for (Document sourceChunk : sourceChunks) {
-			String id = sourceChunk.getString("_id");
-			sourceChunkMap.put(id, sourceChunk);
-		}
-		logger.debug("Done reading source chunks, count = " + sourceChunkMap.size());
-
-		logger.debug("Reading destination chunks");
-		Map<String, Document> destChunkMap = new HashMap<String, Document>();
-		MongoCollection<Document> destChunksColl = destShardClient.getChunksCollection();
-		FindIterable<Document> destChunks = destChunksColl.find(regex("ns", "^" + dbName + "\\."))
-				.sort(Sorts.ascending("ns", "min"));
-
-		for (Document destChunk : destChunks) {
-			String id = destChunk.getString("_id");
-			destChunkMap.put(id, destChunk);
-
-			Document sourceChunk = sourceChunkMap.get(id);
-			if (sourceChunk == null) {
-				logger.debug("Source chunk not found: " + id);
-				continue;
-			}
-			String sourceShard = sourceChunk.getString("shard");
-			String mappedShard = sourceToDestShardMap.get(sourceShard);
-			if (mappedShard == null) {
-				throw new IllegalArgumentException(
-						"No destination shard mapping found for source shard: " + sourceShard);
-			}
-
-			String destShard = destChunk.getString("shard");
-			if (!destShard.equals(mappedShard)) {
-				logger.warn("Chunk on wrong shard: " + id);
-			}
-
-		}
-		logger.debug("Done reading destination chunks, count = " + destChunkMap.size());
-
+		chunkManager.compareAndMoveChunks(false, false);
 	}
 	
-	private Map<String, String> readDestinationChunks() {
-		logger.debug("Reading destination chunks");
-		Map<String, String> destChunkMap = new HashMap<String, String>();
-		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
-		FindIterable<RawBsonDocument> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min"));
-
-		for (RawBsonDocument destChunk : destChunks) {
-			String id = ShardClient.getIdFromChunk(destChunk);
-			//logger.debug("dest id: " + id);
-			String shard = destChunk.getString("shard").getValue();
-			destChunkMap.put(id, shard);
-		}
-		logger.debug("Done reading destination chunks, count = " + destChunkMap.size());
-		return destChunkMap;
-	}
-
 	public void compareAndMoveChunks(boolean doMove, boolean ignoreMissing) {
-
-		Map<String, String> destChunkMap = readDestinationChunks();
-		Document chunkQuery = getChunkQuery();
-		logger.debug("chunkQuery: {}", chunkQuery);
-		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
-		destShardClient.loadChunksCache(chunkQuery);
-
-		String lastNs = null;
-		int currentCount = 0;
-		int movedCount = 0;
-		int mismatchedCount = 0;
-		int matchedCount = 0;
-		int missingCount = 0;
-		int sourceTotalCount = 0;
-		int errorCount = 0;
-
-		for (RawBsonDocument sourceChunk : sourceChunksCache.values()) {
-			sourceTotalCount++;
-			String sourceId = ShardClient.getIdFromChunk(sourceChunk);
-			//logger.debug("source id: " + sourceId);
-			
-			String sourceNs = sourceChunk.getString("ns").getValue();
-			Namespace sourceNamespace = new Namespace(sourceNs);
-			if (filterCheck(sourceNamespace)) {
-				continue;
-			}
-
-			if (!sourceNs.equals(lastNs)) {
-				if (currentCount > 0) {
-					logger.debug(String.format("compareAndMoveChunks - %s - complete, compared %s chunks", lastNs,
-							currentCount));
-					currentCount = 0;
-				}
-				logger.debug(String.format("compareAndMoveChunks - %s - starting", sourceNs));
-			} else if (currentCount > 0 && currentCount % 10000 == 0) {
-				logger.debug(
-						String.format("compareAndMoveChunks - %s - currentCount: %s chunks", sourceNs, currentCount));
-			}
-
-			RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
-			RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
-			String sourceShard = sourceChunk.getString("shard").getValue();
-			String mappedShard = getAltMapping(sourceShard);
-			//String mappedShard = sourceToDestShardMap.get(sourceShard);
-			if (mappedShard == null) {
-				throw new IllegalArgumentException(
-						"No destination shard mapping found for source shard: " + sourceShard);
-			}
-			
-			//String sourceId = sourceChunk.getString("_id").getValue();
-			String destShard = destChunkMap.get(sourceId);
-
-			if (destShard == null && !ignoreMissing) {
-				logger.error("Chunk with _id " + sourceId + " not found on destination");
-				missingCount++;
-
-			} else if (doMove && !mappedShard.equals(destShard)) {
-				//logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
-				if (doMove) {
-					boolean moveSuccess = destShardClient.moveChunk(sourceNs, sourceMin, sourceMax, mappedShard, ignoreMissing);
-					if (! moveSuccess) {
-						errorCount++;
-					}
-				}
-
-				movedCount++;
-
-			} else if (!doMove) {
-				if (!mappedShard.equals(destShard)) {
-					logger.debug(String.format("mismatch: %s ==> %s", destShard, mappedShard));
-					logger.debug("dest chunk is on wrong shard for sourceChunk: " + sourceChunk);
-					mismatchedCount++;
-				}
-				matchedCount++;
-			}
-
-			currentCount++;
-			lastNs = sourceNs;
-		}
-		logger.debug(String.format("compareAndMoveChunks - %s - complete, compared %s chunks", lastNs, currentCount));
-
-		if (doMove) {
-			logger.debug(String.format("compareAndMoveChunks complete, sourceCount: %s, destCount: %s",
-					sourceTotalCount, destChunkMap.size()));
-		} else {
-			logger.debug(String.format(
-					"compareAndMoveChunks complete, sourceCount: %s, destCount: %s, mismatchedCount: %s, missingCount: %s",
-					sourceTotalCount, destChunkMap.size(), mismatchedCount, missingCount));
-		}
-
+		chunkManager.compareAndMoveChunks(doMove, ignoreMissing);
 	}
 
 	@SuppressWarnings("unchecked")
@@ -1098,7 +418,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		for (Document sourceInfo : sourceDatabaseInfo) {
 			String dbName = sourceInfo.getString("name");
 
-			if (filtered && !includeDatabasesAll.contains(dbName) || dbName.equals("config")) {
+			if (config.filtered && !config.getIncludeDatabasesAll().contains(dbName) || dbName.equals("config")) {
 				logger.debug("Ignore " + dbName + " for compare, filtered");
 				continue;
 			}
@@ -1120,7 +440,7 @@ public class ShardConfigSync implements Callable<Integer> {
 					}
 					
 					Namespace ns = new Namespace(dbName, collectionName);
-					if (filtered && !includeNamespaces.contains(ns)) {
+					if (config.filtered && !config.getIncludeNamespaces().contains(ns)) {
 						//logger.debug("include: " + includeNamespaces);
 						continue;
 					}
@@ -1180,7 +500,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				}
 				
 				Namespace ns = new Namespace(dbName, collectionName);
-				if (filterCheck(ns)) {
+				if (config.filterCheck(ns)) {
 					continue;
 				}
 				
@@ -1256,7 +576,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				}
 				
 				Namespace ns = new Namespace(dbName, collectionName);
-				if (filterCheck(ns)) {
+				if (config.filterCheck(ns)) {
 					continue;
 				}
 				
@@ -1326,7 +646,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				}
 				
 				Namespace ns = new Namespace(databaseName, collectionName);
-				if (filtered && !includeNamespaces.contains(ns)) {
+				if (config.filtered && !config.getIncludeNamespaces().contains(ns)) {
 					logger.debug("compareChunkCounts skipping {}, filtered", ns);
 					continue;
 				}
@@ -1401,13 +721,14 @@ public class ShardConfigSync implements Callable<Integer> {
 				}
 
 				for (Document collectionInfo : db.listCollections()) {
-					String collectionName = (String) collectionInfo.get("name");
-					if (collectionName.endsWith(".create")) {
+					String collectionName = collectionInfo.getString("name");
+					String type = collectionInfo.getString("type");
+					if (collectionName.endsWith(".create") || "view".equals(type)) {
 						continue;
 					}
 					Namespace ns = new Namespace(databaseName, collectionName);
 					
-					if (filterCheck(ns)) {
+					if (config.filterCheck(ns)) {
 						continue;
 					}
 					
@@ -1420,6 +741,9 @@ public class ShardConfigSync implements Callable<Integer> {
 					}
 					collectionUuidMappings.put(ns, uuidMapping);
 
+					if (uuid == null) {
+						System.out.println("wtf");
+					}
 					List<String> shardNames = uuidMapping.get(uuid);
 					if (shardNames == null) {
 						shardNames = new ArrayList<>();
@@ -1481,7 +805,7 @@ public class ShardConfigSync implements Callable<Integer> {
 
 			String nsStr = (String) sourceColl.get("_id");
 			Namespace ns = new Namespace(nsStr);
-			if (filterCheck(ns)) {
+			if (config.filterCheck(ns)) {
 				continue;
 			}
 
@@ -1501,7 +825,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			String nsStr = (String) sourceColl.get("_id");
 			Namespace ns = new Namespace(nsStr);
 
-			if (filterCheck(ns)) {
+			if (config.filterCheck(ns)) {
 				continue;
 			}
 			shardCollection(sourceColl);
@@ -1594,7 +918,7 @@ public class ShardConfigSync implements Callable<Integer> {
 
 			String nsStr = (String) sourceColl.get("_id");
 			Namespace ns = new Namespace(nsStr);
-			if (filterCheck(ns)) {
+			if (config.filterCheck(ns)) {
 				continue;
 			}
 
@@ -1642,13 +966,13 @@ public class ShardConfigSync implements Callable<Integer> {
 					|| databaseName.contains("$")) {
 				continue;
 			}
-			if (filtered && !includeDatabasesAll.contains(databaseName)) {
+			if (config.filtered && !config.getIncludeDatabasesAll().contains(databaseName)) {
 				logger.trace("Database " + databaseName + " filtered, not sharding on destination");
 				continue;
 			}
 			String primary = database.getString("primary");
-			String xx = sourceToDestShardMap.get(primary);
-			String mappedPrimary = getAltMapping(primary);
+			//String xx = sourceToDestShardMap.get(primary);
+			String mappedPrimary = chunkManager.getShardMapping(primary);
 			logger.debug("database: " + databaseName + ", primary: " + primary + ", mappedPrimary: " + mappedPrimary);
             if (mappedPrimary == null) {
                 logger.warn("Shard mapping not found for shard " + primary);
@@ -1671,8 +995,8 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 
 			// this needs to be the atlas-xxx id
-			String zz = destToSourceShardMap.get(mappedPrimary);
-			MongoClient primaryClient = sourceShardClient.getShardMongoClient(zz);
+			String shardId = chunkManager.getDestToSourceShardMapping(mappedPrimary);
+			MongoClient primaryClient = sourceShardClient.getShardMongoClient(shardId);
 			List<String> primaryDatabasesList = new ArrayList<String>();
 			primaryClient.listDatabaseNames().into(primaryDatabasesList);
 			if (!primaryDatabasesList.contains(databaseName)) {
@@ -1717,7 +1041,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		for (Document database : databases) {
 			String databaseName = database.getString("_id");
 
-			if (filtered && !includeDatabases.contains(databaseName)) {
+			if (config.filtered && !config.getIncludeDatabases().contains(databaseName)) {
 				logger.trace("Database " + databaseName + " filtered, not dropping on destination");
 				continue;
 			} else {
@@ -1738,7 +1062,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		for (Document database : databases) {
 			String databaseName = database.getString("_id");
 
-			if (filtered && !includeDatabases.contains(databaseName)) {
+			if (config.filtered && !config.getIncludeDatabases().contains(databaseName)) {
 				logger.trace("Database " + databaseName + " filtered, not dropping on destination");
 				continue;
 			} else {
@@ -1754,73 +1078,26 @@ public class ShardConfigSync implements Callable<Integer> {
 		logger.debug("cleanupOrphans()");
 		sourceShardClient.populateCollectionsMap();
 		sourceShardClient.populateShardMongoClients();
-		CleanupOrphaned cleaner = new CleanupOrphaned(sourceShardClient, includeNamespaces);
-		cleaner.cleanupOrphans(cleanupOrphansSleepMillis);
+		CleanupOrphaned cleaner = new CleanupOrphaned(sourceShardClient, config.getIncludeNamespaces());
+		cleaner.cleanupOrphans(config.cleanupOrphansSleepMillis);
 	}
 
 	public void cleanupOrphansDest() {
 		logger.debug("cleanupOrphansDest()");
 		destShardClient.populateCollectionsMap();
 		destShardClient.populateShardMongoClients();
-		CleanupOrphaned cleaner = new CleanupOrphaned(destShardClient, includeNamespaces);
-		cleaner.cleanupOrphans(cleanupOrphansSleepMillis);
+		CleanupOrphaned cleaner = new CleanupOrphaned(destShardClient, config.getIncludeNamespaces());
+		cleaner.cleanupOrphans(config.cleanupOrphansSleepMillis);
 	}
 
-	public String getSourceClusterUri() {
-		return sourceClusterUri;
-	}
-
-	public void setSourceClusterUri(String sourceClusterUri) {
-		this.sourceClusterUri = sourceClusterUri;
-	}
-
-	public String getDestClusterUri() {
-		return destClusterUri;
-	}
-
-	public void setDestClusterUri(String destClusterUri) {
-		this.destClusterUri = destClusterUri;
-	}
-
-	public boolean isDropDestDbs() {
-		return dropDestDbs;
-	}
-
-	public void setDropDestDbs(boolean dropDestinationCollectionsIfExisting) {
-		this.dropDestDbs = dropDestinationCollectionsIfExisting;
-	}
-
-	public void setDoChunkCounts(boolean doChunkCounts) {
-		this.doChunkCounts = doChunkCounts;
-	}
-
-	public void setNamespaceFilters(String[] namespaceFilterList) {
-		if (namespaceFilterList == null) {
-			return;
-		}
-		filtered = true;
-		for (String nsStr : namespaceFilterList) {
-			if (nsStr.contains(".")) {
-				Namespace ns = new Namespace(nsStr);
-				includeNamespaces.add(ns);
-				includeDatabasesAll.add(ns.getDatabaseName());
-			} else {
-				includeDatabases.add(nsStr);
-				includeDatabasesAll.add(nsStr);
-			}
-		}
-	}
-
-	public void setShardMappings(String[] shardMap) {
-		this.shardMap = shardMap;
-	}
+	
 
 	public void shardToRs() throws ExecuteException, IOException {
 
 		logger.debug("shardToRs() starting");
 
 		List<MongoMirrorRunner> mongomirrors = new ArrayList<>(sourceShardClient.getShardsMap().size());
-		int httpStatusPort = mongoMirrorStartPort;
+		int httpStatusPort = config.mongoMirrorStartPort;
 		for (Shard source : sourceShardClient.getShardsMap().values()) {
 			logger.debug("sourceShard: " + source.getId());
 			MongoMirrorRunner mongomirror = new MongoMirrorRunner(source.getId());
@@ -1862,11 +1139,11 @@ public class ShardConfigSync implements Callable<Integer> {
 				mongomirror.setDestinationNoSSL(true);
 			}
 
-			for (Namespace ns : includeNamespaces) {
+			for (Namespace ns : config.getIncludeNamespaces()) {
 				mongomirror.addIncludeNamespace(ns);
 			}
 
-			for (String dbName : includeDatabases) {
+			for (String dbName : config.getIncludeDatabases()) {
 				mongomirror.addIncludeDatabase(dbName);
 			}
 
@@ -1880,7 +1157,7 @@ public class ShardConfigSync implements Callable<Integer> {
 //                }
 //            }
 
-			mongomirror.setMongomirrorBinary(mongomirrorBinary);
+			mongomirror.setMongomirrorBinary(config.mongomirrorBinary);
 
 			String dateStr = formatter.format(LocalDateTime.now());
 			
@@ -1888,11 +1165,11 @@ public class ShardConfigSync implements Callable<Integer> {
 			//mongomirror.setBookmarkFile(String.format("%s_%s.timestamp", source.getId(), dateStr));
 			mongomirror.setBookmarkFile(source.getId() + ".timestamp");
 
-			mongomirror.setNumParallelCollections(numParallelCollections);
+			mongomirror.setNumParallelCollections(config.numParallelCollections);
 			mongomirror.setHttpStatusPort(httpStatusPort++);
-			mongomirror.execute(dryRun);
+			mongomirror.execute(config.dryRun);
 			try {
-				Thread.sleep(sleepMillis);
+				Thread.sleep(config.sleepMillis);
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -1973,7 +1250,7 @@ public class ShardConfigSync implements Callable<Integer> {
 
 		List<MongoMirrorRunner> mongomirrors = new ArrayList<>(sourceShardClient.getShardsMap().size());
 		
-		int httpStatusPort = mongoMirrorStartPort;
+		int httpStatusPort = config.mongoMirrorStartPort;
 
 		for (Shard source : sourceShardClient.getShardsMap().values()) {
 			
@@ -1996,7 +1273,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			ClusterDescription cd = destShardClient.getMongoClient().getClusterDescription();
 
 			// destMongoClientURI.getCredentials().getSource();
-			String destShardId = sourceToDestShardMap.get(source.getId());
+			String destShardId = chunkManager.getShardMapping(source.getId());
 			Shard dest = destShardClient.getShardsMap().get(destShardId);
 			String host = dest.getHost();
 			
@@ -2016,17 +1293,17 @@ public class ShardConfigSync implements Callable<Integer> {
 				// TODO - this is only in "hacked" mongomirror
 				mongomirror.setDestinationNoSSL(true);
 			}
-			mongomirror.setExtendTtl(extendTtl);
+			mongomirror.setExtendTtl(config.extendTtl);
 
-			for (Namespace ns : includeNamespaces) {
+			for (Namespace ns : config.getIncludeNamespaces()) {
 				mongomirror.addIncludeNamespace(ns);
 			}
 
-			for (String dbName : includeDatabases) {
+			for (String dbName : config.getIncludeDatabases()) {
 				mongomirror.addIncludeDatabase(dbName);
 			}
 
-			mongomirror.setMongomirrorBinary(mongomirrorBinary);
+			mongomirror.setMongomirrorBinary(config.mongomirrorBinary);
 			
 //			String dateStr = null;
 //			if (bookmarkFilePrefix != null) {
@@ -2037,28 +1314,28 @@ public class ShardConfigSync implements Callable<Integer> {
 //			mongomirror.setBookmarkFile(String.format("%s_%s.timestamp", dateStr, source.getId()));
 			mongomirror.setBookmarkFile(source.getId() + ".timestamp");
 
-			mongomirror.setNumParallelCollections(numParallelCollections);
-			mongomirror.setWriteConcern(writeConcern);
+			mongomirror.setNumParallelCollections(config.numParallelCollections);
+			mongomirror.setWriteConcern(config.writeConcern);
 			mongomirror.setHttpStatusPort(httpStatusPort++);
 
-			logger.debug("noIndexRestore=" + noIndexRestore);
-			if (noIndexRestore) {
-				mongomirror.setNoIndexRestore(noIndexRestore);
+			logger.debug("noIndexRestore=" + config.noIndexRestore);
+			if (config.noIndexRestore) {
+				mongomirror.setNoIndexRestore(config.noIndexRestore);
 			}
-			if (compressors != null) {
-				mongomirror.setCompressors(compressors);
+			if (config.compressors != null) {
+				mongomirror.setCompressors(config.compressors);
 			}
-			if (oplogBasePath != null) {
-				mongomirror.setOplogPath(String.format("%s/%s", oplogBasePath, source.getId()));
+			if (config.oplogBasePath != null) {
+				mongomirror.setOplogPath(String.format("%s/%s", config.oplogBasePath, source.getId()));
 			}
-			if (collStatsThreshold != null) {
-				mongomirror.setCollStatsThreshold(collStatsThreshold);
+			if (config.collStatsThreshold != null) {
+				mongomirror.setCollStatsThreshold(config.collStatsThreshold);
 			}
 			
-			mongomirror.execute(dryRun);
+			mongomirror.execute(config.dryRun);
 			
 			try {
-				Thread.sleep(sleepMillis);
+				Thread.sleep(config.sleepMillis);
 			} catch (InterruptedException e) {
 			}
 		}
@@ -2068,7 +1345,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 	
 	public void pollMongomirrorStatus(List<MongoMirrorRunner> mongomirrors) {
-		if (dryRun) {
+		if (config.dryRun) {
 			return;
 		}
 		
@@ -2112,171 +1389,8 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	public void setMongomirrorBinary(String binaryPath) {
 		if (binaryPath != null) {
-			this.mongomirrorBinary = new File(binaryPath);
+			this.config.mongomirrorBinary = new File(binaryPath);
 		}
 	}
 
-	public void setSleepMillis(String optionValue) {
-		if (optionValue != null) {
-			this.sleepMillis = Long.parseLong(optionValue);
-		}
-	}
-
-	public void setNumParallelCollections(String numParallelCollections) {
-		this.numParallelCollections = numParallelCollections;
-	}
-
-	public void setNonPrivilegedMode(boolean nonPrivilegedMode) {
-		this.nonPrivilegedMode = nonPrivilegedMode;
-	}
-
-	public void flushRouterConfig() {
-		destShardClient.flushRouterConfig();
-	}
-
-	public void setDropDestDbsAndConfigMetadata(boolean dropDestinationConfigMetadata) {
-		this.dropDestDbsAndConfigMetadata = dropDestinationConfigMetadata;
-	}
-
-	public void setSslAllowInvalidHostnames(boolean sslAllowInvalidHostnames) {
-		this.sslAllowInvalidHostnames = sslAllowInvalidHostnames;
-	}
-
-	public void setSslAllowInvalidCertificates(boolean sslAllowInvalidCertificates) {
-		this.sslAllowInvalidCertificates = sslAllowInvalidCertificates;
-	}
-
-	public void setPreserveUUIDs(boolean preserveUUIDs) {
-		this.preserveUUIDs = preserveUUIDs;
-	}
-
-	public void setCompressors(String compressors) {
-		this.compressors = compressors;
-	}
-
-	public void setWriteConcern(String writeConcern) {
-		this.writeConcern = writeConcern;
-	}
-
-	public void setCleanupOrphansSleepMillis(String sleepMillisString) {
-		if (sleepMillisString != null) {
-			this.cleanupOrphansSleepMillis = Long.parseLong(sleepMillisString);
-		}
-	}
-	
-	public void setMongoMirrorStartPort(int mongoMirrorStartPort) {
-		this.mongoMirrorStartPort = mongoMirrorStartPort;
-	}
-
-	public void setOplogBasePath(String oplogBasePath) {
-		this.oplogBasePath = oplogBasePath;
-	}
-
-	public void setBookmarkFilePrefix(String bookmarkFilePrefix) {
-		this.bookmarkFilePrefix = bookmarkFilePrefix;
-	}
-
-	public void setReverseSync(boolean reverseSync) {
-		this.reverseSync = reverseSync;
-	}
-
-	public void setNoIndexRestore(boolean noIndexRestore) {
-		this.noIndexRestore = noIndexRestore;
-	}
-
-	public boolean isSkipFlushRouterConfig() {
-		return skipFlushRouterConfig;
-	}
-
-	public void setSkipFlushRouterConfig(boolean skipFlushRouterConfig) {
-		this.skipFlushRouterConfig = skipFlushRouterConfig;
-	}
-
-	public String getSourceClusterPattern() {
-		return sourceClusterPattern;
-	}
-
-	public void setSourceClusterPattern(String sourceClusterPattern) {
-		this.sourceClusterPattern = sourceClusterPattern;
-	}
-
-	public String getDestClusterPattern() {
-		return destClusterPattern;
-	}
-
-	public void setDestClusterPattern(String destClusterPattern) {
-		this.destClusterPattern = destClusterPattern;
-	}
-
-	public String getSourceRsPattern() {
-		return sourceRsPattern;
-	}
-
-	public void setSourceRsPattern(String sourceRsPattern) {
-		this.sourceRsPattern = sourceRsPattern;
-	}
-
-	public String getDestRsPattern() {
-		return destRsPattern;
-	}
-
-	public void setDestRsPattern(String destRsPattern) {
-		this.destRsPattern = destRsPattern;
-	}
-
-	public int getCollStatsThreshold() {
-		return collStatsThreshold;
-	}
-
-	public void setCollStatsThreshold(int collStatsThreshold) {
-		this.collStatsThreshold = collStatsThreshold;
-	}
-
-	public void setDestCsrsUri(String destCsrsUri) {
-		this.destCsrsUri = destCsrsUri;
-	}
-
-	public void setDryRun(boolean dryRun) {
-		this.dryRun = dryRun;
-	}
-
-	public boolean isShardToRs() {
-		return shardToRs;
-	}
-
-	public void setShardToRs(boolean shardToRs) {
-		this.shardToRs = shardToRs;
-	}
-
-	public String[] getSourceRsManual() {
-		return sourceRsManual;
-	}
-
-	public void setSourceRsManual(String[] sourceRsManual) {
-		this.sourceRsManual = sourceRsManual;
-	}
-
-	public String[] getDestRsManual() {
-		return destRsManual;
-	}
-
-	public void setDestRsManual(String[] destRsManual) {
-		this.destRsManual = destRsManual;
-	}
-
-	public void setExtendTtl(boolean extendTtl) {
-		this.extendTtl = extendTtl;
-	}
-
-	public void setAtlasApiPublicKey(String atlasApiPublicKey) {
-		this.atlasApiPublicKey = atlasApiPublicKey;
-	}
-
-	public void setAtlasApiPrivateKey(String atlasApiPrivateKey) {
-		this.atlasApiPrivateKey = atlasApiPrivateKey;
-	}
-
-	public void setAtlasProjectId(String atlasProjectId) {
-		this.atlasProjectId = atlasProjectId;
-	}
 }

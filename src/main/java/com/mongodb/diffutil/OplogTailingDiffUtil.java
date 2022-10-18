@@ -71,8 +71,8 @@ public class OplogTailingDiffUtil {
 				sourceToDestShardMap.put(mappings[0], mappings[1]);
 			}
 			
-			sourceShardClient = new ShardClient("source", diffOptions.getSourceMongoUri(), sourceToDestShardMap.keySet());
-			destShardClient = new ShardClient("dest", diffOptions.getDestMongoUri(), sourceToDestShardMap.values());
+			sourceShardClient = new ShardClient("source", diffOptions.getSourceMongoUri(), sourceToDestShardMap.keySet(), null);
+			destShardClient = new ShardClient("dest", diffOptions.getDestMongoUri(), sourceToDestShardMap.values(), null);
 			sourceShardClient.init();
 			destShardClient.init();
 			

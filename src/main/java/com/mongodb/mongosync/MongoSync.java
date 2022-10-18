@@ -98,7 +98,7 @@ public class MongoSync {
         if (shardList != null && shardList.size() > 0) {
         	filtered = true;
         	logger.debug("shard filtered mode, {} shards", shardList.size());
-        	sourceShardClient = new ShardClient("source", mongoSyncOptions.getSourceMongoUri(), shardList);
+        	sourceShardClient = new ShardClient("source", mongoSyncOptions.getSourceMongoUri(), shardList, null);
         } else {
         	sourceShardClient = new ShardClient("source", mongoSyncOptions.getSourceMongoUri());
         }

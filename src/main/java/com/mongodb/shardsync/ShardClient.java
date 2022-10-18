@@ -69,6 +69,7 @@ import com.mongodb.util.MaskUtil;
 public class ShardClient {
 	
 	public enum ShardClientType {
+		SHARDED_NO_SRV,
 		SHARDED,
 		REPLICA_SET
 	}
@@ -137,7 +138,7 @@ public class ShardClient {
 	// Advanced only, for manual configuration / overriding discovery
 	private String[] rsStringsManual;
 
-	public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter) {
+	public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter, ShardClientType shardClientType) {
 
 		this.patternedUri = clusterUri.contains("%s");
 		if (patternedUri) {
@@ -150,11 +151,12 @@ public class ShardClient {
 		} else {
 			this.connectionString = new ConnectionString(clusterUri);
 		}
+		this.shardClientType = shardClientType;
 
-//		if (connectionString.isSrvProtocol()) {
-//			throw new IllegalArgumentException(
-//					"srv protocol not supported, please configure a single mongos mongodb:// connection string");
-//		}
+		if (ShardClientType.SHARDED_NO_SRV.equals(shardClientType)  && connectionString.isSrvProtocol()) {
+			throw new IllegalArgumentException(
+					"srv protocol not supported, please configure a single mongos mongodb:// connection string");
+		}
 
 		this.name = name;
 		this.shardIdFilter = shardIdFilter;
@@ -162,7 +164,7 @@ public class ShardClient {
 	}
 
 	public ShardClient(String name, String clusterUri) {
-		this(name, clusterUri, null);
+		this(name, clusterUri, null, null);
 	}
 
 	public void init() {
