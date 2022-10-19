@@ -178,6 +178,9 @@ public class ChunkManager {
 			
 			if (mega == null || !ns.equals(mega.getNs()) || !shard.equals(mega.getShard())) {
 				if (mega != null) {
+					if (!ns.equals(mega.getNs())) {
+						mega.setLast(true);
+					}
 					optimizedChunks.add(mega);
 				}
 				mega = new Megachunk();
@@ -193,13 +196,16 @@ public class ChunkManager {
 			mega.addMax(max);
 		}
 		if (mega != null) {
+			mega.setLast(true);
 			optimizedChunks.add(mega);
 		}
 		logger.debug(String.format("optimized chunk count: %s", optimizedChunks.size()));
 
 		// step 2: create splits for each of the megachunks, wherever they reside
 		for (Megachunk mega2 : optimizedChunks) {
-			destShardClient.splitAt(mega2.getNs(), mega2.getMax(), true);
+			if (!mega2.isLast) {
+				destShardClient.splitAt(mega2.getNs(), mega2.getMax(), true);
+			}
 		}
 
 		// get current locations of megachunks on destination
@@ -223,7 +229,7 @@ public class ChunkManager {
 			} else if (doMove && !mappedShard.equals(destShard)) {
 				//logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
 				if (doMove) {
-					boolean moveSuccess = destShardClient.moveChunk(mega2.getShard(), (RawBsonDocument)mega2.getMin(), (RawBsonDocument)mega2.getMax(), mappedShard, false);
+					boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), (RawBsonDocument)mega2.getMax(), mappedShard, false);
 					if (! moveSuccess) {
 						errorCount++;
 					}
@@ -430,7 +436,14 @@ public class ChunkManager {
 		private BsonDocument min = null;
 		private List<BsonDocument> mids = new LinkedList<>();
 		private BsonDocument max = null;
+		private boolean isLast = false;
 
+		public boolean isLast() {
+			return isLast;
+		}
+		public void setLast(boolean isLast) {
+			this.isLast = isLast;
+		}
 		public BsonDocument getMin() {
 			return min;
 		}
