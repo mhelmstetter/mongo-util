@@ -1050,6 +1050,19 @@ public class ShardClient {
 		}
 	}
 	
+	public void splitAt(String ns, BsonDocument middle, boolean logErrors) {
+		Document splitCommand = new Document("split", ns);
+		splitCommand.put("middle", middle);
+
+		try {
+			adminCommand(splitCommand);
+		} catch (MongoCommandException mce) {
+			if (logErrors) {
+				logger.error("command splitAt error for namespace {}, message: {}", ns, mce.getMessage());
+			}
+		}
+	}
+	
 	public boolean moveChunk(RawBsonDocument chunk, String moveToShard, boolean ignoreMissing) {
 		RawBsonDocument min = (RawBsonDocument) chunk.get("min");
 		RawBsonDocument max = (RawBsonDocument) chunk.get("max");
