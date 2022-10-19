@@ -211,7 +211,6 @@ public class ChunkManager {
 		for (Megachunk mega2 : optimizedChunks) {
 
 			String mappedShard = getShardMapping(mega2.getShard());
-			//String mappedShard = sourceToDestShardMap.get(sourceShard);
 			if (mappedShard == null) {
 				throw new IllegalArgumentException(
 						"No destination shard mapping found for source shard: " + mega2.getShard());
