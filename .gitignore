@@ -8,3 +8,6 @@
 /bin/*
 !/bin/mongo-util.jar
 
+.idea/
+build/mongomirror
+mongomirror.bookmark
