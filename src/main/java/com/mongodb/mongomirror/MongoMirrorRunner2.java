@@ -192,7 +192,7 @@ public class MongoMirrorRunner2 implements MMEventListener {
     @Override
     public void procLoggedComplete(String msg) {
         System.out.println("ALL DONE!!!!!!!");
-        System.out.println(msg);
+        System.exit(0);
     }
 
     public static void main(String[] args) {

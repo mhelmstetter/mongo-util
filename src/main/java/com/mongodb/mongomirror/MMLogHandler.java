@@ -26,6 +26,7 @@ public class MMLogHandler extends LogOutputStream {
         super();
         this.listener = listener;
         errMatchRegex = constructRegexContainingPhrases(ERR_MATCH_PHRASES);
+        completedMatchRegex = constructRegexContainingPhrases(COMPLETED_MATCH_PHRASES);
     }
     @Override
     protected void processLine(String line, int logLevel) {
@@ -40,7 +41,7 @@ public class MMLogHandler extends LogOutputStream {
 
     private Pattern constructRegexContainingPhrases(String[] phrases) {
         StringBuilder sb = new StringBuilder(REGEX_PREFIX);
-        Iterator<String> matchIter = Arrays.stream(ERR_MATCH_PHRASES).iterator();
+        Iterator<String> matchIter = Arrays.stream(phrases).iterator();
         while (matchIter.hasNext()) {
             sb.append(matchIter.next());
             if (matchIter.hasNext()){
