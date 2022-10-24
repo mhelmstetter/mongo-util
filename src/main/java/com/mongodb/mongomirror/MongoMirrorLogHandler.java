@@ -8,8 +8,8 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.regex.Pattern;
 
-public class MMLogHandler extends LogOutputStream {
-    private MMEventListener listener;
+public class MongoMirrorLogHandler extends LogOutputStream {
+    private MongoMirrorEventListener listener;
     private static final String[] ERR_MATCH_PHRASES = new String[] {
             "fail", "error", "unable", "could not"
     };
@@ -22,7 +22,7 @@ public class MMLogHandler extends LogOutputStream {
     private Pattern completedMatchRegex;
     private Logger logger = LoggerFactory.getLogger(this.getClass().getName());
 
-    public MMLogHandler(MMEventListener listener){
+    public MongoMirrorLogHandler(MongoMirrorEventListener listener){
         super();
         this.listener = listener;
         errMatchRegex = constructRegexContainingPhrases(ERR_MATCH_PHRASES);

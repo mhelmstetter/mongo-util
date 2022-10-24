@@ -5,6 +5,7 @@ import org.apache.commons.exec.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.IOException;
 
 import static com.mongodb.mongomirror.MongoMirrorRunner.PASSWORD_KEYS;
@@ -199,10 +200,10 @@ public class MongoMirrorRunner2 implements MMEventListener {
 
         String SRC_HOST = "atlas-agi1p1-shard-0/ac-x96bfmt-shard-00-00.lgefwkw.mongodb.net:27017,ac-x96bfmt-shard-00-01.lgefwkw.mongodb.net:27017,ac-x96bfmt-shard-00-02.lgefwkw.mongodb.net:27017";
         String DST_HOST = "atlas-k5kxfx-shard-0/cluster1-shard-00-00.xmcdw.mongodb.net:27017,cluster1-shard-00-01.xmcdw.mongodb.net:27017,cluster1-shard-00-02.xmcdw.mongodb.net:27017";
-        MongoMirrorRunner2 mmr = new MongoMirrorRunner2("123");
+        MongoMirrorRunner mmr = new MongoMirrorRunner("123");
         mmr.setSourceHost(SRC_HOST);
         mmr.setDestinationHost(DST_HOST);
-        mmr.setMongomirrorBinary(String.format("%s/build/mongomirror", System.getProperty("user.dir")));
+        mmr.setMongomirrorBinary(new File(String.format("%s/build/mongomirror", System.getProperty("user.dir"))));
         mmr.setSourceUsername("matt");
         mmr.setSourcePassword("tc1234");
         mmr.setSourceAuthenticationDatabase("admin");
