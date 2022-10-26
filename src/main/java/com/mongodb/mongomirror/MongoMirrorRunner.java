@@ -15,33 +15,36 @@ import org.apache.commons.exec.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.mail.MessagingException;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
-public class MongoMirrorRunner implements MongoMirrorEventListener {
-	
-	public final static String[] PASSWORD_KEYS = {"--password", "--destinationPassword"};
-    
+public class MongoMirrorRunner {
+
+    public final static String[] PASSWORD_KEYS = {"--password", "--destinationPassword"};
+
     private File mongomirrorBinary;
     private CommandLine cmdLine;
-    
-    private ExecuteResultHandler executeResultHandler;
-    
+
+    private DefaultExecuteResultHandler executeResultHandler;
+
     private String sourceHost;
     private String sourceUsername;
     private String sourcePassword;
     private String sourceAuthenticationDatabase;
     private String sourceAuthenticationMechanism;
     private Boolean sourceSsl;
-    
+
     private String destinationHost;
     private String destinationUsername;
     private String destinationPassword;
     private String destinationAuthenticationDatabase;
     private String destinationAuthenticationMechanism;
-    
+
     private String readPreference;
     private Boolean drop;
     private Boolean preserveUUIDs;
@@ -50,50 +53,57 @@ public class MongoMirrorRunner implements MongoMirrorEventListener {
     private Integer httpStatusPort;
     private String oplogPath;
     private Integer collStatsThreshold;
-    
+
     private String numParallelCollections;
-    
+
     // Custom mongomirror options
     private String writeConcern;
     private Boolean destinationNoSSL;
     private Boolean noIndexRestore;
     private Boolean extendTtl;
-    
+    private int stopWhenLagWithin;
+
     private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
     private Set<String> includeDatabases = new HashSet<String>();
+    private List<String> emailRecipients = new ArrayList<>();
+
+    private int errMsgWindowSecs = 30;
+    private int errorRptMaxErrors = 25;
+    private int totalEmailsMax = 5;
 
     private String id;
-    
+
     private Logger logger;
-    
+
     private HttpUtils httpUtils;
+    private MongoMirrorLogHandler logHandler;
     //private Gson gson;
-    
+
     public MongoMirrorRunner(String id) {
         this.id = id;
         logger = LoggerFactory.getLogger(this.getClass().getName() + "." + id);
         httpUtils = new HttpUtils();
     }
-   
+
     public void execute(boolean dryRun) throws ExecuteException, IOException {
-        
+
         logger.debug("execute() start id: " + id);
         executeResultHandler = new DefaultExecuteResultHandler();
         cmdLine = new CommandLine(mongomirrorBinary);
-        
+
         addArg("host", sourceHost);
         addArg("username", sourceUsername);
         addArg("password", sourcePassword);
         addArg("authenticationDatabase", sourceAuthenticationDatabase);
         addArg("authenticationMechanism", sourceAuthenticationMechanism);
         addArg("ssl", sourceSsl);
-        
+
         addArg("destination", destinationHost);
         addArg("destinationUsername", destinationUsername);
         addArg("destinationPassword", destinationPassword);
         addArg("destinationAuthenticationDatabase", destinationAuthenticationDatabase);
         addArg("destinationAuthenticationMechanism", destinationAuthenticationMechanism);
-        
+
         addArg("readPreference", readPreference);
         addArg("destinationNoSSL", destinationNoSSL);
         addArg("preserveUUIDs", preserveUUIDs);
@@ -108,6 +118,7 @@ public class MongoMirrorRunner implements MongoMirrorEventListener {
         addArg("oplogPath", oplogPath);
         addArg("noIndexRestore", noIndexRestore);
         addArg("collStatsThreshold", collStatsThreshold);
+        addArg("stopWhenLagWithin", stopWhenLagWithin);
 
         for (Namespace ns : includeNamespaces) {
             addArg("includeNamespace", ns.getNamespace());
@@ -118,18 +129,31 @@ public class MongoMirrorRunner implements MongoMirrorEventListener {
         }
 
         if (dryRun) {
-        	logger.debug("dry run: " + id + " cmdLine: " + cmdLine);
-        	return;
+            logger.debug("dry run: " + id + " cmdLine: " + cmdLine);
+            return;
         }
-        PumpStreamHandler psh = new PumpStreamHandler(new MongoMirrorLogHandler(this));
+
+        EmailSender emailSender = new EmailSender(emailRecipients, errMsgWindowSecs, errorRptMaxErrors, totalEmailsMax);
+        logHandler = new MongoMirrorLogHandler(emailSender);
+        PumpStreamHandler psh = new PumpStreamHandler(logHandler);
 
         DefaultExecutor executor = new DefaultExecutor();
-        executor.setExitValue(1);
+//        executor.setExitValue(1);
         executor.setStreamHandler(psh);
-        
+
         logger.debug("mongomirror execute id: " + id + " cmdLine: " + MaskUtil.maskCommandLine(cmdLine, PASSWORD_KEYS));
-    	executor.execute(cmdLine, executeResultHandler);
-    }@SuppressWarnings("rawtypes")
+        executor.execute(cmdLine, executeResultHandler);
+
+        try {
+            executeResultHandler.waitFor();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        logHandler.getListener().procLoggedComplete("MongoMirror execution completed");
+
+    }
+
+    @SuppressWarnings("rawtypes")
     public MongoMirrorStatus checkStatus() {
         String statusStr = null;
 
@@ -168,7 +192,7 @@ public class MongoMirrorRunner implements MongoMirrorEventListener {
             errorMessage = statusJson.get("errorMessage").getAsString();
         }
 
-        if ("initial sync".equals(stage) && ! "applying oplog entries".equals(phase)) {
+        if ("initial sync".equals(stage) && !"applying oplog entries".equals(phase)) {
 
             MongoMirrorStatusInitialSync status = new MongoMirrorStatusInitialSync(stage, phase, errorMessage);
 
@@ -199,40 +223,22 @@ public class MongoMirrorRunner implements MongoMirrorEventListener {
         }
     }
 
-    @Override
-    public void procFailed(Exception e) {
-        System.out.println("PROC FAILED!!!!!!");
-        e.printStackTrace();
-    }
-
-    @Override
-    public void procLoggedError(String msg) {
-        System.out.println("SAW AN ERROR!!!!!!");
-        System.out.println("It was " + msg + "!!!!!!!");
-    }
-
-    @Override
-    public void procLoggedComplete(String msg) {
-        System.out.println("ALL DONE!!!!!!!");
-        System.exit(0);
-    }
-    
     private void addArg(String argName) {
         cmdLine.addArgument("--" + argName);
     }
-    
+
     private void addArg(String argName, Integer argValue) {
         if (argValue != null) {
             cmdLine.addArgument("--" + argName + "=" + argValue);
         }
     }
-    
+
     private void addArg(String argName, String argValue) {
         if (argValue != null) {
             cmdLine.addArgument("--" + argName + "=" + argValue);
         }
     }
-    
+
     private void addArg(String argName, Boolean argValue) {
         if (argValue != null && argValue) {
             cmdLine.addArgument("--" + argName);
@@ -242,12 +248,12 @@ public class MongoMirrorRunner implements MongoMirrorEventListener {
     public void setMongomirrorBinary(File mongomirrorBinary) {
         this.mongomirrorBinary = mongomirrorBinary;
     }
-    
+
     public File getMongomirrorBinary() {
         return mongomirrorBinary;
     }
 
-    public void setExecuteResultHandler(ExecuteResultHandler executeResultHandler) {
+    public void setExecuteResultHandler(DefaultExecuteResultHandler executeResultHandler) {
         this.executeResultHandler = executeResultHandler;
     }
 
@@ -322,7 +328,7 @@ public class MongoMirrorRunner implements MongoMirrorEventListener {
     public void setPreserveUUIDs(Boolean preserveUUIDs) {
         this.preserveUUIDs = preserveUUIDs;
     }
-    
+
     public void addIncludeNamespace(Namespace ns) {
         includeNamespaces.add(ns);
     }
@@ -347,20 +353,51 @@ public class MongoMirrorRunner implements MongoMirrorEventListener {
         return id;
     }
 
-	public void setOplogPath(String oplogPath) {
-		this.oplogPath = oplogPath;
-	}
+    public void setOplogPath(String oplogPath) {
+        this.oplogPath = oplogPath;
+    }
 
-	public void setNoIndexRestore(Boolean noIndexRestore) {
-		this.noIndexRestore = noIndexRestore;
-	}
+    public void setNoIndexRestore(Boolean noIndexRestore) {
+        this.noIndexRestore = noIndexRestore;
+    }
 
-	public void setCollStatsThreshold(Integer collStatsThreshold) {
-		this.collStatsThreshold = collStatsThreshold;
-	}
+    public void setCollStatsThreshold(Integer collStatsThreshold) {
+        this.collStatsThreshold = collStatsThreshold;
+    }
 
-	public void setExtendTtl(Boolean extendTtl) {
-		this.extendTtl = extendTtl;
-	}
+    public void setExtendTtl(Boolean extendTtl) {
+        this.extendTtl = extendTtl;
+    }
 
+    public void addEmailRecipient(String address) {
+        emailRecipients.add(address);
+    }
+
+    public void setStopWhenLagWithin(int stopWhenLagWithin) {
+        this.stopWhenLagWithin = stopWhenLagWithin;
+    }
+
+    public int getErrMsgWindowSecs() {
+        return errMsgWindowSecs;
+    }
+
+    public void setErrMsgWindowSecs(int errMsgWindowSecs) {
+        this.errMsgWindowSecs = errMsgWindowSecs;
+    }
+
+    public int getErrorRptMaxErrors() {
+        return errorRptMaxErrors;
+    }
+
+    public void setErrorRptMaxErrors(int errorRptMaxErrors) {
+        this.errorRptMaxErrors = errorRptMaxErrors;
+    }
+
+    public int getTotalEmailsMax() {
+        return totalEmailsMax;
+    }
+
+    public void setTotalEmailsMax(int totalEmailsMax) {
+        this.totalEmailsMax = totalEmailsMax;
+    }
 }

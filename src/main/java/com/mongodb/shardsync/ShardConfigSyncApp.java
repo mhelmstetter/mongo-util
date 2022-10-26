@@ -1,9 +1,7 @@
 package com.mongodb.shardsync;
 
 import java.io.File;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -88,6 +86,7 @@ public class ShardConfigSyncApp {
     private static final String ATLAS_API_PUBLIC_KEY = "atlasApiPublicKey";
     private static final String ATLAS_API_PRIVATE_KEY = "atlasApiPrivateKey";
     private static final String ATLAS_PROJECT_ID = "atlasProjectId";
+    private static final String EMAIL_RECIPIENTS = "emailReportRecipients";
     
     
     @SuppressWarnings("static-access")
@@ -191,6 +190,9 @@ public class ShardConfigSyncApp {
                 .withLongOpt(OPLOG_BASE_PATH).create(OPLOG_BASE_PATH));
         options.addOption(OptionBuilder.withArgName("mongomirror bookmark filename prefix").hasArg()
                 .withLongOpt(BOOKMARK_FILE_PREFIX).create());
+
+        options.addOption(OptionBuilder.withArgName("mongomirror email report recipients").hasArg()
+                .withLongOpt(EMAIL_RECIPIENTS).create());
         
         
         options.addOption(OptionBuilder.withArgName("Sleep millis").hasArg().withLongOpt("sleepMillis")
@@ -404,6 +406,10 @@ public class ShardConfigSyncApp {
             String mongoMirrorPath = line.getOptionValue("p", properties.getString(MONGOMIRROR_BINARY));
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
             boolean extendTtl = line.hasOption(EXTEND_TTL);
+
+            /* Expecting a comma-delimited string here; split it into a list */
+            String emailReportRecipientsRaw = line.getOptionValue(EMAIL_RECIPIENTS, "");
+            List<String> emailReportRecipients = Arrays.asList(emailReportRecipientsRaw.split(","));
             
             if (line.hasOption(COLL_STATS_THRESHOLD)) {
             	Integer collStatsThreshold = Integer.parseInt(line.getOptionValue(COLL_STATS_THRESHOLD));
@@ -431,6 +437,7 @@ public class ShardConfigSyncApp {
             config.setPreserveUUIDs(preserveUUIDs);
             config.setNoIndexRestore(noIndexRestore);
             config.setExtendTtl(extendTtl);
+            config.setEmailReportRecipients(emailReportRecipients);
             
             if (line.hasOption(TAIL_FROM_NOW)) {
             	sync.mongomirrorTailFromNow();
@@ -447,8 +454,14 @@ public class ShardConfigSyncApp {
         	logger.debug("shardToRs");
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", properties.getString(MONGOMIRROR_BINARY));
+
+            /* Expecting a comma-delimited string here; split it into a list */
+            String emailReportRecipientsRaw = line.getOptionValue(EMAIL_RECIPIENTS, "");
+            List<String> emailReportRecipients = Arrays.asList(emailReportRecipientsRaw.split(","));
+
             config.setMongomirrorBinary(mongoMirrorPath);
             config.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
+            config.setEmailReportRecipients(emailReportRecipients);
             sync.shardToRs();
         }
         

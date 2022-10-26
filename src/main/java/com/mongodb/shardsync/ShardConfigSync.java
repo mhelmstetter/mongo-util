@@ -1167,6 +1167,10 @@ public class ShardConfigSync implements Callable<Integer> {
 
 			mongomirror.setNumParallelCollections(config.numParallelCollections);
 			mongomirror.setHttpStatusPort(httpStatusPort++);
+
+			for (String emailRecipient : config.emailReportRecipients){
+				mongomirror.addEmailRecipient(emailRecipient);
+			}
 			mongomirror.execute(config.dryRun);
 			try {
 				Thread.sleep(config.sleepMillis);
@@ -1330,6 +1334,10 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 			if (config.collStatsThreshold != null) {
 				mongomirror.setCollStatsThreshold(config.collStatsThreshold);
+			}
+
+			for (String emailRecipient : config.emailReportRecipients){
+				mongomirror.addEmailRecipient(emailRecipient);
 			}
 			
 			mongomirror.execute(config.dryRun);

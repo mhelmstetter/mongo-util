@@ -55,6 +55,7 @@ public class SyncConfiguration {
 	
 	public String[] shardMap;
 	public File mongomirrorBinary;
+	public List<String> emailReportRecipients;
 	public long sleepMillis;
 	public String numParallelCollections;
 	public int mongoMirrorStartPort = 9001;
@@ -466,5 +467,13 @@ public class SyncConfiguration {
 
 	public void setSourceShardClient(ShardClient sourceShardClient) {
 		this.sourceShardClient = sourceShardClient;
+	}
+
+	public List<String> getEmailReportRecipients() {
+		return emailReportRecipients;
+	}
+
+	public void setEmailReportRecipients(List<String> emailReportRecipients) {
+		this.emailReportRecipients = emailReportRecipients;
 	}
 }
