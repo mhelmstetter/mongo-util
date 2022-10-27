@@ -17,20 +17,23 @@ public class EmailSender implements MongoMirrorEventListener {
     /* Max number of emails to send per run */
     private int totalEmailsMax;
     private List<String> recipients;
+    private String mongomirrorId;
     private int emailsSent;
     private List<String> errors;
     private boolean inErrMsgWindow;
     private Logger logger = LoggerFactory.getLogger(this.getClass().getName());
 
 
+
     public EmailSender(List<String> recipients, String smtpHost, int smtpPort, boolean smtpTls, boolean smtpAuth,
                        String emailFrom, String smtpPassword, int errorMsgWindowSecs, int errorRptMax,
-                       int totalEmailsMax) {
+                       int totalEmailsMax, String mongomirrorId) {
         logger.info("Initializing email sender");
         this.recipients = recipients;
         this.errorMsgWindowSecs = errorMsgWindowSecs;
         this.errorRptMax = errorRptMax;
         this.totalEmailsMax = totalEmailsMax;
+        this.mongomirrorId = mongomirrorId;
 
         emailsSent = 0;
         errors = new ArrayList<>();
@@ -65,7 +68,7 @@ public class EmailSender implements MongoMirrorEventListener {
 
     private MimeMessage composeMessage(boolean success, List<String> errors, Session session) throws MessagingException {
         String not = success ? "" : "not ";
-        String subj = String.format("MongoMirror execution was %s successful", not);
+        String subj = String.format("MongoMirror (%s) execution was %s successful", mongomirrorId, not);
         StringBuilder body = new StringBuilder();
         body.append(String.format("There were %d errors reported", errors.size()));
         body.append("\n\n");

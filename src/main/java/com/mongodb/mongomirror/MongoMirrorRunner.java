@@ -141,7 +141,7 @@ public class MongoMirrorRunner {
 
         /* Configure email report sender and attach it as a listener to log messages */
         EmailSender emailSender = new EmailSender(emailRecipients, smtpHost, smtpPort, smtpTls, smtpAuth, emailFrom,
-                smtpPassword, errMsgWindowSecs, errorRptMaxErrors, totalEmailsMax);
+                smtpPassword, errMsgWindowSecs, errorRptMaxErrors, totalEmailsMax, id);
         logHandler = new MongoMirrorLogHandler(emailSender);
         PumpStreamHandler psh = new PumpStreamHandler(logHandler);
 

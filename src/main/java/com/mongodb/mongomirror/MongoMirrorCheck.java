@@ -10,7 +10,7 @@ public class MongoMirrorCheck {
 
 
     public static void main(String[] args) {
-        String[] scsaArgs = new String[]{"-c", "ss.props", "--mongomirror"};
+        String[] scsaArgs = new String[]{"-c", "ss2.props", "--mongomirror"};
         try {
             ShardConfigSyncApp.main(scsaArgs);
         } catch (Exception e) {
