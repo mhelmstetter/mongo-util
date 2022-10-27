@@ -8,3 +8,8 @@
 /bin/*
 !/bin/mongo-util.jar
 
+.idea/
+build/mongomirror
+mongomirror.bookmark
+ss.props
+ss2.props
