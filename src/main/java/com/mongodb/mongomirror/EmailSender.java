@@ -23,7 +23,9 @@ public class EmailSender implements MongoMirrorEventListener {
     private Logger logger = LoggerFactory.getLogger(this.getClass().getName());
 
 
-    public EmailSender(List<String> recipients, int errorMsgWindowSecs, int errorRptMax, int totalEmailsMax) {
+    public EmailSender(List<String> recipients, String smtpHost, int smtpPort, boolean smtpTls, boolean smtpAuth,
+                       String emailFrom, String smtpPassword, int errorMsgWindowSecs, int errorRptMax,
+                       int totalEmailsMax) {
         logger.info("Initializing email sender");
         this.recipients = recipients;
         this.errorMsgWindowSecs = errorMsgWindowSecs;
@@ -34,12 +36,12 @@ public class EmailSender implements MongoMirrorEventListener {
         errors = new ArrayList<>();
         inErrMsgWindow = false;
 
-        props.put("mail.smtp.host", "smtp.gmail.com");
-        props.put("mail.smtp.port", "587");
-        props.put("mail.smtp.starttls.enable", "true");
-        props.put("mail.smtp.auth", "true");
-        props.put("mail.from", "matt.holford@mongodb.com");
-        props.put("mail.from.password", "eyglhyjwcaaqwper");
+        props.put("mail.smtp.host", smtpHost);
+        props.put("mail.smtp.port", smtpPort);
+        props.put("mail.smtp.starttls.enable", smtpTls);
+        props.put("mail.smtp.auth", smtpAuth);
+        props.put("mail.from", emailFrom);
+        props.put("mail.from.password", smtpPassword);
     }
 
     public void sendReport(boolean success, List<String> errors, List<String> recipients) throws MessagingException {

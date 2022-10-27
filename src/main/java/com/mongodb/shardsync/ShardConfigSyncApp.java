@@ -18,26 +18,26 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class ShardConfigSyncApp {
-    
+
     private static Logger logger = LoggerFactory.getLogger(ShardConfigSyncApp.class);
-    
+
     private static Options options;
     private static CommandLine line;
-    
+
     private final static String SOURCE_URI = "source";
     private final static String DEST_URI = "dest";
-    
+
     private final static String SOURCE_URI_PATTERN = "sourceUriPattern";
     private final static String DEST_URI_PATTERN = "destUriPattern";
     private final static String DEST_CSRS_URI = "destCsrs";
-    
+
     private final static String SOURCE_RS_PATTERN = "sourceRsPattern";
     private final static String DEST_RS_PATTERN = "destRsPattern";
-    
+
     // Advanced option for manaually overriding the hostnames / bypassing discovery
     private final static String SOURCE_RS_MANUAL = "sourceRsManual";
     private final static String DEST_RS_MANUAL = "destRsManual";
-    
+
     private final static String MONGOMIRROR_BINARY = "mongomirrorBinary";
 
     private final static String DROP_DEST_DBS = "dropDestDbs";
@@ -47,7 +47,7 @@ public class ShardConfigSyncApp {
     private final static String NO_INDEX_RESTORE = "noIndexRestore";
     private final static String COMPRESSORS = "compressors";
     private final static String COLL_STATS_THRESHOLD = "collStatsThreshold";
-    
+
     private final static String COLL_COUNTS = "compareCounts";
     private final static String CHUNK_COUNTS = "chunkCounts";
     private final static String FLUSH_ROUTER = "flushRouter";
@@ -61,7 +61,7 @@ public class ShardConfigSyncApp {
     private final static String OPLOG_BASE_PATH = "oplogBasePath";
     private final static String BOOKMARK_FILE_PREFIX = "bookmarkFilePrefix";
     private final static String SKIP_FLUSH_ROUTER_CONFIG = "skipFlushRouterConfig";
-    
+
     private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
     private final static String DRY_RUN = "dryRun";
@@ -77,18 +77,35 @@ public class ShardConfigSyncApp {
     private final static String EXTEND_TTL = "extendTtl";
     private final static String CLEANUP_PREVIOUS_ALL = "cleanupPreviousAll";
     private final static String CLEANUP_PREVIOUS_SHARDS = "cleanupPreviousShards";
-    
+
     private final static String SSL_ALLOW_INVALID_HOSTNAMES = "sslAllowInvalidHostnames";
     private final static String SSL_ALLOW_INVALID_CERTS = "sslAllowInvalidCertificates";
 
     private static final String SHARD_MAP = "shardMap";
-    
+
     private static final String ATLAS_API_PUBLIC_KEY = "atlasApiPublicKey";
     private static final String ATLAS_API_PRIVATE_KEY = "atlasApiPrivateKey";
     private static final String ATLAS_PROJECT_ID = "atlasProjectId";
     private static final String EMAIL_RECIPIENTS = "emailReportRecipients";
-    
-    
+    private static final String EMAIL_SMTP_HOST = "emailSmtpHost";
+    private static final String EMAIL_SMTP_PORT = "emailSmtpPort";
+    private static final String EMAIL_SMTP_TLS = "emailSmtpTls";
+    private static final String EMAIL_SMTP_AUTH = "emailSmtpAuth";
+    private static final String EMAIL_FROM = "emailFrom";
+    private static final String EMAIL_SMTP_PASSWORD = "emailSmtpPassword";
+    private static final String ERROR_MESSAGE_WINDOW_SECS = "errorMessageWindowSecs";
+    private static final String ERROR_REPORT_MAX = "errorReportMax";
+    private static final String EMAIL_REPORT_MAX = "emailReportMax";
+    private static final String STOP_WHEN_LAG_WITHIN = "stopWhenLagWithin";
+    private static final String DEFAULT_EMAIL_SMTP_HOST = "smtp.gmail.com";
+    private static final String DEFAULT_EMAIL_SMTP_PORT = "587";
+    private static final String DEFAULT_EMAIL_SMTP_TLS = "true";
+    private static final String DEFAULT_EMAIL_SMTP_AUTH = "true";
+    private static final String DEFAULT_ERROR_MESSAGE_WINDOW_SECS = "30";
+    private static final String DEFAULT_ERROR_REPORT_MAX = "25";
+    private static final String DEFAULT_EMAIL_REPORT_MAX = "5";
+
+
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
         options = new Options();
@@ -99,7 +116,7 @@ public class ShardConfigSyncApp {
                 .create("s"));
         options.addOption(OptionBuilder.withArgName("Destination cluster connection uri").hasArg().withLongOpt(DEST_URI)
                 .create("d"));
-        
+
         options.addOption(OptionBuilder.withArgName("Drop destination databases, but preserve config metadata")
                 .withLongOpt(DROP_DEST_DBS).create(DROP_DEST_DBS));
         options.addOption(OptionBuilder.withArgName("Drop destination databases AND config metadata (collections, databases, chunks)")
@@ -122,7 +139,7 @@ public class ShardConfigSyncApp {
                 .withLongOpt(CLEANUP_PREVIOUS_ALL).create(CLEANUP_PREVIOUS_ALL));
         options.addOption(OptionBuilder.withArgName("Cleanup (remove) destination data on specified shards").hasArgs()
                 .withLongOpt(CLEANUP_PREVIOUS_SHARDS).create(CLEANUP_PREVIOUS_SHARDS));
-        
+
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata")
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata (optimized method)")
@@ -139,7 +156,7 @@ public class ShardConfigSyncApp {
                 .withLongOpt(CLEANUP_ORPHANS_DEST).create(CLEANUP_ORPHANS_DEST));
         options.addOption(OptionBuilder.withArgName("cleanup orphans sleep millis").hasArg()
                 .withLongOpt(CLEANUP_ORPHANS_SLEEP).create(CLEANUP_ORPHANS_SLEEP));
-        
+
         options.addOption(OptionBuilder.withArgName("Shard destination collections")
                 .withLongOpt(SHARD_COLLECTIONS).create());
         options.addOption(OptionBuilder.withArgName("Copy indexes from source to dest")
@@ -150,13 +167,13 @@ public class ShardConfigSyncApp {
                 .withLongOpt(EXTEND_TTL).create(EXTEND_TTL));
         options.addOption(OptionBuilder.withArgName("Skip the flushRouterConfig step")
                 .withLongOpt(SKIP_FLUSH_ROUTER_CONFIG).create(SKIP_FLUSH_ROUTER_CONFIG));
-        
+
         options.addOption(OptionBuilder.withArgName("ssl allow invalid hostnames")
                 .withLongOpt(SSL_ALLOW_INVALID_HOSTNAMES).create(SSL_ALLOW_INVALID_HOSTNAMES));
         options.addOption(OptionBuilder.withArgName("ssl allow invalid certificates")
                 .withLongOpt(SSL_ALLOW_INVALID_CERTS).create(SSL_ALLOW_INVALID_CERTS));
-        
-        
+
+
         // Mongomirror options
         options.addOption(OptionBuilder.withArgName("Execute mongomirror(s)")
                 .withLongOpt(MONGO_MIRROR).create(MONGO_MIRROR));
@@ -169,9 +186,9 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("mongomirror tail only from specificed oplog ts (ts,increment format)")
                 .withLongOpt(TAIL_FROM_TS).hasArg().create(TAIL_FROM_TS));
         options.addOption(OptionBuilder.withArgName("mongomirror namespace filter").hasArgs()
-        		.withLongOpt("filter").create("f"));
+                .withLongOpt("filter").create("f"));
         options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArg()
-        		.withLongOpt(MONGOMIRROR_BINARY).create("p"));
+                .withLongOpt(MONGOMIRROR_BINARY).create("p"));
         options.addOption(OptionBuilder.withArgName("mongomirror preserve dest UUIDs (not supported for Atlas dest)")
                 .withLongOpt(PRESERVE_UUIDS).create(PRESERVE_UUIDS));
         options.addOption(OptionBuilder.withArgName("skip build indexes")
@@ -183,7 +200,7 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("mongomirror http status starting port (default 9001)").hasArg()
                 .withLongOpt(MONGOMIRROR_START_PORT).create());
         options.addOption(OptionBuilder.withArgName("mongomirror numParallelCollections").hasArg()
-        		.withLongOpt("numParallelCollections").create("y"));
+                .withLongOpt("numParallelCollections").create("y"));
         options.addOption(OptionBuilder.withArgName("mongomirror writeConcern").hasArg().withLongOpt("writeConcern")
                 .isRequired(false).create("w"));
         options.addOption(OptionBuilder.withArgName("mongomirror oplogPath base path").hasArg()
@@ -193,20 +210,39 @@ public class ShardConfigSyncApp {
 
         options.addOption(OptionBuilder.withArgName("mongomirror email report recipients").hasArg()
                 .withLongOpt(EMAIL_RECIPIENTS).create());
-        
-        
+        options.addOption(OptionBuilder.withArgName("mongomirror email report SMTP host").hasArg()
+                .withLongOpt(EMAIL_SMTP_HOST).create());
+        options.addOption(OptionBuilder.withArgName("mongomirror email report SMTP port").hasArg()
+                .withLongOpt(EMAIL_SMTP_PORT).create());
+        options.addOption(OptionBuilder.withArgName("mongomirror email report TLS enabled").hasArg()
+                .withLongOpt(EMAIL_SMTP_TLS).create());
+        options.addOption(OptionBuilder.withArgName("mongomirror email report auth enabled").hasArg()
+                .withLongOpt(EMAIL_SMTP_AUTH).create());
+        options.addOption(OptionBuilder.withArgName("mongomirror email report sender address").hasArg()
+                .withLongOpt(EMAIL_FROM).create());
+        options.addOption(OptionBuilder.withArgName("mongomirror email report smtp password").hasArg()
+                .withLongOpt(EMAIL_SMTP_PASSWORD).create());
+        options.addOption(OptionBuilder.withArgName("mongomirror email report error message window").hasArg()
+                .withLongOpt(ERROR_MESSAGE_WINDOW_SECS).create());
+        options.addOption(OptionBuilder.withArgName("mongomirror email report max errors per report").hasArg()
+                .withLongOpt(ERROR_REPORT_MAX).create());
+        options.addOption(OptionBuilder.withArgName("mongomirror email report max reports per run").hasArg()
+                .withLongOpt(EMAIL_REPORT_MAX).create());
+        options.addOption(OptionBuilder.withArgName("mongomirror stop when lage is below").hasArg()
+                .withLongOpt(STOP_WHEN_LAG_WITHIN).create());
+
+
         options.addOption(OptionBuilder.withArgName("Sleep millis").hasArg().withLongOpt("sleepMillis")
                 .isRequired(false).create("x"));
         options.addOption(OptionBuilder.withArgName("Diff chunks").hasArgs().withLongOpt("diffChunks")
                 .isRequired(false).create("z"));
-        
+
         options.addOption(OptionBuilder.withArgName("shardToRs").withLongOpt("shardToRs")
                 .isRequired(false).create("r"));
-        
+
         options.addOption(OptionBuilder.withArgName("diffShardKeys [sync|diff]").withLongOpt("diffShardKeys")
                 .isRequired(false).hasArg().create("k"));
-        
-        
+
 
         CommandLineParser parser = new GnuParser();
         try {
@@ -230,73 +266,130 @@ public class ShardConfigSyncApp {
         formatter.printHelp("shardSync", options);
         System.exit(-1);
     }
-    
+
     private static Configuration readProperties() {
-    	Configurations configs = new Configurations();
-    	Configuration defaultConfig = new PropertiesConfiguration();
-    	
+        Configurations configs = new Configurations();
+        Configuration defaultConfig = new PropertiesConfiguration();
+
         File propsFile = null;
         if (line.hasOption("c")) {
             propsFile = new File(line.getOptionValue("c"));
         } else {
-            propsFile = new File("shard-sync.properties");
-            if (! propsFile.exists()) {
+            propsFile = new File("zshard-sync.properties");
+            if (!propsFile.exists()) {
                 logger.warn("Default config file shard-sync.properties not found, using command line options only");
                 return defaultConfig;
             }
         }
-        
+
         try {
-			Configuration config = configs.properties(propsFile);
-			return config;
-		} catch (ConfigurationException e) {
-			logger.error("Error loading properties file: " + propsFile, e);
-		}
+            Configuration config = configs.properties(propsFile);
+            return config;
+        } catch (ConfigurationException e) {
+            logger.error("Error loading properties file: " + propsFile, e);
+        }
         return defaultConfig;
+    }
+
+    private static String getConfigValue(CommandLine line, Configuration props, String key) {
+        return getConfigValue(line, props, key, null);
+    }
+
+    private static String getConfigValue(CommandLine line, Configuration props, String key, String defaultValue) {
+        return defaultValue != null && defaultValue.length() > 0 ?
+                line.getOptionValue(key, props.getString(key, defaultValue)) :
+                line.getOptionValue(key, props.getString(key));
+    }
+
+    private static void initMongoMirrorEmailReportConfig(CommandLine line, SyncConfiguration config, Configuration props) {
+        /* Set email report recipients */
+        /* Expecting a comma-delimited string here; split it into a list */
+        List<String> emailReportRecipients = new ArrayList<>();
+        String emailReportRecipientsRaw = getConfigValue(line, props, EMAIL_RECIPIENTS, "");
+        String[] rawSplits = emailReportRecipientsRaw.split(",");
+        for (String raw : rawSplits) {
+            if (raw.length() > 0) {
+                emailReportRecipients.add(raw.trim());
+            }
+        }
+        config.setEmailReportRecipients(emailReportRecipients);
+
+        String smtpHost = getConfigValue(line, props, EMAIL_SMTP_HOST, DEFAULT_EMAIL_SMTP_HOST);
+        config.setSmtpHost(smtpHost);
+
+        int smtpPort = Integer.parseInt(getConfigValue(line, props, EMAIL_SMTP_PORT, DEFAULT_EMAIL_SMTP_PORT));
+        config.setSmtpPort(smtpPort);
+
+        boolean smtpTls = Boolean.parseBoolean(getConfigValue(line, props, EMAIL_SMTP_TLS, DEFAULT_EMAIL_SMTP_TLS));
+        config.setSmtpStartTlsEnable(smtpTls);
+
+        boolean smtpAuth = Boolean.parseBoolean(getConfigValue(line, props, EMAIL_SMTP_AUTH, DEFAULT_EMAIL_SMTP_AUTH));
+        config.setSmtpAuth(smtpAuth);
+
+        String mailFrom = getConfigValue(line, props, EMAIL_FROM);
+        config.setMailFrom(mailFrom);
+
+        String smtpPassword = getConfigValue(line, props, EMAIL_SMTP_PASSWORD);
+        config.setSmtpPassword(smtpPassword);
+
+        int errorMessageWindowSecs = Integer.parseInt(getConfigValue(line, props, ERROR_MESSAGE_WINDOW_SECS,
+                DEFAULT_ERROR_MESSAGE_WINDOW_SECS));
+        config.setErrorMessageWindowSecs(errorMessageWindowSecs);
+
+        int errorReportMax = Integer.parseInt(getConfigValue(line, props, ERROR_REPORT_MAX, DEFAULT_ERROR_REPORT_MAX));
+        config.setErrorReportMax(errorReportMax);
+
+        int emailReportMax = Integer.parseInt(getConfigValue(line, props, EMAIL_REPORT_MAX, DEFAULT_EMAIL_REPORT_MAX));
+        config.setEmailReportMax(emailReportMax);
+
+        String stopLagWithin = getConfigValue(line, props, STOP_WHEN_LAG_WITHIN, "");
+        if (stopLagWithin != null) {
+            config.setStopWhenLagWithin(Integer.parseInt(stopLagWithin));
+        }
     }
 
     public static void main(String[] args) throws Exception {
         CommandLine line = initializeAndParseCommandLineOptions(args);
-        
-        
+
+
         Configuration properties = readProperties();
-        
+
         SyncConfiguration config = new SyncConfiguration();
         config.setSourceClusterUri(line.getOptionValue("s", properties.getString(SOURCE_URI)));
         config.setDestClusterUri(line.getOptionValue("d", properties.getString(DEST_URI)));
-        
+
         config.setAtlasApiPublicKey(properties.getString(ATLAS_API_PUBLIC_KEY));
         config.setAtlasApiPrivateKey(properties.getString(ATLAS_API_PRIVATE_KEY));
         config.setAtlasProjectId(properties.getString(ATLAS_PROJECT_ID));
-        
+
         config.setSourceClusterPattern(properties.getString(SOURCE_URI_PATTERN));
         config.setDestClusterPattern(properties.getString(DEST_URI_PATTERN));
-        
+
         config.setSourceRsManual(properties.getStringArray(SOURCE_RS_MANUAL));
         config.setDestRsManual(properties.getStringArray(DEST_RS_MANUAL));
-        
-        
+
+
         config.setDestCsrsUri(properties.getString(DEST_CSRS_URI));
-        
+
         config.setSourceRsPattern(properties.getString(SOURCE_RS_PATTERN));
         config.setDestRsPattern(properties.getString(DEST_RS_PATTERN));
-        
-        if ((config.getSourceClusterUri() == null && config.getSourceClusterPattern() == null) 
-        	|| (config.getDestClusterUri() == null && config.getDestClusterPattern() == null)) {
-            System.out.println(String.format("%s/%s and/or %s/%s options required", 
-            		SOURCE_URI, DEST_URI, SOURCE_URI_PATTERN, DEST_URI_PATTERN));
+
+        if ((config.getSourceClusterUri() == null && config.getSourceClusterPattern() == null)
+                || (config.getDestClusterUri() == null && config.getDestClusterPattern() == null)) {
+            System.out.println(String.format("%s/%s and/or %s/%s options required",
+                    SOURCE_URI, DEST_URI, SOURCE_URI_PATTERN, DEST_URI_PATTERN));
             printHelpAndExit();
         }
-        
+
         String shardMaps = properties.getString(SHARD_MAP);
         if (shardMaps != null) {
-        	config.setShardMap(shardMaps.split(","));
+            config.setShardMap(shardMaps.split(","));
         } else {
-        	config.setShardMap(line.getOptionValues("m"));
+            config.setShardMap(line.getOptionValues("m"));
         }
-        
+
         config.setNamespaceFilters(line.getOptionValues("f"));
-        
+
         boolean nonPrivilegedMode = line.hasOption(NON_PRIVILEGED) || properties.getBoolean(NON_PRIVILEGED, false);
         config.setNonPrivilegedMode(nonPrivilegedMode);
         boolean noIndexRestore = line.hasOption(NO_INDEX_RESTORE) || properties.getBoolean(NON_PRIVILEGED, false);
@@ -307,28 +400,28 @@ public class ShardConfigSyncApp {
         config.setNumParallelCollections(line.getOptionValue("y"));
         config.setWriteConcern(line.getOptionValue("w"));
         config.setDryRun(line.hasOption(DRY_RUN));
-        
+
         config.setSslAllowInvalidCertificates(line.hasOption(SSL_ALLOW_INVALID_CERTS));
         config.setSslAllowInvalidHostnames(line.hasOption(SSL_ALLOW_INVALID_HOSTNAMES));
-        
+
         if (line.hasOption(SKIP_FLUSH_ROUTER_CONFIG) || properties.getBoolean(SKIP_FLUSH_ROUTER_CONFIG, false)) {
-        	config.setSkipFlushRouterConfig(true);
+            config.setSkipFlushRouterConfig(true);
         }
-        
+
         if (line.hasOption("r")) {
-        	config.setShardToRs(true);
+            config.setShardToRs(true);
         }
-        
+
         ShardConfigSync sync = new ShardConfigSync(config);
         sync.initialize();
-        
+
         boolean actionFound = false;
         if (line.hasOption(COLL_COUNTS)) {
             actionFound = true;
             sync.compareShardCounts();
         } else if (line.hasOption(CHUNK_COUNTS)) {
-        	actionFound = true;
-        	sync.compareChunkCounts();
+            actionFound = true;
+            sync.compareChunkCounts();
         } else if (line.hasOption(FLUSH_ROUTER)) {
             actionFound = true;
             sync.flushRouterConfig();
@@ -341,15 +434,15 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(COMPARE_AND_MOVE_CHUNKS)) {
             actionFound = true;
             if (nonPrivilegedMode) {
-            	sync.compareAndMoveChunks(true, false);
+                sync.compareAndMoveChunks(true, false);
             } else {
-            	//sync.compareAndMovePrivileged();
-            	sync.compareAndMoveChunks(true, false);
+                //sync.compareAndMovePrivileged();
+                sync.compareAndMoveChunks(true, false);
             }
-            
+
         } else if (line.hasOption(COMPARE_COLLECTION_UUIDS)) {
-        	actionFound = true;
-        	sync.compareCollectionUuids();
+            actionFound = true;
+            sync.compareCollectionUuids();
         } else if (line.hasOption(SYNC_METADATA)) {
             actionFound = true;
             sync.syncMetadata();
@@ -359,7 +452,7 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(SYNC_USERS)) {
             actionFound = true;
             sync.syncUsers();
-        }  else if (line.hasOption(SHARD_COLLECTIONS)) {
+        } else if (line.hasOption(SHARD_COLLECTIONS)) {
             actionFound = true;
             sync.shardCollections();
         } else if (line.hasOption(SYNC_INDEXES)) {
@@ -375,11 +468,11 @@ public class ShardConfigSyncApp {
             boolean doSync = opt.equals("sync");
             actionFound = true;
             sync.diffShardedCollections(doSync);
-        }  else if (line.hasOption(CLEANUP_ORPHANS)) {
+        } else if (line.hasOption(CLEANUP_ORPHANS)) {
             actionFound = true;
             config.setCleanupOrphansSleepMillis(line.getOptionValue(CLEANUP_ORPHANS_SLEEP));
             sync.cleanupOrphans();
-        }  else if (line.hasOption(CLEANUP_ORPHANS_DEST)) {
+        } else if (line.hasOption(CLEANUP_ORPHANS_DEST)) {
             actionFound = true;
             sync.cleanupOrphansDest();
         } else if (line.hasOption(DROP_DEST_DBS)) {
@@ -389,45 +482,42 @@ public class ShardConfigSyncApp {
             actionFound = true;
             sync.dropDestinationDatabasesAndConfigMetadata();
         } else if (line.hasOption(CLEANUP_PREVIOUS_ALL)) {
-        	actionFound = true;
-        	sync.cleanupPreviousAll();
+            actionFound = true;
+            sync.cleanupPreviousAll();
         } else if (line.hasOption(CLEANUP_PREVIOUS_SHARDS)) {
-        	actionFound = true;
-        	String[] shardNames = line.getOptionValues(CLEANUP_PREVIOUS_SHARDS);
-        	Set<String> shardNamesSet = new HashSet<>();
-        	shardNamesSet.addAll(Arrays.asList(shardNames));
-        	sync.cleanupPreviousShards(shardNamesSet);
+            actionFound = true;
+            String[] shardNames = line.getOptionValues(CLEANUP_PREVIOUS_SHARDS);
+            Set<String> shardNamesSet = new HashSet<>();
+            shardNamesSet.addAll(Arrays.asList(shardNames));
+            sync.cleanupPreviousShards(shardNamesSet);
         }
-        
-        
+
+
         // MONGOMIRROR_BINARY
-        if (line.hasOption(MONGO_MIRROR) && ! line.hasOption("r")) {
+        if (line.hasOption(MONGO_MIRROR) && !line.hasOption("r")) {
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", properties.getString(MONGOMIRROR_BINARY));
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
             boolean extendTtl = line.hasOption(EXTEND_TTL);
 
-            /* Expecting a comma-delimited string here; split it into a list */
-            String emailReportRecipientsRaw = line.getOptionValue(EMAIL_RECIPIENTS, "");
-            List<String> emailReportRecipients = Arrays.asList(emailReportRecipientsRaw.split(","));
-            
+
             if (line.hasOption(COLL_STATS_THRESHOLD)) {
-            	Integer collStatsThreshold = Integer.parseInt(line.getOptionValue(COLL_STATS_THRESHOLD));
-            	config.setCollStatsThreshold(collStatsThreshold);
+                Integer collStatsThreshold = Integer.parseInt(line.getOptionValue(COLL_STATS_THRESHOLD));
+                config.setCollStatsThreshold(collStatsThreshold);
             } else if (properties.getProperty(COLL_STATS_THRESHOLD) != null) {
-            	config.setCollStatsThreshold(properties.getInt(COLL_STATS_THRESHOLD));
+                config.setCollStatsThreshold(properties.getInt(COLL_STATS_THRESHOLD));
             }
-            
+
             if (line.hasOption(COMPRESSORS)) {
-            	config.setCompressors(line.getOptionValue(COMPRESSORS));
+                config.setCompressors(line.getOptionValue(COMPRESSORS));
             }
             if (line.hasOption(MONGOMIRROR_START_PORT)) {
-            	Integer startPort = Integer.parseInt(line.getOptionValue(MONGOMIRROR_START_PORT));
-            	config.setMongoMirrorStartPort(startPort);
+                Integer startPort = Integer.parseInt(line.getOptionValue(MONGOMIRROR_START_PORT));
+                config.setMongoMirrorStartPort(startPort);
             }
             config.setOplogBasePath(line.getOptionValue(OPLOG_BASE_PATH));
             config.setBookmarkFilePrefix(line.getOptionValue(BOOKMARK_FILE_PREFIX));
-            
+
             if (mongoMirrorPath == null) {
                 System.out.println("mongomirrorPath required");
                 printHelpAndExit();
@@ -437,39 +527,38 @@ public class ShardConfigSyncApp {
             config.setPreserveUUIDs(preserveUUIDs);
             config.setNoIndexRestore(noIndexRestore);
             config.setExtendTtl(extendTtl);
-            config.setEmailReportRecipients(emailReportRecipients);
-            
+
+            initMongoMirrorEmailReportConfig(line, config, properties);
+
             if (line.hasOption(TAIL_FROM_NOW)) {
-            	sync.mongomirrorTailFromNow();
+                sync.mongomirrorTailFromNow();
             } else if (line.hasOption(TAIL_FROM_LATEST_OPLOG_TS)) {
-            	sync.mongomirrorTailFromLatestOplogTs(null);
+                sync.mongomirrorTailFromLatestOplogTs(null);
             } else if (line.hasOption(TAIL_FROM_TS)) {
-            	sync.mongomirrorTailFromTs(line.getOptionValue(TAIL_FROM_TS));
+                sync.mongomirrorTailFromTs(line.getOptionValue(TAIL_FROM_TS));
             } else {
-            	sync.mongomirror();
+                sync.mongomirror();
             }
         }
-        
+
         if (line.hasOption("r") && line.hasOption(MONGO_MIRROR)) {
-        	logger.debug("shardToRs");
+            logger.debug("shardToRs");
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", properties.getString(MONGOMIRROR_BINARY));
 
-            /* Expecting a comma-delimited string here; split it into a list */
-            String emailReportRecipientsRaw = line.getOptionValue(EMAIL_RECIPIENTS, "");
-            List<String> emailReportRecipients = Arrays.asList(emailReportRecipientsRaw.split(","));
+            initMongoMirrorEmailReportConfig(line, config, properties);
 
             config.setMongomirrorBinary(mongoMirrorPath);
             config.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
-            config.setEmailReportRecipients(emailReportRecipients);
+
             sync.shardToRs();
         }
-        
-        if (! actionFound) {
+
+        if (!actionFound) {
             System.out.println("Missing action");
             printHelpAndExit();
         }
-        
+
         // String[] fileNames = line.getOptionValues("f");
         // client.setEndpointUrl(line.getOptionValue("u"));
 

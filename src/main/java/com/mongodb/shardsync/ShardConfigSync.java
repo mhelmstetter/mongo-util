@@ -1168,9 +1168,8 @@ public class ShardConfigSync implements Callable<Integer> {
 			mongomirror.setNumParallelCollections(config.numParallelCollections);
 			mongomirror.setHttpStatusPort(httpStatusPort++);
 
-			for (String emailRecipient : config.emailReportRecipients){
-				mongomirror.addEmailRecipient(emailRecipient);
-			}
+			setMongomirrorEmailReportDetails(mongomirror);
+
 			mongomirror.execute(config.dryRun);
 			try {
 				Thread.sleep(config.sleepMillis);
@@ -1180,7 +1179,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 		}
 		
-		pollMongomirrorStatus(mongomirrors);
+//		pollMongomirrorStatus(mongomirrors);
 
 	}
 	
@@ -1335,10 +1334,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			if (config.collStatsThreshold != null) {
 				mongomirror.setCollStatsThreshold(config.collStatsThreshold);
 			}
-
-			for (String emailRecipient : config.emailReportRecipients){
-				mongomirror.addEmailRecipient(emailRecipient);
-			}
+			setMongomirrorEmailReportDetails(mongomirror);
 			
 			mongomirror.execute(config.dryRun);
 			
@@ -1348,8 +1344,26 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 		}
 		
-		pollMongomirrorStatus(mongomirrors);
+//		pollMongomirrorStatus(mongomirrors);
 
+	}
+
+	private void setMongomirrorEmailReportDetails(MongoMirrorRunner mmr) {
+		for (String emailRecipient : config.emailReportRecipients){
+			mmr.addEmailRecipient(emailRecipient);
+		}
+		mmr.setSmtpHost(config.smtpHost);
+		mmr.setSmtpPort(config.smtpPort);
+		mmr.setSmtpTls(config.smtpStartTlsEnable);
+		mmr.setSmtpAuth(config.smtpAuth);
+		mmr.setEmailFrom(config.mailFrom);
+		mmr.setSmtpPassword(config.smtpPassword);
+		mmr.setErrMsgWindowSecs(config.errorMessageWindowSecs);
+		mmr.setErrorRptMaxErrors(config.errorReportMax);
+		mmr.setTotalEmailsMax(config.emailReportMax);
+		if (config.stopWhenLagWithin > 0) {
+			mmr.setStopWhenLagWithin(config.stopWhenLagWithin);
+		}
 	}
 	
 	public void pollMongomirrorStatus(List<MongoMirrorRunner> mongomirrors) {

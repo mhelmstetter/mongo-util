@@ -67,9 +67,15 @@ public class MongoMirrorRunner {
     private Set<String> includeDatabases = new HashSet<String>();
     private List<String> emailRecipients = new ArrayList<>();
 
-    private int errMsgWindowSecs = 30;
-    private int errorRptMaxErrors = 25;
-    private int totalEmailsMax = 5;
+    private int errMsgWindowSecs;
+    private int errorRptMaxErrors;
+    private int totalEmailsMax;
+    private String smtpHost;
+    private int smtpPort;
+    private boolean smtpTls;
+    private boolean smtpAuth;
+    private String smtpPassword;
+    private String emailFrom;
 
     private String id;
 
@@ -133,12 +139,14 @@ public class MongoMirrorRunner {
             return;
         }
 
-        EmailSender emailSender = new EmailSender(emailRecipients, errMsgWindowSecs, errorRptMaxErrors, totalEmailsMax);
+        /* Configure email report sender and attach it as a listener to log messages */
+        EmailSender emailSender = new EmailSender(emailRecipients, smtpHost, smtpPort, smtpTls, smtpAuth, emailFrom,
+                smtpPassword, errMsgWindowSecs, errorRptMaxErrors, totalEmailsMax);
         logHandler = new MongoMirrorLogHandler(emailSender);
         PumpStreamHandler psh = new PumpStreamHandler(logHandler);
 
         DefaultExecutor executor = new DefaultExecutor();
-//        executor.setExitValue(1);
+        executor.setExitValue(0);
         executor.setStreamHandler(psh);
 
         logger.debug("mongomirror execute id: " + id + " cmdLine: " + MaskUtil.maskCommandLine(cmdLine, PASSWORD_KEYS));
@@ -147,7 +155,7 @@ public class MongoMirrorRunner {
         try {
             executeResultHandler.waitFor();
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            e.printStackTrace();
         }
         logHandler.getListener().procLoggedComplete("MongoMirror execution completed");
 
@@ -399,5 +407,53 @@ public class MongoMirrorRunner {
 
     public void setTotalEmailsMax(int totalEmailsMax) {
         this.totalEmailsMax = totalEmailsMax;
+    }
+
+    public String getSmtpHost() {
+        return smtpHost;
+    }
+
+    public void setSmtpHost(String smtpHost) {
+        this.smtpHost = smtpHost;
+    }
+
+    public int getSmtpPort() {
+        return smtpPort;
+    }
+
+    public void setSmtpPort(int smtpPort) {
+        this.smtpPort = smtpPort;
+    }
+
+    public boolean isSmtpTls() {
+        return smtpTls;
+    }
+
+    public void setSmtpTls(boolean smtpTls) {
+        this.smtpTls = smtpTls;
+    }
+
+    public boolean isSmtpAuth() {
+        return smtpAuth;
+    }
+
+    public void setSmtpAuth(boolean smtpAuth) {
+        this.smtpAuth = smtpAuth;
+    }
+
+    public String getSmtpPassword() {
+        return smtpPassword;
+    }
+
+    public void setSmtpPassword(String smtpPassword) {
+        this.smtpPassword = smtpPassword;
+    }
+
+    public String getEmailFrom() {
+        return emailFrom;
+    }
+
+    public void setEmailFrom(String emailFrom) {
+        this.emailFrom = emailFrom;
     }
 }

@@ -55,7 +55,20 @@ public class SyncConfiguration {
 	
 	public String[] shardMap;
 	public File mongomirrorBinary;
+
+	/* Mongomirror email report specific settings */
 	public List<String> emailReportRecipients;
+	public String smtpHost;
+	public int smtpPort;
+	public boolean smtpStartTlsEnable;
+	public boolean smtpAuth;
+	public String smtpPassword;
+	public String mailFrom;
+	public int errorMessageWindowSecs;
+	public int errorReportMax;
+	public int emailReportMax;
+	public int stopWhenLagWithin;
+
 	public long sleepMillis;
 	public String numParallelCollections;
 	public int mongoMirrorStartPort = 9001;
@@ -475,5 +488,85 @@ public class SyncConfiguration {
 
 	public void setEmailReportRecipients(List<String> emailReportRecipients) {
 		this.emailReportRecipients = emailReportRecipients;
+	}
+
+	public String getSmtpHost() {
+		return smtpHost;
+	}
+
+	public void setSmtpHost(String smtpHost) {
+		this.smtpHost = smtpHost;
+	}
+
+	public int getSmtpPort() {
+		return smtpPort;
+	}
+
+	public void setSmtpPort(int smtpPort) {
+		this.smtpPort = smtpPort;
+	}
+
+	public boolean isSmtpStartTlsEnable() {
+		return smtpStartTlsEnable;
+	}
+
+	public void setSmtpStartTlsEnable(boolean smtpStartTlsEnable) {
+		this.smtpStartTlsEnable = smtpStartTlsEnable;
+	}
+
+	public boolean isSmtpAuth() {
+		return smtpAuth;
+	}
+
+	public void setSmtpAuth(boolean smtpAuth) {
+		this.smtpAuth = smtpAuth;
+	}
+
+	public String getSmtpPassword() {
+		return smtpPassword;
+	}
+
+	public void setSmtpPassword(String smtpPassword) {
+		this.smtpPassword = smtpPassword;
+	}
+
+	public void setMailFrom(String mailFrom) {
+		this.mailFrom = mailFrom;
+	}
+
+	public String getMailFrom() {
+		return mailFrom;
+	}
+
+	public int getErrorMessageWindowSecs() {
+		return errorMessageWindowSecs;
+	}
+
+	public void setErrorMessageWindowSecs(int errorMessageWindowSecs) {
+		this.errorMessageWindowSecs = errorMessageWindowSecs;
+	}
+
+	public int getErrorReportMax() {
+		return errorReportMax;
+	}
+
+	public void setErrorReportMax(int errorReportMax) {
+		this.errorReportMax = errorReportMax;
+	}
+
+	public int getEmailReportMax() {
+		return emailReportMax;
+	}
+
+	public void setEmailReportMax(int emailReportMax) {
+		this.emailReportMax = emailReportMax;
+	}
+
+	public int getStopWhenLagWithin() {
+		return stopWhenLagWithin;
+	}
+
+	public void setStopWhenLagWithin(int stopWhenLagWithin) {
+		this.stopWhenLagWithin = stopWhenLagWithin;
 	}
 }
