@@ -43,6 +43,8 @@ public class EmailSender implements MongoMirrorEventListener {
         props.put("mail.smtp.port", smtpPort);
         props.put("mail.smtp.starttls.enable", smtpTls);
         props.put("mail.smtp.auth", smtpAuth);
+        
+        // TODO check that these are configured and throw a better error than NPE
         props.put("mail.from", emailFrom);
         props.put("mail.from.password", smtpPassword);
     }

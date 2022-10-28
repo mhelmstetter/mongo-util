@@ -24,6 +24,13 @@ public class AtlasResource {
 		this.collection = collection;
 	}
 
+	public AtlasResource(String db, String collection, Boolean cluster) {
+		super();
+		this.db = db;
+		this.collection = collection;
+		this.cluster = cluster;
+	}
+
 	public String getDb() {
 		return db;
 	}

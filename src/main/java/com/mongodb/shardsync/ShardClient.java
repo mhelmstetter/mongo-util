@@ -28,7 +28,6 @@ import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.UuidRepresentation;
-import org.bson.codecs.DecoderContext;
 import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
@@ -59,6 +58,7 @@ import com.mongodb.model.Namespace;
 import com.mongodb.model.Role;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardTimestamp;
+import com.mongodb.model.User;
 import com.mongodb.util.MaskUtil;
 
 /**
@@ -875,10 +875,18 @@ public class ShardClient {
 	
 	public List<Role> getRoles() {
 		MongoDatabase db = mongoClient.getDatabase("admin").withCodecRegistry(pojoCodecRegistry);
-		MongoCollection<Role> shardsColl = db.getCollection("system.roles", Role.class);
+		MongoCollection<Role> rolesColl = db.getCollection("system.roles", Role.class);
 		final List<Role> roles = new ArrayList<>();
-		shardsColl.find().sort(Sorts.ascending("_id")).into(roles);
+		rolesColl.find().sort(Sorts.ascending("_id")).into(roles);
 		return roles;
+	}
+	
+	public List<User> getUsers() {
+		MongoDatabase db = mongoClient.getDatabase("admin").withCodecRegistry(pojoCodecRegistry);
+		MongoCollection<User> usersColl = db.getCollection("system.users", User.class);
+		final List<User> users = new ArrayList<>();
+		usersColl.find().sort(Sorts.ascending("_id")).into(users);
+		return users;
 	}
 
 	public void createIndexes(Namespace ns, Set<IndexSpec> sourceSpecs, boolean extendTtl) {

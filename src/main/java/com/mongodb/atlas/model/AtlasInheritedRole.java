@@ -5,6 +5,9 @@ public class AtlasInheritedRole {
 	private String db;
 	private String role;
 	
+	public AtlasInheritedRole() {
+		
+	}
 	
 
 	public AtlasInheritedRole(String db, String role) {

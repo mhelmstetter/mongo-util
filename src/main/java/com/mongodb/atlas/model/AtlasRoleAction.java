@@ -1,13 +1,14 @@
 package com.mongodb.atlas.model;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 
 public class AtlasRoleAction {
 	
 	private String action;
 	
-	private List<AtlasResource> resources = new ArrayList<>();
+	private Set<AtlasResource> resources = new HashSet<>();
 
 	public String getAction() {
 		return action;
@@ -17,7 +18,7 @@ public class AtlasRoleAction {
 		this.action = action;
 	}
 
-	public List<AtlasResource> getResources() {
+	public Collection<AtlasResource> getResources() {
 		return resources;
 	}
 	
@@ -25,9 +26,9 @@ public class AtlasRoleAction {
 		resources.add(r);
 	}
 
-	public void setResources(List<AtlasResource> resources) {
-		this.resources = resources;
-	}
+//	public void setResources(List<AtlasResource> resources) {
+//		this.resources = resources;
+//	}
 
 	@Override
 	public String toString() {

@@ -1,7 +1,11 @@
 package com.mongodb.shardsync;
 
 import java.io.File;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -61,7 +65,7 @@ public class ShardConfigSyncApp {
     private final static String OPLOG_BASE_PATH = "oplogBasePath";
     private final static String BOOKMARK_FILE_PREFIX = "bookmarkFilePrefix";
     private final static String SKIP_FLUSH_ROUTER_CONFIG = "skipFlushRouterConfig";
-
+    private final static String DROP_DEST_ATLAS_USERS_AND_ROLES = "dropDestAtlasUsersAndRoles";
     private final static String COMPARE_AND_MOVE_CHUNKS = "compareAndMoveChunks";
     private final static String MONGO_MIRROR = "mongomirror";
     private final static String DRY_RUN = "dryRun";
@@ -121,6 +125,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(DROP_DEST_DBS).create(DROP_DEST_DBS));
         options.addOption(OptionBuilder.withArgName("Drop destination databases AND config metadata (collections, databases, chunks)")
                 .withLongOpt(DROP_DEST_DBS_AND_CONFIG_METADATA).create(DROP_DEST_DBS_AND_CONFIG_METADATA));
+        options.addOption(OptionBuilder.withArgName("Drop destination users and roles (via Atlas API)")
+                .withLongOpt(DROP_DEST_ATLAS_USERS_AND_ROLES).create(DROP_DEST_ATLAS_USERS_AND_ROLES));
         options.addOption(OptionBuilder.withArgName("Non-privileged mode, create chunks using splitChunk")
                 .withLongOpt(NON_PRIVILEGED).create(NON_PRIVILEGED));
         options.addOption(OptionBuilder.withArgName("Compare counts only (do not sync/migrate)")
@@ -275,7 +281,7 @@ public class ShardConfigSyncApp {
         if (line.hasOption("c")) {
             propsFile = new File(line.getOptionValue("c"));
         } else {
-            propsFile = new File("zshard-sync.properties");
+            propsFile = new File("shard-sync.properties");
             if (!propsFile.exists()) {
                 logger.warn("Default config file shard-sync.properties not found, using command line options only");
                 return defaultConfig;
@@ -305,7 +311,11 @@ public class ShardConfigSyncApp {
         /* Set email report recipients */
         /* Expecting a comma-delimited string here; split it into a list */
         List<String> emailReportRecipients = new ArrayList<>();
-        String emailReportRecipientsRaw = getConfigValue(line, props, EMAIL_RECIPIENTS, "");
+        String emailReportRecipientsRaw = getConfigValue(line, props, EMAIL_RECIPIENTS);
+        if (emailReportRecipientsRaw == null) {
+        	logger.debug("{} not configured, skipping mongomirror email reporting config", EMAIL_RECIPIENTS);
+        	return;
+        }
         String[] rawSplits = emailReportRecipientsRaw.split(",");
         for (String raw : rawSplits) {
             if (raw.length() > 0) {
@@ -341,11 +351,6 @@ public class ShardConfigSyncApp {
 
         int emailReportMax = Integer.parseInt(getConfigValue(line, props, EMAIL_REPORT_MAX, DEFAULT_EMAIL_REPORT_MAX));
         config.setEmailReportMax(emailReportMax);
-
-        String stopLagWithin = getConfigValue(line, props, STOP_WHEN_LAG_WITHIN, "");
-        if (stopLagWithin != null) {
-            config.setStopWhenLagWithin(Integer.parseInt(stopLagWithin));
-        }
     }
 
     public static void main(String[] args) throws Exception {
@@ -485,11 +490,14 @@ public class ShardConfigSyncApp {
             actionFound = true;
             sync.cleanupPreviousAll();
         } else if (line.hasOption(CLEANUP_PREVIOUS_SHARDS)) {
-            actionFound = true;
-            String[] shardNames = line.getOptionValues(CLEANUP_PREVIOUS_SHARDS);
-            Set<String> shardNamesSet = new HashSet<>();
-            shardNamesSet.addAll(Arrays.asList(shardNames));
-            sync.cleanupPreviousShards(shardNamesSet);
+        	actionFound = true;
+        	String[] shardNames = line.getOptionValues(CLEANUP_PREVIOUS_SHARDS);
+        	Set<String> shardNamesSet = new HashSet<>();
+        	shardNamesSet.addAll(Arrays.asList(shardNames));
+        	sync.cleanupPreviousShards(shardNamesSet);
+        } else if (line.hasOption(DROP_DEST_ATLAS_USERS_AND_ROLES)) {
+        	actionFound = true;
+        	sync.dropDestinationAtlasUsersAndRoles();
         }
 
 
@@ -527,6 +535,10 @@ public class ShardConfigSyncApp {
             config.setPreserveUUIDs(preserveUUIDs);
             config.setNoIndexRestore(noIndexRestore);
             config.setExtendTtl(extendTtl);
+            String stopLagWithin = getConfigValue(line, properties, STOP_WHEN_LAG_WITHIN, "");
+            if (stopLagWithin != null) {
+                config.setStopWhenLagWithin(Integer.parseInt(stopLagWithin));
+            }
 
             initMongoMirrorEmailReportConfig(line, config, properties);
 

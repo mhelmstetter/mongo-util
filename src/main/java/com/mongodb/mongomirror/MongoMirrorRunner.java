@@ -1,5 +1,20 @@
 package com.mongodb.mongomirror;
 
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import org.apache.commons.exec.CommandLine;
+import org.apache.commons.exec.DefaultExecuteResultHandler;
+import org.apache.commons.exec.DefaultExecutor;
+import org.apache.commons.exec.ExecuteException;
+import org.apache.commons.exec.PumpStreamHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
@@ -11,17 +26,6 @@ import com.mongodb.mongomirror.model.MongoMirrorStatusInitialSync;
 import com.mongodb.mongomirror.model.MongoMirrorStatusOplogSync;
 import com.mongodb.util.HttpUtils;
 import com.mongodb.util.MaskUtil;
-import org.apache.commons.exec.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.mail.MessagingException;
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 
 public class MongoMirrorRunner {
 
@@ -61,7 +65,7 @@ public class MongoMirrorRunner {
     private Boolean destinationNoSSL;
     private Boolean noIndexRestore;
     private Boolean extendTtl;
-    private int stopWhenLagWithin;
+    private Integer stopWhenLagWithin;
 
     private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
     private Set<String> includeDatabases = new HashSet<String>();
@@ -138,26 +142,28 @@ public class MongoMirrorRunner {
             logger.debug("dry run: " + id + " cmdLine: " + cmdLine);
             return;
         }
-
-        /* Configure email report sender and attach it as a listener to log messages */
-        EmailSender emailSender = new EmailSender(emailRecipients, smtpHost, smtpPort, smtpTls, smtpAuth, emailFrom,
-                smtpPassword, errMsgWindowSecs, errorRptMaxErrors, totalEmailsMax, id);
-        logHandler = new MongoMirrorLogHandler(emailSender);
+        
+        EmailSender emailSender = null;
+        if (!emailRecipients.isEmpty()) {
+            emailSender = new EmailSender(emailRecipients, smtpHost, smtpPort, smtpTls, smtpAuth, emailFrom,
+                    smtpPassword, errMsgWindowSecs, errorRptMaxErrors, totalEmailsMax, id);
+        }
+        logHandler = new MongoMirrorLogHandler(emailSender, id);
         PumpStreamHandler psh = new PumpStreamHandler(logHandler);
 
         DefaultExecutor executor = new DefaultExecutor();
-        executor.setExitValue(0);
+        //executor.setExitValue(0);
         executor.setStreamHandler(psh);
 
         logger.debug("mongomirror execute id: " + id + " cmdLine: " + MaskUtil.maskCommandLine(cmdLine, PASSWORD_KEYS));
         executor.execute(cmdLine, executeResultHandler);
 
-        try {
-            executeResultHandler.waitFor();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        logHandler.getListener().procLoggedComplete("MongoMirror execution completed");
+//        try {
+//            executeResultHandler.waitFor();
+//        } catch (InterruptedException e) {
+//            e.printStackTrace();
+//        }
+//        logHandler.getListener().procLoggedComplete("MongoMirror execution completed");
 
     }
 

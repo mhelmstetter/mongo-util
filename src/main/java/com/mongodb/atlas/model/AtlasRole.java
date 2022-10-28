@@ -33,6 +33,13 @@ public class AtlasRole {
 		return actionsMap.values();
 	}
 	
+	@JsonProperty("actions")
+	public void setActions(Collection<AtlasRoleAction> actions) {
+		for (AtlasRoleAction a : actions) {
+			actionsMap.put(a.getAction(), a);
+		}
+	}
+	
 	public void addAction(AtlasRoleAction a) {
 		actionsMap.put(a.getAction(), a);
 	}
@@ -48,6 +55,10 @@ public class AtlasRole {
 	@Override
 	public String toString() {
 		return "AtlasRole [roleName=" + roleName + ", actions=" + actionsMap.values() +  ", inheritedRoles=" + inheritedRoles + "]";
+	}
+
+	public List<AtlasInheritedRole> getInheritedRoles() {
+		return inheritedRoles;
 	}
 
 

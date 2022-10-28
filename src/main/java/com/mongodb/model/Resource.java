@@ -16,6 +16,9 @@ public class Resource {
     }
 
     public String getCollection() {
+      if (Boolean.TRUE.equals(cluster) && collection == null) {
+    	  return null;
+      }
       return collection == null ? "" : collection;
     }
 

@@ -28,7 +28,7 @@ public class AtlasServiceGenerator {
     //private static OkHttpClient.Builder httpClient = new OkHttpClient.Builder();
 
     private static HttpLoggingInterceptor logging = new HttpLoggingInterceptor()
-            .setLevel(HttpLoggingInterceptor.Level.BASIC);
+            .setLevel(HttpLoggingInterceptor.Level.NONE);
 
 //    public static <S> S createService(Class<S> serviceClass) {
 //        if (!httpClient.interceptors().contains(logging)) {
@@ -44,6 +44,7 @@ public class AtlasServiceGenerator {
         //final Map<String, CachingAuthenticator> authCache = new ConcurrentHashMap<>();
         
         client = new OkHttpClient.Builder()
+        		
                 //.authenticator(new CachingAuthenticatorDecorator(authenticator, authCache))
         		.authenticator(authenticator)
                 //.addInterceptor(new AuthenticationCacheInterceptor(authCache))

@@ -31,5 +31,21 @@ public class User {
       return roles == null ? Collections.emptyList() : roles;
     }
 
+	public void setId(String id) {
+		this.id = id;
+	}
+
+	public void setUser(String user) {
+		this.user = user;
+	}
+
+	public void setDb(String db) {
+		this.db = db;
+	}
+
+	public void setRoles(List<Role> roles) {
+		this.roles = roles;
+	}
+
     
 }
