@@ -69,8 +69,13 @@ public class EmailSender implements MongoMirrorEventListener {
     }
 
     private MimeMessage composeMessage(boolean success, List<String> errors, Session session) throws MessagingException {
-        String not = success ? "" : "not ";
-        String subj = String.format("MongoMirror (%s) execution was %s successful", mongomirrorId, not);
+    	String subj = null;
+        if (success) {
+        	subj = String.format("Mongomirror (%s) execution was successful", mongomirrorId);
+        } else {
+        	subj = String.format("Mongomirror (%s) error report", mongomirrorId);
+        }
+         
         StringBuilder body = new StringBuilder();
         body.append(String.format("There were %d errors reported", errors.size()));
         body.append("\n\n");

@@ -15,10 +15,14 @@ public class MongoMirrorLogHandler extends LogOutputStream {
     private static final String[] ERR_MATCH_PHRASES = new String[] {
             "fail", "error", "unable", "could not"
     };
+    
+    // don't alert if we match an error that also matches any exclusion
+    private final static String[] EXCLUSION_PHRASES = new String[] {"warning"};
+    
     private static final String REGEX_PREFIX = ".*(?:";
     private static final String REGEX_SUFFIX = ").*";
     private Pattern errMatchRegex;
-    //private Logger logger = LoggerFactory.getLogger(this.getClass().getName());
+    private Pattern exclusionRegex;
     
     private PrintWriter writer;
 
@@ -26,18 +30,19 @@ public class MongoMirrorLogHandler extends LogOutputStream {
         super();
         this.listener = listener;
         errMatchRegex = constructRegexContainingPhrases(ERR_MATCH_PHRASES);
+        exclusionRegex = constructRegexContainingPhrases(EXCLUSION_PHRASES);
         writer = new PrintWriter(new FileWriter(new File(mongomirrorId + ".log")));
     }
     
     private void matcher(String line) {
-    	if (listener != null && errMatchRegex.matcher(line).matches()) {
+    	if (listener != null && errMatchRegex.matcher(line).matches() && !exclusionRegex.matcher(line).matches()) {
     		listener.procLoggedError(line);
     	}
     }
     
     @Override
     protected void processLine(String line, int logLevel) {
-        //logger.info(line);
+    	writer.println(line);
         matcher(line);
     }
 
