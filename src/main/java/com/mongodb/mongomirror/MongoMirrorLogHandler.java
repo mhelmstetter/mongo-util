@@ -43,6 +43,7 @@ public class MongoMirrorLogHandler extends LogOutputStream {
     @Override
     protected void processLine(String line, int logLevel) {
     	writer.println(line);
+    	writer.flush();
         matcher(line);
     }
 
