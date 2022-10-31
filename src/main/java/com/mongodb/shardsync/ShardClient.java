@@ -23,11 +23,8 @@ import java.util.Set;
 import java.util.TreeMap;
 
 import org.apache.commons.lang3.StringUtils;
-import org.bson.BsonDocument;
-import org.bson.BsonTimestamp;
-import org.bson.Document;
-import org.bson.RawBsonDocument;
-import org.bson.UuidRepresentation;
+import org.apache.commons.lang3.tuple.Pair;
+import org.bson.*;
 import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
@@ -542,7 +539,7 @@ public class ShardClient {
 	/**
 	 * This will drop the db on each shard, config data will NOT be touched
 	 * 
-	 * @param dbName
+	 * @param
 	 */
 	public void dropDatabases(List<String> databasesList) {
 		for (Map.Entry<String, MongoClient> entry : shardMongoClients.entrySet()) {
@@ -971,6 +968,11 @@ public class ShardClient {
 			lastNs = sourceNs;
 		}
 	}
+
+	public static String getNsFromChunk(BsonDocument doc) {
+		BsonString bs = (BsonString) doc.get("ns");
+		return bs.getValue();
+	}
 	
 	public static String getIdFromChunk(BsonDocument sourceChunk) {
 		RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
@@ -1004,6 +1006,25 @@ public class ShardClient {
 		}
 		logger.debug("{}: loaded {} chunks into chunksCache", name, count);
 		return chunksCache;
+	}
+
+	public Pair<Map<String, RawBsonDocument>, Set<String>> loadChunksCachePlusCollections(Document chunkQuery) {
+		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
+		Set<String> collSet = new HashSet<>();
+
+		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery).sort(Sorts.ascending("ns", "min"));
+
+		int count = 0;
+		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
+			RawBsonDocument chunk = sourceChunksIterator.next();
+			String chunkId = getIdFromChunk(chunk);
+			String ns = getNsFromChunk(chunk);
+			collSet.add(ns);
+			chunksCache.put(chunkId, chunk);
+			count++;
+		}
+		logger.debug("{}: loaded {} chunks into chunksCache", name, count);
+		return Pair.of(chunksCache, collSet);
 	}
 	
 //	public boolean checkChunkExists(BsonDocument chunk) {

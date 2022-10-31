@@ -49,11 +49,4 @@ public class DiffResult {
 		builder.append("]");
 		return builder.toString();
 	}
-	
-	
-	
-	
-	
-
-
 }

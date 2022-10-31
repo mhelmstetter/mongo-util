@@ -56,6 +56,7 @@ public class DiffConfiguration {
 
 	public void setNamespaceFilters(String[] namespaceFilterList) {
 		if (namespaceFilterList == null) {
+			initializeChunkQuery();
 			return;
 		}
 		filtered = true;

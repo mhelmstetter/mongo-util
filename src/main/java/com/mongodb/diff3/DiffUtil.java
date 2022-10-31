@@ -3,13 +3,11 @@ package com.mongodb.diff3;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.Set;
+import java.util.concurrent.*;
 
+import com.mongodb.model.Namespace;
+import org.apache.commons.lang3.tuple.Pair;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +32,8 @@ public class DiffUtil {
 	List<Future<DiffResult>> diffResults;
 	
 	private Map<String, RawBsonDocument> sourceChunksCache;
+	private Set<String> chunkCollSet;
+	private long estimatedTotalDocs;
 	
 	
     
@@ -46,21 +46,45 @@ public class DiffUtil {
 		sourceShardClient.init();
 		destShardClient.init();
 		sourceShardClient.populateCollectionsMap();
-		sourceChunksCache = sourceShardClient.loadChunksCache(config.getChunkQuery());
+		Pair<Map<String, RawBsonDocument>, Set<String>> chunkCachePair =
+				sourceShardClient.loadChunksCachePlusCollections(config.getChunkQuery());
+		sourceChunksCache = chunkCachePair.getLeft();
+		chunkCollSet = chunkCachePair.getRight();
+		estimatedTotalDocs = estimateCount(chunkCollSet);
 		
 		workQueue = new ArrayBlockingQueue<Runnable>(sourceChunksCache.size());
 		diffResults = new ArrayList<>(sourceChunksCache.size());
-		executor = new ThreadPoolExecutor(config.getThreads(), config.getThreads(), 30, TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
+		executor = new ThreadPoolExecutor(config.getThreads(), config.getThreads(), 30,
+				TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
     }
+
+	private long estimateCount(Set<String> collSet) {
+		long sum = 0l;
+		for (String s : collSet) {
+			Namespace ns = new Namespace(s);
+			Number cnt = sourceShardClient.getCollectionCount(ns.getDatabaseName(), ns.getCollectionName());
+			sum += cnt.longValue();
+		}
+		return sum;
+	}
     
     public void run() {
-    	
+    	DiffSummary summary = new DiffSummary(sourceChunksCache.size(), estimatedTotalDocs);
     	for (RawBsonDocument chunk : sourceChunksCache.values()) {
     		
-    		DiffTask task = new DiffTask(sourceShardClient, destShardClient, config, chunk);
+    		DiffTask task = new DiffTask(sourceShardClient, destShardClient, config, chunk, summary);
     		
     		diffResults.add(executor.submit(task));
     	}
+
+		ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
+		statusReporter.scheduleAtFixedRate(new Runnable() {
+			@Override
+			public void run() {
+				logger.info(summary.getSummary());
+			}
+		}, 0, 5, TimeUnit.SECONDS);
+
     	
     	executor.shutdown();
     	
@@ -75,6 +99,8 @@ public class DiffUtil {
 				e.printStackTrace();
 			}
     	}
+		statusReporter.shutdown();
+		logger.info(summary.getSummary());
     }
 	
 
