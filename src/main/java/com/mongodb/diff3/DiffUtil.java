@@ -1,21 +1,16 @@
 package com.mongodb.diff3;
 
+import com.mongodb.shardsync.ShardClient;
+import com.mongodb.util.BlockWhenQueueFull;
+import org.bson.RawBsonDocument;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
-
-import com.mongodb.model.Namespace;
-import org.apache.commons.lang3.tuple.Pair;
-import org.bson.RawBsonDocument;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.mongodb.diffutil.OplogTailingDiffTaskResult;
-import com.mongodb.mongosync.ChunkCloneResult;
-import com.mongodb.shardsync.ShardClient;
-import com.mongodb.util.BlockWhenQueueFull;
 
 public class DiffUtil {
 
@@ -34,8 +29,14 @@ public class DiffUtil {
 	private Map<String, RawBsonDocument> sourceChunksCache;
 	private Set<String> chunkCollSet;
 	private long estimatedTotalDocs;
-	
-	
+
+	private int chunksComplete = 0;
+	private int chunksFailed = 0;
+	private int totalChunks;
+	private int totalDocumentsFailed;
+	private int onlyOnSource = 0;
+	private int onlyOnDest = 0;
+
     
     public DiffUtil(DiffConfiguration config) {
     	this.config = config;
@@ -54,8 +55,7 @@ public class DiffUtil {
 		
 		workQueue = new ArrayBlockingQueue<Runnable>(sourceChunksCache.size());
 		diffResults = new ArrayList<>(sourceChunksCache.size());
-		executor = new ThreadPoolExecutor(config.getThreads(), config.getThreads(), 30,
-				TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
+		executor = new ThreadPoolExecutor(config.getThreads(), config.getThreads(), 30, TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
     }
 
 	private long estimateCount(Set<String> collSet) {
@@ -67,13 +67,11 @@ public class DiffUtil {
 		}
 		return sum;
 	}
-    
+
     public void run() {
     	DiffSummary summary = new DiffSummary(sourceChunksCache.size(), estimatedTotalDocs);
     	for (RawBsonDocument chunk : sourceChunksCache.values()) {
-    		
-    		DiffTask task = new DiffTask(sourceShardClient, destShardClient, config, chunk, summary);
-    		
+    		DiffTask task = new DiffTask(sourceShardClient, destShardClient, config, chunk);
     		diffResults.add(executor.submit(task));
     	}
 
@@ -85,12 +83,22 @@ public class DiffUtil {
 			}
 		}, 0, 5, TimeUnit.SECONDS);
 
-    	
+
     	executor.shutdown();
     	
     	for(Future<DiffResult> future : diffResults) {
     		try {
-				logger.debug("result: {}", future.get());
+    			DiffResult result = future.get();
+    			int failures = result.getFailureCount();
+    			if (failures > 0) {
+    				chunksFailed++;
+    			}
+    			totalDocumentsFailed += failures;
+    			chunksComplete++;
+    			onlyOnSource += result.onlyOnSource;
+    			onlyOnDest += result.onlyOnDest;
+
+				//logger.debug("result: {}", );
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();

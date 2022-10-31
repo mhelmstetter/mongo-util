@@ -88,6 +88,7 @@ public class DiffTask implements Callable<DiffResult> {
 			String key = shardKeys.iterator().next();
 			chunkQuery = and(gte(key, min.get(key)), lt(key, max.get(key)));
 		}
+		result.setChunkQuery(chunkQuery);
 		
 		try {
 			
@@ -121,8 +122,9 @@ public class DiffTask implements Callable<DiffResult> {
 			        Map.Entry<BsonValue, ValueDifference<String>> entry = (Map.Entry<BsonValue, ValueDifference<String>>) it.next();
 			        BsonValue key = entry.getKey();
 			        result.addFailedKey(key);
-
 			    }
+				result.onlyOnSource = diff.entriesOnlyOnLeft().size();
+				result.onlyOnDest = diff.entriesOnlyOnRight().size();
 			}
 
 
