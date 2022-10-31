@@ -775,7 +775,11 @@ public class ShardClient {
 		return adminCommand(shardCommand);
 	}
 
-	public MongoCollection<BsonDocument> getCollectionRaw(Namespace ns) {
+	public MongoCollection<RawBsonDocument> getCollectionRaw(Namespace ns) {
+		return mongoClient.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName(), RawBsonDocument.class);
+	}
+	
+	public MongoCollection<BsonDocument> getCollectionBson(Namespace ns) {
 		return mongoClient.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName(), BsonDocument.class);
 	}
 
