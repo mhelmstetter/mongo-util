@@ -71,7 +71,7 @@ public class DiffUtil {
     
     private void reportStatus() {
     	double complete = chunksComplete / totalChunks;
-		logger.debug(String.format("%.1f: %s/%s chunks complete, chunks failed: %s, docs failed: %s, onlyOnSource: %s, onlyOnDest: %s", 
+		logger.debug(String.format("%4.1f: %s/%s chunks complete, chunks failed: %s, docs failed: %s, onlyOnSource: %s, onlyOnDest: %s", 
 				complete, chunksComplete, totalChunks, chunksFailed, totalDocumentsFailed, onlyOnSource, onlyOnDest));
     }
     
