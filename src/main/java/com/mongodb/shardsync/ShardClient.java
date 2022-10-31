@@ -599,6 +599,11 @@ public class ShardClient {
 		}
 	}
 
+	public Number getFastCollectionCount(String dbName, String collName) {
+		MongoDatabase db = mongoClient.getDatabase(dbName);
+		return db.getCollection(collName).estimatedDocumentCount();
+	}
+
 	public Number getFastCollectionCount(MongoDatabase db, String collectionName) {
 		return db.getCollection(collectionName).estimatedDocumentCount();
 	}

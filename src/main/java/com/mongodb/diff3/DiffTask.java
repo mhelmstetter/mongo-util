@@ -43,17 +43,15 @@ public class DiffTask implements Callable<DiffResult> {
     
     
     protected Bson chunkQuery;
-	private DiffSummary summary;
     
     
 	
 	public DiffTask(ShardClient sourceShardClient, ShardClient destShardClient, DiffConfiguration config,
-					RawBsonDocument chunk, DiffSummary summary) {
+					RawBsonDocument chunk) {
         this.sourceShardClient = sourceShardClient;
         this.destShardClient = destShardClient;
         this.config = config;
         this.chunk = chunk;
-		this.summary = summary;
     }
 
 	@Override
@@ -104,19 +102,10 @@ public class DiffTask implements Callable<DiffResult> {
 			if (diff.areEqual()) {
 				int numMatches = sourceDocs.size();
 				result.matches = numMatches;
-				summary.incrementProcessedChunks(1);
-				summary.incrementProcessedDocs(numMatches);
-				summary.incrementSuccessfulChunks(1);
-				summary.incrementSuccessfulDocs(numMatches);
 			} else {
 				Map<BsonValue, ValueDifference<String>> valueDiff = diff.entriesDiffering();
 				int numMatches = sourceDocs.size() - valueDiff.size();
 				result.matches = numMatches;
-				summary.incrementProcessedChunks(1);
-				summary.incrementProcessedDocs(sourceDocs.size());
-				summary.incrementFailedChunks(1);
-				summary.incrementFailedDocs(valueDiff.size());
-				summary.incrementSuccessfulDocs(numMatches);
 				for (Iterator<?> it = valueDiff.entrySet().iterator(); it.hasNext();) {
 			        @SuppressWarnings("unchecked")
 			        Map.Entry<BsonValue, ValueDifference<String>> entry = (Map.Entry<BsonValue, ValueDifference<String>>) it.next();

@@ -6,11 +6,11 @@ public class DiffSummary {
     private final int totalChunks;
     private final long totalDocs;
     private int processedChunks;
-    private int processedDocs;
+    private long processedDocs;
     private int successfulChunks;
-    private int successfulDocs;
+    private long successfulDocs;
     private int failedChunks;
-    private int failedDocs;
+    private long failedDocs;
     private final long startTime;
 
     public DiffSummary(int totalChunks, long totalDocs) {
@@ -22,25 +22,19 @@ public class DiffSummary {
     public String getSummary() {
         long millsElapsed = getTimeElapsed();
         int secondsElapsed = (int) (millsElapsed / 1000.);
-        int chunksProcessed = getProcessedChunks();
-        int docsProcessed = getProcessedDocs();
-        int chunksFailed = getFailedChunks();
-        int chunksSucceeded = getSuccessfulChunks();
-        int docsFailed = getFailedDocs();
-        int docsSucceeded = getSuccessfulDocs();
 
-        double chunkProcPct = (chunksProcessed / (double) totalChunks) * 100.;
-        double docProcPct = (docsProcessed / (double) totalDocs) * 100.;
-        double chunkFailPct = chunksFailed > 0 ? ((double) chunksFailed / (chunksFailed + chunksSucceeded)) * 100. : 0;
-        double docFailPct = docsFailed > 0 ? ((double) docsFailed / (docsFailed + docsSucceeded)) * 100. : 0;
+        double chunkProcPct = (processedChunks / (double) totalChunks) * 100.;
+        double docProcPct = (processedDocs / (double) totalDocs) * 100.;
+        double chunkFailPct = failedChunks > 0 ? ((double) failedChunks / (failedChunks + successfulChunks)) * 100. : 0;
+        double docFailPct = failedDocs > 0 ? ((double) failedDocs / (failedDocs + successfulDocs)) * 100. : 0;
 
         return String.format("%s seconds have elapsed.  " +
                         "%.2f %% of chunks processed  (%s/%s chunks).  " +
                         "%.2f %% of docs processed  (%s/%s docs).  " +
                         "%.2f %% of chunks failed  (%s/%s chunks).  " +
-                        "%.2f %% of documents failed  (%s/%s docs).  ", secondsElapsed, chunkProcPct, chunksProcessed,
-                totalChunks, docProcPct, docsProcessed, totalDocs, chunkFailPct, chunksFailed, chunksProcessed,
-                docFailPct, docsFailed, docsFailed + docsSucceeded);
+                        "%.2f %% of documents failed  (%s/%s docs).  ", secondsElapsed, chunkProcPct, processedChunks,
+                totalChunks, docProcPct, processedDocs, totalDocs, chunkFailPct, failedChunks, processedChunks,
+                docFailPct, failedDocs, processedDocs);
     }
 
     public long getTimeElapsed() {
@@ -48,51 +42,27 @@ public class DiffSummary {
         return now - startTime;
     }
 
-    public synchronized int getProcessedChunks() {
-        return processedChunks;
-    }
-
-    public synchronized void incrementProcessedChunks(int num) {
+    public void incrementProcessedChunks(int num) {
         processedChunks += num;
     }
 
-    public synchronized int getProcessedDocs() {
-        return processedDocs;
-    }
-
-    public synchronized void incrementProcessedDocs(int num) {
+    public void incrementProcessedDocs(long num) {
         processedDocs += num;
     }
 
-    public synchronized int getSuccessfulChunks() {
-        return successfulChunks;
-    }
-
-    public synchronized void incrementSuccessfulChunks(int num) {
+    public void incrementSuccessfulChunks(int num) {
         successfulChunks += num;
     }
 
-    public synchronized int getSuccessfulDocs() {
-        return successfulDocs;
-    }
-
-    public synchronized void incrementSuccessfulDocs(int num) {
+    public void incrementSuccessfulDocs(long num) {
         successfulDocs += num;
     }
 
-    public synchronized int getFailedChunks() {
-        return failedChunks;
-    }
-
-    public synchronized void incrementFailedChunks(int num) {
+    public void incrementFailedChunks(int num) {
         failedChunks += num;
     }
 
-    public synchronized int getFailedDocs() {
-        return failedDocs;
-    }
-
-    public synchronized void incrementFailedDocs(int num) {
+    public void incrementFailedDocs(int num) {
         failedDocs += num;
     }
 }
