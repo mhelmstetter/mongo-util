@@ -120,6 +120,7 @@ public class DiffUtilApp {
         
         config.setNamespaceFilters(line.getOptionValues("f"));
         DiffUtil diffUtil = new DiffUtil(config);
+        diffUtil.run();
        
     }
 

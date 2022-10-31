@@ -16,6 +16,7 @@
 
   <logger name="com.mongodb.atlas" level="DEBUG"/>
   <logger name="com.mongodb.diffutil" level="DEBUG"/>
+  <logger name="com.mongodb.diff3" level="DEBUG"/>
   <logger name="com.mongodb.schema" level="DEBUG"/>
   <logger name="com.mongodb.shardsync" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.mongosync" level="DEBUG" additivity="true"/>

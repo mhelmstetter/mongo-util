@@ -5,6 +5,7 @@ import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.lt;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,11 +20,15 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.MapDifference;
+import com.google.common.collect.MapDifference.ValueDifference;
+import com.google.common.collect.Maps;
 import com.mongodb.MongoException;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
+import com.mongodb.util.CodecUtils;
 
 public class DiffTask implements Callable<DiffResult> {
 	
@@ -52,6 +57,7 @@ public class DiffTask implements Callable<DiffResult> {
 	public DiffResult call() throws Exception {
 		
 		DiffResult result = new DiffResult();
+		result.setChunk(chunk);
 		MongoCursor<RawBsonDocument> sourceCursor = null;
 		MongoCursor<RawBsonDocument> destCursor = null;
 		
@@ -86,13 +92,26 @@ public class DiffTask implements Callable<DiffResult> {
 			sourceCursor = sourceColl.find(chunkQuery).iterator();
 			destCursor = destColl.find(chunkQuery).iterator();
 			
-			Map<BsonValue, RawBsonDocument> sourceDocs = loadDocs(sourceCursor);
-			Map<BsonValue, RawBsonDocument> destDocs = loadDocs(destCursor);
+			Map<BsonValue, String> sourceDocs = loadDocs(sourceCursor);
+			Map<BsonValue, String> destDocs = loadDocs(destCursor);
 
-			// TODO compare
-
+			MapDifference<BsonValue, String> diff = Maps.difference(sourceDocs, destDocs);
 			
-		} catch (MongoException me) {
+			if (diff.areEqual()) {
+				result.matches = sourceDocs.size();
+			} else {
+				Map<BsonValue, ValueDifference<String>> valueDiff = diff.entriesDiffering();
+				for (Iterator<?> it = valueDiff.entrySet().iterator(); it.hasNext();) {
+			        @SuppressWarnings("unchecked")
+			        Map.Entry<BsonValue, ValueDifference<String>> entry = (Map.Entry<BsonValue, ValueDifference<String>>) it.next();
+			        BsonValue key = entry.getKey();
+			        result.addFailedKey(key);
+
+			    }
+			}
+			
+			
+		} catch (Exception me) {
         	logger.error("fatal error diffing chunk, ns: {}", ns, me);
         	result = null;
         } finally {
@@ -103,12 +122,14 @@ public class DiffTask implements Callable<DiffResult> {
 		return result;
 	}
 	
-	private Map<BsonValue, RawBsonDocument> loadDocs(MongoCursor<RawBsonDocument> cursor) {
-		Map<BsonValue, RawBsonDocument> docs = new LinkedHashMap<>();
+	private Map<BsonValue, String> loadDocs(MongoCursor<RawBsonDocument> cursor) {
+		Map<BsonValue, String> docs = new LinkedHashMap<>();
 		while (cursor.hasNext()) {
 			RawBsonDocument doc = cursor.next();
 			BsonValue id = doc.get("_id");
-			docs.put(id, doc);
+			byte[] docBytes = doc.getByteBuffer().array();
+			String docHash = CodecUtils.md5Hex(docBytes);
+			docs.put(id, docHash);
 		}
 		return docs;
 	}

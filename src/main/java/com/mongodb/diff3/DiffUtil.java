@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -13,6 +14,7 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.diffutil.OplogTailingDiffTaskResult;
 import com.mongodb.mongosync.ChunkCloneResult;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.BlockWhenQueueFull;
@@ -43,7 +45,7 @@ public class DiffUtil {
 		
 		sourceShardClient.init();
 		destShardClient.init();
-		
+		sourceShardClient.populateCollectionsMap();
 		sourceChunksCache = sourceShardClient.loadChunksCache(config.getChunkQuery());
 		
 		workQueue = new ArrayBlockingQueue<Runnable>(sourceChunksCache.size());
@@ -58,6 +60,20 @@ public class DiffUtil {
     		DiffTask task = new DiffTask(sourceShardClient, destShardClient, config, chunk);
     		
     		diffResults.add(executor.submit(task));
+    	}
+    	
+    	executor.shutdown();
+    	
+    	for(Future<DiffResult> future : diffResults) {
+    		try {
+				logger.debug("result: {}", future.get());
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} catch (ExecutionException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
     	}
     }
 	

@@ -16,7 +16,7 @@ public class DiffConfiguration {
 	public String sourceClusterUri;
 	public String destClusterUri;
 	private boolean filtered;
-	private Document chunkQuery;
+	private Document chunkQuery = new Document();
 	private int threads = 8;
 
 	private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
@@ -71,7 +71,6 @@ public class DiffConfiguration {
 	}
 
 	private Document initializeChunkQuery() {
-		chunkQuery = new Document();
 		if (getIncludeNamespaces().size() > 0 || getIncludeDatabases().size() > 0) {
 			List inList = new ArrayList();
 			List orList = new ArrayList();
@@ -86,6 +85,8 @@ public class DiffConfiguration {
 			for (String dbName : getIncludeDatabases()) {
 				orList.add(regex("ns", "^" + dbName + "\\."));
 			}
+		} else {
+			chunkQuery.append("ns", new Document("$ne", "config.system.sessions"));
 		}
 		return chunkQuery;
 	}
@@ -95,6 +96,9 @@ public class DiffConfiguration {
 	}
 
 	public Document getChunkQuery() {
+		if (chunkQuery.isEmpty()) {
+			chunkQuery.append("ns", new Document("$ne", "config.system.sessions"));
+		}
 		return chunkQuery;
 	}
 
