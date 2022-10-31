@@ -6,7 +6,9 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -14,8 +16,6 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.diffutil.OplogTailingDiffTaskResult;
-import com.mongodb.mongosync.ChunkCloneResult;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.BlockWhenQueueFull;
 
@@ -32,9 +32,16 @@ public class DiffUtil {
     protected ThreadPoolExecutor executor = null;
 	private BlockingQueue<Runnable> workQueue;
 	List<Future<DiffResult>> diffResults;
+	private ScheduledExecutorService statusReporter;
 	
 	private Map<String, RawBsonDocument> sourceChunksCache;
 	
+	private int chunksComplete = 0;
+	private int chunksFailed = 0;
+	private int totalChunks;
+	private int totalDocumentsFailed;
+	private int onlyOnSource = 0;
+	private int onlyOnDest = 0;
 	
     
     public DiffUtil(DiffConfiguration config) {
@@ -48,17 +55,30 @@ public class DiffUtil {
 		sourceShardClient.populateCollectionsMap();
 		sourceChunksCache = sourceShardClient.loadChunksCache(config.getChunkQuery());
 		
-		workQueue = new ArrayBlockingQueue<Runnable>(sourceChunksCache.size());
-		diffResults = new ArrayList<>(sourceChunksCache.size());
+		totalChunks = sourceChunksCache.size();
+		workQueue = new ArrayBlockingQueue<Runnable>(totalChunks);
+		diffResults = new ArrayList<>(totalChunks);
 		executor = new ThreadPoolExecutor(config.getThreads(), config.getThreads(), 30, TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
+		
+		statusReporter = Executors.newSingleThreadScheduledExecutor();
+		statusReporter.scheduleAtFixedRate(new Runnable() {
+		  @Override
+		  public void run() {
+			  reportStatus();
+		  }
+		}, 0, 5, TimeUnit.SECONDS);
+    }
+    
+    private void reportStatus() {
+    	double complete = chunksComplete / totalChunks;
+		logger.debug(String.format("%.1f: %s/%s chunks complete, chunks failed: %s, docs failed: %s, onlyOnSource: %s, onlyOnDest: %s", 
+				complete, chunksComplete, totalChunks, chunksFailed, totalDocumentsFailed, onlyOnSource, onlyOnDest));
     }
     
     public void run() {
     	
     	for (RawBsonDocument chunk : sourceChunksCache.values()) {
-    		
     		DiffTask task = new DiffTask(sourceShardClient, destShardClient, config, chunk);
-    		
     		diffResults.add(executor.submit(task));
     	}
     	
@@ -66,7 +86,17 @@ public class DiffUtil {
     	
     	for(Future<DiffResult> future : diffResults) {
     		try {
-				logger.debug("result: {}", future.get());
+    			DiffResult result = future.get();
+    			int failures = result.getFailureCount();
+    			if (failures > 0) {
+    				chunksFailed++;
+    			}
+    			totalDocumentsFailed += failures;
+    			chunksComplete++;
+    			onlyOnSource += result.onlyOnSource;
+    			onlyOnDest += result.onlyOnDest;
+    			
+				//logger.debug("result: {}", );
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -75,6 +105,8 @@ public class DiffUtil {
 				e.printStackTrace();
 			}
     	}
+    	statusReporter.shutdown();
+    	reportStatus();
     }
 	
 
