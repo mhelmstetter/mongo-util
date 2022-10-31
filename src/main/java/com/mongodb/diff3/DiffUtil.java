@@ -58,7 +58,9 @@ public class DiffUtil {
         for (String s : collSet) {
             Namespace ns = new Namespace(s);
             Number cnt = sourceShardClient.getFastCollectionCount(ns.getDatabaseName(), ns.getCollectionName());
-            sum += cnt.longValue();
+            if (cnt != null) {
+                sum += cnt.longValue();
+            }
         }
         return sum;
     }
