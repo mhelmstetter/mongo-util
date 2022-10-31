@@ -12,6 +12,8 @@ public class DiffSummary {
     private int failedChunks;
     private long failedDocs;
     private final long startTime;
+    private long sourceOnly;
+    private long destOnly;
 
     public DiffSummary(int totalChunks, long totalDocs) {
         this.totalChunks = totalChunks;
@@ -19,7 +21,7 @@ public class DiffSummary {
         this.startTime = new Date().getTime();
     }
 
-    public String getSummary() {
+    public String getSummary(boolean done) {
         long millsElapsed = getTimeElapsed();
         int secondsElapsed = (int) (millsElapsed / 1000.);
 
@@ -28,13 +30,16 @@ public class DiffSummary {
         double chunkFailPct = failedChunks > 0 ? ((double) failedChunks / (failedChunks + successfulChunks)) * 100. : 0;
         double docFailPct = failedDocs > 0 ? ((double) failedDocs / (failedDocs + successfulDocs)) * 100. : 0;
 
-        return String.format("%s seconds have elapsed.  " +
+        String firstLine = done ? String.format("Completed in %s seconds.  ", secondsElapsed) :
+                String.format("%s seconds have elapsed.  ", secondsElapsed);
+        return String.format("%s" +
                         "%.2f %% of chunks processed  (%s/%s chunks).  " +
                         "%.2f %% of docs processed  (%s/%s docs).  " +
                         "%.2f %% of chunks failed  (%s/%s chunks).  " +
-                        "%.2f %% of documents failed  (%s/%s docs).  ", secondsElapsed, chunkProcPct, processedChunks,
-                totalChunks, docProcPct, processedDocs, totalDocs, chunkFailPct, failedChunks, processedChunks,
-                docFailPct, failedDocs, processedDocs);
+                        "%.2f %% of documents failed  (%s/%s docs).  " +
+                        "%s docs found on source only.  %s docs found on target only", firstLine, chunkProcPct,
+                processedChunks, totalChunks, docProcPct, processedDocs, totalDocs, chunkFailPct, failedChunks,
+                processedChunks, docFailPct, failedDocs, processedDocs, sourceOnly, destOnly);
     }
 
     public long getTimeElapsed() {
@@ -64,5 +69,13 @@ public class DiffSummary {
 
     public void incrementFailedDocs(int num) {
         failedDocs += num;
+    }
+
+    public void incrementSourceOnly(long num) {
+        sourceOnly += num;
+    }
+
+    public void incrementDestOnly(long num) {
+        destOnly += num;
     }
 }

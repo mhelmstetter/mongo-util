@@ -32,13 +32,6 @@ public class DiffUtil {
     private Set<String> chunkCollSet;
     private long estimatedTotalDocs;
 
-    private int chunksComplete = 0;
-    private int chunksFailed = 0;
-    private int totalChunks;
-    private int totalDocumentsFailed;
-    private int onlyOnSource = 0;
-    private int onlyOnDest = 0;
-
 
     public DiffUtil(DiffConfiguration config) {
         this.config = config;
@@ -81,7 +74,7 @@ public class DiffUtil {
         statusReporter.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
-                logger.info(summary.getSummary());
+                logger.info(summary.getSummary(false));
             }
         }, 0, 5, TimeUnit.SECONDS);
 
@@ -105,9 +98,8 @@ public class DiffUtil {
                 summary.incrementProcessedDocs(result.matches + failures);
                 summary.incrementFailedDocs(failures);
                 summary.incrementProcessedChunks(1);
-
-                onlyOnSource += result.onlyOnSource;
-                onlyOnDest += result.onlyOnDest;
+                summary.incrementSourceOnly(result.onlyOnSource);
+                summary.incrementDestOnly(result.onlyOnDest);
 
                 //logger.debug("result: {}", );
             } catch (InterruptedException e) {
@@ -119,7 +111,7 @@ public class DiffUtil {
             }
         }
         statusReporter.shutdown();
-        logger.info(summary.getSummary());
+        logger.info(summary.getSummary(true));
     }
 
 
