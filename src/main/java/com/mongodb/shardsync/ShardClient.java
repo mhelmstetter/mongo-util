@@ -23,6 +23,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.regex.Pattern;
 
+import com.mongodb.client.*;
 import com.mongodb.model.*;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -45,18 +46,14 @@ import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
-import com.mongodb.client.FindIterable;
-import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoClients;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.util.MaskUtil;
+
+import javax.print.Doc;
 
 /**
  * This class encapsulates the client related objects needed for each source and
@@ -725,8 +722,14 @@ public class ShardClient {
 			Document dbStatsDoc = dbStats(dbName);
 			DatabaseStats dbStats = DatabaseStats.fromDocument(dbStatsDoc);
 			Database db = new Database(dbName, dbStats);
-			MongoIterable<String> collNames = listCollectionNames(dbName);
-			for (String collName : collNames) {
+			ListCollectionsIterable<Document> colls = listCollections(dbName);
+			for (Document coll : colls) {
+				String collName = coll.getString("name");
+				String collType = coll.getString("type");
+				if (collType.equals("view")) {
+					logger.info("Excluding view: {}", collName);
+					continue;
+				}
 				/* Don't include collections starting with system.* */
 				if (excludeCollRegex.matcher(collName).matches()) {
 					logger.info("Excluding collection: {}", collName);
@@ -734,11 +737,15 @@ public class ShardClient {
 				}
 				String collNs = dbName + "." + collName;
 				CollectionStats collStats = CollectionStats.fromDocument(collStats(dbName, collName));
-				com.mongodb.model.Collection coll = new com.mongodb.model.Collection(collNs, collStats);
-				db.addCollection(coll);
+				com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(collNs, collStats);
+				db.addCollection(mcoll);
 			}
 			databaseCatalog.addDatabase(db);
 		}
+	}
+
+	public ListCollectionsIterable<Document> listCollections(String dbName) {
+		return mongoClient.getDatabase(dbName).listCollections();
 	}
 
 	public MongoIterable<String> listCollectionNames(String databaseName) {
