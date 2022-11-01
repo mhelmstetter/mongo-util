@@ -4,14 +4,12 @@ import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.BlockWhenQueueFull;
 import org.apache.commons.lang3.tuple.Pair;
+import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
 
 public class DiffUtil {
@@ -42,15 +40,22 @@ public class DiffUtil {
         sourceShardClient.init();
         destShardClient.init();
         sourceShardClient.populateCollectionsMap();
-        Pair<Map<String, RawBsonDocument>, Set<String>> chunkCachePair =
-                sourceShardClient.loadChunksCachePlusCollections(config.getChunkQuery());
-        sourceChunksCache = chunkCachePair.getLeft();
-        chunkCollSet = chunkCachePair.getRight();
+        sourceChunksCache = sourceShardClient.loadChunksCache(config.getChunkQuery());
+        chunkCollSet = getShardedCollections();
         estimatedTotalDocs = estimateCount(chunkCollSet);
 
         workQueue = new ArrayBlockingQueue<Runnable>(sourceChunksCache.size());
         diffResults = new ArrayList<>(sourceChunksCache.size());
         executor = new ThreadPoolExecutor(config.getThreads(), config.getThreads(), 30, TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
+    }
+
+    private Set<String> getShardedCollections() {
+        Set<String> out = new HashSet<>();
+        for (Document d : sourceShardClient.getCollectionsMap().values()) {
+            String nsStr = (String) d.get("_id");
+            out.add(nsStr);
+        }
+        return out;
     }
 
     private long estimateCount(Set<String> collSet) {
