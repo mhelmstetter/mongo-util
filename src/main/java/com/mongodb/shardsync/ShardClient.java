@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 
 import com.mongodb.model.*;
 import org.apache.commons.lang3.StringUtils;
@@ -71,6 +72,7 @@ public class ShardClient {
 	}
 
 	private static Logger logger = LoggerFactory.getLogger(ShardClient.class);
+	private static Pattern excludeCollRegex = Pattern.compile("system\\..*");
 	
 	private final static int ONE_GIGABYTE = 1024 * 1024 * 1024;
 	private final static int ONE_MEGABYTE = 1024 * 1024;
@@ -725,6 +727,11 @@ public class ShardClient {
 			Database db = new Database(dbName, dbStats);
 			MongoIterable<String> collNames = listCollectionNames(dbName);
 			for (String collName : collNames) {
+				/* Don't include collections starting with system.* */
+				if (excludeCollRegex.matcher(collName).matches()) {
+					logger.info("Excluding collection: {}", collName);
+					continue;
+				}
 				String collNs = dbName + "." + collName;
 				CollectionStats collStats = CollectionStats.fromDocument(collStats(dbName, collName));
 				com.mongodb.model.Collection coll = new com.mongodb.model.Collection(collNs, collStats);
