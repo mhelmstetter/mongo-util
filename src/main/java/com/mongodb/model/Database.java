@@ -14,20 +14,20 @@ public class Database {
 	private Map<String, Collection> allCollections;
 	private Set<Collection> shardedCollections;
 	private Set<Collection> unshardedCollections;
+	private Set<String> excludedCollections;
 	private Map<String, Namespace> namespaces;
 
 	public Database(String name, DatabaseStats dbStats) {
 		this.name = name;
 		this.dbStats = dbStats;
+		allCollections = new HashMap<>();
+		namespaces = new HashMap<>();
+		shardedCollections = new HashSet<>();
+		unshardedCollections = new HashSet<>();
+		excludedCollections = new HashSet<>();
 	}
 
 	public void addCollection(Collection coll) {
-		if (allCollections == null) {
-			allCollections = new HashMap<>();
-			namespaces = new HashMap<>();
-			shardedCollections = new HashSet<>();
-			unshardedCollections = new HashSet<>();
-		}
 		allCollections.put(coll.getNamespace(), coll);
 		if (coll.isSharded()) {
 			shardedCollections.add(coll);
@@ -36,6 +36,10 @@ public class Database {
 		}
 		Namespace ns = new Namespace(coll.getNamespace());
 		namespaces.put(ns.getNamespace(), ns);
+	}
+
+	public void excludeCollection(String collNs) {
+		excludedCollections.add(collNs);
 	}
 
 	public String getName() {

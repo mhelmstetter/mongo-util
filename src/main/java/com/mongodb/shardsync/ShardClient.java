@@ -728,11 +728,13 @@ public class ShardClient {
 				String collType = coll.getString("type");
 				if (collType.equals("view")) {
 					logger.info("Excluding view: {}", collName);
+					db.excludeCollection(collName);
 					continue;
 				}
 				/* Don't include collections starting with system.* */
 				if (excludeCollRegex.matcher(collName).matches()) {
 					logger.info("Excluding collection: {}", collName);
+					db.excludeCollection(collName);
 					continue;
 				}
 				String collNs = dbName + "." + collName;
