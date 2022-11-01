@@ -13,16 +13,13 @@ public class DatabaseCatalog {
 	private Set<Collection> shardedCollections;
 	private Set<Collection> unshardedCollections;
 
+	public DatabaseCatalog() {
+		databases = new HashMap<>();
+		shardedCollections = new HashSet<>();
+		unshardedCollections = new HashSet<>();
+	}
+
 	public void addDatabase(Database db) {
-		if (this.databases == null) {
-			databases = new HashMap<>();
-		}
-		if (this.shardedCollections == null) {
-			shardedCollections = new HashSet<>();
-		}
-		if (this.unshardedCollections == null) {
-			unshardedCollections = new HashSet<>();
-		}
 		databases.put(db.getName(), db);
 		documentCount += db.getDbStats().getDocumentCount();
 
