@@ -13,6 +13,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -51,41 +52,26 @@ public class DiffUtil {
 
         sourceShardClient.init();
         destShardClient.init();
-        sourceShardClient.populateCollectionsMap();
-        sourceChunksCache = sourceShardClient.loadChunksCache(config.getChunkQuery());
         
         DatabaseCatalog catalog = sourceShardClient.getDatabaseCatalog();
         
-        chunkCollSet = getShardedCollections();
-        estimatedTotalDocs = estimateCount(chunkCollSet);
-        
-        // TODO - use this
-        long est2 = catalog.getDocumentCount();
+        estimatedTotalDocs = catalog.getDocumentCount();
+
+        Set<String> shardedColls = catalog.getShardedCollections().stream()
+                .map(c -> c.getNamespace()).collect(Collectors.toSet());
+        Set<String> unshardedColls = catalog.getUnshardedCollections().stream()
+                .map(c -> c.getNamespace()).collect(Collectors.toSet());
+
+        logger.info("ShardedColls:[" + String.join(", ", shardedColls) + "]");
+
+        logger.info("UnshardedColls:[" + String.join(", ", unshardedColls) + "]");
+
+        sourceShardClient.populateCollectionsMap();
+        sourceChunksCache = sourceShardClient.loadChunksCache(config.getChunkQuery());
 
         workQueue = new ArrayBlockingQueue<Runnable>(sourceChunksCache.size());
         diffResults = new ArrayList<>(sourceChunksCache.size());
         executor = new ThreadPoolExecutor(config.getThreads(), config.getThreads(), 30, TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
-    }
-
-    private Set<String> getShardedCollections() {
-        Set<String> out = new HashSet<>();
-        for (Document d : sourceShardClient.getCollectionsMap().values()) {
-            String nsStr = (String) d.get("_id");
-            out.add(nsStr);
-        }
-        return out;
-    }
-
-    private long estimateCount(Set<String> collSet) {
-        long sum = 0l;
-        for (String s : collSet) {
-            Namespace ns = new Namespace(s);
-            Number cnt = sourceShardClient.getFastCollectionCount(ns.getDatabaseName(), ns.getCollectionName());
-            if (cnt != null) {
-                sum += cnt.longValue();
-            }
-        }
-        return sum;
     }
 
     public void run() {
@@ -131,11 +117,9 @@ public class DiffUtil {
 
                 //logger.debug("result: {}", );
             } catch (InterruptedException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
+                logger.error("Diff task was interrupted", e);
             } catch (ExecutionException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
+                logger.error("Diff task threw an exception", e);
             }
         }
         statusReporter.shutdown();

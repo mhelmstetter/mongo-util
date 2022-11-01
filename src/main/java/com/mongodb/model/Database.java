@@ -1,7 +1,9 @@
 package com.mongodb.model;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class Database {
 	
@@ -9,7 +11,9 @@ public class Database {
 	
 	private DatabaseStats dbStats;
 	
-	private Map<String, Collection> collections;
+	private Map<String, Collection> allCollections;
+	private Set<Collection> shardedCollections;
+	private Set<Collection> unshardedCollections;
 	private Map<String, Namespace> namespaces;
 
 	public Database(String name, DatabaseStats dbStats) {
@@ -18,12 +22,19 @@ public class Database {
 	}
 
 	public void addCollection(Collection coll) {
-		if (collections == null) {
-			collections = new HashMap<>();
+		if (allCollections == null) {
+			allCollections = new HashMap<>();
 			namespaces = new HashMap<>();
+			shardedCollections = new HashSet<>();
+			unshardedCollections = new HashSet<>();
 		}
-		collections.put(coll.getName(), coll);
-		Namespace ns = new Namespace(name, coll.getName());
+		allCollections.put(coll.getNamespace(), coll);
+		if (coll.isSharded()) {
+			shardedCollections.add(coll);
+		} else {
+			unshardedCollections.add(coll);
+		}
+		Namespace ns = new Namespace(coll.getNamespace());
 		namespaces.put(ns.getNamespace(), ns);
 	}
 
@@ -33,6 +44,14 @@ public class Database {
 
 	public DatabaseStats getDbStats() {
 		return dbStats;
+	}
+
+	public Set<Collection> getShardedCollections() {
+		return shardedCollections;
+	}
+
+	public Set<Collection> getUnshardedCollections() {
+		return unshardedCollections;
 	}
 
 	public java.util.Collection<Namespace> getNamespaces() {

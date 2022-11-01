@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
+import com.mongodb.model.*;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.bson.BsonDocument;
@@ -54,16 +55,6 @@ import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.internal.dns.DefaultDnsResolver;
-import com.mongodb.model.Database;
-import com.mongodb.model.DatabaseCatalog;
-import com.mongodb.model.DatabaseStats;
-import com.mongodb.model.IndexSpec;
-import com.mongodb.model.Mongos;
-import com.mongodb.model.Namespace;
-import com.mongodb.model.Role;
-import com.mongodb.model.Shard;
-import com.mongodb.model.ShardTimestamp;
-import com.mongodb.model.User;
 import com.mongodb.util.MaskUtil;
 
 /**
@@ -706,6 +697,14 @@ public class ShardClient {
 	public Document dbStats(String dbName) {
 		return this.mongoClient.getDatabase(dbName).runCommand(dbStatsCommand);
 	}
+
+	private Document collStatsCommand(String collName) {
+		return new Document("collStats", collName);
+	}
+
+	public Document collStats(String dbName, String collName) {
+		return this.mongoClient.getDatabase(dbName).runCommand(collStatsCommand(collName));
+	}
 	
 	public DatabaseCatalog getDatabaseCatalog() {
 		if (this.databaseCatalog == null) {
@@ -718,15 +717,20 @@ public class ShardClient {
 	private void populateDatabaseCatalog() {
 		MongoIterable<String> dbNames = listDatabaseNames();
 		for (String dbName : dbNames) {
+			if (excludedSystemDbs.contains(dbName)) {
+				continue;
+			}
 			Document dbStatsDoc = dbStats(dbName);
 			DatabaseStats dbStats = DatabaseStats.fromDocument(dbStatsDoc);
 			Database db = new Database(dbName, dbStats);
-			databaseCatalog.addDatabase(db);
 			MongoIterable<String> collNames = listCollectionNames(dbName);
 			for (String collName : collNames) {
-				com.mongodb.model.Collection coll = new com.mongodb.model.Collection(collName);
+				String collNs = dbName + "." + collName;
+				CollectionStats collStats = CollectionStats.fromDocument(collStats(dbName, collName));
+				com.mongodb.model.Collection coll = new com.mongodb.model.Collection(collNs, collStats);
 				db.addCollection(coll);
 			}
+			databaseCatalog.addDatabase(db);
 		}
 	}
 
