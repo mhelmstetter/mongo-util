@@ -52,4 +52,8 @@ public class DatabaseCatalog {
 		return unshardedCollections;
 	}
 
+	public Database getDatabase(String dbName) {
+		return databases.get(dbName);
+	}
+
 }

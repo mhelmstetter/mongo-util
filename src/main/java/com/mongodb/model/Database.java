@@ -57,6 +57,10 @@ public class Database {
 		return new HashSet<>(allCollections.values());
 	}
 
+	public Collection getCollection(String collName) {
+		return allCollections.get(collName);
+	}
+
 	public java.util.Collection<Namespace> getNamespaces() {
 		return namespaces.values();
 	}

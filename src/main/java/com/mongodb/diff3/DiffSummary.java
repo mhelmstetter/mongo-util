@@ -16,11 +16,16 @@ public class DiffSummary {
     private final long startTime;
     private long sourceOnly;
     private long destOnly;
+    private String ppTotalSize;
+    private static final long K = 1024;
+    private static final long M = 1024 * 1024;
+    private static final long G = 1024 * 1024 * 1024;
 
     public DiffSummary(int totalChunks, long totalDocs, long totalSize) {
         this.totalChunks = totalChunks;
         this.totalDocs = totalDocs;
         this.totalSize = totalSize;
+        this.ppTotalSize = ppSize(this.totalSize);
         this.startTime = new Date().getTime();
     }
 
@@ -39,13 +44,37 @@ public class DiffSummary {
         return String.format("%s" +
                         "%.2f %% of chunks processed  (%s/%s chunks).  " +
                         "%.2f %% of docs processed  (%s/%s docs).  " +
-                        "%.2f %% of size processed (%s/%s bytes).  " +
+                        "%.2f %% of size processed (%s/%s).  " +
                         "%.2f %% of chunks failed  (%s/%s chunks).  " +
                         "%.2f %% of documents failed  (%s/%s docs).  " +
                         "%s docs found on source only.  %s docs found on target only", firstLine, chunkProcPct,
-                processedChunks, totalChunks, docProcPct, processedDocs, totalDocs, sizeProcessedPct, processedSize,
-                totalSize, chunkFailPct, failedChunks, processedChunks, docFailPct, failedDocs, processedDocs,
-                sourceOnly, destOnly);
+                processedChunks, totalChunks, docProcPct, processedDocs, totalDocs, sizeProcessedPct,
+                ppSize(processedSize), ppTotalSize, chunkFailPct, failedChunks, processedChunks, docFailPct,
+                failedDocs, processedDocs, sourceOnly, destOnly);
+    }
+
+    private String ppSize(long size) {
+        if (size <= 0){
+            return "0 B";
+        } else if (size >= G) {
+            double convertedSize = (double) size / G;
+            if (convertedSize >= 1024) {
+                return String.format("%.2f T", convertedSize / 1024.);
+            } else {
+                return formatSize(size, G, "G");
+            }
+        } else if (size >= M) {
+            return formatSize(size, M, "M");
+        } else if (size >= K) {
+            return formatSize(size, K, "K");
+        } else {
+            return String.format("%s B", size);
+        }
+    }
+
+    private String formatSize(long size, long bound, String indicator) {
+        double convertedSize = (double) size / bound;
+        return String.format("%.2f %s", convertedSize, indicator);
     }
 
     public long getTimeElapsed() {
@@ -83,5 +112,9 @@ public class DiffSummary {
 
     public void incrementDestOnly(long num) {
         destOnly += num;
+    }
+
+    public void incrementProcessedSize(long num) {
+        processedSize += num;
     }
 }

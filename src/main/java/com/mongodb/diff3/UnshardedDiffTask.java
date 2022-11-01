@@ -5,6 +5,8 @@ import com.google.common.collect.MapDifference.ValueDifference;
 import com.google.common.collect.Maps;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
+import com.mongodb.model.Collection;
+import com.mongodb.model.Database;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.CodecUtils;
@@ -42,6 +44,7 @@ public class UnshardedDiffTask implements Callable<DiffResult> {
 
         MongoCollection<RawBsonDocument> sourceColl = sourceShardClient.getCollectionRaw(ns);
         MongoCollection<RawBsonDocument> destColl = destShardClient.getCollectionRaw(ns);
+        long collSize = getCollSize(ns);
 
         try {
             sourceCursor = sourceColl.find().iterator();
@@ -68,6 +71,7 @@ public class UnshardedDiffTask implements Callable<DiffResult> {
                 result.onlyOnSource = diff.entriesOnlyOnLeft().size();
                 result.onlyOnDest = diff.entriesOnlyOnRight().size();
             }
+            result.bytesProcessed = collSize;
 
 
         } catch (Exception me) {
@@ -91,6 +95,12 @@ public class UnshardedDiffTask implements Callable<DiffResult> {
             docs.put(id, docHash);
         }
         return docs;
+    }
+
+    private long getCollSize(Namespace ns) {
+        Database db = sourceShardClient.getDatabaseCatalog().getDatabase(ns.getDatabaseName());
+        Collection coll = db.getCollection(ns.getNamespace());
+        return coll.getCollStats().getSize();
     }
 
 

@@ -81,7 +81,7 @@ public class ShardedDiffTask implements Callable<DiffResult> {
 		result.setChunkQuery(chunkQuery);
 		
 		try {
-//			long chunkSize = getChunkSize(chunk);
+			long chunkSize = getChunkSize(chunk);
 			
 			sourceCursor = sourceColl.find(chunkQuery).iterator();
 			destCursor = destColl.find(chunkQuery).iterator();
@@ -108,7 +108,7 @@ public class ShardedDiffTask implements Callable<DiffResult> {
 				result.onlyOnDest = diff.entriesOnlyOnRight().size();
 
 			}
-//			result.bytesProcessed = chunkSize;
+			result.bytesProcessed = chunkSize;
 
 		} catch (Exception me) {
         	logger.error("fatal error diffing chunk, ns: {}", ns, me);
@@ -135,13 +135,17 @@ public class ShardedDiffTask implements Callable<DiffResult> {
 
 	private long getChunkSize(RawBsonDocument chunk) {
 		MongoDatabase configDb = sourceShardClient.getConfigDb();
-		Map<String, Object> chunkSizeCmdParams = new HashMap<>();
-		chunkSizeCmdParams.put("dataSize", "cxx");
-		chunkSizeCmdParams.put("keyPattern", new Document("_id", 1));
+		String chunkNs = chunk.getString("ns").getValue();
+		Map<String, Object> chunkSizeCmdParams = new LinkedHashMap<>();
+		chunkSizeCmdParams.put("dataSize", chunkNs);
 		chunkSizeCmdParams.put("min", new Document("_id", minKey(chunk)));
 		chunkSizeCmdParams.put("max", new Document("_id", maxKey(chunk)));
-		Document result = configDb.runCommand(new Document(chunkSizeCmdParams));
-		return result.getLong("chunkSize");
+		chunkSizeCmdParams.put("maxTimeMS", 10000);
+		Document cmd = new Document(chunkSizeCmdParams);
+		String jsonCmd = cmd.toJson();
+		Document result = configDb.runCommand(cmd);
+		Double size = result.getDouble("size");
+		return size.longValue();
 	}
 	
 	private Map<BsonValue, String> loadDocs(MongoCursor<RawBsonDocument> cursor) {

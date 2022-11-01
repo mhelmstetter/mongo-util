@@ -123,6 +123,7 @@ public class DiffUtil {
                 }
                 summary.incrementSourceOnly(result.onlyOnSource);
                 summary.incrementDestOnly(result.onlyOnDest);
+                summary.incrementProcessedSize(result.bytesProcessed);
 
                 //logger.debug("result: {}", );
             } catch (InterruptedException e) {
