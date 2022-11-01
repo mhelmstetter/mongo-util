@@ -13,3 +13,4 @@ build/mongomirror
 mongomirror.bookmark
 ss.props
 ss2.props
+exportToHTML

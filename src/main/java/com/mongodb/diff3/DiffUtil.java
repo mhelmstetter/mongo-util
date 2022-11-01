@@ -1,7 +1,6 @@
 package com.mongodb.diff3;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -15,13 +14,12 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import org.bson.Document;
+import com.mongodb.model.Collection;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.model.DatabaseCatalog;
-import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.BlockWhenQueueFull;
 
@@ -65,7 +63,6 @@ public class DiffUtil {
         logger.info("ShardedColls:[" + String.join(", ", shardedColls) + "]");
 
         logger.info("UnshardedColls:[" + String.join(", ", unshardedColls) + "]");
-
         sourceShardClient.populateCollectionsMap();
         sourceChunksCache = sourceShardClient.loadChunksCache(config.getChunkQuery());
 
@@ -77,12 +74,16 @@ public class DiffUtil {
     public void run() {
         DiffSummary summary = new DiffSummary(sourceChunksCache.size(), estimatedTotalDocs);
         for (RawBsonDocument chunk : sourceChunksCache.values()) {
-            DiffTask task = new DiffTask(sourceShardClient, destShardClient, config, chunk);
+            ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk);
             diffResults.add(executor.submit(task));
         }
         
         // TODO iterate all non-sharded namespaces and create tasks for those also
         // Make DiffTask an abstract base class? ShardedDiffTask / UnShardedDiffTask?
+        for (Collection unshardedColl : sourceShardClient.getDatabaseCatalog().getUnshardedCollections()) {
+            UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient, unshardedColl.getNamespace());
+            diffResults.add(executor.submit(task));
+        }
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
         statusReporter.scheduleAtFixedRate(new Runnable() {
@@ -101,17 +102,23 @@ public class DiffUtil {
                 int failures = result.getFailureCount();
 
                 if (failures > 0) {
-                    summary.incrementFailedChunks(1);
+                    if (result instanceof ShardedDiffResult) {
+                        summary.incrementFailedChunks(1);
+                    }
                     summary.incrementSuccessfulDocs(result.matches - failures);
                 } else {
-                    summary.incrementSuccessfulChunks(1);
+                    if (result instanceof ShardedDiffResult) {
+                        summary.incrementSuccessfulChunks(1);
+                    }
                     summary.incrementSuccessfulDocs(result.matches);
                 }
 
 
                 summary.incrementProcessedDocs(result.matches + failures);
                 summary.incrementFailedDocs(failures);
-                summary.incrementProcessedChunks(1);
+                if (result instanceof ShardedDiffResult) {
+                    summary.incrementProcessedChunks(1);
+                }
                 summary.incrementSourceOnly(result.onlyOnSource);
                 summary.incrementDestOnly(result.onlyOnDest);
 

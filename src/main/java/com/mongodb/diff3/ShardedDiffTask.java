@@ -23,17 +23,16 @@ import org.slf4j.LoggerFactory;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.MapDifference.ValueDifference;
 import com.google.common.collect.Maps;
-import com.mongodb.MongoException;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.CodecUtils;
 
-public class DiffTask implements Callable<DiffResult> {
+public class ShardedDiffTask implements Callable<DiffResult> {
 	
 	
-	protected static final Logger logger = LoggerFactory.getLogger(DiffTask.class);
+	protected static final Logger logger = LoggerFactory.getLogger(ShardedDiffTask.class);
 	
     protected ShardClient sourceShardClient;
     protected ShardClient destShardClient;
@@ -46,8 +45,8 @@ public class DiffTask implements Callable<DiffResult> {
     
     
 	
-	public DiffTask(ShardClient sourceShardClient, ShardClient destShardClient, DiffConfiguration config,
-					RawBsonDocument chunk) {
+	public ShardedDiffTask(ShardClient sourceShardClient, ShardClient destShardClient, DiffConfiguration config,
+						   RawBsonDocument chunk) {
         this.sourceShardClient = sourceShardClient;
         this.destShardClient = destShardClient;
         this.config = config;
@@ -55,9 +54,9 @@ public class DiffTask implements Callable<DiffResult> {
     }
 
 	@Override
-	public DiffResult call() throws Exception {
+	public ShardedDiffResult call() throws Exception {
 		
-		DiffResult result = new DiffResult();
+		ShardedDiffResult result = new ShardedDiffResult();
 		result.setChunk(chunk);
 		MongoCursor<RawBsonDocument> sourceCursor = null;
 		MongoCursor<RawBsonDocument> destCursor = null;
