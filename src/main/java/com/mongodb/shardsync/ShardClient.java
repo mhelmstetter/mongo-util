@@ -24,7 +24,12 @@ import java.util.TreeMap;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
-import org.bson.*;
+import org.bson.BsonDocument;
+import org.bson.BsonString;
+import org.bson.BsonTimestamp;
+import org.bson.Document;
+import org.bson.RawBsonDocument;
+import org.bson.UuidRepresentation;
 import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
@@ -49,6 +54,9 @@ import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.internal.dns.DefaultDnsResolver;
+import com.mongodb.model.Database;
+import com.mongodb.model.DatabaseCatalog;
+import com.mongodb.model.DatabaseStats;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
@@ -86,6 +94,9 @@ public class ShardClient {
 		countPipeline.add(Document.parse("{ $project: { _id: 0, count: 1 } }"));
 	}
 	
+	private final static Document listDatabasesCommand = new Document("listDatabases", 1);
+	private final static Document dbStatsCommand = new Document("dbStats", 1);
+	
 	public final static Set<String> excludedSystemDbs = new HashSet<>(Arrays.asList("system", "local", "config", "admin"));
 
 	private ShardClientType shardClientType = ShardClientType.SHARDED;
@@ -118,6 +129,7 @@ public class ShardClient {
 	private Map<String, MongoClient> mongosMongoClients = new TreeMap<String, MongoClient>();
 
 	private Map<String, Document> collectionsMap = new TreeMap<String, Document>();
+	private DatabaseCatalog databaseCatalog;
 
 	private Map<String, MongoClient> shardMongoClients = new TreeMap<String, MongoClient>();
 
@@ -685,6 +697,37 @@ public class ShardClient {
 
 	public MongoIterable<String> listDatabaseNames() {
 		return this.mongoClient.listDatabaseNames();
+	}
+	
+	public Document listDatabases() {
+		return this.mongoClient.getDatabase("admin").runCommand(listDatabasesCommand);
+	}
+	
+	public Document dbStats(String dbName) {
+		return this.mongoClient.getDatabase(dbName).runCommand(dbStatsCommand);
+	}
+	
+	public DatabaseCatalog getDatabaseCatalog() {
+		if (this.databaseCatalog == null) {
+			this.databaseCatalog = new DatabaseCatalog();
+			populateDatabaseCatalog();
+		}
+		return databaseCatalog;
+	}
+	
+	private void populateDatabaseCatalog() {
+		MongoIterable<String> dbNames = listDatabaseNames();
+		for (String dbName : dbNames) {
+			Document dbStatsDoc = dbStats(dbName);
+			DatabaseStats dbStats = DatabaseStats.fromDocument(dbStatsDoc);
+			Database db = new Database(dbName, dbStats);
+			databaseCatalog.addDatabase(db);
+			MongoIterable<String> collNames = listCollectionNames(dbName);
+			for (String collName : collNames) {
+				com.mongodb.model.Collection coll = new com.mongodb.model.Collection(collName);
+				db.addCollection(coll);
+			}
+		}
 	}
 
 	public MongoIterable<String> listCollectionNames(String databaseName) {

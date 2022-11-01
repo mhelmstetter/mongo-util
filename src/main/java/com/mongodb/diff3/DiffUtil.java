@@ -1,16 +1,28 @@
 package com.mongodb.diff3;
 
-import com.mongodb.model.Namespace;
-import com.mongodb.shardsync.ShardClient;
-import com.mongodb.util.BlockWhenQueueFull;
-import org.apache.commons.lang3.tuple.Pair;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
-import java.util.concurrent.*;
+import com.mongodb.model.DatabaseCatalog;
+import com.mongodb.model.Namespace;
+import com.mongodb.shardsync.ShardClient;
+import com.mongodb.util.BlockWhenQueueFull;
 
 public class DiffUtil {
 
@@ -41,8 +53,14 @@ public class DiffUtil {
         destShardClient.init();
         sourceShardClient.populateCollectionsMap();
         sourceChunksCache = sourceShardClient.loadChunksCache(config.getChunkQuery());
+        
+        DatabaseCatalog catalog = sourceShardClient.getDatabaseCatalog();
+        
         chunkCollSet = getShardedCollections();
         estimatedTotalDocs = estimateCount(chunkCollSet);
+        
+        // TODO - use this
+        long est2 = catalog.getDocumentCount();
 
         workQueue = new ArrayBlockingQueue<Runnable>(sourceChunksCache.size());
         diffResults = new ArrayList<>(sourceChunksCache.size());
@@ -76,6 +94,9 @@ public class DiffUtil {
             DiffTask task = new DiffTask(sourceShardClient, destShardClient, config, chunk);
             diffResults.add(executor.submit(task));
         }
+        
+        // TODO iterate all non-sharded namespaces and create tasks for those also
+        // Make DiffTask an abstract base class? ShardedDiffTask / UnShardedDiffTask?
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
         statusReporter.scheduleAtFixedRate(new Runnable() {
