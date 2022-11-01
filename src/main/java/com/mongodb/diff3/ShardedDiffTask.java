@@ -4,18 +4,11 @@ import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.lt;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Callable;
 
-import org.bson.BsonDocument;
-import org.bson.BsonValue;
-import org.bson.Document;
-import org.bson.RawBsonDocument;
+import com.mongodb.client.MongoDatabase;
+import org.bson.*;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,7 +81,7 @@ public class ShardedDiffTask implements Callable<DiffResult> {
 		result.setChunkQuery(chunkQuery);
 		
 		try {
-			
+//			long chunkSize = getChunkSize(chunk);
 			
 			sourceCursor = sourceColl.find(chunkQuery).iterator();
 			destCursor = destColl.find(chunkQuery).iterator();
@@ -113,8 +106,9 @@ public class ShardedDiffTask implements Callable<DiffResult> {
 			    }
 				result.onlyOnSource = diff.entriesOnlyOnLeft().size();
 				result.onlyOnDest = diff.entriesOnlyOnRight().size();
-			}
 
+			}
+//			result.bytesProcessed = chunkSize;
 
 		} catch (Exception me) {
         	logger.error("fatal error diffing chunk, ns: {}", ns, me);
@@ -125,6 +119,29 @@ public class ShardedDiffTask implements Callable<DiffResult> {
 		}
 		
 		return result;
+	}
+
+	private BsonValue minKey(RawBsonDocument chunk) {
+		BsonDocument minVal = (BsonDocument) chunk.get("min");
+		BsonValue uuid = minVal.get("_id");
+		return uuid;
+	}
+
+	private BsonValue maxKey(RawBsonDocument chunk) {
+		BsonDocument maxVal = (BsonDocument) chunk.get("max");
+		BsonValue uuid = maxVal.get("_id");
+		return uuid;
+	}
+
+	private long getChunkSize(RawBsonDocument chunk) {
+		MongoDatabase configDb = sourceShardClient.getConfigDb();
+		Map<String, Object> chunkSizeCmdParams = new HashMap<>();
+		chunkSizeCmdParams.put("dataSize", "cxx");
+		chunkSizeCmdParams.put("keyPattern", new Document("_id", 1));
+		chunkSizeCmdParams.put("min", new Document("_id", minKey(chunk)));
+		chunkSizeCmdParams.put("max", new Document("_id", maxKey(chunk)));
+		Document result = configDb.runCommand(new Document(chunkSizeCmdParams));
+		return result.getLong("chunkSize");
 	}
 	
 	private Map<BsonValue, String> loadDocs(MongoCursor<RawBsonDocument> cursor) {

@@ -40,6 +40,7 @@ public class DiffUtil {
     private Map<String, RawBsonDocument> sourceChunksCache;
     private Set<String> chunkCollSet;
     private long estimatedTotalDocs;
+    private long totalSize;
 
 
     public DiffUtil(DiffConfiguration config) {
@@ -54,6 +55,7 @@ public class DiffUtil {
         DatabaseCatalog catalog = sourceShardClient.getDatabaseCatalog();
         
         estimatedTotalDocs = catalog.getDocumentCount();
+        totalSize = catalog.getTotalSize();
 
         Set<String> shardedColls = catalog.getShardedCollections().stream()
                 .map(c -> c.getNamespace()).collect(Collectors.toSet());
@@ -72,7 +74,7 @@ public class DiffUtil {
     }
 
     public void run() {
-        DiffSummary summary = new DiffSummary(sourceChunksCache.size(), estimatedTotalDocs);
+        DiffSummary summary = new DiffSummary(sourceChunksCache.size(), estimatedTotalDocs, totalSize);
         for (RawBsonDocument chunk : sourceChunksCache.values()) {
             ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk);
             diffResults.add(executor.submit(task));

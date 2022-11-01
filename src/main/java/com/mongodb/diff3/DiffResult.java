@@ -9,6 +9,7 @@ public class DiffResult {
     long matches = 0;
     long onlyOnSource = 0;
     long onlyOnDest = 0;
+    long bytesProcessed = 0;
     List<BsonValue> failedIds;
 
     public void addFailedKey(BsonValue id) {

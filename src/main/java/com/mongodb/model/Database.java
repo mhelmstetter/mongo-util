@@ -47,11 +47,14 @@ public class Database {
 	}
 
 	public Set<Collection> getShardedCollections() {
-		return shardedCollections;
+		return shardedCollections == null ? new HashSet<>() : shardedCollections;
 	}
 
 	public Set<Collection> getUnshardedCollections() {
-		return unshardedCollections;
+		return unshardedCollections == null ? new HashSet<>() : unshardedCollections;
+	}
+	public Set<Collection> getAllCollections() {
+		return new HashSet<>(allCollections.values());
 	}
 
 	public java.util.Collection<Namespace> getNamespaces() {

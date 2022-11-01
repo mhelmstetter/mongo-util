@@ -25,8 +25,19 @@ public class DatabaseCatalog {
 		}
 		databases.put(db.getName(), db);
 		documentCount += db.getDbStats().getDocumentCount();
+
 		shardedCollections.addAll(db.getShardedCollections());
 		unshardedCollections.addAll(db.getUnshardedCollections());
+	}
+
+	public long getTotalSize() {
+		long sum = 0;
+		for (Database db : databases.values()) {
+			for (Collection coll : db.getAllCollections()) {
+				sum += coll.getCollStats().getSize();
+			}
+		}
+		return sum;
 	}
 
 	public Long getDocumentCount() {
