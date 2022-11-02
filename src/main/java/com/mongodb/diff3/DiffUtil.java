@@ -54,8 +54,9 @@ public class DiffUtil {
         
         DatabaseCatalog catalog = sourceShardClient.getDatabaseCatalog();
         
-        estimatedTotalDocs = catalog.getDocumentCount();
-        totalSize = catalog.getTotalSize();
+        long[] sizeAndCount = catalog.getTotalSizeAndCount();
+        totalSize = sizeAndCount[0];
+        estimatedTotalDocs = sizeAndCount[1];
 
         Set<String> shardedColls = catalog.getShardedCollections().stream()
                 .map(c -> c.getNamespace()).collect(Collectors.toSet());

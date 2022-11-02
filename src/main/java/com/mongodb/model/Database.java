@@ -51,11 +51,11 @@ public class Database {
 	}
 
 	public Set<Collection> getShardedCollections() {
-		return shardedCollections == null ? new HashSet<>() : shardedCollections;
+		return shardedCollections;
 	}
 
 	public Set<Collection> getUnshardedCollections() {
-		return unshardedCollections == null ? new HashSet<>() : unshardedCollections;
+		return unshardedCollections;
 	}
 	public Set<Collection> getAllCollections() {
 		return new HashSet<>(allCollections.values());

@@ -6,12 +6,14 @@ public class CollectionStats {
     private boolean sharded;
     private String namespace;
     private long size;
+    private long count;
 
     public static CollectionStats fromDocument(Document doc) {
         CollectionStats stats = new CollectionStats();
         stats.sharded = getBoolean(doc, "sharded");
         stats.namespace = getString(doc, "ns");
         stats.size = getLong(doc, "size");
+        stats.count = getLong(doc, "count");
         return stats;
     }
 
@@ -63,5 +65,9 @@ public class CollectionStats {
 
     public long getSize() {
         return size;
+    }
+
+    public long getCount() {
+        return count;
     }
 }
