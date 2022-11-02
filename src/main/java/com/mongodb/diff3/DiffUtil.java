@@ -52,6 +52,7 @@ public class DiffUtil {
         sourceShardClient.init();
         destShardClient.init();
         
+        sourceShardClient.populateCollectionsMap();
         DatabaseCatalog catalog = sourceShardClient.getDatabaseCatalog();
         
         long[] sizeAndCount = catalog.getTotalSizeAndCount();
@@ -73,6 +74,7 @@ public class DiffUtil {
         diffResults = new ArrayList<>(sourceChunksCache.size());
         executor = new ThreadPoolExecutor(config.getThreads(), config.getThreads(), 30, TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
     }
+    
 
     public void run() {
         DiffSummary summary = new DiffSummary(sourceChunksCache.size(), estimatedTotalDocs, totalSize);

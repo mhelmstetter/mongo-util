@@ -733,13 +733,13 @@ public class ShardClient {
 				}
 				/* Don't include collections starting with system.* */
 				if (excludeCollRegex.matcher(collName).matches()) {
-					logger.info("Excluding collection: {}", collName);
+					//logger.info("Excluding collection: {}", collName);
 					db.excludeCollection(collName);
 					continue;
 				}
 				String collNs = dbName + "." + collName;
-				CollectionStats collStats = CollectionStats.fromDocument(collStats(dbName, collName));
-				com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(collNs, collStats);
+				//CollectionStats collStats = CollectionStats.fromDocument(collStats(dbName, collName));
+				com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(collNs, collectionsMap.containsKey(collNs));
 				db.addCollection(mcoll);
 			}
 			databaseCatalog.addDatabase(db);
