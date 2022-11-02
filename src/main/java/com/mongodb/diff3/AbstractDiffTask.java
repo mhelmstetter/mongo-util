@@ -68,13 +68,13 @@ public class AbstractDiffTask {
 	
 	protected void loadSourceDocs() {
 		MongoCollection<RawBsonDocument> sourceColl = sourceShardClient.getCollectionRaw(namespace);
-		sourceCursor = sourceColl.find(query).iterator();
+		sourceCursor = sourceColl.find(query).batchSize(10000).iterator();
 		sourceDocs = loadDocs(sourceCursor, sourceBytesProcessed);
 	}
 	
 	protected void loadDestDocs() {
 		MongoCollection<RawBsonDocument> destColl = destShardClient.getCollectionRaw(namespace);
-		destCursor = destColl.find(query).iterator();
+		destCursor = destColl.find(query).batchSize(10000).iterator();
 		destDocs = loadDocs(destCursor, destBytesProcessed);
 	}
 
