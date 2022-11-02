@@ -2,6 +2,8 @@ package com.mongodb.diff3;
 
 import java.util.concurrent.Callable;
 
+import org.bson.BsonDocument;
+
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 
@@ -17,7 +19,8 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
     @Override
     public DiffResult call() throws Exception {
         result = new UnshardedDiffResult();
-
+        query = new BsonDocument();
+        
         try {
         	computeDiff();
         } catch (Exception me) {

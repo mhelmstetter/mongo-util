@@ -43,7 +43,7 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
 		String nsStr = chunk.getString("ns").getValue();
 		this.namespace = new Namespace(nsStr);
 		
-		Document shardCollection = sourceShardClient.getCollectionsMap().get(namespace);
+		Document shardCollection = sourceShardClient.getCollectionsMap().get(nsStr);
 		Document shardKeysDoc = (Document) shardCollection.get("key");
 		Set<String> shardKeys = shardKeysDoc.keySet();
 

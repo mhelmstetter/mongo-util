@@ -42,6 +42,8 @@ public class AbstractDiffTask {
 
 
 	protected void computeDiff() {
+		loadSourceDocs();
+		loadDestDocs();
 		MapDifference<BsonValue, String> diff = Maps.difference(sourceDocs, destDocs);
 
         if (diff.areEqual()) {
@@ -63,16 +65,16 @@ public class AbstractDiffTask {
         result.bytesProcessed = Math.max(sourceBytesProcessed, destBytesProcessed);
 	}
 	
-	protected Map<BsonValue, String> loadSourceDocs() {
+	protected void loadSourceDocs() {
 		MongoCollection<RawBsonDocument> sourceColl = sourceShardClient.getCollectionRaw(namespace);
 		sourceCursor = sourceColl.find(query).iterator();
-		return loadDocs(sourceCursor, sourceBytesProcessed);
+		sourceDocs = loadDocs(sourceCursor, sourceBytesProcessed);
 	}
 	
-	protected Map<BsonValue, String> loadDestDocs() {
+	protected void loadDestDocs() {
 		MongoCollection<RawBsonDocument> destColl = destShardClient.getCollectionRaw(namespace);
 		destCursor = destColl.find(query).iterator();
-		return loadDocs(destCursor, destBytesProcessed);
+		destDocs = loadDocs(destCursor, destBytesProcessed);
 	}
 
 	protected Map<BsonValue, String> loadDocs(MongoCursor<RawBsonDocument> cursor, long byteCounter) {
