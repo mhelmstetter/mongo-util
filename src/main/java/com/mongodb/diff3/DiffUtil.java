@@ -80,6 +80,7 @@ public class DiffUtil {
         DiffSummary summary = new DiffSummary(sourceChunksCache.size(), estimatedTotalDocs, totalSize);
         for (RawBsonDocument chunk : sourceChunksCache.values()) {
             ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk);
+//            logger.debug("Added a ShardedDiffTask");
             diffResults.add(executor.submit(task));
         }
         
@@ -87,6 +88,7 @@ public class DiffUtil {
         // Make DiffTask an abstract base class? ShardedDiffTask / UnShardedDiffTask?
         for (Collection unshardedColl : sourceShardClient.getDatabaseCatalog().getUnshardedCollections()) {
             UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient, unshardedColl.getNamespace());
+            logger.debug("Added an UnshardedDiffTask for {}", unshardedColl.getNamespace());
             diffResults.add(executor.submit(task));
         }
 
@@ -98,12 +100,13 @@ public class DiffUtil {
             }
         }, 0, 5, TimeUnit.SECONDS);
 
-
-        executor.shutdown();
-
         for (Future<DiffResult> future : diffResults) {
             try {
                 DiffResult result = future.get();
+                if (result instanceof UnshardedDiffResult) {
+                    UnshardedDiffResult udr = (UnshardedDiffResult) result;
+                    logger.debug("Got unsharded result for {}", udr.getNs());
+                }
                 int failures = result.getFailureCount();
 
                 if (failures > 0) {
@@ -136,6 +139,8 @@ public class DiffUtil {
             }
         }
         statusReporter.shutdown();
+
+        executor.shutdown();
         logger.info(summary.getSummary(true));
     }
 

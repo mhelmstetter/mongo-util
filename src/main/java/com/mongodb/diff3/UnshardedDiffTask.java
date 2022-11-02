@@ -18,7 +18,7 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
 
     @Override
     public DiffResult call() throws Exception {
-        result = new UnshardedDiffResult();
+        result = new UnshardedDiffResult(namespace.getNamespace());
         query = new BsonDocument();
         
         try {
