@@ -69,7 +69,7 @@ public class ShardClient {
 	}
 
 	private static Logger logger = LoggerFactory.getLogger(ShardClient.class);
-	private static Pattern excludeCollRegex = Pattern.compile("system.*");
+	private static Pattern excludeCollRegex = Pattern.compile("system\\..*");
 	
 	private final static int ONE_GIGABYTE = 1024 * 1024 * 1024;
 	private final static int ONE_MEGABYTE = 1024 * 1024;
