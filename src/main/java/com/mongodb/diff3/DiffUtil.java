@@ -105,7 +105,8 @@ public class DiffUtil {
                 DiffResult result = future.get();
                 if (result instanceof UnshardedDiffResult) {
                     UnshardedDiffResult udr = (UnshardedDiffResult) result;
-                    logger.debug("Got unsharded result for {}", udr.getNs());
+                    logger.debug("Got unsharded result for {}: {} matches, {} bytes", udr.getNs(),
+                            udr.matches, udr.bytesProcessed);
                 }
                 int failures = result.getFailureCount();
 

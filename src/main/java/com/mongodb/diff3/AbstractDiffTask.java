@@ -1,16 +1,5 @@
 package com.mongodb.diff3;
 
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.concurrent.atomic.LongAdder;
-
-import org.bson.BsonValue;
-import org.bson.RawBsonDocument;
-import org.bson.conversions.Bson;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.MapDifference.ValueDifference;
 import com.google.common.collect.Maps;
@@ -19,6 +8,16 @@ import com.mongodb.client.MongoCursor;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.CodecUtils;
+import org.bson.BsonValue;
+import org.bson.RawBsonDocument;
+import org.bson.conversions.Bson;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.LongAdder;
 
 public class AbstractDiffTask {
 
