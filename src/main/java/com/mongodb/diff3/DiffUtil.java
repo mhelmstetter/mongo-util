@@ -51,8 +51,10 @@ public class DiffUtil {
 
         sourceShardClient.init();
         destShardClient.init();
-        
-        sourceShardClient.populateCollectionsMap();
+
+//        Set<String> includeNs = config.getIncludeNamespaces().stream()
+//                .map(n -> n.getNamespace()).collect(Collectors.toSet());
+        sourceShardClient.populateCollectionsMap(/*includeNs*/);
         DatabaseCatalog catalog = sourceShardClient.getDatabaseCatalog();
         
         long[] sizeAndCount = catalog.getTotalSizeAndCount();
