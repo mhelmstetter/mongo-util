@@ -3,6 +3,7 @@ package com.mongodb.diff3;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.LongAdder;
 
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
@@ -11,8 +12,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.MapDifference;
-import com.google.common.collect.Maps;
 import com.google.common.collect.MapDifference.ValueDifference;
+import com.google.common.collect.Maps;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.model.Namespace;
@@ -29,8 +30,8 @@ public class AbstractDiffTask {
 	protected Namespace namespace;
 	protected Bson query;
 	
-	protected long sourceBytesProcessed;
-	protected long destBytesProcessed;
+	protected LongAdder sourceBytesProcessed = new LongAdder();
+	protected LongAdder destBytesProcessed = new LongAdder();
 	
 	protected MongoCursor<RawBsonDocument> sourceCursor = null;
 	protected MongoCursor<RawBsonDocument> destCursor = null;
@@ -62,7 +63,7 @@ public class AbstractDiffTask {
             result.onlyOnSource = diff.entriesOnlyOnLeft().size();
             result.onlyOnDest = diff.entriesOnlyOnRight().size();
         }
-        result.bytesProcessed = Math.max(sourceBytesProcessed, destBytesProcessed);
+        result.bytesProcessed = Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue());
 	}
 	
 	protected void loadSourceDocs() {
@@ -77,13 +78,13 @@ public class AbstractDiffTask {
 		destDocs = loadDocs(destCursor, destBytesProcessed);
 	}
 
-	protected Map<BsonValue, String> loadDocs(MongoCursor<RawBsonDocument> cursor, long byteCounter) {
+	protected Map<BsonValue, String> loadDocs(MongoCursor<RawBsonDocument> cursor, LongAdder byteCounter) {
 		Map<BsonValue, String> docs = new LinkedHashMap<>();
 		while (cursor.hasNext()) {
 			RawBsonDocument doc = cursor.next();
 			BsonValue id = doc.get("_id");
 			byte[] docBytes = doc.getByteBuffer().array();
-			byteCounter += docBytes.length;
+			byteCounter.add(docBytes.length);
 			String docHash = CodecUtils.md5Hex(docBytes);
 			docs.put(id, docHash);
 		}
