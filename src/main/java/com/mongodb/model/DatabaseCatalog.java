@@ -11,6 +11,9 @@ public class DatabaseCatalog {
 
 	private Set<Collection> shardedCollections;
 	private Set<Collection> unshardedCollections;
+	
+	private long totalDocumentCount = 0L;
+	private long totalDataSize = 0L;
 
 	public DatabaseCatalog() {
 		databases = new HashMap<>();
@@ -20,21 +23,14 @@ public class DatabaseCatalog {
 
 	public void addDatabase(Database db) {
 		databases.put(db.getName(), db);
-
+		totalDocumentCount += db.getDbStats().getDocumentCount();
+		totalDataSize += db.getDbStats().getDataSize();
 		shardedCollections.addAll(db.getShardedCollections());
 		unshardedCollections.addAll(db.getUnshardedCollections());
 	}
 
 	public long[] getTotalSizeAndCount() {
-		long size = 0;
-		long count = 0;
-		for (Database db : databases.values()) {
-			for (Collection coll : db.getAllCollections()) {
-				size += coll.getCollStats().getSize();
-				count += coll.getCollStats().getCount();
-			}
-		}
-		return new long[] {size, count};
+		return new long[] {totalDataSize, totalDocumentCount};
 	}
 
 	public Set<Collection> getShardedCollections() {

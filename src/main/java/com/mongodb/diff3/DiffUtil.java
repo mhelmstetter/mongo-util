@@ -52,6 +52,7 @@ public class DiffUtil {
         sourceShardClient.init();
         destShardClient.init();
         
+        sourceShardClient.populateCollectionsMap();
         DatabaseCatalog catalog = sourceShardClient.getDatabaseCatalog();
         
         long[] sizeAndCount = catalog.getTotalSizeAndCount();

@@ -3,22 +3,18 @@ package com.mongodb.model;
 public class Collection {
 	
 	private String namespace;
-	private CollectionStats collStats;
+	private boolean sharded;
 
-	public Collection(String namespace, CollectionStats collStats) {
+	public Collection(String namespace, boolean sharded) {
 		this.namespace = namespace;
-		this.collStats = collStats;
+		this.sharded = sharded;
 	}
 
 	public String getNamespace() {
 		return namespace;
 	}
 
-	public CollectionStats getCollStats() {
-		return collStats;
-	}
-
 	public boolean isSharded() {
-		return collStats.isSharded();
+		return sharded;
 	}
 }
