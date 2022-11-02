@@ -52,11 +52,11 @@ public class DiffUtil {
         sourceShardClient.init();
         destShardClient.init();
 
-//        Set<String> includeNs = config.getIncludeNamespaces().stream()
-//                .map(n -> n.getNamespace()).collect(Collectors.toSet());
-        sourceShardClient.populateCollectionsMap(/*includeNs*/);
-        DatabaseCatalog catalog = sourceShardClient.getDatabaseCatalog();
-        
+        Set<String> includeNs = config.getIncludeNamespaces().stream()
+                .map(n -> n.getNamespace()).collect(Collectors.toSet());
+        sourceShardClient.populateCollectionsMap(includeNs);
+        DatabaseCatalog catalog = sourceShardClient.getDatabaseCatalog(config.getIncludeNamespaces());
+
         long[] sizeAndCount = catalog.getTotalSizeAndCount();
         totalSize = sizeAndCount[0];
         estimatedTotalDocs = sizeAndCount[1];
@@ -76,23 +76,10 @@ public class DiffUtil {
         diffResults = new ArrayList<>(sourceChunksCache.size());
         executor = new ThreadPoolExecutor(config.getThreads(), config.getThreads(), 30, TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
     }
-    
+
 
     public void run() {
         DiffSummary summary = new DiffSummary(sourceChunksCache.size(), estimatedTotalDocs, totalSize);
-        for (RawBsonDocument chunk : sourceChunksCache.values()) {
-            ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk);
-//            logger.debug("Added a ShardedDiffTask");
-            diffResults.add(executor.submit(task));
-        }
-        
-        // TODO iterate all non-sharded namespaces and create tasks for those also
-        // Make DiffTask an abstract base class? ShardedDiffTask / UnShardedDiffTask?
-        for (Collection unshardedColl : sourceShardClient.getDatabaseCatalog().getUnshardedCollections()) {
-            UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient, unshardedColl.getNamespace());
-            logger.debug("Added an UnshardedDiffTask for {}", unshardedColl.getNamespace());
-            diffResults.add(executor.submit(task));
-        }
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
         statusReporter.scheduleAtFixedRate(new Runnable() {
@@ -101,6 +88,18 @@ public class DiffUtil {
                 logger.info(summary.getSummary(false));
             }
         }, 0, 5, TimeUnit.SECONDS);
+
+        for (RawBsonDocument chunk : sourceChunksCache.values()) {
+            ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk);
+//            logger.debug("Added a ShardedDiffTask");
+            diffResults.add(executor.submit(task));
+        }
+
+        for (Collection unshardedColl : sourceShardClient.getDatabaseCatalog().getUnshardedCollections()) {
+            UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient, unshardedColl.getNamespace());
+            logger.debug("Added an UnshardedDiffTask for {}", unshardedColl.getNamespace());
+            diffResults.add(executor.submit(task));
+        }
 
         for (Future<DiffResult> future : diffResults) {
             try {
@@ -111,8 +110,8 @@ public class DiffUtil {
                             udr.matches, udr.getFailureCount(), udr.bytesProcessed);
                 } else if (result instanceof ShardedDiffResult) {
                     ShardedDiffResult sdr = (ShardedDiffResult) result;
-                    logger.debug("Got sharded result for {}: {} matches, {} failures, {} bytes", sdr.getChunkQuery(),
-                            sdr.matches, sdr.getFailureCount(), sdr.bytesProcessed);
+                    logger.debug("Got sharded result for {} -- {}: {} matches, {} failures, {} bytes", sdr.getNs(),
+                            sdr.getChunkQuery(), sdr.matches, sdr.getFailureCount(), sdr.bytesProcessed);
                 }
                 int failures = result.getFailureCount();
 

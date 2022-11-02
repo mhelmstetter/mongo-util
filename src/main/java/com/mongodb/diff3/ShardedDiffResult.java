@@ -10,6 +10,7 @@ import org.bson.conversions.Bson;
 public class ShardedDiffResult extends DiffResult {
 	private RawBsonDocument chunk;
 	private Bson chunkQuery;
+	private String ns;
 
 	public RawBsonDocument getChunk() {
 		return chunk;
@@ -40,6 +41,14 @@ public class ShardedDiffResult extends DiffResult {
 
 	public void setChunkQuery(Bson chunkQuery) {
 		this.chunkQuery = chunkQuery;
+	}
+
+	public void setNS(String ns){
+		this.ns = ns;
+	}
+
+	public String getNs() {
+		return ns;
 	}
 
 }

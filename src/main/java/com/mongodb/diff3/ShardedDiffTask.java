@@ -62,6 +62,7 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
             String key = shardKeys.iterator().next();
             query = and(gte(key, min.get(key)), lt(key, max.get(key)));
         }
+        result.setNS(nsStr);
         result.setChunkQuery(query);
         this.result = result;
 

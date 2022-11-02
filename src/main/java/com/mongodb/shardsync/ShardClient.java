@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import com.mongodb.client.*;
 import com.mongodb.model.*;
@@ -704,19 +705,37 @@ public class ShardClient {
 	public Document collStats(String dbName, String collName) {
 		return this.mongoClient.getDatabase(dbName).runCommand(collStatsCommand(collName));
 	}
+
+	public DatabaseCatalog getDatabaseCatalog()  {
+		return getDatabaseCatalog(null);
+	}
 	
-	public DatabaseCatalog getDatabaseCatalog() {
+	public DatabaseCatalog getDatabaseCatalog(Set<Namespace> includeNs) {
 		if (this.databaseCatalog == null) {
 			this.databaseCatalog = new DatabaseCatalog();
-			populateDatabaseCatalog();
+			populateDatabaseCatalog(includeNs);
 		}
 		return databaseCatalog;
 	}
 	
-	private void populateDatabaseCatalog() {
+	private void populateDatabaseCatalog(Set<Namespace> includeNs) {
 		MongoIterable<String> dbNames = listDatabaseNames();
+		Map<String, Set<String>> includeMap = new HashMap<>();
+		boolean includeAll = true;
+		if (includeNs != null && includeNs.size() > 0) {
+			includeAll = false;
+			includeNs.forEach(n -> {
+				String db = n.getDatabaseName();
+				String coll = n.getCollectionName();
+				if (!includeMap.containsKey(db)) {
+					includeMap.put(db, new HashSet<>());
+				}
+				includeMap.get(db).add(coll);
+			});
+		}
 		for (String dbName : dbNames) {
-			if (excludedSystemDbs.contains(dbName)) {
+			if (excludedSystemDbs.contains(dbName) || (!includeAll && !includeMap.containsKey(dbName))) {
+				logger.debug("Excluding db: {}", dbName);
 				continue;
 			}
 			Document dbStatsDoc = dbStats(dbName);
@@ -725,6 +744,12 @@ public class ShardClient {
 			ListCollectionsIterable<Document> colls = listCollections(dbName);
 			for (Document coll : colls) {
 				String collName = coll.getString("name");
+
+				if (!includeAll && !includeMap.get(dbName).contains(collName)) {
+					logger.debug("Excluding coll: {} in db: {}", collName, dbName);
+					continue;
+				}
+
 				String collType = coll.getString("type");
 				if (collType.equals("view")) {
 					logger.info("Excluding view: {}", collName);
