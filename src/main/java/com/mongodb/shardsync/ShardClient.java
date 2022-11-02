@@ -1080,25 +1080,6 @@ public class ShardClient {
 		logger.debug("{}: loaded {} chunks into chunksCache", name, count);
 		return chunksCache;
 	}
-
-	public Pair<Map<String, RawBsonDocument>, Set<String>> loadChunksCachePlusCollections(Document chunkQuery) {
-		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
-		Set<String> collSet = new HashSet<>();
-
-		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery).sort(Sorts.ascending("ns", "min"));
-
-		int count = 0;
-		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
-			RawBsonDocument chunk = sourceChunksIterator.next();
-			String chunkId = getIdFromChunk(chunk);
-			String ns = getNsFromChunk(chunk);
-			collSet.add(ns);
-			chunksCache.put(chunkId, chunk);
-			count++;
-		}
-		logger.debug("{}: loaded {} chunks into chunksCache", name, count);
-		return Pair.of(chunksCache, collSet);
-	}
 	
 //	public boolean checkChunkExists(BsonDocument chunk) {
 //		String id = getIdFromChunk(chunk);

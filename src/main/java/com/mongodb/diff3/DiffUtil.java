@@ -107,6 +107,10 @@ public class DiffUtil {
                     UnshardedDiffResult udr = (UnshardedDiffResult) result;
                     logger.debug("Got unsharded result for {}: {} matches, {} failures, {} bytes", udr.getNs(),
                             udr.matches, udr.getFailureCount(), udr.bytesProcessed);
+                } else if (result instanceof ShardedDiffResult) {
+                    ShardedDiffResult sdr = (ShardedDiffResult) result;
+                    logger.debug("Got sharded result for {}: {} matches, {} failures, {} bytes", sdr.getChunkQuery(),
+                            sdr.matches, sdr.getFailureCount(), sdr.bytesProcessed);
                 }
                 int failures = result.getFailureCount();
 
@@ -132,7 +136,7 @@ public class DiffUtil {
                 summary.incrementDestOnly(result.onlyOnDest);
                 summary.incrementProcessedSize(result.bytesProcessed);
 
-                //logger.debug("result: {}", );
+//                logger.debug("result: {}", result);
             } catch (InterruptedException e) {
                 logger.error("Diff task was interrupted", e);
             } catch (ExecutionException e) {
