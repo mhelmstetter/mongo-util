@@ -72,7 +72,9 @@ public class DiffUtil {
         sourceShardClient.populateCollectionsMap();
         sourceChunksCache = sourceShardClient.loadChunksCache(config.getChunkQuery());
 
-        workQueue = new ArrayBlockingQueue<Runnable>(sourceChunksCache.size());
+        int qSize = sourceChunksCache.size() + unshardedColls.size();
+        logger.debug("Setting workQueue size to {}", qSize);
+        workQueue = new ArrayBlockingQueue<Runnable>(qSize);
         diffResults = new ArrayList<>(sourceChunksCache.size());
         executor = new ThreadPoolExecutor(config.getThreads(), config.getThreads(), 30, TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
     }
