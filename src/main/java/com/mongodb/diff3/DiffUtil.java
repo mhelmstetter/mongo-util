@@ -38,7 +38,6 @@ public class DiffUtil {
     List<Future<DiffResult>> diffResults;
 
     private Map<String, RawBsonDocument> sourceChunksCache;
-    private Set<String> chunkCollSet;
     private long estimatedTotalDocs;
     private long totalSize;
 
@@ -98,9 +97,6 @@ public class DiffUtil {
             }
         }, 0, 5, TimeUnit.SECONDS);
 
-
-        executor.shutdown();
-
         for (Future<DiffResult> future : diffResults) {
             try {
                 DiffResult result = future.get();
@@ -135,8 +131,21 @@ public class DiffUtil {
                 logger.error("Diff task threw an exception", e);
             }
         }
+        awaitTerminationAfterShutdown();
         statusReporter.shutdown();
         logger.info(summary.getSummary(true));
+    }
+    
+    public void awaitTerminationAfterShutdown() {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+            	executor.shutdownNow();
+            }
+        } catch (InterruptedException ex) {
+        	executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
 
