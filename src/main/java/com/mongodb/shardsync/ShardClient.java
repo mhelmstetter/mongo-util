@@ -733,15 +733,20 @@ public class ShardClient {
 				}
 				/* Don't include collections starting with system.* */
 				if (excludeCollRegex.matcher(collName).matches()) {
-					//logger.info("Excluding collection: {}", collName);
+					logger.debug("Excluding collection: {}", collName);
 					db.excludeCollection(collName);
 					continue;
 				}
 				String collNs = dbName + "." + collName;
 				//CollectionStats collStats = CollectionStats.fromDocument(collStats(dbName, collName));
-				com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(collNs, collectionsMap.containsKey(collNs));
+				boolean sharded = collectionsMap.containsKey(collNs);
+				com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(collNs, sharded);
+
+				String shardedStatus = sharded ? "sharded" : "unsharded";
 				db.addCollection(mcoll);
+				logger.debug("Added {} collection {} to catalog for db {}", shardedStatus, collNs, dbName);
 			}
+			logger.debug("Add database {} to catalog with {} docs", dbName, dbStats.getDocumentCount());
 			databaseCatalog.addDatabase(db);
 		}
 	}
