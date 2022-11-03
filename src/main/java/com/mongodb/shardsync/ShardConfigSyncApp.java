@@ -44,6 +44,7 @@ public class ShardConfigSyncApp {
 
     private final static String MONGOMIRROR_BINARY = "mongomirrorBinary";
 
+    private final static String FILTER = "filter";
     private final static String DROP_DEST_DBS = "dropDestDbs";
     private final static String DROP_DEST_DBS_AND_CONFIG_METADATA = "dropDestDbsAndConfigMeta";
     public final static String NON_PRIVILEGED = "nonPrivileged";
@@ -192,7 +193,7 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("mongomirror tail only from specificed oplog ts (ts,increment format)")
                 .withLongOpt(TAIL_FROM_TS).hasArg().create(TAIL_FROM_TS));
         options.addOption(OptionBuilder.withArgName("mongomirror namespace filter").hasArgs()
-                .withLongOpt("filter").create("f"));
+                .withLongOpt(FILTER).create("f"));
         options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArg()
                 .withLongOpt(MONGOMIRROR_BINARY).create("p"));
         options.addOption(OptionBuilder.withArgName("mongomirror preserve dest UUIDs (not supported for Atlas dest)")
@@ -393,7 +394,13 @@ public class ShardConfigSyncApp {
             config.setShardMap(line.getOptionValues("m"));
         }
 
-        config.setNamespaceFilters(line.getOptionValues("f"));
+        String[] filter1 = properties.getStringArray(FILTER);
+        if (filter1.length > 0) {
+        	config.setNamespaceFilters(filter1);
+        } else {
+        	config.setNamespaceFilters(line.getOptionValues("f"));
+        }
+        
 
         boolean nonPrivilegedMode = line.hasOption(NON_PRIVILEGED) || properties.getBoolean(NON_PRIVILEGED, false);
         config.setNonPrivilegedMode(nonPrivilegedMode);
