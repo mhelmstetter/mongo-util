@@ -456,7 +456,8 @@ public class ShardConfigSyncApp {
             sync.syncMetadataOptimized();
         } else if (line.hasOption(SYNC_USERS)) {
             actionFound = true;
-            sync.syncUsers();
+            //sync.syncUsers();
+            sync.diffRoles();
         } else if (line.hasOption(SHARD_COLLECTIONS)) {
             actionFound = true;
             sync.shardCollections();

@@ -25,6 +25,8 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.lang3.StringUtils;
@@ -38,6 +40,9 @@ import org.bson.codecs.UuidCodecProvider;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
+import org.javers.core.Javers;
+import org.javers.core.JaversBuilder;
+import org.javers.core.diff.Diff;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,6 +73,7 @@ import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Namespace;
+import com.mongodb.model.Role;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardCollection;
 import com.mongodb.model.ShardTimestamp;
@@ -289,6 +295,34 @@ public class ShardConfigSync implements Callable<Integer> {
 		}
 		
 		
+	}
+	
+	public void diffRoles() {
+		
+		AtlasUtil atlasUtil = null;
+		try {
+			atlasUtil = new AtlasUtil(config.atlasApiPublicKey, config.atlasApiPrivateKey);
+		} catch (KeyManagementException | NoSuchAlgorithmException e1) {
+			e1.printStackTrace();
+			return;
+		}
+		
+		List<Role> sourceRoles = this.sourceShardClient.getRoles();
+		Map<String, Role> sourceRolesMap = sourceRoles.stream().collect(Collectors.toMap(Role::getId, Function.identity()));
+		
+		List<Role> destRoles = this.destShardClient.getRoles();
+		Map<String, Role> destRolesMap = sourceRoles.stream().collect(Collectors.toMap(Role::getId, Function.identity()));
+		
+		Javers javers = JaversBuilder.javers().build();
+		
+		for (Map.Entry<String, Role> entry : sourceRolesMap.entrySet()) {
+			
+			Role sourceRole = entry.getValue();
+			Role destRole = destRolesMap.get(entry.getKey());
+	        
+	        Diff diff = javers.compare(sourceRole, destRole);
+	        System.out.println(diff.prettyPrint());
+	    }
 	}
 	
 	public void syncUsers() throws IOException {
