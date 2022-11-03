@@ -59,6 +59,9 @@ public class ShardConfigSyncApp {
     private final static String SYNC_METADATA = "syncMetadata";
     private final static String SYNC_METADATA_OPTIMIZED = "syncMetadataOptimized";
     private final static String SYNC_USERS = "syncUsers";
+    private final static String SYNC_ROLES = "syncRoles";
+    private final static String DIFF_USERS = "diffUsers";
+    private final static String DIFF_ROLES = "diffRoles";
     private final static String COMPARE_CHUNKS = "compareChunks";
     private final static String COMPARE_COLLECTION_UUIDS = "compareCollectionUuids";
     private final static String DISABLE_SOURCE_AUTOSPLIT = "disableSourceAutosplit";
@@ -151,8 +154,14 @@ public class ShardConfigSyncApp {
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata (optimized method)")
                 .withLongOpt(SYNC_METADATA_OPTIMIZED).create(SYNC_METADATA_OPTIMIZED));
-        options.addOption(OptionBuilder.withArgName("Synchronize users and roles")
+        options.addOption(OptionBuilder.withArgName("Synchronize users to Atlas")
                 .withLongOpt(SYNC_USERS).create(SYNC_USERS));
+        options.addOption(OptionBuilder.withArgName("Synchronize roles to Atlas")
+                .withLongOpt(SYNC_ROLES).create(SYNC_ROLES));
+        options.addOption(OptionBuilder.withArgName("Diff users with Atlas")
+                .withLongOpt(DIFF_USERS).create(DIFF_USERS));
+        options.addOption(OptionBuilder.withArgName("Diff roles with Atlas")
+                .withLongOpt(DIFF_ROLES).create(DIFF_ROLES));
         options.addOption(OptionBuilder.withArgName("Shard mapping").hasArg().withLongOpt(SHARD_MAP)
                 .isRequired(false).create("m"));
         options.addOption(OptionBuilder.withArgName("Disable autosplit on source cluster")
@@ -463,8 +472,19 @@ public class ShardConfigSyncApp {
             sync.syncMetadataOptimized();
         } else if (line.hasOption(SYNC_USERS)) {
             actionFound = true;
-            //sync.syncUsers();
-            sync.diffRoles();
+            sync.syncUsers();
+            //sync.diffRoles();
+        } else if (line.hasOption(SYNC_ROLES)) {
+            actionFound = true;
+            sync.syncRoles();
+            //sync.diffRoles();
+	    } else if (line.hasOption(DIFF_USERS)) {
+	        actionFound = true;
+	        sync.diffUsers();
+	        //sync.diffRoles();
+		} else if (line.hasOption(DIFF_ROLES)) {
+		    actionFound = true;
+		    sync.diffRoles();
         } else if (line.hasOption(SHARD_COLLECTIONS)) {
             actionFound = true;
             sync.shardCollections();
