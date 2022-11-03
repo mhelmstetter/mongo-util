@@ -33,7 +33,7 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
 
     @Override
     public DiffResult call() throws Exception {
-
+        logger.debug("Thread [{}] got a sharded task", Thread.currentThread().getName());
         ShardedDiffResult result = new ShardedDiffResult();
         result.setChunk(chunk);
 
@@ -75,7 +75,7 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
             closeCursor(sourceCursor);
             closeCursor(destCursor);
         }
-
+        logger.debug("Thread [{}] completed a sharded task", Thread.currentThread().getName());
         return result;
     }
 

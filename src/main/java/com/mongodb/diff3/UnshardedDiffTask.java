@@ -18,6 +18,7 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
 
     @Override
     public DiffResult call() throws Exception {
+        logger.debug("Thread [{}] got an unsharded task", Thread.currentThread().getName());
         result = new UnshardedDiffResult(namespace.getNamespace());
         query = new BsonDocument();
         
@@ -31,6 +32,7 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
             closeCursor(destCursor);
         }
 
+        logger.debug("Thread [{}] completed an unsharded task", Thread.currentThread().getName());
         return result;
     }
 

@@ -14,3 +14,4 @@ mongomirror.bookmark
 ss.props
 ss2.props
 exportToHTML
+*.jfr

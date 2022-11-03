@@ -4,14 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 import com.mongodb.model.Collection;
@@ -69,10 +62,11 @@ public class DiffUtil {
         logger.info("ShardedColls:[" + String.join(", ", shardedColls) + "]");
 
         logger.info("UnshardedColls:[" + String.join(", ", unshardedColls) + "]");
-        sourceShardClient.populateCollectionsMap();
+//        sourceShardClient.populateCollectionsMap();
         sourceChunksCache = sourceShardClient.loadChunksCache(config.getChunkQuery());
 
         int qSize = sourceChunksCache.size() + unshardedColls.size();
+//        int qSize = 1;
         logger.debug("Setting workQueue size to {}", qSize);
         workQueue = new ArrayBlockingQueue<Runnable>(qSize);
         diffResults = new ArrayList<>(sourceChunksCache.size());
