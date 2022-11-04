@@ -14,6 +14,8 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -35,8 +37,8 @@ public class AbstractDiffTask {
 	protected MongoCursor<RawBsonDocument> sourceCursor = null;
 	protected MongoCursor<RawBsonDocument> destCursor = null;
     
-	protected Map<BsonValue, String> sourceDocs = null;
-	protected Map<BsonValue, String> destDocs = null;
+	protected Map<BsonValue, Integer> sourceDocs = null;
+	protected Map<BsonValue, Integer> destDocs = null;
 	
 	protected DiffResult result;
 
@@ -44,18 +46,18 @@ public class AbstractDiffTask {
 	protected void computeDiff() {
 		loadSourceDocs();
 		loadDestDocs();
-		MapDifference<BsonValue, String> diff = Maps.difference(sourceDocs, destDocs);
+		MapDifference<BsonValue, Integer> diff = Maps.difference(sourceDocs, destDocs);
 
         if (diff.areEqual()) {
             int numMatches = sourceDocs.size();
             result.matches = numMatches;
         } else {
-            Map<BsonValue, ValueDifference<String>> valueDiff = diff.entriesDiffering();
+            Map<BsonValue, ValueDifference<Integer>> valueDiff = diff.entriesDiffering();
             int numMatches = sourceDocs.size() - valueDiff.size();
             result.matches = numMatches;
             for (Iterator<?> it = valueDiff.entrySet().iterator(); it.hasNext(); ) {
                 @SuppressWarnings("unchecked")
-                Map.Entry<BsonValue, ValueDifference<String>> entry = (Map.Entry<BsonValue, ValueDifference<String>>) it.next();
+                Map.Entry<BsonValue, ValueDifference<Integer>> entry = (Map.Entry<BsonValue, ValueDifference<Integer>>) it.next();
                 BsonValue key = entry.getKey();
                 result.addFailedKey(key);
             }
@@ -79,14 +81,23 @@ public class AbstractDiffTask {
 		logger.debug("Loaded {} dest docs for {} [{}]", destDocs.size(), namespace, Thread.currentThread().getName());
 	}
 
-	protected Map<BsonValue, String> loadDocs(MongoCursor<RawBsonDocument> cursor, LongAdder byteCounter) {
-		Map<BsonValue, String> docs = new LinkedHashMap<>();
+	protected Map<BsonValue, Integer> loadDocs(MongoCursor<RawBsonDocument> cursor, LongAdder byteCounter) {
+		Map<BsonValue, Integer> docs = new LinkedHashMap<>();
 		while (cursor.hasNext()) {
 			RawBsonDocument doc = cursor.next();
 			BsonValue id = doc.get("_id");
 			byte[] docBytes = doc.getByteBuffer().array();
 			byteCounter.add(docBytes.length);
-			String docHash = CodecUtils.md5Hex(docBytes);
+
+//			String docHash = CodecUtils.md5Hex(docBytes);
+			int docHash = 0;
+			try {
+				docHash = CodecUtils.xxHash(new ByteArrayInputStream(docBytes));
+			} catch (IOException e) {
+				logger.error("Error computing xx hash", e);
+				throw new RuntimeException(e);
+			}
+
 			docs.put(id, docHash);
 		}
 		return docs;
