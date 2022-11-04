@@ -30,6 +30,7 @@ public class AbstractDiffTask {
 	
 	protected Namespace namespace;
 	protected Bson query;
+	protected long start;
 	
 	protected LongAdder sourceBytesProcessed = new LongAdder();
 	protected LongAdder destBytesProcessed = new LongAdder();
@@ -46,6 +47,8 @@ public class AbstractDiffTask {
 	protected void computeDiff() {
 		loadSourceDocs();
 		loadDestDocs();
+
+		long compStart = System.currentTimeMillis();
 		MapDifference<BsonValue, Long> diff = Maps.difference(sourceDocs, destDocs);
 
         if (diff.areEqual()) {
@@ -65,20 +68,28 @@ public class AbstractDiffTask {
             result.onlyOnDest = diff.entriesOnlyOnRight().size();
         }
         result.bytesProcessed = Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue());
+		long diffTime = System.currentTimeMillis() - compStart;
+		logger.debug("Computed diff in {} ms[{}]", diffTime, Thread.currentThread().getName());
 	}
 	
 	protected void loadSourceDocs() {
+		long loadStart = System.currentTimeMillis();
 		MongoCollection<RawBsonDocument> sourceColl = sourceShardClient.getCollectionRaw(namespace);
 		sourceCursor = sourceColl.find(query).iterator();
 		sourceDocs = loadDocs(sourceCursor, sourceBytesProcessed);
-		logger.debug("Loaded {} source docs for {} [{}]", sourceDocs.size(), namespace, Thread.currentThread().getName());
+		long loadTime = System.currentTimeMillis() - loadStart;
+		logger.debug("Loaded {} source docs for {} in {} ms[{}]", sourceDocs.size(), namespace, loadTime,
+				Thread.currentThread().getName());
 	}
 	
 	protected void loadDestDocs() {
+		long loadStart = System.currentTimeMillis();
 		MongoCollection<RawBsonDocument> destColl = destShardClient.getCollectionRaw(namespace);
 		destCursor = destColl.find(query).iterator();
 		destDocs = loadDocs(destCursor, destBytesProcessed);
-		logger.debug("Loaded {} dest docs for {} [{}]", destDocs.size(), namespace, Thread.currentThread().getName());
+		long loadTime = System.currentTimeMillis() - loadStart;
+		logger.debug("Loaded {} dest docs for {} in {} ms[{}]", destDocs.size(), namespace, loadTime,
+				Thread.currentThread().getName());
 	}
 
 	protected Map<BsonValue, Long> loadDocs(MongoCursor<RawBsonDocument> cursor, LongAdder byteCounter) {
@@ -95,6 +106,10 @@ public class AbstractDiffTask {
 			docs.put(id, docHash);
 		}
 		return docs;
+	}
+
+	protected long timeSpent(long stop) {
+		return stop - start;
 	}
 	
 	protected static void closeCursor(MongoCursor<RawBsonDocument> cursor) {
