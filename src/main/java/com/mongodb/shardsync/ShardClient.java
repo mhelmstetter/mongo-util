@@ -878,6 +878,33 @@ public class ShardClient {
 		MongoCollection<Role> rolesColl = db.getCollection("system.roles", Role.class);
 		final List<Role> roles = new ArrayList<>();
 		rolesColl.find().sort(Sorts.ascending("_id")).into(roles);
+		
+		for (Role role : roles) {
+			
+			Map<Resource, Set<String>> resourcePrivilegeActionsMap = new HashMap<>();
+			
+			List<Privilege> canonicalPriviliges = new ArrayList<>();
+			
+			for (Privilege p : role.getPrivileges()) {
+				
+				Set<String> canonicalActions = resourcePrivilegeActionsMap.get(p.getResource());
+				if (canonicalActions == null) {
+					canonicalActions = new HashSet<>();
+					resourcePrivilegeActionsMap.put(p.getResource(), canonicalActions);
+				}
+				canonicalActions.addAll(p.getActions());
+			}
+			
+			for (Map.Entry<Resource, Set<String>> entry : resourcePrivilegeActionsMap.entrySet()) {
+				Privilege p2 = new Privilege();
+				p2.setResource(entry.getKey());
+				p2.setActions(new ArrayList<>(entry.getValue()));
+				canonicalPriviliges.add(p2);
+			}
+			
+			role.setPrivileges(canonicalPriviliges);
+		}
+		
 		return roles;
 	}
 	
