@@ -11,6 +11,7 @@ import java.util.zip.CRC32;
 
 import net.jpountz.xxhash.StreamingXXHash32;
 import net.jpountz.xxhash.XXHashFactory;
+import net.openhft.hashing.LongHashFunction;
 import org.apache.commons.codec.binary.Base32;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.codec.binary.Hex;
@@ -24,17 +25,8 @@ public final class CodecUtils {
   private static final String ENCODING = "UTF-8";
   private static final int xxHashSeed = 1234;
 
-  public static int xxHash(final ByteArrayInputStream in) throws IOException {
-    StreamingXXHash32 hash32 = xxCache.get();
-    byte[] buf = new byte[8192];
-    for (;;){
-      int read = in.read(buf);
-      if (read == -1) {
-        break;
-      }
-      hash32.update(buf, 0, read);
-    }
-    return hash32.getValue();
+  public static long xxh3Hash(final byte[] bytes) {
+    return LongHashFunction.xx3().hashBytes(bytes);
   }
 
   public static String sha256Hex(final String pV) {
@@ -176,21 +168,6 @@ public final class CodecUtils {
           return d;
         }
       };
-
-  private static ThreadLocal<StreamingXXHash32> xxCache =
-          new ThreadLocal<StreamingXXHash32>() {
-
-            @Override
-            protected StreamingXXHash32 initialValue() {
-              XXHashFactory fac = XXHashFactory.fastestInstance();
-              return fac.newStreamingHash32(xxHashSeed);
-            }
-
-            @Override
-            public StreamingXXHash32 get() {
-              return super.get();
-            }
-          };
 
   private static ThreadLocal<CRC32> _crc32Hasher =
       new ThreadLocal<CRC32>() {
