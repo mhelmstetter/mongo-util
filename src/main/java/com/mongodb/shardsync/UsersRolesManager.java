@@ -20,6 +20,8 @@ import com.mongodb.model.Role;
 public class UsersRolesManager {
 
 	private static Logger logger = LoggerFactory.getLogger(UsersRolesManager.class);
+	
+	public final static Set<String> ignoredCollections = new HashSet<>(Arrays.asList("system.indexes", "system.profile"));
 
 	private final static Set<String> DATABASE_ONLY_ACTIONS = new HashSet<>(
 			Arrays.asList("LIST_COLLECTIONS", "DB_STATS"));
@@ -83,10 +85,7 @@ public class UsersRolesManager {
 						continue;
 					}
 
-					if ("system.indexes".equals(r.getCollection()) || "system.namespaces".equals(r.getCollection())
-							|| "system.sessions".equals(r.getCollection())) {
-						// logger.warn("{}: skipping {} action for {}.{}", roleName, action, r.getDb(),
-						// r.getCollection());
+					if (ignoredCollections.contains(r.getCollection())) {
 						continue;
 					}
 

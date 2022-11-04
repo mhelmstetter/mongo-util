@@ -18,6 +18,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +33,7 @@ import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BSONException;
 import org.bson.BsonTimestamp;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.UuidRepresentation;
@@ -42,11 +44,13 @@ import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
 import org.javers.core.Javers;
 import org.javers.core.JaversBuilder;
-import org.javers.core.diff.Diff;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.MapDifference;
+import com.google.common.collect.MapDifference.ValueDifference;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
@@ -76,6 +80,8 @@ import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Namespace;
+import com.mongodb.model.Privilege;
+import com.mongodb.model.Resource;
 import com.mongodb.model.Role;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardCollection;
@@ -321,15 +327,47 @@ public class ShardConfigSync implements Callable<Integer> {
 		List<Role> destRoles = this.destShardClient.getRoles();
 		Map<String, Role> destRolesMap = destRoles.stream().collect(Collectors.toMap(Role::getId, Function.identity()));
 		
-		Javers javers = JaversBuilder.javers().build();
-		
 		for (Map.Entry<String, Role> entry : sourceRolesMap.entrySet()) {
 			
 			Role sourceRole = entry.getValue();
 			Role destRole = destRolesMap.get(entry.getKey());
-	        
-	        Diff diff = javers.compare(sourceRole, destRole);
-	        System.out.println(diff.prettyPrint());
+			
+			logger.debug("*** sourcePrivileges {} -  ***", sourceRole.getId());
+			for (Privilege p : sourceRole.getPrivileges()) {
+				if (! UsersRolesManager.ignoredCollections.contains(p.getResource().getCollection())) {
+					logger.debug(p.toString());
+				}
+				
+			}
+			
+			logger.debug("*** destPrivileges {} -  ***", sourceRole.getId());
+			for (Privilege p : destRole.getPrivileges()) {
+				if (! UsersRolesManager.ignoredCollections.contains(p.getResource().getCollection())) {
+					logger.debug(p.toString());
+				}
+				
+			}
+			
+			
+			Set<Privilege> sourceRoleMap = sourceRole.getResoucePrivilegeSet();
+			Set<Privilege> destRoleMap = destRole.getResoucePrivilegeSet();
+			
+			Sets.SetView<Privilege> diff = Sets.difference(sourceRoleMap, destRoleMap);
+			
+			for (Iterator<Privilege> it = diff.iterator(); it.hasNext();) {
+				Privilege p = it.next();
+				if (! UsersRolesManager.ignoredCollections.contains(p.getResource().getCollection())) {
+					logger.debug("onlyOnSource: {}", p);
+				}
+				
+			}
+			
+			
+			
+			
+			
+			
+			
 	    }
 	}
 	
