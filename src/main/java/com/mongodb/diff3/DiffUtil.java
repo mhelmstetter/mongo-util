@@ -1,9 +1,6 @@
 package com.mongodb.diff3;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
@@ -31,7 +28,6 @@ public class DiffUtil {
     List<Future<DiffResult>> diffResults;
 
     private Map<String, RawBsonDocument> sourceChunksCache;
-    private Set<String> chunkCollSet;
     private long estimatedTotalDocs;
     private long totalSize;
 
@@ -97,47 +93,62 @@ public class DiffUtil {
             diffResults.add(executor.submit(task));
         }
 
-        for (Future<DiffResult> future : diffResults) {
+        Set<Future<DiffResult>> futuresSeen = new HashSet<>();
+
+        while (futuresSeen.size() < diffResults.size()) {
             try {
-                DiffResult result = future.get();
-                if (result instanceof UnshardedDiffResult) {
-                    UnshardedDiffResult udr = (UnshardedDiffResult) result;
-                    logger.debug("Got unsharded result for {}: {} matches, {} failures, {} bytes", udr.getNs(),
-                            udr.matches, udr.getFailureCount(), udr.bytesProcessed);
-                } else if (result instanceof ShardedDiffResult) {
-                    ShardedDiffResult sdr = (ShardedDiffResult) result;
-                    logger.debug("Got sharded result for {} -- {}: {} matches, {} failures, {} bytes", sdr.getNs(),
-                            sdr.getChunkQuery(), sdr.matches, sdr.getFailureCount(), sdr.bytesProcessed);
-                }
-                int failures = result.getFailureCount();
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+//            logger.debug("LOOP results");
+            for (Future<DiffResult> future : diffResults) {
+                try {
+                    if (!futuresSeen.contains(future) && future.isDone()) {
+                        futuresSeen.add(future);
+                        DiffResult result = future.get();
+                        if (result instanceof UnshardedDiffResult) {
+                            UnshardedDiffResult udr = (UnshardedDiffResult) result;
+                            logger.debug("Got unsharded result for {}: {} matches, {} failures, {} bytes", udr.getNs(),
+                                    udr.matches, udr.getFailureCount(), udr.bytesProcessed);
+                        } else if (result instanceof ShardedDiffResult) {
+                            ShardedDiffResult sdr = (ShardedDiffResult) result;
+                            logger.debug("Got sharded result for {} -- {}: {} matches, {} failures, {} bytes", sdr.getNs(),
+                                    sdr.getChunkQuery(), sdr.matches, sdr.getFailureCount(), sdr.bytesProcessed);
+                        } else {
+                            throw new RuntimeException("What the fuck?");
+                        }
+                        int failures = result.getFailureCount();
 
-                if (failures > 0) {
-                    if (result instanceof ShardedDiffResult) {
-                        summary.incrementFailedChunks(1);
+                        if (failures > 0) {
+                            if (result instanceof ShardedDiffResult) {
+                                summary.incrementFailedChunks(1);
+                            }
+                            summary.incrementSuccessfulDocs(result.matches - failures);
+                        } else {
+                            if (result instanceof ShardedDiffResult) {
+                                summary.incrementSuccessfulChunks(1);
+                            }
+                            summary.incrementSuccessfulDocs(result.matches);
+                        }
+
+
+                        summary.incrementProcessedDocs(result.matches + failures);
+                        summary.incrementFailedDocs(failures);
+                        if (result instanceof ShardedDiffResult) {
+                            summary.incrementProcessedChunks(1);
+                        }
+                        summary.incrementSourceOnly(result.onlyOnSource);
+                        summary.incrementDestOnly(result.onlyOnDest);
+                        summary.incrementProcessedSize(result.bytesProcessed);
                     }
-                    summary.incrementSuccessfulDocs(result.matches - failures);
-                } else {
-                    if (result instanceof ShardedDiffResult) {
-                        summary.incrementSuccessfulChunks(1);
-                    }
-                    summary.incrementSuccessfulDocs(result.matches);
-                }
-
-
-                summary.incrementProcessedDocs(result.matches + failures);
-                summary.incrementFailedDocs(failures);
-                if (result instanceof ShardedDiffResult) {
-                    summary.incrementProcessedChunks(1);
-                }
-                summary.incrementSourceOnly(result.onlyOnSource);
-                summary.incrementDestOnly(result.onlyOnDest);
-                summary.incrementProcessedSize(result.bytesProcessed);
 
 //                logger.debug("result: {}", result);
-            } catch (InterruptedException e) {
-                logger.error("Diff task was interrupted", e);
-            } catch (ExecutionException e) {
-                logger.error("Diff task threw an exception", e);
+                } catch (InterruptedException e) {
+                    logger.error("Diff task was interrupted", e);
+                } catch (ExecutionException e) {
+                    logger.error("Diff task threw an exception", e);
+                }
             }
         }
         statusReporter.shutdown();
