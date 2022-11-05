@@ -99,7 +99,7 @@ public class ShardClient {
 	private MongoDatabase configDb;
 	private Map<String, Shard> shardsMap = new LinkedHashMap<String, Shard>();
 	
-	private Map<String, RawBsonDocument> chunksCache = new HashMap<>();
+	private Map<String, RawBsonDocument> chunksCache = new LinkedHashMap<>();
 
 	private Map<String, Shard> tertiaryShardsMap = new LinkedHashMap<String, Shard>();
 
