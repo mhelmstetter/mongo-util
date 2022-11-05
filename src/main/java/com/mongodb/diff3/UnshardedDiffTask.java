@@ -8,23 +8,24 @@ import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 
 public class UnshardedDiffTask extends AbstractDiffTask implements Callable<DiffResult> {
-    
 
-    public UnshardedDiffTask(ShardClient sourceShardClient, ShardClient destShardClient, String nsStr) {
+
+    public UnshardedDiffTask(ShardClient sourceShardClient, ShardClient destShardClient, String nsStr, String shardName) {
         this.sourceShardClient = sourceShardClient;
         this.destShardClient = destShardClient;
         this.namespace = new Namespace(nsStr);
+        this.shardName = shardName;
     }
 
     @Override
     public DiffResult call() throws Exception {
-        logger.debug("Thread [{}] got an unsharded task", Thread.currentThread().getName());
+        logger.debug("Thread [{}--{}] got an unsharded task", Thread.currentThread().getName(), shardName);
         this.start = System.currentTimeMillis();
         result = new UnshardedDiffResult(namespace.getNamespace());
         query = new BsonDocument();
-        
+
         try {
-        	computeDiff();
+            computeDiff();
         } catch (Exception me) {
             logger.error("fatal error diffing chunk, ns: {}", namespace, me);
             result = null;
@@ -33,8 +34,8 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
             closeCursor(destCursor);
         }
 
-        logger.debug("Thread [{}] completed an unsharded task in {} ms", Thread.currentThread().getName(),
-                timeSpent(System.currentTimeMillis()));
+        logger.debug("Thread [{}--{}] completed an unsharded task in {} ms", Thread.currentThread().getName(),
+                shardName, timeSpent(System.currentTimeMillis()));
         return result;
     }
 

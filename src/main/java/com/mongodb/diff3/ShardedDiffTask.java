@@ -23,17 +23,18 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
 
 
     public ShardedDiffTask(ShardClient sourceShardClient, ShardClient destShardClient, DiffConfiguration config,
-                           RawBsonDocument chunk) {
+                           RawBsonDocument chunk, String shardName) {
         super();
         this.sourceShardClient = sourceShardClient;
         this.destShardClient = destShardClient;
         this.config = config;
         this.chunk = chunk;
+        this.shardName = shardName;
     }
 
     @Override
     public DiffResult call() throws Exception {
-        logger.debug("Thread [{}] got a sharded task", Thread.currentThread().getName());
+        logger.debug("Thread [{}-{}] got a sharded task", Thread.currentThread().getName(), shardName);
         this.start = System.currentTimeMillis();
         ShardedDiffResult result = new ShardedDiffResult();
         result.setChunk(chunk);
@@ -77,7 +78,8 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
             closeCursor(destCursor);
         }
         long timeSpent = timeSpent(System.currentTimeMillis());
-        logger.debug("Thread [{}] completed a sharded task in {} ms", Thread.currentThread().getName(), timeSpent);
+        logger.debug("Thread [{}--{}] completed a sharded task in {} ms", Thread.currentThread().getName(),
+                shardName, timeSpent);
         return result;
     }
 

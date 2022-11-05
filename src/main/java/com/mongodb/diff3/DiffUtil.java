@@ -100,7 +100,7 @@ public class DiffUtil {
         for (String shard : shardNames) {
             Map<String, RawBsonDocument> chunkCache = sourceChunksCacheMap.get(shard);
             for (RawBsonDocument chunk : chunkCache.values()) {
-                ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk);
+                ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk, shard);
                 List<Future<DiffResult>> diffResults = diffResultMap.get(shard);
                 ThreadPoolExecutor executor = executorMap.get(shard);
                 diffResults.add(executor.submit(task));
@@ -116,8 +116,8 @@ public class DiffUtil {
             int shardIdx = i % NUM_SHARDS;
             String shard = shardNames.get(shardIdx);
             UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient,
-                    unshardedColl.getNamespace());
-            logger.debug("Added an UnshardedDiffTask for {}", unshardedColl.getNamespace());
+                    unshardedColl.getNamespace(), shard);
+            logger.debug("Added an UnshardedDiffTask for {}--{}", unshardedColl.getNamespace(), shard);
             List<Future<DiffResult>> diffResults = diffResultMap.get(shard);
             ThreadPoolExecutor executor = executorMap.get(shard);
             diffResults.add(executor.submit(task));
@@ -149,12 +149,12 @@ public class DiffUtil {
                                 DiffResult result = future.get();
                                 if (result instanceof UnshardedDiffResult) {
                                     UnshardedDiffResult udr = (UnshardedDiffResult) result;
-                                    logger.debug("Got unsharded result for {}-{}: {} matches, {} failures, {} bytes",
+                                    logger.debug("Got unsharded result for {}--{}: {} matches, {} failures, {} bytes",
                                             udr.getNs(), shard, udr.matches, udr.getFailureCount(), udr.bytesProcessed);
                                 } else if (result instanceof ShardedDiffResult) {
                                     ShardedDiffResult sdr = (ShardedDiffResult) result;
-                                    logger.debug("Got sharded result for {} -- {}: {} matches, {} failures, {} bytes",
-                                            sdr.getNs(), sdr.getChunkQuery(), sdr.matches, sdr.getFailureCount(),
+                                    logger.debug("Got sharded result for {}--{}: {} matches, {} failures, {} bytes",
+                                            sdr.getNs(), shard, sdr.matches, sdr.getFailureCount(),
                                             sdr.bytesProcessed);
                                 }
                                 int failures = result.getFailureCount();

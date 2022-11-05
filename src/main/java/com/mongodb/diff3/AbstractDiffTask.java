@@ -1,5 +1,6 @@
 package com.mongodb.diff3;
 
+import com.google.common.base.Equivalence;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.MapDifference.ValueDifference;
 import com.google.common.collect.Maps;
@@ -16,6 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -27,6 +29,7 @@ public class AbstractDiffTask {
 	protected ShardClient sourceShardClient;
 	protected ShardClient destShardClient;
 	protected DiffConfiguration config;
+	protected String shardName;
 	
 	protected Namespace namespace;
 	protected Bson query;
@@ -38,10 +41,23 @@ public class AbstractDiffTask {
 	protected MongoCursor<RawBsonDocument> sourceCursor = null;
 	protected MongoCursor<RawBsonDocument> destCursor = null;
     
-	protected Map<BsonValue, Long> sourceDocs = null;
-	protected Map<BsonValue, Long> destDocs = null;
+	protected Map<BsonValue, byte[]> sourceDocs = null;
+	protected Map<BsonValue, byte[]> destDocs = null;
 	
 	protected DiffResult result;
+
+	static class ArrayEquivalence extends Equivalence<byte[]> {
+
+		@Override
+		protected boolean doEquivalent(byte[] a, byte[] b) {
+			return Arrays.equals(a, b);
+		}
+
+		@Override
+		protected int doHash(byte[] bytes) {
+			return Arrays.hashCode(bytes);
+		}
+	}
 
 
 	protected void computeDiff() {
@@ -49,18 +65,18 @@ public class AbstractDiffTask {
 		loadDestDocs();
 
 		long compStart = System.currentTimeMillis();
-		MapDifference<BsonValue, Long> diff = Maps.difference(sourceDocs, destDocs);
+		MapDifference<BsonValue, byte[]> diff = Maps.difference(sourceDocs, destDocs, new ArrayEquivalence());
 
         if (diff.areEqual()) {
             int numMatches = sourceDocs.size();
             result.matches = numMatches;
         } else {
-            Map<BsonValue, ValueDifference<Long>> valueDiff = diff.entriesDiffering();
+            Map<BsonValue, ValueDifference<byte[]>> valueDiff = diff.entriesDiffering();
             int numMatches = sourceDocs.size() - valueDiff.size();
             result.matches = numMatches;
             for (Iterator<?> it = valueDiff.entrySet().iterator(); it.hasNext(); ) {
                 @SuppressWarnings("unchecked")
-                Map.Entry<BsonValue, ValueDifference<Long>> entry = (Map.Entry<BsonValue, ValueDifference<Long>>) it.next();
+                Map.Entry<BsonValue, ValueDifference<byte[]>> entry = (Map.Entry<BsonValue, ValueDifference<byte[]>>) it.next();
                 BsonValue key = entry.getKey();
                 result.addFailedKey(key);
             }
@@ -78,8 +94,8 @@ public class AbstractDiffTask {
 		sourceCursor = sourceColl.find(query).iterator();
 		sourceDocs = loadDocs(sourceCursor, sourceBytesProcessed);
 		long loadTime = System.currentTimeMillis() - loadStart;
-		logger.debug("Loaded {} source docs for {} in {} ms[{}]", sourceDocs.size(), namespace, loadTime,
-				Thread.currentThread().getName());
+		logger.debug("Loaded {} source docs for {} in {} ms[{}--{}]", sourceDocs.size(), namespace, loadTime,
+				Thread.currentThread().getName(), shardName);
 	}
 	
 	protected void loadDestDocs() {
@@ -88,12 +104,12 @@ public class AbstractDiffTask {
 		destCursor = destColl.find(query).iterator();
 		destDocs = loadDocs(destCursor, destBytesProcessed);
 		long loadTime = System.currentTimeMillis() - loadStart;
-		logger.debug("Loaded {} dest docs for {} in {} ms[{}]", destDocs.size(), namespace, loadTime,
-				Thread.currentThread().getName());
+		logger.debug("Loaded {} dest docs for {} in {} ms[{}--{}]", destDocs.size(), namespace, loadTime,
+				Thread.currentThread().getName(), shardName);
 	}
 
-	protected Map<BsonValue, Long> loadDocs(MongoCursor<RawBsonDocument> cursor, LongAdder byteCounter) {
-		Map<BsonValue, Long> docs = new LinkedHashMap<>();
+	protected Map<BsonValue, byte[]> loadDocs(MongoCursor<RawBsonDocument> cursor, LongAdder byteCounter) {
+		Map<BsonValue, byte[]> docs = new LinkedHashMap<>();
 		while (cursor.hasNext()) {
 			RawBsonDocument doc = cursor.next();
 			BsonValue id = doc.get("_id");
@@ -101,9 +117,9 @@ public class AbstractDiffTask {
 			byteCounter.add(docBytes.length);
 
 //			String docHash = CodecUtils.md5Hex(docBytes);
-			long docHash = CodecUtils.xxh3Hash(docBytes);
+//			long docHash = CodecUtils.xxh3Hash(docBytes);
 
-			docs.put(id, docHash);
+			docs.put(id, docBytes);
 		}
 		return docs;
 	}

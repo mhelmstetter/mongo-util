@@ -1091,7 +1091,7 @@ public class ShardClient {
 	}
 
 	public static String getShardFromChunk(BsonDocument chunk) {
-		return chunk.get("shard").asString().toString();
+		return chunk.getString("shard").getValue();
 	}
 	
 	public Map<String, RawBsonDocument> loadChunksCache(Document chunkQuery) {
