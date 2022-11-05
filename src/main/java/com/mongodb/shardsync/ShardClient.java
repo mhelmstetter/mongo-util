@@ -1089,6 +1089,10 @@ public class ShardClient {
 		return String.format("%s_%s_%s", ns, minHash, maxHash);
 		
 	}
+
+	public static String getShardFromChunk(BsonDocument chunk) {
+		return chunk.get("shard").asString().toString();
+	}
 	
 	public Map<String, RawBsonDocument> loadChunksCache(Document chunkQuery) {
 		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
@@ -1104,6 +1108,29 @@ public class ShardClient {
 		}
 		logger.debug("{}: loaded {} chunks into chunksCache", name, count);
 		return chunksCache;
+	}
+
+	public Map<String, Map<String, RawBsonDocument>> loadChunksCacheMap(Document chunkQuery) {
+		Map<String, Map<String, RawBsonDocument>> output = new HashMap<>();
+		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
+		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery).
+				sort(Sorts.ascending("ns", "min"));
+
+		int count = 0;
+		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
+			RawBsonDocument chunk = sourceChunksIterator.next();
+			String chunkId = getIdFromChunk(chunk);
+			String shard = getShardFromChunk(chunk);
+
+			if (!output.containsKey(shard)) {
+				output.put(shard, new HashMap<>());
+			}
+			Map<String, RawBsonDocument> shardChunkCache = output.get(shard);
+			shardChunkCache.put(chunkId, chunk);
+			count++;
+		}
+		logger.debug("{}: loaded {} chunks into chunksCacheMap", name, count);
+		return output;
 	}
 	
 //	public boolean checkChunkExists(BsonDocument chunk) {

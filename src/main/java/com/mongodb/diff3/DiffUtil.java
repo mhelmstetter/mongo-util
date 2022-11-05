@@ -2,6 +2,7 @@ package com.mongodb.diff3;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import com.mongodb.model.Collection;
@@ -17,19 +18,21 @@ public class DiffUtil {
 
     private static Logger logger = LoggerFactory.getLogger(DiffUtil.class);
 
+    // TODO - don't hard code this
+    private final int NUM_SHARDS = 2;
 
     private ShardClient sourceShardClient;
     private ShardClient destShardClient;
 
     private DiffConfiguration config;
 
-    protected ThreadPoolExecutor executor = null;
-    private BlockingQueue<Runnable> workQueue;
-    List<Future<DiffResult>> diffResults;
+    protected Map<String, ThreadPoolExecutor> executorMap = new HashMap<>();
+    Map<String, List<Future<DiffResult>>> diffResultMap = new HashMap<>();
 
-    private Map<String, RawBsonDocument> sourceChunksCache;
+    private Map<String, Map<String, RawBsonDocument>> sourceChunksCacheMap = new HashMap<>();
     private long estimatedTotalDocs;
     private long totalSize;
+    private List<String> shardNames;
 
 
     public DiffUtil(DiffConfiguration config) {
@@ -59,19 +62,32 @@ public class DiffUtil {
 
         logger.info("UnshardedColls:[" + String.join(", ", unshardedColls) + "]");
 //        sourceShardClient.populateCollectionsMap();
-        sourceChunksCache = sourceShardClient.loadChunksCache(config.getChunkQuery());
+        sourceChunksCacheMap = sourceShardClient.loadChunksCacheMap(config.getChunkQuery());
+        shardNames = new ArrayList<>(sourceChunksCacheMap.keySet());
 
-        int qSize = sourceChunksCache.size() + unshardedColls.size();
-//        int qSize = 1;
-        logger.debug("Setting workQueue size to {}", qSize);
-        workQueue = new ArrayBlockingQueue<Runnable>(qSize);
-        diffResults = new ArrayList<>(sourceChunksCache.size());
-        executor = new ThreadPoolExecutor(config.getThreads(), config.getThreads(), 30, TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull());
+        for (String shard : shardNames) {
+            int numThreads = config.getThreads() / NUM_SHARDS;
+            Map<String, RawBsonDocument> chunkMap = sourceChunksCacheMap.get(shard);
+            int qSize = chunkMap.size() + unshardedColls.size();
+            logger.debug("Setting workQueue size to {}", qSize);
+            BlockingQueue<Runnable> workQueue = new ArrayBlockingQueue<>(qSize);
+            diffResultMap.put(shard, new ArrayList<>(chunkMap.size()));
+            executorMap.put(shard, new ThreadPoolExecutor(numThreads, numThreads, 30, TimeUnit.SECONDS,
+                    workQueue, new BlockWhenQueueFull()));
+        }
     }
 
+    private int getTotalChunks() {
+        AtomicInteger sum = new AtomicInteger();
+        sourceChunksCacheMap.forEach((k, v) -> {
+            sum.addAndGet(v.size());
+        });
+        return sum.get();
+    }
 
     public void run() {
-        DiffSummary summary = new DiffSummary(sourceChunksCache.size(), estimatedTotalDocs, totalSize);
+        int totalChunks = getTotalChunks();
+        DiffSummary summary = new DiffSummary(totalChunks, estimatedTotalDocs, totalSize);
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
         statusReporter.scheduleAtFixedRate(new Runnable() {
@@ -81,81 +97,107 @@ public class DiffUtil {
             }
         }, 0, 5, TimeUnit.SECONDS);
 
-        for (RawBsonDocument chunk : sourceChunksCache.values()) {
-            ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk);
-//            logger.debug("Added a ShardedDiffTask");
-            diffResults.add(executor.submit(task));
+        for (String shard : shardNames) {
+            Map<String, RawBsonDocument> chunkCache = sourceChunksCacheMap.get(shard);
+            for (RawBsonDocument chunk : chunkCache.values()) {
+                ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk);
+                List<Future<DiffResult>> diffResults = diffResultMap.get(shard);
+                ThreadPoolExecutor executor = executorMap.get(shard);
+                diffResults.add(executor.submit(task));
+            }
         }
 
-        for (Collection unshardedColl : sourceShardClient.getDatabaseCatalog().getUnshardedCollections()) {
-            UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient, unshardedColl.getNamespace());
+        List<Collection> unshardedCollections = new ArrayList<>(
+                sourceShardClient.getDatabaseCatalog().getUnshardedCollections());
+        for (int i = 0; i < unshardedCollections.size(); i++) {
+            Collection unshardedColl = unshardedCollections.get(i);
+
+            // Alternate which pool to assign to
+            int shardIdx = i % NUM_SHARDS;
+            String shard = shardNames.get(shardIdx);
+            UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient,
+                    unshardedColl.getNamespace());
             logger.debug("Added an UnshardedDiffTask for {}", unshardedColl.getNamespace());
+            List<Future<DiffResult>> diffResults = diffResultMap.get(shard);
+            ThreadPoolExecutor executor = executorMap.get(shard);
             diffResults.add(executor.submit(task));
         }
 
-        Set<Future<DiffResult>> futuresSeen = new HashSet<>();
+        Set<String> finishedShards = new HashSet<>();
+        Map<String, Set<Future<DiffResult>>> futSeenMap = new HashMap<>();
 
-        while (futuresSeen.size() < diffResults.size()) {
+        while (finishedShards.size() < NUM_SHARDS) {
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-//            logger.debug("LOOP results");
-            for (Future<DiffResult> future : diffResults) {
-                try {
-                    if (!futuresSeen.contains(future) && future.isDone()) {
-                        futuresSeen.add(future);
-                        DiffResult result = future.get();
-                        if (result instanceof UnshardedDiffResult) {
-                            UnshardedDiffResult udr = (UnshardedDiffResult) result;
-                            logger.debug("Got unsharded result for {}: {} matches, {} failures, {} bytes", udr.getNs(),
-                                    udr.matches, udr.getFailureCount(), udr.bytesProcessed);
-                        } else if (result instanceof ShardedDiffResult) {
-                            ShardedDiffResult sdr = (ShardedDiffResult) result;
-                            logger.debug("Got sharded result for {} -- {}: {} matches, {} failures, {} bytes", sdr.getNs(),
-                                    sdr.getChunkQuery(), sdr.matches, sdr.getFailureCount(), sdr.bytesProcessed);
-                        } else {
-                            throw new RuntimeException("What the fuck?");
-                        }
-                        int failures = result.getFailureCount();
+            for (String shard : shardNames) {
+                if (!futSeenMap.containsKey(shard)) {
+                    futSeenMap.put(shard, new HashSet<>());
+                }
+                Set<Future<DiffResult>> futuresSeen = futSeenMap.get(shard);
+                List<Future<DiffResult>> diffResults = diffResultMap.get(shard);
 
-                        if (failures > 0) {
-                            if (result instanceof ShardedDiffResult) {
-                                summary.incrementFailedChunks(1);
+                if (futuresSeen.size() >= diffResults.size()) {
+                    finishedShards.add(shard);
+                } else {
+                    for (Future<DiffResult> future : diffResults) {
+                        try {
+                            if (!futuresSeen.contains(future) && future.isDone()) {
+                                futuresSeen.add(future);
+                                DiffResult result = future.get();
+                                if (result instanceof UnshardedDiffResult) {
+                                    UnshardedDiffResult udr = (UnshardedDiffResult) result;
+                                    logger.debug("Got unsharded result for {}-{}: {} matches, {} failures, {} bytes",
+                                            udr.getNs(), shard, udr.matches, udr.getFailureCount(), udr.bytesProcessed);
+                                } else if (result instanceof ShardedDiffResult) {
+                                    ShardedDiffResult sdr = (ShardedDiffResult) result;
+                                    logger.debug("Got sharded result for {} -- {}: {} matches, {} failures, {} bytes",
+                                            sdr.getNs(), sdr.getChunkQuery(), sdr.matches, sdr.getFailureCount(),
+                                            sdr.bytesProcessed);
+                                }
+                                int failures = result.getFailureCount();
+
+                                if (failures > 0) {
+                                    if (result instanceof ShardedDiffResult) {
+                                        summary.incrementFailedChunks(1);
+                                    }
+                                    summary.incrementSuccessfulDocs(result.matches - failures);
+                                } else {
+                                    if (result instanceof ShardedDiffResult) {
+                                        summary.incrementSuccessfulChunks(1);
+                                    }
+                                    summary.incrementSuccessfulDocs(result.matches);
+                                }
+
+
+                                summary.incrementProcessedDocs(result.matches + failures);
+                                summary.incrementFailedDocs(failures);
+                                if (result instanceof ShardedDiffResult) {
+                                    summary.incrementProcessedChunks(1);
+                                }
+                                summary.incrementSourceOnly(result.onlyOnSource);
+                                summary.incrementDestOnly(result.onlyOnDest);
+                                summary.incrementProcessedSize(result.bytesProcessed);
                             }
-                            summary.incrementSuccessfulDocs(result.matches - failures);
-                        } else {
-                            if (result instanceof ShardedDiffResult) {
-                                summary.incrementSuccessfulChunks(1);
-                            }
-                            summary.incrementSuccessfulDocs(result.matches);
-                        }
-
-
-                        summary.incrementProcessedDocs(result.matches + failures);
-                        summary.incrementFailedDocs(failures);
-                        if (result instanceof ShardedDiffResult) {
-                            summary.incrementProcessedChunks(1);
-                        }
-                        summary.incrementSourceOnly(result.onlyOnSource);
-                        summary.incrementDestOnly(result.onlyOnDest);
-                        summary.incrementProcessedSize(result.bytesProcessed);
-                    }
 
 //                logger.debug("result: {}", result);
-                } catch (InterruptedException e) {
-                    logger.error("Diff task was interrupted", e);
-                } catch (ExecutionException e) {
-                    logger.error("Diff task threw an exception", e);
+                        } catch (InterruptedException e) {
+                            logger.error("Diff task was interrupted", e);
+                        } catch (ExecutionException e) {
+                            logger.error("Diff task threw an exception", e);
+                        }
+                    }
                 }
             }
         }
         statusReporter.shutdown();
 
-        executor.shutdown();
+        for (ThreadPoolExecutor executor : executorMap.values()) {
+            executor.shutdown();
+        }
         logger.info(summary.getSummary(true));
     }
-
 
 }

@@ -1,21 +1,22 @@
 package com.mongodb.diff3;
 
 import java.util.Date;
+import java.util.concurrent.atomic.LongAdder;
 
 public class DiffSummary {
     private final int totalChunks;
     private final long totalDocs;
     private final long totalSize;
-    private int processedChunks;
-    private long processedDocs;
-    private long processedSize;
-    private int successfulChunks;
-    private long successfulDocs;
-    private int failedChunks;
-    private long failedDocs;
+    private LongAdder processedChunks;
+    private LongAdder processedDocs;
+    private LongAdder processedSize;
+    private LongAdder successfulChunks;
+    private LongAdder successfulDocs;
+    private LongAdder failedChunks;
+    private LongAdder failedDocs;
     private final long startTime;
-    private long sourceOnly;
-    private long destOnly;
+    private LongAdder sourceOnly;
+    private LongAdder destOnly;
     private String ppTotalSize;
     private static final long K = 1024;
     private static final long M = 1024 * 1024;
@@ -25,7 +26,18 @@ public class DiffSummary {
         this.totalChunks = totalChunks;
         this.totalDocs = totalDocs;
         this.totalSize = totalSize;
-        this.ppTotalSize = ppSize(this.totalSize);
+
+        processedDocs = new LongAdder();
+        processedChunks = new LongAdder();
+        processedSize = new LongAdder();
+        successfulChunks = new LongAdder();
+        successfulDocs = new LongAdder();
+        failedChunks = new LongAdder();
+        failedDocs = new LongAdder();
+        sourceOnly = new LongAdder();
+        destOnly = new LongAdder();
+
+        this.ppTotalSize = ppSize(totalSize);
         this.startTime = new Date().getTime();
     }
 
@@ -33,11 +45,13 @@ public class DiffSummary {
         long millsElapsed = getTimeElapsed();
         int secondsElapsed = (int) (millsElapsed / 1000.);
 
-        double chunkProcPct = (processedChunks / (double) totalChunks) * 100.;
-        double docProcPct = (processedDocs / (double) totalDocs) * 100.;
-        double chunkFailPct = failedChunks > 0 ? ((double) failedChunks / (failedChunks + successfulChunks)) * 100. : 0;
-        double docFailPct = failedDocs > 0 ? ((double) failedDocs / (failedDocs + successfulDocs)) * 100. : 0;
-        double sizeProcessedPct = (processedSize / (double) totalSize) * 100.;
+        double chunkProcPct = (processedChunks.longValue() / (double) totalChunks) * 100.;
+        double docProcPct = (processedDocs.longValue() / (double) totalDocs) * 100.;
+        double chunkFailPct = failedChunks.longValue() > 0 ? ((double) failedChunks.longValue() /
+                (failedChunks.longValue() + successfulChunks.longValue())) * 100. : 0;
+        double docFailPct = failedDocs.longValue() > 0 ? ((double) failedDocs.longValue() /
+                (failedDocs.longValue() + successfulDocs.longValue())) * 100. : 0;
+        double sizeProcessedPct = (processedSize.longValue() / (double) totalSize) * 100.;
 
         String firstLine = done ? String.format("Completed in %s seconds.  ", secondsElapsed) :
                 String.format("%s seconds have elapsed.  ", secondsElapsed);
@@ -48,13 +62,14 @@ public class DiffSummary {
                         "%.2f %% of chunks failed  (%s/%s chunks).  " +
                         "%.2f %% of documents failed  (%s/%s docs).  " +
                         "%s docs found on source only.  %s docs found on target only", firstLine, chunkProcPct,
-                processedChunks, totalChunks, docProcPct, processedDocs, totalDocs, sizeProcessedPct,
-                ppSize(processedSize), ppTotalSize, chunkFailPct, failedChunks, processedChunks, docFailPct,
-                failedDocs, processedDocs, sourceOnly, destOnly);
+                processedChunks.longValue(), totalChunks, docProcPct, processedDocs.longValue(), totalDocs,
+                sizeProcessedPct, ppSize(processedSize.longValue()), ppTotalSize, chunkFailPct,
+                failedChunks.longValue(), processedChunks.longValue(), docFailPct, failedDocs.longValue(),
+                processedDocs.longValue(), sourceOnly.longValue(), destOnly.longValue());
     }
 
     private String ppSize(long size) {
-        if (size <= 0){
+        if (size <= 0) {
             return "0 B";
         } else if (size >= G) {
             double convertedSize = (double) size / G;
@@ -83,38 +98,38 @@ public class DiffSummary {
     }
 
     public void incrementProcessedChunks(int num) {
-        processedChunks += num;
+        processedChunks.add(num);
     }
 
     public void incrementProcessedDocs(long num) {
-        processedDocs += num;
+        processedDocs.add(num);
     }
 
     public void incrementSuccessfulChunks(int num) {
-        successfulChunks += num;
+        successfulChunks.add(num);
     }
 
     public void incrementSuccessfulDocs(long num) {
-        successfulDocs += num;
+        successfulDocs.add(num);
     }
 
     public void incrementFailedChunks(int num) {
-        failedChunks += num;
+        failedChunks.add(num);
     }
 
     public void incrementFailedDocs(int num) {
-        failedDocs += num;
+        failedDocs.add(num);
     }
 
     public void incrementSourceOnly(long num) {
-        sourceOnly += num;
+        sourceOnly.add(num);
     }
 
     public void incrementDestOnly(long num) {
-        destOnly += num;
+        destOnly.add(num);
     }
 
     public void incrementProcessedSize(long num) {
-        processedSize += num;
+        processedSize.add(num);
     }
 }
