@@ -1,39 +1,16 @@
 package com.mongodb.shardsync;
 
-import static com.mongodb.client.model.Filters.and;
-import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.gt;
-import static com.mongodb.client.model.Filters.in;
-import static com.mongodb.client.model.Filters.ne;
-import static com.mongodb.client.model.Filters.regex;
-import static com.mongodb.client.model.Projections.include;
-import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
-import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-
+import com.mongodb.*;
 import com.mongodb.client.*;
+import com.mongodb.client.model.IndexOptions;
+import com.mongodb.client.model.Sorts;
+import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.result.DeleteResult;
+import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.model.*;
+import com.mongodb.util.MaskUtil;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.tuple.Pair;
-import org.bson.BsonDocument;
-import org.bson.BsonString;
-import org.bson.BsonTimestamp;
-import org.bson.Document;
-import org.bson.RawBsonDocument;
-import org.bson.UuidRepresentation;
+import org.bson.*;
 import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
@@ -41,20 +18,14 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.ConnectionString;
-import com.mongodb.MongoClientSettings;
-import com.mongodb.MongoCommandException;
-import com.mongodb.MongoException;
-import com.mongodb.MongoTimeoutException;
-import com.mongodb.ServerAddress;
-import com.mongodb.client.model.IndexOptions;
-import com.mongodb.client.model.Sorts;
-import com.mongodb.client.model.UpdateOptions;
-import com.mongodb.client.result.DeleteResult;
-import com.mongodb.internal.dns.DefaultDnsResolver;
-import com.mongodb.util.MaskUtil;
+import java.util.Collection;
+import java.util.*;
+import java.util.regex.Pattern;
 
-import javax.print.Doc;
+import static com.mongodb.client.model.Filters.*;
+import static com.mongodb.client.model.Projections.include;
+import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 /**
  * This class encapsulates the client related objects needed for each source and
@@ -137,7 +108,6 @@ public class ShardClient {
 	
 	// Advanced only, for manual configuration / overriding discovery
 	private String[] rsStringsManual;
-	private Map<String, MongoClient> directClients = new HashMap<>();
 
 	public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter, ShardClientType shardClientType) {
 
@@ -207,27 +177,6 @@ public class ShardClient {
 		logger.debug(String.format("%s : MongoDB version: %s, mongos: %s", name, version, mongos));
 
 		populateMongosList();
-	}
-
-	public void initDirect() {
-		logger.info("Direct client map");
-		for (Map.Entry<String, Shard> shardEntry : shardsMap.entrySet()) {
-			String shardName = shardEntry.getKey();
-			Shard shard = shardEntry.getValue();
-			String connStr = connStr(shard.getHost());
-			ConnectionString conn = new ConnectionString(connStr);
-			MongoClientSettings mcs = MongoClientSettings.builder().
-					applyConnectionString(conn).
-					uuidRepresentation(UuidRepresentation.STANDARD).
-					build();
-			MongoClient mc = MongoClients.create(mcs);
-			directClients.put(shardName, mc);
-			logger.info("Shard: {}: {}", shardName, connStr);
-		}
-	}
-
-	private String connStr(String orig) {
-		return "mongodb://" + StringUtils.substringAfter(orig, "/");
 	}
 
 	/**
@@ -1398,9 +1347,5 @@ public class ShardClient {
 
 	public void setRsStringsManual(String[] rsStringsManual) {
 		this.rsStringsManual = rsStringsManual;
-	}
-
-	public Map<String, MongoClient> getDirectClients() {
-		return directClients;
 	}
 }

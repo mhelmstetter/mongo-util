@@ -58,13 +58,9 @@ public class DiffUtil {
         logger.info("ShardedColls:[" + String.join(", ", shardedColls) + "]");
 
         logger.info("UnshardedColls:[" + String.join(", ", unshardedColls) + "]");
-//        sourceShardClient.populateCollectionsMap();
         sourceChunksCacheMap = sourceShardClient.loadChunksCacheMap(config.getChunkQuery());
         shardNames = new ArrayList<>(sourceChunksCacheMap.keySet());
         int numShards = shardNames.size();
-
-//        sourceShardClient.initDirect();
-//        destShardClient.initDirect();
 
         for (String shard : shardNames) {
             int numThreads = config.getThreads() / numShards;
@@ -114,7 +110,7 @@ public class DiffUtil {
         for (int i = 0; i < unshardedCollections.size(); i++) {
             Collection unshardedColl = unshardedCollections.get(i);
 
-            // Alternate which pool to assign to
+            // Round-robin which pool to assign to
             int shardIdx = i % numShards;
             String shard = shardNames.get(shardIdx);
             UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient,
@@ -128,6 +124,7 @@ public class DiffUtil {
         Set<String> finishedShards = new HashSet<>();
         Map<String, Set<Future<DiffResult>>> futSeenMap = new HashMap<>();
 
+        // Poll for completed futures every second
         while (finishedShards.size() < numShards) {
             try {
                 Thread.sleep(1000);

@@ -45,26 +45,13 @@ public class AbstractDiffTask {
 
     protected DiffResult result;
 
-    static class ArrayEquivalence extends Equivalence<byte[]> {
-
-        @Override
-        protected boolean doEquivalent(byte[] a, byte[] b) {
-            return Arrays.equals(a, b);
-        }
-
-        @Override
-        protected int doHash(byte[] bytes) {
-            return Arrays.hashCode(bytes);
-        }
-    }
-
 
     protected void computeDiff() {
         loadSourceDocs();
         loadDestDocs();
 
         long compStart = System.currentTimeMillis();
-        MapDifference<BsonValue, String> diff = Maps.difference(sourceDocs, destDocs/*, new ArrayEquivalence()*/);
+        MapDifference<BsonValue, String> diff = Maps.difference(sourceDocs, destDocs);
 
         if (diff.areEqual()) {
             int numMatches = sourceDocs.size();
@@ -135,10 +122,6 @@ public class AbstractDiffTask {
         } catch (Exception e) {
         }
 
-    }
-
-    protected MongoCollection<RawBsonDocument> getCollectionRaw(MongoClient client, Namespace ns) {
-        return client.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName(), RawBsonDocument.class);
     }
 
 

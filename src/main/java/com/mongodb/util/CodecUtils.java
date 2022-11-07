@@ -2,7 +2,6 @@
 
 package com.mongodb.util;
 
-import net.openhft.hashing.LongHashFunction;
 import org.apache.commons.codec.binary.Base32;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.codec.binary.Hex;
@@ -19,11 +18,6 @@ public final class CodecUtils {
   private static final String SHA256_DIGEST = "SHA-256";
 
   private static final String ENCODING = "UTF-8";
-  private static final int xxHashSeed = 1234;
-
-  public static long xxh3Hash(final byte[] bytes) {
-    return LongHashFunction.xx3().hashBytes(bytes);
-  }
 
   public static String sha256Hex(final String pV) {
     try {
