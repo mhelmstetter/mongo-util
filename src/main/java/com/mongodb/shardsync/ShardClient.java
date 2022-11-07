@@ -137,6 +137,7 @@ public class ShardClient {
 	
 	// Advanced only, for manual configuration / overriding discovery
 	private String[] rsStringsManual;
+	private Map<String, MongoClient> directClients = new HashMap<>();
 
 	public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter, ShardClientType shardClientType) {
 
@@ -206,6 +207,25 @@ public class ShardClient {
 		logger.debug(String.format("%s : MongoDB version: %s, mongos: %s", name, version, mongos));
 
 		populateMongosList();
+	}
+
+	public void initDirect() {
+		for (Map.Entry<String, Shard> shardEntry : shardsMap.entrySet()) {
+			String shardName = shardEntry.getKey();
+			Shard shard = shardEntry.getValue();
+			String connStr = connStr(shard.getHost());
+			ConnectionString conn = new ConnectionString(connStr);
+			MongoClientSettings mcs = MongoClientSettings.builder().
+					applyConnectionString(conn).
+					uuidRepresentation(UuidRepresentation.STANDARD).
+					build();
+			MongoClient mc = MongoClients.create(mcs);
+			directClients.put(shardName, mc);
+		}
+	}
+
+	private String connStr(String orig) {
+		return "mongodb://" + StringUtils.substringAfter(orig, "/");
 	}
 
 	/**
@@ -1378,4 +1398,7 @@ public class ShardClient {
 		this.rsStringsManual = rsStringsManual;
 	}
 
+	public Map<String, MongoClient> getDirectClients() {
+		return directClients;
+	}
 }

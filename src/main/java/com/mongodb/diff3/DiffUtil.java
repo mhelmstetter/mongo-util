@@ -18,9 +18,6 @@ public class DiffUtil {
 
     private static Logger logger = LoggerFactory.getLogger(DiffUtil.class);
 
-    // TODO - don't hard code this
-    private final int NUM_SHARDS = 2;
-
     private ShardClient sourceShardClient;
     private ShardClient destShardClient;
 
@@ -64,9 +61,13 @@ public class DiffUtil {
 //        sourceShardClient.populateCollectionsMap();
         sourceChunksCacheMap = sourceShardClient.loadChunksCacheMap(config.getChunkQuery());
         shardNames = new ArrayList<>(sourceChunksCacheMap.keySet());
+        int numShards = shardNames.size();
+
+        sourceShardClient.initDirect();
+        destShardClient.initDirect();
 
         for (String shard : shardNames) {
-            int numThreads = config.getThreads() / NUM_SHARDS;
+            int numThreads = config.getThreads() / numShards;
             Map<String, RawBsonDocument> chunkMap = sourceChunksCacheMap.get(shard);
             int qSize = chunkMap.size() + unshardedColls.size();
             logger.debug("Setting workQueue size to {}", qSize);
@@ -87,6 +88,7 @@ public class DiffUtil {
 
     public void run() {
         int totalChunks = getTotalChunks();
+        int numShards = shardNames.size();
         DiffSummary summary = new DiffSummary(totalChunks, estimatedTotalDocs, totalSize);
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
@@ -113,7 +115,7 @@ public class DiffUtil {
             Collection unshardedColl = unshardedCollections.get(i);
 
             // Alternate which pool to assign to
-            int shardIdx = i % NUM_SHARDS;
+            int shardIdx = i % numShards;
             String shard = shardNames.get(shardIdx);
             UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient,
                     unshardedColl.getNamespace(), shard);
@@ -126,7 +128,7 @@ public class DiffUtil {
         Set<String> finishedShards = new HashSet<>();
         Map<String, Set<Future<DiffResult>>> futSeenMap = new HashMap<>();
 
-        while (finishedShards.size() < NUM_SHARDS) {
+        while (finishedShards.size() < numShards) {
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException e) {
