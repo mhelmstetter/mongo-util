@@ -210,6 +210,7 @@ public class ShardClient {
 	}
 
 	public void initDirect() {
+		logger.info("Direct client map");
 		for (Map.Entry<String, Shard> shardEntry : shardsMap.entrySet()) {
 			String shardName = shardEntry.getKey();
 			Shard shard = shardEntry.getValue();
@@ -221,6 +222,7 @@ public class ShardClient {
 					build();
 			MongoClient mc = MongoClients.create(mcs);
 			directClients.put(shardName, mc);
+			logger.info("Shard: {}: {}", shardName, connStr);
 		}
 	}
 
