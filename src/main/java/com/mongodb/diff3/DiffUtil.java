@@ -63,8 +63,8 @@ public class DiffUtil {
         shardNames = new ArrayList<>(sourceChunksCacheMap.keySet());
         int numShards = shardNames.size();
 
-        sourceShardClient.initDirect();
-        destShardClient.initDirect();
+//        sourceShardClient.initDirect();
+//        destShardClient.initDirect();
 
         for (String shard : shardNames) {
             int numThreads = config.getThreads() / numShards;
