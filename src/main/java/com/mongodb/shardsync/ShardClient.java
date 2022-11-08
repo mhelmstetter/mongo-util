@@ -55,6 +55,8 @@ import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
+import com.mongodb.model.Privilege;
+import com.mongodb.model.Resource;
 import com.mongodb.model.Role;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardTimestamp;
@@ -466,6 +468,9 @@ public class ShardClient {
 			}
 			if (connectionString.getApplicationName() != null) {
 				settingsBuilder.applicationName(connectionString.getApplicationName());
+			}
+			if (connectionString.getReadPreference() != null) {
+				settingsBuilder.readPreference(connectionString.getReadPreference());
 			}
 			settingsBuilder.uuidRepresentation(UuidRepresentation.STANDARD);
 			MongoClientSettings settings = settingsBuilder.build();

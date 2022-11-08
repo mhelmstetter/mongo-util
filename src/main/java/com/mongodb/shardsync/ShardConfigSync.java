@@ -321,6 +321,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	
 	public void diffRoles() {
 		
+		logger.debug("Starting diffRoles");
 		List<Role> sourceRoles = this.sourceShardClient.getRoles();
 		Map<String, Role> sourceRolesMap = sourceRoles.stream().collect(Collectors.toMap(Role::getId, Function.identity()));
 		
@@ -332,21 +333,25 @@ public class ShardConfigSync implements Callable<Integer> {
 			Role sourceRole = entry.getValue();
 			Role destRole = destRolesMap.get(entry.getKey());
 			
-			logger.debug("*** sourcePrivileges {} -  ***", sourceRole.getId());
-			for (Privilege p : sourceRole.getPrivileges()) {
-				if (! UsersRolesManager.ignoredCollections.contains(p.getResource().getCollection())) {
-					logger.debug(p.toString());
-				}
-				
+			if (destRole == null) {
+				continue;
 			}
 			
-			logger.debug("*** destPrivileges {} -  ***", sourceRole.getId());
-			for (Privilege p : destRole.getPrivileges()) {
-				if (! UsersRolesManager.ignoredCollections.contains(p.getResource().getCollection())) {
-					logger.debug(p.toString());
-				}
-				
-			}
+//			logger.debug("*** sourcePrivileges {} -  ***", sourceRole.getId());
+//			for (Privilege p : sourceRole.getPrivileges()) {
+//				if (! UsersRolesManager.ignoredCollections.contains(p.getResource().getCollection())) {
+//					logger.debug(p.toString());
+//				}
+//				
+//			}
+//			
+//			logger.debug("*** destPrivileges {} -  ***", sourceRole.getId());
+//			for (Privilege p : destRole.getPrivileges()) {
+//				if (! UsersRolesManager.ignoredCollections.contains(p.getResource().getCollection())) {
+//					logger.debug(p.toString());
+//				}
+//				
+//			}
 			
 			
 			Set<Privilege> sourceRoleMap = sourceRole.getResoucePrivilegeSet();
