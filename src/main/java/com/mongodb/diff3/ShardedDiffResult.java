@@ -35,6 +35,15 @@ public class ShardedDiffResult extends DiffResult {
 		return builder.toString();
 	}
 
+	public String shortString() {
+		StringBuilder sb = new StringBuilder();
+		sb.append("ns=");
+		sb.append(ns);
+		sb.append(", query=");
+		sb.append(chunkQuery);
+		return sb.toString();
+	}
+
 	public Bson getChunkQuery() {
 		return chunkQuery;
 	}

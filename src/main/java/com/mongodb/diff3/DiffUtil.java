@@ -35,11 +35,7 @@ public class DiffUtil {
 
 
     public DiffUtil(DiffConfiguration config) {
-        try {
-            Thread.sleep(10000);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+
         this.config = config;
 
 
