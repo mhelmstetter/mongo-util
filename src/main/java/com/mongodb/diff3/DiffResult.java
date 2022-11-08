@@ -10,11 +10,11 @@ public class DiffResult {
     long onlyOnSource = 0;
     long onlyOnDest = 0;
     long bytesProcessed = 0;
-    List<BsonValue> failedIds;
+    List<String> failedIds;
 
-    public void addFailedKey(BsonValue id) {
+    public void addFailedKey(String id) {
         if (failedIds == null) {
-            failedIds = new LinkedList<BsonValue>();
+            failedIds = new LinkedList<>();
         }
         failedIds.add(id);
     }
