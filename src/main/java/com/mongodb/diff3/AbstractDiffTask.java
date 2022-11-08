@@ -48,8 +48,8 @@ public class AbstractDiffTask {
 
 
     protected void computeDiff() {
-        loadSourceDocs();
-        loadDestDocs();
+        int numSrc = loadSourceDocs();
+        loadDestDocs(numSrc);
 
         long compStart = System.currentTimeMillis();
         MapDifference<String, String> diff = Maps.difference(sourceDocs, destDocs);
@@ -75,30 +75,33 @@ public class AbstractDiffTask {
         logger.debug("Computed diff in {} ms[{}]", diffTime, Thread.currentThread().getName());
     }
 
-    protected void loadSourceDocs() {
+    protected int loadSourceDocs() {
         long loadStart = System.currentTimeMillis();
         MongoClient shardClient = sourceShardClient.getShardMongoClient(srcShardName);
 		MongoCollection<RawBsonDocument> sourceColl = getRawCollection(shardClient, namespace);
         sourceCursor = sourceColl.find(query).iterator();
-        sourceDocs = loadDocs(sourceCursor, sourceBytesProcessed);
+        sourceDocs = loadDocs(sourceCursor, sourceBytesProcessed, 2048);
         long loadTime = System.currentTimeMillis() - loadStart;
-        logger.debug("Loaded {} source docs for {} in {} ms[{}--{}]", sourceDocs.size(), namespace, loadTime,
+        int numDocs = sourceDocs.size();
+        logger.debug("Loaded {} source docs for {} in {} ms[{}--{}]", numDocs, namespace, loadTime,
                 Thread.currentThread().getName(), srcShardName);
+        return numDocs;
     }
 
-    protected void loadDestDocs() {
+    protected void loadDestDocs(int expectedDocs) {
         long loadStart = System.currentTimeMillis();
+        int expectedCap = (expectedDocs * 4) / 3;
         MongoClient shardClient = destShardClient.getShardMongoClient(destShardName);
 		MongoCollection<RawBsonDocument> destColl = getRawCollection(shardClient, namespace);
         destCursor = destColl.find(query).iterator();
-        destDocs = loadDocs(destCursor, destBytesProcessed);
+        destDocs = loadDocs(destCursor, destBytesProcessed, expectedCap);
         long loadTime = System.currentTimeMillis() - loadStart;
         logger.debug("Loaded {} dest docs for {} in {} ms[{}--{}]", destDocs.size(), namespace, loadTime,
                 Thread.currentThread().getName(), destShardName);
     }
 
-    protected Map<String, String> loadDocs(MongoCursor<RawBsonDocument> cursor, LongAdder byteCounter) {
-        Map<String, String> docs = new LinkedHashMap<>();
+    protected Map<String, String> loadDocs(MongoCursor<RawBsonDocument> cursor, LongAdder byteCounter, int cap) {
+        Map<String, String> docs = new LinkedHashMap<>(cap);
         while (cursor.hasNext()) {
             RawBsonDocument doc = cursor.next();
             String id = doc.get("_id").toString();
@@ -108,7 +111,7 @@ public class AbstractDiffTask {
             String docHash = CodecUtils.md5Hex(docBytes);
 //            String docHash = "docHash";
 
-            docs.put(id, docHash);
+            docs.put(new String(id), docHash);
         }
         return docs;
     }
