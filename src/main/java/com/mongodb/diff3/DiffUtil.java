@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import com.mongodb.model.Collection;
+import com.mongodb.shardsync.ChunkManager;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +18,8 @@ import com.mongodb.util.BlockWhenQueueFull;
 public class DiffUtil {
 
     private static Logger logger = LoggerFactory.getLogger(DiffUtil.class);
+    private List<String> destShardNames;
+    private List<String> srcShardNames;
 
     private ShardClient sourceShardClient;
     private ShardClient destShardClient;
@@ -29,7 +32,6 @@ public class DiffUtil {
     private Map<String, Map<String, RawBsonDocument>> sourceChunksCacheMap = new HashMap<>();
     private long estimatedTotalDocs;
     private long totalSize;
-    private List<String> shardNames;
 
 
     public DiffUtil(DiffConfiguration config) {
@@ -39,6 +41,7 @@ public class DiffUtil {
             throw new RuntimeException(e);
         }
         this.config = config;
+
 
         sourceShardClient = new ShardClient("source", config.getSourceClusterUri());
         destShardClient = new ShardClient("dest", config.getDestClusterUri());
@@ -64,14 +67,17 @@ public class DiffUtil {
 
         logger.info("UnshardedColls:[" + String.join(", ", unshardedColls) + "]");
         sourceChunksCacheMap = sourceShardClient.loadChunksCacheMap(config.getChunkQuery());
-        shardNames = new ArrayList<>(sourceChunksCacheMap.keySet());
-        int numShards = shardNames.size();
+//        shardNames = new ArrayList<>(sourceChunksCacheMap.keySet());
+//        int numShards = shardNames.size();
 
         sourceShardClient.populateShardMongoClients();
         destShardClient.populateShardMongoClients();
 
-        for (String shard : shardNames) {
-            int numThreads = config.getThreads() / numShards;
+        srcShardNames = new ArrayList<>(sourceShardClient.getShardsMap().keySet());
+        destShardNames = new ArrayList<>(destShardClient.getShardsMap().keySet());
+
+        for (String shard : srcShardNames) {
+            int numThreads = config.getThreads() / srcShardNames.size();
             Map<String, RawBsonDocument> chunkMap = sourceChunksCacheMap.get(shard);
             int qSize = chunkMap.size() + unshardedColls.size();
             logger.debug("Setting workQueue size to {}", qSize);
@@ -92,7 +98,7 @@ public class DiffUtil {
 
     public void run() {
         int totalChunks = getTotalChunks();
-        int numShards = shardNames.size();
+        int numShards = srcShardNames.size();
         DiffSummary summary = new DiffSummary(totalChunks, estimatedTotalDocs, totalSize);
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
@@ -103,12 +109,14 @@ public class DiffUtil {
             }
         }, 0, 5, TimeUnit.SECONDS);
 
-        for (String shard : shardNames) {
-            Map<String, RawBsonDocument> chunkCache = sourceChunksCacheMap.get(shard);
+        for (int i = 0; i < srcShardNames.size(); i++) {
+            String srcShard = srcShardNames.get(i);
+            String destShard = destShardNames.get(i);
+            Map<String, RawBsonDocument> chunkCache = sourceChunksCacheMap.get(srcShard);
             for (RawBsonDocument chunk : chunkCache.values()) {
-                ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk, shard);
-                List<Future<DiffResult>> diffResults = diffResultMap.get(shard);
-                ThreadPoolExecutor executor = executorMap.get(shard);
+                ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk, srcShard, destShard);
+                List<Future<DiffResult>> diffResults = diffResultMap.get(srcShard);
+                ThreadPoolExecutor executor = executorMap.get(srcShard);
                 diffResults.add(executor.submit(task));
             }
         }
@@ -120,12 +128,13 @@ public class DiffUtil {
 
             // Round-robin which pool to assign to
             int shardIdx = i % numShards;
-            String shard = shardNames.get(shardIdx);
+            String srcShard = srcShardNames.get(shardIdx);
+            String destShard = destShardNames.get(shardIdx);
             UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient,
-                    unshardedColl.getNamespace(), shard);
-            logger.debug("Added an UnshardedDiffTask for {}--{}", unshardedColl.getNamespace(), shard);
-            List<Future<DiffResult>> diffResults = diffResultMap.get(shard);
-            ThreadPoolExecutor executor = executorMap.get(shard);
+                    unshardedColl.getNamespace(), srcShard, destShard);
+            logger.debug("Added an UnshardedDiffTask for {}--{}", unshardedColl.getNamespace(), srcShard);
+            List<Future<DiffResult>> diffResults = diffResultMap.get(srcShard);
+            ThreadPoolExecutor executor = executorMap.get(srcShard);
             diffResults.add(executor.submit(task));
         }
 
@@ -139,7 +148,7 @@ public class DiffUtil {
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-            for (String shard : shardNames) {
+            for (String shard : srcShardNames) {
                 if (!futSeenMap.containsKey(shard)) {
                     futSeenMap.put(shard, new HashSet<>());
                 }

@@ -10,16 +10,18 @@ import com.mongodb.shardsync.ShardClient;
 public class UnshardedDiffTask extends AbstractDiffTask implements Callable<DiffResult> {
 
 
-    public UnshardedDiffTask(ShardClient sourceShardClient, ShardClient destShardClient, String nsStr, String shardName) {
+    public UnshardedDiffTask(ShardClient sourceShardClient, ShardClient destShardClient, String nsStr,
+                             String srcShardName, String destShardName) {
         this.sourceShardClient = sourceShardClient;
         this.destShardClient = destShardClient;
         this.namespace = new Namespace(nsStr);
-        this.shardName = shardName;
+        this.srcShardName = srcShardName;
+        this.destShardName = destShardName;
     }
 
     @Override
     public DiffResult call() throws Exception {
-        logger.debug("Thread [{}--{}] got an unsharded task", Thread.currentThread().getName(), shardName);
+        logger.debug("Thread [{}--{}] got an unsharded task", Thread.currentThread().getName(), srcShardName);
         this.start = System.currentTimeMillis();
         result = new UnshardedDiffResult(namespace.getNamespace());
         query = new BsonDocument();
@@ -35,7 +37,7 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
         }
 
         logger.debug("Thread [{}--{}] completed an unsharded task in {} ms", Thread.currentThread().getName(),
-                shardName, timeSpent(System.currentTimeMillis()));
+                srcShardName, timeSpent(System.currentTimeMillis()));
         return result;
     }
 

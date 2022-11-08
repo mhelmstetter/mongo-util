@@ -28,7 +28,8 @@ public class AbstractDiffTask {
     protected ShardClient sourceShardClient;
     protected ShardClient destShardClient;
     protected DiffConfiguration config;
-    protected String shardName;
+    protected String srcShardName;
+    protected String destShardName;
 
     protected Namespace namespace;
     protected Bson query;
@@ -76,24 +77,24 @@ public class AbstractDiffTask {
 
     protected void loadSourceDocs() {
         long loadStart = System.currentTimeMillis();
-        MongoClient shardClient = sourceShardClient.getShardMongoClient(shardName);
+        MongoClient shardClient = sourceShardClient.getShardMongoClient(srcShardName);
 		MongoCollection<RawBsonDocument> sourceColl = getRawCollection(shardClient, namespace);
         sourceCursor = sourceColl.find(query).iterator();
         sourceDocs = loadDocs(sourceCursor, sourceBytesProcessed);
         long loadTime = System.currentTimeMillis() - loadStart;
         logger.debug("Loaded {} source docs for {} in {} ms[{}--{}]", sourceDocs.size(), namespace, loadTime,
-                Thread.currentThread().getName(), shardName);
+                Thread.currentThread().getName(), srcShardName);
     }
 
     protected void loadDestDocs() {
         long loadStart = System.currentTimeMillis();
-        MongoClient shardClient = destShardClient.getShardMongoClient(shardName);
+        MongoClient shardClient = destShardClient.getShardMongoClient(destShardName);
 		MongoCollection<RawBsonDocument> destColl = getRawCollection(shardClient, namespace);
         destCursor = destColl.find(query).iterator();
         destDocs = loadDocs(destCursor, destBytesProcessed);
         long loadTime = System.currentTimeMillis() - loadStart;
         logger.debug("Loaded {} dest docs for {} in {} ms[{}--{}]", destDocs.size(), namespace, loadTime,
-                Thread.currentThread().getName(), shardName);
+                Thread.currentThread().getName(), destShardName);
     }
 
     protected Map<BsonValue, String> loadDocs(MongoCursor<RawBsonDocument> cursor, LongAdder byteCounter) {
