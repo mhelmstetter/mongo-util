@@ -76,7 +76,8 @@ public class AbstractDiffTask {
 
     protected void loadSourceDocs() {
         long loadStart = System.currentTimeMillis();
-		MongoCollection<RawBsonDocument> sourceColl = sourceShardClient.getCollectionRaw(namespace);
+        MongoClient shardClient = sourceShardClient.getShardMongoClient(shardName);
+		MongoCollection<RawBsonDocument> sourceColl = getRawCollection(shardClient, namespace);
         sourceCursor = sourceColl.find(query).iterator();
         sourceDocs = loadDocs(sourceCursor, sourceBytesProcessed);
         long loadTime = System.currentTimeMillis() - loadStart;
@@ -86,7 +87,8 @@ public class AbstractDiffTask {
 
     protected void loadDestDocs() {
         long loadStart = System.currentTimeMillis();
-		MongoCollection<RawBsonDocument> destColl = destShardClient.getCollectionRaw(namespace);
+        MongoClient shardClient = destShardClient.getShardMongoClient(shardName);
+		MongoCollection<RawBsonDocument> destColl = getRawCollection(shardClient, namespace);
         destCursor = destColl.find(query).iterator();
         destDocs = loadDocs(destCursor, destBytesProcessed);
         long loadTime = System.currentTimeMillis() - loadStart;
@@ -124,5 +126,7 @@ public class AbstractDiffTask {
 
     }
 
-
+    protected MongoCollection<RawBsonDocument> getRawCollection(MongoClient client, Namespace ns) {
+        return client.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName(), RawBsonDocument.class);
+    }
 }

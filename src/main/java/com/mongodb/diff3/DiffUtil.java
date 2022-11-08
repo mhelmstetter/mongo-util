@@ -62,6 +62,9 @@ public class DiffUtil {
         shardNames = new ArrayList<>(sourceChunksCacheMap.keySet());
         int numShards = shardNames.size();
 
+        sourceShardClient.populateShardMongoClients();
+        destShardClient.populateShardMongoClients();
+
         for (String shard : shardNames) {
             int numThreads = config.getThreads() / numShards;
             Map<String, RawBsonDocument> chunkMap = sourceChunksCacheMap.get(shard);
