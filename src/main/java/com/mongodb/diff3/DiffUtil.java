@@ -55,9 +55,9 @@ public class DiffUtil {
         estimatedTotalDocs = sizeAndCount[1];
 
         Set<String> shardedColls = catalog.getShardedCollections().stream()
-                .map(c -> c.getNamespace()).collect(Collectors.toSet());
+                .map(c -> c.getNamespace().getNamespace()).collect(Collectors.toSet());
         Set<String> unshardedColls = catalog.getUnshardedCollections().stream()
-                .map(c -> c.getNamespace()).collect(Collectors.toSet());
+                .map(c -> c.getNamespace().getNamespace()).collect(Collectors.toSet());
 
         logger.info("ShardedColls:[" + String.join(", ", shardedColls) + "]");
 
@@ -79,8 +79,8 @@ public class DiffUtil {
             logger.debug("Setting workQueue size to {}", qSize);
             BlockingQueue<Runnable> workQueue = new ArrayBlockingQueue<>(qSize);
             diffResultMap.put(shard, new ArrayList<>(chunkMap.size()));
-            executorMap.put(shard, new ThreadPoolExecutor(numThreads, numThreads, 30, TimeUnit.SECONDS,
-                    workQueue, new BlockWhenQueueFull()));
+            executorMap.put(shard, new ThreadPoolExecutor(numThreads, numThreads,
+                    30, TimeUnit.SECONDS, workQueue, new BlockWhenQueueFull()));
         }
     }
 
@@ -110,7 +110,8 @@ public class DiffUtil {
             String destShard = destShardNames.get(i);
             Map<String, RawBsonDocument> chunkCache = sourceChunksCacheMap.get(srcShard);
             for (RawBsonDocument chunk : chunkCache.values()) {
-                ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk, srcShard, destShard);
+                ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient,
+                        config, chunk, srcShard, destShard);
                 List<Future<DiffResult>> diffResults = diffResultMap.get(srcShard);
                 ThreadPoolExecutor executor = executorMap.get(srcShard);
                 diffResults.add(executor.submit(task));
@@ -127,8 +128,9 @@ public class DiffUtil {
             String srcShard = srcShardNames.get(shardIdx);
             String destShard = destShardNames.get(shardIdx);
             UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient,
-                    unshardedColl.getNamespace(), srcShard, destShard);
-            logger.debug("Added an UnshardedDiffTask for {}--{}", unshardedColl.getNamespace(), srcShard);
+                    unshardedColl.getNamespace().getNamespace(), srcShard, destShard);
+            logger.debug("Added an UnshardedDiffTask for {}--{}",
+                    unshardedColl.getNamespace(), srcShard);
             List<Future<DiffResult>> diffResults = diffResultMap.get(srcShard);
             ThreadPoolExecutor executor = executorMap.get(srcShard);
             diffResults.add(executor.submit(task));

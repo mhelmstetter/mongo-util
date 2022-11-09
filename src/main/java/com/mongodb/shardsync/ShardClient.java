@@ -6,6 +6,8 @@ import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
+import com.mongodb.diff3.DatabaseCatalogProvider;
+import com.mongodb.diff3.StandardDatabaseCatalogProvider;
 import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.model.*;
 import com.mongodb.util.MaskUtil;
@@ -91,7 +93,7 @@ public class ShardClient {
 	private Map<String, MongoClient> mongosMongoClients = new TreeMap<String, MongoClient>();
 
 	private Map<String, Document> collectionsMap = new TreeMap<String, Document>();
-	private DatabaseCatalog databaseCatalog;
+	private DatabaseCatalogProvider databaseCatalogProvider;
 
 	private Map<String, MongoClient> shardMongoClients = new TreeMap<String, MongoClient>();
 
@@ -158,6 +160,7 @@ public class ShardClient {
 
 		pojoCodecRegistry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
 				fromProviders(PojoCodecProvider.builder().automatic(true).build()));
+		databaseCatalogProvider = new StandardDatabaseCatalogProvider(mongoClient);
 
 		try {
 			Document dbgridResult = adminCommand(new Document("isdbgrid", 1));
@@ -386,6 +389,7 @@ public class ShardClient {
 		}
 		logger.debug(String.format("%s Finished populateCollectionsMap(), %s collections loaded from config server",
 				name, collectionsMap.size()));
+		((StandardDatabaseCatalogProvider)databaseCatalogProvider).setCollectionsMap(collectionsMap);
 	}
 
 	public void populateCollectionsMap() {
@@ -686,69 +690,7 @@ public class ShardClient {
 	}
 
 	public DatabaseCatalog getDatabaseCatalog(Set<Namespace> includeNs) {
-		if (this.databaseCatalog == null) {
-			this.databaseCatalog = new DatabaseCatalog();
-			populateDatabaseCatalog(includeNs);
-		}
-		return databaseCatalog;
-	}
-
-	private void populateDatabaseCatalog(Set<Namespace> includeNs) {
-		MongoIterable<String> dbNames = listDatabaseNames();
-		Map<String, Set<String>> includeMap = new HashMap<>();
-		boolean includeAll = true;
-		if (includeNs != null && includeNs.size() > 0) {
-			includeAll = false;
-			includeNs.forEach(n -> {
-				String db = n.getDatabaseName();
-				String coll = n.getCollectionName();
-				if (!includeMap.containsKey(db)) {
-					includeMap.put(db, new HashSet<>());
-				}
-				includeMap.get(db).add(coll);
-			});
-		}
-		for (String dbName : dbNames) {
-			if (excludedSystemDbs.contains(dbName) || (!includeAll && !includeMap.containsKey(dbName))) {
-				logger.debug("Excluding db: {}", dbName);
-				continue;
-			}
-			Document dbStatsDoc = dbStats(dbName);
-			DatabaseStats dbStats = DatabaseStats.fromDocument(dbStatsDoc);
-			Database db = new Database(dbName, dbStats);
-			ListCollectionsIterable<Document> colls = listCollections(dbName);
-			for (Document coll : colls) {
-				String collName = coll.getString("name");
-
-				if (!includeAll && !includeMap.get(dbName).contains(collName)) {
-					logger.debug("Excluding coll: {} in db: {}", collName, dbName);
-					continue;
-				}
-
-				String collType = coll.getString("type");
-				if (collType.equals("view")) {
-					logger.info("Excluding view: {}", collName);
-					db.excludeCollection(collName);
-					continue;
-				}
-				/* Don't include collections starting with system.* */
-				if (excludeCollRegex.matcher(collName).matches()) {
-					logger.debug("Excluding collection: {}", collName);
-					db.excludeCollection(collName);
-					continue;
-				}
-				String collNs = dbName + "." + collName;
-				//CollectionStats collStats = CollectionStats.fromDocument(collStats(dbName, collName));
-				boolean sharded = collectionsMap.containsKey(collNs);
-				com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(collNs, sharded);
-
-				String shardedStatus = sharded ? "sharded" : "unsharded";
-				db.addCollection(mcoll);
-				logger.debug("Added {} collection {} to catalog for db {}", shardedStatus, collNs, dbName);
-			}
-			logger.debug("Add database {} to catalog with {} docs", dbName, dbStats.getDocumentCount());
-			databaseCatalog.addDatabase(db);
-		}
+		return databaseCatalogProvider.get(includeNs);
 	}
 
 	public ListCollectionsIterable<Document> listCollections(String dbName) {

@@ -18,6 +18,10 @@ public class DiffConfiguration {
 	private boolean filtered;
 	private Document chunkQuery = new Document();
 	private int threads = 8;
+	private double sampleRate;
+	private int sampleMinDocs;
+	private int maxDocsToSamplePerPartition;
+	private long defaultPartitionSize;
 
 	private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
 	private Set<String> includeDatabases = new HashSet<String>();
@@ -111,4 +115,35 @@ public class DiffConfiguration {
 		this.threads = threads;
 	}
 
+	public double getSampleRate() {
+		return sampleRate;
+	}
+
+	public void setSampleRate(double sampleRate) {
+		this.sampleRate = sampleRate;
+	}
+
+	public int getSampleMinDocs() {
+		return sampleMinDocs;
+	}
+
+	public void setSampleMinDocs(int sampleMinDocs) {
+		this.sampleMinDocs = sampleMinDocs;
+	}
+
+	public int getMaxDocsToSamplePerPartition() {
+		return maxDocsToSamplePerPartition;
+	}
+
+	public void setMaxDocsToSamplePerPartition(int maxDocsToSamplePerPartition) {
+		this.maxDocsToSamplePerPartition = maxDocsToSamplePerPartition;
+	}
+
+	public long getDefaultPartitionSize() {
+		return defaultPartitionSize;
+	}
+
+	public void setDefaultPartitionSize(long defaultPartitionSize) {
+		this.defaultPartitionSize = defaultPartitionSize;
+	}
 }
