@@ -235,10 +235,16 @@ public class ShardClient {
 				String foundHost = null;
 				for (String host : rsInfo.getHosts()) {
 					if (p.matcher(host).find()) {
-						foundHost = host;
 						rsInfo = getReplicaSetInfoFromHost(host);
+						if (rsInfo.isSecondary()) {
+							foundHost = host; 
+						}
 						break;
 					}
+				}
+				
+				if (foundHost == null) {
+					throw new IllegalArgumentException(String.format("Unable to find matching host for regex %s, seedList: %s", rsRegex, seedList));
 				}
 				sh.setHost(foundHost);
 				
@@ -252,84 +258,79 @@ public class ShardClient {
 					shardsMap.put(sh.getId(), sh);
 				}
 			}
-		}
+		} else {
+			
+			for (Shard sh : shards) {
 
-		for (Shard sh : shards) {
-
-			// TODO fix this for patterned uri
-//        	if (shardIdFilter != null && ! shardIdFilter.contains(sh.getId())) {
-//        		continue;
-//        	}
-
-			if (!patternedUri && !manualShardHosts) {
-				logger.debug(String.format("%s: populateShardList shard: %s", name, sh.getHost()));
-			}
-			String rsName = StringUtils.substringBefore(sh.getHost(), "/");
-			sh.setRsName(rsName);
-			if (this.shardIdFilter == null) {
-				shardsMap.put(sh.getId(), sh);
-			} else if (shardIdFilter.contains(sh.getId())) {
-				shardsMap.put(sh.getId(), sh);
-			}
-		}
-		
-		
-
-		if (patternedUri) {
-			int shardCount = shardsMap.size();
-			tertiaryShardsMap.putAll(shardsMap);
-			shardsMap.clear();
-			for (int shardNum = 0; shardNum < shardCount; shardNum++) {
-
-				String hostBasePre = StringUtils.substringAfter(connectionStringPattern, "mongodb://");
-				String hostBase = StringUtils.substringBefore(hostBasePre, "/");
-				if (hostBase.contains("@")) {
-					hostBase = StringUtils.substringAfter(hostBase, "@");
+				if (!patternedUri && !manualShardHosts) {
+					logger.debug(String.format("%s: populateShardList shard: %s", name, sh.getHost()));
 				}
-				String host0 = String.format(hostBase, "shard", shardNum, 0);
-				String host1 = String.format(hostBase, "shard", shardNum, 1);
-				String rsName = String.format(this.rsPattern, "shard", shardNum);
-				Shard sh = new Shard();
-				sh.setId(rsName);
+				String rsName = StringUtils.substringBefore(sh.getHost(), "/");
 				sh.setRsName(rsName);
-				sh.setHost(String.format("%s/%s,%s", rsName, host0, host1));
-				shardsMap.put(sh.getId(), sh);
-				logger.debug(String.format("%s: populateShardList formatted shard name: %s", name, sh.getHost()));
+				if (this.shardIdFilter == null) {
+					shardsMap.put(sh.getId(), sh);
+				} else if (shardIdFilter.contains(sh.getId())) {
+					shardsMap.put(sh.getId(), sh);
+				}
 			}
 
-		} else if (manualShardHosts) {
-			
-			// in some cases the rs name doesn't match the shard name
-			Map<String, String> rsNameToShardIdMap = new HashMap<>();
-			for (Shard shard : shardsMap.values()) {
-				rsNameToShardIdMap.put(shard.getRsName(), shard.getId());
-			}
-			shardsMap.clear();
-			
-			for (String rsString : rsStringsManual) {
+			if (patternedUri) {
+				int shardCount = shardsMap.size();
+				tertiaryShardsMap.putAll(shardsMap);
+				shardsMap.clear();
+				for (int shardNum = 0; shardNum < shardCount; shardNum++) {
+
+					String hostBasePre = StringUtils.substringAfter(connectionStringPattern, "mongodb://");
+					String hostBase = StringUtils.substringBefore(hostBasePre, "/");
+					if (hostBase.contains("@")) {
+						hostBase = StringUtils.substringAfter(hostBase, "@");
+					}
+					String host0 = String.format(hostBase, "shard", shardNum, 0);
+					String host1 = String.format(hostBase, "shard", shardNum, 1);
+					String rsName = String.format(this.rsPattern, "shard", shardNum);
+					Shard sh = new Shard();
+					sh.setId(rsName);
+					sh.setRsName(rsName);
+					sh.setHost(String.format("%s/%s,%s", rsName, host0, host1));
+					shardsMap.put(sh.getId(), sh);
+					logger.debug(String.format("%s: populateShardList formatted shard name: %s", name, sh.getHost()));
+				}
+
+			} else if (manualShardHosts) {
 				
-				Shard sh = new Shard();
-				if (!rsString.contains("/")) {
-					if (rsString.contains(",")) {
-						throw new IllegalArgumentException(String.format("Invalid format for %sRsManual, expecting rsName/host1:port,host2:port,host3:port", name));
+				// in some cases the rs name doesn't match the shard name
+				Map<String, String> rsNameToShardIdMap = new HashMap<>();
+				for (Shard shard : shardsMap.values()) {
+					rsNameToShardIdMap.put(shard.getRsName(), shard.getId());
+				}
+				shardsMap.clear();
+				
+				for (String rsString : rsStringsManual) {
+					
+					Shard sh = new Shard();
+					if (!rsString.contains("/")) {
+						if (rsString.contains(",")) {
+							throw new IllegalArgumentException(String.format("Invalid format for %sRsManual, expecting rsName/host1:port,host2:port,host3:port", name));
+						} else {
+							logger.warn(String.format("Config for %sRsManual is using standalone/direct connect", name));
+							sh.setHost(rsString);
+							String rsName = getReplicaSetInfoFromHost(rsString).getRsName();
+							sh.setRsName(rsName);
+							String shardId = rsNameToShardIdMap.get(rsName);
+							sh.setId(shardId);
+						}
+						
 					} else {
-						logger.warn(String.format("Config for %sRsManual is using standalone/direct connect", name));
-						sh.setHost(rsString);
-						String rsName = getReplicaSetInfoFromHost(rsString).getRsName();
+						String rsName = StringUtils.substringBefore(rsString, "/");
 						sh.setRsName(rsName);
-						String shardId = rsNameToShardIdMap.get(rsName);
-						sh.setId(shardId);
+						sh.setId(rsName);
+						sh.setHost(String.format("%s/%s", rsName, StringUtils.substringAfter(rsString, "/")));
 					}
 					
-				} else {
-					String rsName = StringUtils.substringBefore(rsString, "/");
-					sh.setRsName(rsName);
-					sh.setId(rsName);
-					sh.setHost(String.format("%s/%s", rsName, StringUtils.substringAfter(rsString, "/")));
+					shardsMap.put(sh.getId(), sh);
+					logger.debug("{}: populateShardList added manual shard connection: {}", name, sh.getHost());
 				}
 				
-				shardsMap.put(sh.getId(), sh);
-				logger.debug("{}: populateShardList added manual shard connection: {}", name, sh.getHost());
 			}
 			
 		}
