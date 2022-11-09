@@ -237,9 +237,9 @@ public class ShardClient {
 					if (p.matcher(host).find()) {
 						rsInfo = getReplicaSetInfoFromHost(host);
 						if (rsInfo.isSecondary()) {
-							foundHost = host; 
+							foundHost = host;
+							break;
 						}
-						break;
 					}
 				}
 				
@@ -248,7 +248,7 @@ public class ShardClient {
 				}
 				sh.setHost(foundHost);
 				
-				logger.debug("regex host: {}, primary: {}", foundHost, rsInfo.isWritablePrimary());
+				logger.debug("regex host: {}, secondary: {}", foundHost, rsInfo.isSecondary());
 
 				String rsName = StringUtils.substringBefore(sh.getHost(), "/");
 				sh.setRsName(rsName);
