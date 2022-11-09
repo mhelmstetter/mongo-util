@@ -79,6 +79,8 @@ public class ChunkManager {
 			destShardClient.setRsPattern(config.getDestRsPattern());
 			sourceShardClient.setRsStringsManual(config.getSourceRsManual());
 			destShardClient.setRsStringsManual(config.getDestRsManual());
+			sourceShardClient.setRsRegex(config.getSourceRsRegex());
+			destShardClient.setRsRegex(config.getDestRsRegex());
 			destShardClient.setCsrsUri(config.getDestCsrsUri());
 			
 			sourceShardClient.init();

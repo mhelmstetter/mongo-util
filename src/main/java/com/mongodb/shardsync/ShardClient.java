@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
@@ -55,6 +56,7 @@ import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
+import com.mongodb.model.ReplicaSetInfo;
 import com.mongodb.model.Role;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardTimestamp;
@@ -134,6 +136,7 @@ public class ShardClient {
 	private String connectionStringPattern;
 	private String rsPattern;
 	private String csrsUri;
+	private String rsRegex;
 	
 	// Advanced only, for manual configuration / overriding discovery
 	private String[] rsStringsManual;
@@ -219,6 +222,38 @@ public class ShardClient {
 
 		MongoCollection<Shard> shardsColl = configDb.getCollection("shards", Shard.class);
 		FindIterable<Shard> shards = shardsColl.find().sort(Sorts.ascending("_id"));
+		
+		if (rsRegex != null) {
+			
+			Pattern p = Pattern.compile(rsRegex);
+			for (Shard sh : shards) {
+				
+				String seedList = StringUtils.substringAfter(sh.getHost(), "/");
+				
+				ReplicaSetInfo rsInfo = getReplicaSetInfoFromHost(seedList);
+				
+				String foundHost = null;
+				for (String host : rsInfo.getHosts()) {
+					if (p.matcher(host).find()) {
+						foundHost = host;
+						rsInfo = getReplicaSetInfoFromHost(host);
+						break;
+					}
+				}
+				sh.setHost(foundHost);
+				
+				logger.debug("regex host: {}, primary: {}", foundHost, rsInfo.isWritablePrimary());
+
+				String rsName = StringUtils.substringBefore(sh.getHost(), "/");
+				sh.setRsName(rsName);
+				if (this.shardIdFilter == null) {
+					shardsMap.put(sh.getId(), sh);
+				} else if (shardIdFilter.contains(sh.getId())) {
+					shardsMap.put(sh.getId(), sh);
+				}
+			}
+		}
+
 		for (Shard sh : shards) {
 
 			// TODO fix this for patterned uri
@@ -237,6 +272,8 @@ public class ShardClient {
 				shardsMap.put(sh.getId(), sh);
 			}
 		}
+		
+		
 
 		if (patternedUri) {
 			int shardCount = shardsMap.size();
@@ -278,7 +315,7 @@ public class ShardClient {
 					} else {
 						logger.warn(String.format("Config for %sRsManual is using standalone/direct connect", name));
 						sh.setHost(rsString);
-						String rsName = getRsNameFromHost(rsString);
+						String rsName = getReplicaSetInfoFromHost(rsString).getRsName();
 						sh.setRsName(rsName);
 						String shardId = rsNameToShardIdMap.get(rsName);
 						sh.setId(shardId);
@@ -291,11 +328,6 @@ public class ShardClient {
 					sh.setHost(String.format("%s/%s", rsName, StringUtils.substringAfter(rsString, "/")));
 				}
 				
-				
-				
-				
-				
-				
 				shardsMap.put(sh.getId(), sh);
 				logger.debug("{}: populateShardList added manual shard connection: {}", name, sh.getHost());
 			}
@@ -305,17 +337,23 @@ public class ShardClient {
 		logger.debug(name + ": populateShardList complete, " + shardsMap.size() + " shards added");
 	}
 	
-	private String getRsNameFromHost(String host) {
-		String setName = null;
+	private ReplicaSetInfo getReplicaSetInfoFromHost(String host) {
+		ReplicaSetInfo rsInfo = new ReplicaSetInfo();
 		MongoClient tmp = MongoClients.create("mongodb://" + host);
-		Document result = tmp.getDatabase("admin").runCommand(new Document("isMaster", 1));
+		Document result = tmp.getDatabase("admin").runCommand(new Document("hello", 1));
+		
 		if (result.containsKey("setName")) {
-			setName = result.getString("setName");
+			rsInfo.setRsName(result.getString("setName"));
 		} else {
 			logger.warn("Unable to get setName from isMaster result for host: {}", host);
 		}
+		
+		rsInfo.setHosts(result.getList("hosts", String.class));
+		rsInfo.setWritablePrimary(result.getBoolean("isWritablePrimary"));
+		rsInfo.setSecondary(result.getBoolean("isWritablePrimary"));
+		
 		tmp.close();
-		return setName;
+		return rsInfo;
 		
 	}
 
@@ -1245,6 +1283,14 @@ public class ShardClient {
 
 	public void setRsStringsManual(String[] rsStringsManual) {
 		this.rsStringsManual = rsStringsManual;
+	}
+
+	public String getRsRegex() {
+		return rsRegex;
+	}
+
+	public void setRsRegex(String rsRegex) {
+		this.rsRegex = rsRegex;
 	}
 
 }
