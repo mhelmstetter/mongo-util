@@ -56,11 +56,11 @@ public class DiffSummary {
         String firstLine = done ? String.format("Completed in %s seconds.  ", secondsElapsed) :
                 String.format("%s seconds have elapsed.  ", secondsElapsed);
         return String.format("%s" +
-                        "%.2f %% of chunks processed  (%s/%s chunks).  " +
-                        "%.2f %% of docs processed  (%s/%s docs).  " +
-                        "%.2f %% of size processed (%s/%s).  " +
-                        "%.2f %% of chunks failed  (%s/%s chunks).  " +
-                        "%.2f %% of documents failed  (%s/%s docs).  " +
+                        "%6.2f %% of chunks processed  (%s/%s chunks).  " +
+                        "%6.2f %% of docs processed  (%s/%s docs).  " +
+                        "%6.2f %% of size processed (%s/%s).  " +
+                        "%6.2f %% of chunks failed  (%s/%s chunks).  " +
+                        "%6.2f %% of documents failed  (%s/%s docs).  " +
                         "%s docs found on source only.  %s docs found on target only", firstLine, chunkProcPct,
                 processedChunks.longValue(), totalChunks, docProcPct, processedDocs.longValue(), totalDocs,
                 sizeProcessedPct, ppSize(processedSize.longValue()), ppTotalSize, chunkFailPct,

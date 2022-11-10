@@ -1,6 +1,5 @@
 package com.mongodb.diff3;
 
-import com.google.common.base.Equivalence;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.MapDifference.ValueDifference;
 import com.google.common.collect.Maps;
@@ -10,13 +9,11 @@ import com.mongodb.client.MongoCursor;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.CodecUtils;
-import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -79,7 +76,7 @@ public class AbstractDiffTask {
         long loadStart = System.currentTimeMillis();
         MongoClient shardClient = sourceShardClient.getShardMongoClient(srcShardName);
 		MongoCollection<RawBsonDocument> sourceColl = getRawCollection(shardClient, namespace);
-        sourceCursor = sourceColl.find(query).iterator();
+        sourceCursor = sourceColl.find(query).batchSize(10000).iterator();
         sourceDocs = loadDocs(sourceCursor, sourceBytesProcessed);
         long loadTime = System.currentTimeMillis() - loadStart;
         logger.debug("Loaded {} source docs for {} in {} ms[{}--{}]", sourceDocs.size(), namespace, loadTime,
@@ -90,7 +87,7 @@ public class AbstractDiffTask {
         long loadStart = System.currentTimeMillis();
         MongoClient shardClient = destShardClient.getShardMongoClient(destShardName);
 		MongoCollection<RawBsonDocument> destColl = getRawCollection(shardClient, namespace);
-        destCursor = destColl.find(query).iterator();
+        destCursor = destColl.find(query).batchSize(10000).iterator();
         destDocs = loadDocs(destCursor, destBytesProcessed);
         long loadTime = System.currentTimeMillis() - loadStart;
         logger.debug("Loaded {} dest docs for {} in {} ms[{}--{}]", destDocs.size(), namespace, loadTime,

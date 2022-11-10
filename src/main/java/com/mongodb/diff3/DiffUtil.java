@@ -6,7 +6,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import com.mongodb.model.Collection;
-import com.mongodb.shardsync.ChunkManager;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,9 +34,7 @@ public class DiffUtil {
 
 
     public DiffUtil(DiffConfiguration config) {
-
         this.config = config;
-
 
         sourceShardClient = new ShardClient("source", config.getSourceClusterUri());
         destShardClient = new ShardClient("dest", config.getDestClusterUri());
@@ -205,9 +202,22 @@ public class DiffUtil {
         statusReporter.shutdown();
 
         for (ThreadPoolExecutor executor : executorMap.values()) {
-            executor.shutdown();
+            awaitTerminationAfterShutdown(executor);
         }
         logger.info(summary.getSummary(true));
     }
+
+    public void awaitTerminationAfterShutdown(ThreadPoolExecutor executor) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+            	executor.shutdownNow();
+            }
+        } catch (InterruptedException ex) {
+        	executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+
 
 }
