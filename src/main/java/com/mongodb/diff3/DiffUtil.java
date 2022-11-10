@@ -63,8 +63,6 @@ public class DiffUtil {
 
         logger.info("UnshardedColls:[" + String.join(", ", unshardedColls) + "]");
         sourceChunksCacheMap = sourceShardClient.loadChunksCacheMap(config.getChunkQuery());
-//        shardNames = new ArrayList<>(sourceChunksCacheMap.keySet());
-//        int numShards = shardNames.size();
 
         sourceShardClient.populateShardMongoClients();
         destShardClient.populateShardMongoClients();

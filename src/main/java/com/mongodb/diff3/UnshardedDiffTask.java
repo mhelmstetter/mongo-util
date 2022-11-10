@@ -37,7 +37,7 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
         }
 
         logger.debug("Thread [{}--{}] completed an unsharded task in {} ms", Thread.currentThread().getName(),
-                srcShardName, timeSpent(System.currentTimeMillis()));
+                srcShardName, start - System.currentTimeMillis());
         return result;
     }
 

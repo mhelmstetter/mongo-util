@@ -78,7 +78,7 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
             closeCursor(sourceCursor);
             closeCursor(destCursor);
         }
-        long timeSpent = timeSpent(System.currentTimeMillis());
+        long timeSpent = start = System.currentTimeMillis();
         logger.debug("Thread [{}--{}] completed a sharded task in {} ms :: {}", Thread.currentThread().getName(),
                 srcShardName, timeSpent, result.shortString());
         return result;

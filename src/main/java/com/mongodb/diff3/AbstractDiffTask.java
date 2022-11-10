@@ -106,15 +106,10 @@ public class AbstractDiffTask {
             byteCounter.add(docBytes.length);
 
             String docHash = CodecUtils.md5Hex(docBytes);
-//            String docHash = "docHash";
 
             docs.put(id, docHash);
         }
         return docs;
-    }
-
-    protected long timeSpent(long stop) {
-        return stop - start;
     }
 
     protected static void closeCursor(MongoCursor<RawBsonDocument> cursor) {
