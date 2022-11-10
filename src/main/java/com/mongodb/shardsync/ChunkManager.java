@@ -226,6 +226,9 @@ public class ChunkManager {
 		Set<String> destMins = getChunkMins();
 
 		int errorCount = 0;
+		int moveCount = 0;
+		long ts;
+		long startTsSeconds = Instant.now().getEpochSecond();
 
 		// step 3: move megachunks to correct shards
 		for (Megachunk mega2 : optimizedChunks) {
@@ -238,23 +241,23 @@ public class ChunkManager {
 
 			String destShard = destChunkToShardMap.get(mega2.getId());
 
-			if (destShard == null) {
-				//logger.error("Chunk with _id " + mega2.getId() + " not found on destination");
-			} else if (doMove && !mappedShard.equals(destShard)) {
-				//logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
-				if (doMove) {
-					boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), (RawBsonDocument)mega2.getMax(), mappedShard, false);
-					if (! moveSuccess) {
-						errorCount++;
-					}
+			if (doMove && destShard != null && !mappedShard.equals(destShard)) {
+				boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), (RawBsonDocument)mega2.getMax(), mappedShard, false);
+				if (! moveSuccess) {
+					errorCount++;
 				}
+			}
+			moveCount++;
+			ts = Instant.now().getEpochSecond();
+			long secondsSinceLastLog = ts - startTsSeconds;
+			if (secondsSinceLastLog >= 60) {
+				printChunkStatus(moveCount, optimizedChunks.size(), "moved");
 			}
 		}
 
 		// step 4: split megachunks into final chunks
-		long startTsSeconds = Instant.now().getEpochSecond();
+		startTsSeconds = Instant.now().getEpochSecond();
 		
-		long ts;
 		for (Megachunk mega2 : optimizedChunks) {
 			for (BsonDocument mid : mega2.getMids()) {
 				//getChunkMinKey
@@ -267,17 +270,17 @@ public class ChunkManager {
 				ts = Instant.now().getEpochSecond();
 				long secondsSinceLastLog = ts - startTsSeconds;
 				if (secondsSinceLastLog >= 60) {
-					printChunkStatus(chunkCount, totalChunks);
+					printChunkStatus(chunkCount, totalChunks, "created");
 				}
 			}
 		}
-		printChunkStatus(chunkCount, totalChunks);
+		printChunkStatus(chunkCount, totalChunks, "created");
 		logger.debug("createAndMoveChunks complete");
 	}
 	
-	private void printChunkStatus(int chunkCount, double totalChunks) {
+	private void printChunkStatus(int chunkCount, double totalChunks, String opType) {
 		double pctComplete = chunkCount/totalChunks * 100.;
-		logger.debug(String.format("%.1f %% of chunks processed ( %,d / %,.0f )", pctComplete, chunkCount, totalChunks));
+		logger.debug(String.format("%.1f %% of chunks %s ( %,d / %,.0f )", pctComplete, opType, chunkCount, totalChunks));
 	}
 	
 	/**
