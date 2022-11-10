@@ -166,6 +166,7 @@ public class ChunkManager {
 
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
 		Map<String, RawBsonDocument> destChunksCache = destShardClient.loadChunksCache(chunkQuery);
+		Set<String> destMins = getChunkMins();
 		
 		double totalChunks = (double)sourceChunksCache.size();
 
@@ -214,7 +215,10 @@ public class ChunkManager {
 		// step 2: create splits for each of the megachunks, wherever they reside
 		for (Megachunk mega2 : optimizedChunks) {
 			if (!mega2.isLast()) {
-				if (! destChunksCache.containsKey(mega.getChunkId())) {
+				String megaHash = ((RawBsonDocument) mega2.getMax()).toJson();
+				String megaId = String.format("%s_%s", mega2.getNs(), megaHash);
+				
+				if (! destMins.contains(megaId)) {
 					destShardClient.splitAt(mega2.getNs(), mega2.getMax(), true);
 				}
 				chunkCount++;
@@ -223,7 +227,7 @@ public class ChunkManager {
 
 		// get current locations of megachunks on destination
 		Map<String, String> destChunkToShardMap = readDestinationChunks();
-		Set<String> destMins = getChunkMins();
+		destMins = getChunkMins();
 
 		int errorCount = 0;
 		int moveCount = 0;
