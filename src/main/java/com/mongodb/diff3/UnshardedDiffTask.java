@@ -25,10 +25,12 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
     @Override
     public DiffResult call() throws Exception {
         DiffResult output;
-        logger.debug("Thread [{}--{}] got an unsharded task", Thread.currentThread().getName(), srcShardName);
+        logger.debug("[{}] got an unsharded task ({}-{})",
+                Thread.currentThread().getName(), namespace.getNamespace(), chunkString);
         this.start = System.currentTimeMillis();
         result = new UnshardedDiffResult(namespace.getNamespace());
         query = new BsonDocument();
+        result.chunkString = chunkString;
 
         try {
             computeDiff();
@@ -42,16 +44,21 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
 
         if (result.getFailureCount() > 0) {
             RetryStatus retryStatus = new RetryStatus(0, System.currentTimeMillis());
-            RetryTask retryTask = new RetryTask(retryStatus, this, result, retryQueue);
+            RetryTask retryTask = new RetryTask(retryStatus, this, result, result.failedIds, retryQueue);
             retryQueue.add(retryTask);
-            output = null;
+            logger.debug("[{}] detected {} failures and added a retry task ({}-{})",
+                    Thread.currentThread().getName(), result.getFailureCount(),
+                    namespace.getNamespace(), chunkString);
+//            output = null;
+            output = result;
         } else {
             output = result;
         }
 
         if (output != null) {
-            logger.debug("Thread [{}--{}] completed an unsharded task in {} ms", Thread.currentThread().getName(),
-                    srcShardName, timeSpent(System.currentTimeMillis()));
+            logger.debug("[{}] completed an unsharded task in {} ms ({}-{})",
+                    Thread.currentThread().getName(), timeSpent(System.currentTimeMillis()),
+                    namespace.getNamespace(), chunkString);
         }
         return output;
     }

@@ -8,7 +8,6 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class UnshardedDiffResult extends DiffResult {
-	private String ns;
 
 	public UnshardedDiffResult(String ns) {
 		this.ns = ns;
@@ -21,16 +20,8 @@ public class UnshardedDiffResult extends DiffResult {
 		builder.append(", matches=");
 		builder.append(matches);
 		builder.append(", failedIds=");
-		builder.append(failedIds);
+		builder.append(failedIds.size());
 		builder.append("]");
 		return builder.toString();
-	}
-
-	public String getNs() {
-		return ns;
-	}
-
-	public void setNs(String ns) {
-		this.ns = ns;
 	}
 }

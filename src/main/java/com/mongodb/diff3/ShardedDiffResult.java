@@ -6,7 +6,6 @@ import org.bson.conversions.Bson;
 public class ShardedDiffResult extends DiffResult {
 	private RawBsonDocument chunk;
 	private Bson chunkQuery;
-	private String ns;
 
 	public RawBsonDocument getChunk() {
 		return chunk;
@@ -24,9 +23,9 @@ public class ShardedDiffResult extends DiffResult {
 		builder.append(", matches=");
 		builder.append(matches);
 		builder.append(", failedIds=");
-		builder.append(failedIds);
-		builder.append(", chunkQuery");
-		builder.append(chunkQuery);
+		builder.append(failedIds.size());
+		builder.append(", chunk=");
+		builder.append(chunkString);
 		builder.append("]");
 		return builder.toString();
 	}
@@ -35,8 +34,8 @@ public class ShardedDiffResult extends DiffResult {
 		StringBuilder sb = new StringBuilder();
 		sb.append("ns=");
 		sb.append(ns);
-		sb.append(", query=");
-		sb.append(chunkQuery);
+		sb.append(", chunk=");
+		sb.append(chunkString);
 		return sb.toString();
 	}
 
@@ -46,14 +45,6 @@ public class ShardedDiffResult extends DiffResult {
 
 	public void setChunkQuery(Bson chunkQuery) {
 		this.chunkQuery = chunkQuery;
-	}
-
-	public void setNS(String ns){
-		this.ns = ns;
-	}
-
-	public String getNs() {
-		return ns;
 	}
 
 }

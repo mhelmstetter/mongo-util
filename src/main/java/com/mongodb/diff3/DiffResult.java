@@ -11,6 +11,9 @@ public class DiffResult {
     long onlyOnDest = 0;
     long bytesProcessed = 0;
     List<String> failedIds;
+    String ns;
+    String chunkString;
+    boolean retryable = true;
 
     public void addFailedKey(String id) {
         if (failedIds == null) {

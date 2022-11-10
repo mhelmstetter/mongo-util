@@ -23,4 +23,8 @@ public class RetryStatus {
         }
         return new RetryStatus(attempt + 1, System.currentTimeMillis());
     }
+
+    public int getAttempt() {
+        return attempt;
+    }
 }

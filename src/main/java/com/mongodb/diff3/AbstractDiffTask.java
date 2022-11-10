@@ -12,6 +12,7 @@ import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.CodecUtils;
 import org.bson.BsonValue;
+import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
@@ -19,6 +20,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.stream.Collectors;
 
 public class AbstractDiffTask {
 
@@ -43,6 +45,7 @@ public class AbstractDiffTask {
     protected Map<String, String> destDocs = null;
 
     protected DiffResult result;
+    protected String chunkString = "[:]";
 
 
     protected void computeDiff() {
@@ -86,7 +89,8 @@ public class AbstractDiffTask {
         }
         result.bytesProcessed = Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue());
         long diffTime = System.currentTimeMillis() - compStart;
-        logger.debug("Computed diff in {} ms[{}]", diffTime, Thread.currentThread().getName());
+        logger.debug("[{}] computed diff in {} ms ({}-{})",
+                Thread.currentThread().getName(), diffTime, namespace.getNamespace(), chunkString);
     }
 
     protected void loadSourceDocs(List<String> ids) {
@@ -97,8 +101,9 @@ public class AbstractDiffTask {
         sourceCursor = sourceColl.find(q).iterator();
         sourceDocs = loadDocs(sourceCursor, sourceBytesProcessed);
         long loadTime = System.currentTimeMillis() - loadStart;
-        logger.debug("Loaded {} source docs for {} in {} ms[{}--{}]", sourceDocs.size(), namespace, loadTime,
-                Thread.currentThread().getName(), srcShardName);
+        logger.debug("[{}] loaded {} source docs for {} in {} ms ({})",
+                Thread.currentThread().getName(), sourceDocs.size(),
+                namespace, loadTime, chunkString);
     }
 
     protected void loadDestDocs(List<String> ids) {
@@ -109,8 +114,9 @@ public class AbstractDiffTask {
         destCursor = destColl.find(q).iterator();
         destDocs = loadDocs(destCursor, destBytesProcessed);
         long loadTime = System.currentTimeMillis() - loadStart;
-        logger.debug("Loaded {} dest docs for {} in {} ms[{}--{}]", destDocs.size(), namespace, loadTime,
-                Thread.currentThread().getName(), destShardName);
+        logger.debug("[{}] loaded {} dest docs for {} in {} ms ({})",
+                Thread.currentThread().getName(), destDocs.size(),
+                namespace, loadTime, chunkString);
     }
 
     protected Map<String, String> loadDocs(MongoCursor<RawBsonDocument> cursor, LongAdder byteCounter) {
@@ -142,7 +148,8 @@ public class AbstractDiffTask {
     }
 
     protected Bson formIdsQuery(List<String> ids) {
-        return Filters.in("_id", ids);
+        List<Document> idDocs = ids.stream().map(i -> Document.parse(i)).collect(Collectors.toList());
+        return Filters.in("_id", idDocs);
     }
 
     protected MongoCollection<RawBsonDocument> getRawCollection(MongoClient client, Namespace ns) {

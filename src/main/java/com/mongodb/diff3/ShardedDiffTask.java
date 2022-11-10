@@ -40,16 +40,20 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
     @Override
     public DiffResult call() throws Exception {
         DiffResult output;
-        logger.debug("Thread [{}-{}] got a sharded task", Thread.currentThread().getName(), srcShardName);
         this.start = System.currentTimeMillis();
-        ShardedDiffResult result = new ShardedDiffResult();
-        result.setChunk(chunk);
 
         BsonDocument min = chunk.getDocument("min");
         BsonDocument max = chunk.getDocument("max");
         String nsStr = chunk.getString("ns").getValue();
         this.namespace = new Namespace(nsStr);
+        chunkString = "[" + min.toString() + " : " + max.toString() + "]";
 
+        ShardedDiffResult result = new ShardedDiffResult();
+        result.setChunk(chunk);
+        result.chunkString = chunkString;
+
+        logger.debug("[{}] got a sharded task ({}-{})", Thread.currentThread().getName(),
+                namespace.getNamespace(), chunkString);
         Document shardCollection = sourceShardClient.getCollectionsMap().get(nsStr);
         Document shardKeysDoc = (Document) shardCollection.get("key");
         Set<String> shardKeys = shardKeysDoc.keySet();
@@ -70,7 +74,7 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
             String key = shardKeys.iterator().next();
             query = and(gte(key, min.get(key)), lt(key, max.get(key)));
         }
-        result.setNS(nsStr);
+        result.ns = nsStr;
         result.setChunkQuery(query);
         this.result = result;
 
@@ -86,9 +90,13 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
 
         if (result.getFailureCount() > 0) {
             RetryStatus retryStatus = new RetryStatus(0, System.currentTimeMillis());
-            RetryTask retryTask = new RetryTask(retryStatus, this, result, retryQueue);
+            RetryTask retryTask = new RetryTask(retryStatus, this, result, result.failedIds, retryQueue);
             retryQueue.add(retryTask);
-            output = null;
+            logger.debug("[{}] detected {} failures and added a retry task ({}-{})",
+                    Thread.currentThread().getName(), result.getFailureCount(),
+                    namespace.getNamespace(), chunkString);
+//            output = null;
+            output = result;
         } else {
             output = result;
             retryQueue.add(RetryTask.END_TOKEN);
@@ -96,8 +104,9 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
 
         if (output != null) {
             long timeSpent = timeSpent(System.currentTimeMillis());
-            logger.debug("Thread [{}--{}] completed a sharded task in {} ms :: {}", Thread.currentThread().getName(),
-                    srcShardName, timeSpent, result.shortString());
+            logger.debug("[{}] completed a sharded task in {} ms ({}-{}) :: {}",
+                    Thread.currentThread().getName(), timeSpent,
+                    namespace.getNamespace(), chunkString, result.shortString());
         }
         return output;
     }

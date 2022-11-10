@@ -14,6 +14,7 @@ public class DiffSummary {
     private LongAdder successfulDocs;
     private LongAdder failedChunks;
     private LongAdder failedDocs;
+    private LongAdder retryChunks;
     private final long startTime;
     private LongAdder sourceOnly;
     private LongAdder destOnly;
@@ -36,6 +37,7 @@ public class DiffSummary {
         failedDocs = new LongAdder();
         sourceOnly = new LongAdder();
         destOnly = new LongAdder();
+        retryChunks = new LongAdder();
 
         this.ppTotalSize = ppSize(totalSize);
         this.startTime = new Date().getTime();
@@ -61,11 +63,12 @@ public class DiffSummary {
                         "%.2f %% of size processed (%s/%s).  " +
                         "%.2f %% of chunks failed  (%s/%s chunks).  " +
                         "%.2f %% of documents failed  (%s/%s docs).  " +
+                        "%d chunks are retrying.  " +
                         "%s docs found on source only.  %s docs found on target only", firstLine, chunkProcPct,
                 processedChunks.longValue(), totalChunks, docProcPct, processedDocs.longValue(), totalDocs,
                 sizeProcessedPct, ppSize(processedSize.longValue()), ppTotalSize, chunkFailPct,
                 failedChunks.longValue(), processedChunks.longValue(), docFailPct, failedDocs.longValue(),
-                processedDocs.longValue(), sourceOnly.longValue(), destOnly.longValue());
+                processedDocs.longValue(), retryChunks.intValue(), sourceOnly.longValue(), destOnly.longValue());
     }
 
     private String ppSize(long size) {
@@ -131,5 +134,9 @@ public class DiffSummary {
 
     public void incrementProcessedSize(long num) {
         processedSize.add(num);
+    }
+
+    public void incrementRetryChunks(long num) {
+        retryChunks.add(num);
     }
 }
