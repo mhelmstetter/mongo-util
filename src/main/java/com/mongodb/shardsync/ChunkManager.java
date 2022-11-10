@@ -252,6 +252,7 @@ public class ChunkManager {
 			long secondsSinceLastLog = ts - startTsSeconds;
 			if (secondsSinceLastLog >= 60) {
 				printChunkStatus(moveCount, optimizedChunks.size(), "moved");
+				startTsSeconds = ts;
 			}
 		}
 
@@ -271,6 +272,7 @@ public class ChunkManager {
 				long secondsSinceLastLog = ts - startTsSeconds;
 				if (secondsSinceLastLog >= 60) {
 					printChunkStatus(chunkCount, totalChunks, "created");
+					startTsSeconds = ts;
 				}
 			}
 		}
