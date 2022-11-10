@@ -1,9 +1,5 @@
 package com.mongodb.diff3;
 
-import java.util.LinkedList;
-import java.util.List;
-
-import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
 

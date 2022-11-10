@@ -27,11 +27,14 @@ public class DiffUtil {
     private DiffConfiguration config;
 
     protected Map<String, ThreadPoolExecutor> executorMap = new HashMap<>();
+    private ExecutorService retryPool;
     Map<String, List<Future<DiffResult>>> diffResultMap = new HashMap<>();
 
     private Map<String, Map<String, RawBsonDocument>> sourceChunksCacheMap = new HashMap<>();
     private long estimatedTotalDocs;
     private long totalSize;
+    private Queue<RetryTask> retryQueue;
+    private int totalInitialTasks;
 
 
     public DiffUtil(DiffConfiguration config) {
@@ -76,6 +79,7 @@ public class DiffUtil {
             int numThreads = config.getThreads() / srcShardNames.size();
             Map<String, RawBsonDocument> chunkMap = sourceChunksCacheMap.get(shard);
             int qSize = chunkMap.size() + unshardedColls.size();
+            totalInitialTasks += qSize;
             logger.debug("Setting workQueue size to {}", qSize);
             BlockingQueue<Runnable> workQueue = new ArrayBlockingQueue<>(qSize);
             diffResultMap.put(shard, new ArrayList<>(chunkMap.size()));
@@ -96,6 +100,7 @@ public class DiffUtil {
         int totalChunks = getTotalChunks();
         int numShards = srcShardNames.size();
         DiffSummary summary = new DiffSummary(totalChunks, estimatedTotalDocs, totalSize);
+        retryQueue = new LinkedBlockingQueue<>();
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
         statusReporter.scheduleAtFixedRate(new Runnable() {
@@ -105,12 +110,41 @@ public class DiffUtil {
             }
         }, 0, 5, TimeUnit.SECONDS);
 
+        retryPool = Executors.newFixedThreadPool(4);
+        List<Future<DiffResult>> retryResults = new ArrayList<>();
+        AtomicInteger finalSizeRetryResults = new AtomicInteger(-1);
+
+        ScheduledExecutorService retryer = Executors.newSingleThreadScheduledExecutor();
+        retryer.scheduleWithFixedDelay(new Runnable() {
+            @Override
+            public void run() {
+                int endTokensSeen = 0;
+                RetryTask rt;
+                while ((rt = retryQueue.poll()) != null) {
+                    if (rt != null) {
+                        try {
+                            if (rt == RetryTask.END_TOKEN)
+                                if (++endTokensSeen == totalInitialTasks) {
+                                    finalSizeRetryResults.set(retryResults.size());
+                                } else {
+                                    retryResults.add(retryPool.submit(rt));
+                                }
+                        } catch (Exception e) {
+                            logger.error("Exception occured while running retry task", e);
+                            throw new RuntimeException(e);
+                        }
+                    }
+                }
+            }
+        }, 0, 1, TimeUnit.SECONDS);
+
         for (int i = 0; i < srcShardNames.size(); i++) {
             String srcShard = srcShardNames.get(i);
             String destShard = destShardNames.get(i);
             Map<String, RawBsonDocument> chunkCache = sourceChunksCacheMap.get(srcShard);
             for (RawBsonDocument chunk : chunkCache.values()) {
-                ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient, config, chunk, srcShard, destShard);
+                ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient,
+                        config, chunk, srcShard, destShard, retryQueue);
                 List<Future<DiffResult>> diffResults = diffResultMap.get(srcShard);
                 ThreadPoolExecutor executor = executorMap.get(srcShard);
                 diffResults.add(executor.submit(task));
@@ -127,7 +161,7 @@ public class DiffUtil {
             String srcShard = srcShardNames.get(shardIdx);
             String destShard = destShardNames.get(shardIdx);
             UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient,
-                    unshardedColl.getNamespace(), srcShard, destShard);
+                    unshardedColl.getNamespace(), srcShard, destShard, retryQueue);
             logger.debug("Added an UnshardedDiffTask for {}--{}", unshardedColl.getNamespace(), srcShard);
             List<Future<DiffResult>> diffResults = diffResultMap.get(srcShard);
             ThreadPoolExecutor executor = executorMap.get(srcShard);
@@ -136,74 +170,98 @@ public class DiffUtil {
 
         Set<String> finishedShards = new HashSet<>();
         Map<String, Set<Future<DiffResult>>> futSeenMap = new HashMap<>();
+        Set<Future<DiffResult>> completedRetriesSeen = new HashSet<>();
 
-        // Poll for completed futures every second
-        while (finishedShards.size() < numShards) {
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-            for (String shard : srcShardNames) {
-                if (!futSeenMap.containsKey(shard)) {
-                    futSeenMap.put(shard, new HashSet<>());
+        // Check for futures coming off the retryPool
+        Executors.newSingleThreadScheduledExecutor().submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
                 }
-                Set<Future<DiffResult>> futuresSeen = futSeenMap.get(shard);
-                List<Future<DiffResult>> diffResults = diffResultMap.get(shard);
+                if (totalInitialTasks >= 0 && completedRetriesSeen.size() < totalInitialTasks) {
+                    // TODO - add totals to summary object
+                }
+            }
+        });
 
-                if (futuresSeen.size() >= diffResults.size()) {
-                    finishedShards.add(shard);
-                } else {
-                    for (Future<DiffResult> future : diffResults) {
-                        try {
-                            if (!futuresSeen.contains(future) && future.isDone()) {
-                                futuresSeen.add(future);
-                                DiffResult result = future.get();
-                                if (result instanceof UnshardedDiffResult) {
-                                    UnshardedDiffResult udr = (UnshardedDiffResult) result;
-                                    logger.debug("Got unsharded result for {}--{}: {} matches, {} failures, {} bytes",
-                                            udr.getNs(), shard, udr.matches, udr.getFailureCount(), udr.bytesProcessed);
-                                } else if (result instanceof ShardedDiffResult) {
-                                    ShardedDiffResult sdr = (ShardedDiffResult) result;
-                                    logger.debug("Got sharded result for {}--{}: {} matches, {} failures, {} bytes",
-                                            sdr.getNs(), shard, sdr.matches, sdr.getFailureCount(),
-                                            sdr.bytesProcessed);
-                                }
-                                int failures = result.getFailureCount();
+        Executors.newSingleThreadScheduledExecutor().submit(new Runnable() {
+            @Override
+            public void run() {
+                // Poll for completed futures every second
+                while (finishedShards.size() < numShards) {
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                    for (String shard : srcShardNames) {
+                        if (!futSeenMap.containsKey(shard)) {
+                            futSeenMap.put(shard, new HashSet<>());
+                        }
+                        Set<Future<DiffResult>> futuresSeen = futSeenMap.get(shard);
+                        List<Future<DiffResult>> diffResults = diffResultMap.get(shard);
 
-                                if (failures > 0) {
-                                    if (result instanceof ShardedDiffResult) {
-                                        summary.incrementFailedChunks(1);
+                        if (futuresSeen.size() >= diffResults.size()) {
+                            finishedShards.add(shard);
+                        } else {
+                            for (Future<DiffResult> future : diffResults) {
+                                try {
+                                    if (!futuresSeen.contains(future) && future.isDone()) {
+                                        futuresSeen.add(future);
+                                        // TODO - only add to summary object if no failed tasks; otw, mark as RETRYING
+                                        DiffResult result = future.get();
+                                        if (result instanceof UnshardedDiffResult) {
+                                            UnshardedDiffResult udr = (UnshardedDiffResult) result;
+                                            logger.debug("Got unsharded result for {}--{}: {} matches, {} failures, {} bytes",
+                                                    udr.getNs(), shard, udr.matches, udr.getFailureCount(), udr.bytesProcessed);
+                                        } else if (result instanceof ShardedDiffResult) {
+                                            ShardedDiffResult sdr = (ShardedDiffResult) result;
+                                            logger.debug("Got sharded result for {}--{}: {} matches, {} failures, {} bytes",
+                                                    sdr.getNs(), shard, sdr.matches, sdr.getFailureCount(),
+                                                    sdr.bytesProcessed);
+                                        }
+                                        int failures = result.getFailureCount();
+
+                                        if (failures > 0) {
+                                            if (result instanceof ShardedDiffResult) {
+                                                summary.incrementFailedChunks(1);
+                                            }
+                                            summary.incrementSuccessfulDocs(result.matches - failures);
+                                        } else {
+                                            if (result instanceof ShardedDiffResult) {
+                                                summary.incrementSuccessfulChunks(1);
+                                            }
+                                            summary.incrementSuccessfulDocs(result.matches);
+                                        }
+
+
+                                        summary.incrementProcessedDocs(result.matches + failures);
+                                        summary.incrementFailedDocs(failures);
+                                        if (result instanceof ShardedDiffResult) {
+                                            summary.incrementProcessedChunks(1);
+                                        }
+                                        summary.incrementSourceOnly(result.onlyOnSource);
+                                        summary.incrementDestOnly(result.onlyOnDest);
+                                        summary.incrementProcessedSize(result.bytesProcessed);
                                     }
-                                    summary.incrementSuccessfulDocs(result.matches - failures);
-                                } else {
-                                    if (result instanceof ShardedDiffResult) {
-                                        summary.incrementSuccessfulChunks(1);
-                                    }
-                                    summary.incrementSuccessfulDocs(result.matches);
-                                }
-
-
-                                summary.incrementProcessedDocs(result.matches + failures);
-                                summary.incrementFailedDocs(failures);
-                                if (result instanceof ShardedDiffResult) {
-                                    summary.incrementProcessedChunks(1);
-                                }
-                                summary.incrementSourceOnly(result.onlyOnSource);
-                                summary.incrementDestOnly(result.onlyOnDest);
-                                summary.incrementProcessedSize(result.bytesProcessed);
-                            }
 
 //                logger.debug("result: {}", result);
-                        } catch (InterruptedException e) {
-                            logger.error("Diff task was interrupted", e);
-                        } catch (ExecutionException e) {
-                            logger.error("Diff task threw an exception", e);
+                                } catch (InterruptedException e) {
+                                    logger.error("Diff task was interrupted", e);
+                                } catch (ExecutionException e) {
+                                    logger.error("Diff task threw an exception", e);
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
+        });
+
+
         statusReporter.shutdown();
 
         for (ThreadPoolExecutor executor : executorMap.values()) {

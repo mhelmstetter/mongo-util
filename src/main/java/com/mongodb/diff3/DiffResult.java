@@ -22,4 +22,12 @@ public class DiffResult {
     public int getFailureCount() {
         return (failedIds == null) ? 0 : failedIds.size();
     }
+
+    public DiffResult mergeRetryResult(DiffResult rr) {
+        matches += rr.matches;
+        onlyOnSource = rr.onlyOnSource;
+        onlyOnDest = rr.onlyOnDest;
+        failedIds = rr.failedIds;
+        return this;
+    }
 }

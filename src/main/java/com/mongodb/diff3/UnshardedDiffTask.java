@@ -1,5 +1,6 @@
 package com.mongodb.diff3;
 
+import java.util.Queue;
 import java.util.concurrent.Callable;
 
 import org.bson.BsonDocument;
@@ -9,18 +10,21 @@ import com.mongodb.shardsync.ShardClient;
 
 public class UnshardedDiffTask extends AbstractDiffTask implements Callable<DiffResult> {
 
+    private Queue<RetryTask> retryQueue;
 
     public UnshardedDiffTask(ShardClient sourceShardClient, ShardClient destShardClient, String nsStr,
-                             String srcShardName, String destShardName) {
+                             String srcShardName, String destShardName, Queue<RetryTask> retryQueue) {
         this.sourceShardClient = sourceShardClient;
         this.destShardClient = destShardClient;
         this.namespace = new Namespace(nsStr);
         this.srcShardName = srcShardName;
         this.destShardName = destShardName;
+        this.retryQueue = retryQueue;
     }
 
     @Override
     public DiffResult call() throws Exception {
+        DiffResult output;
         logger.debug("Thread [{}--{}] got an unsharded task", Thread.currentThread().getName(), srcShardName);
         this.start = System.currentTimeMillis();
         result = new UnshardedDiffResult(namespace.getNamespace());
@@ -36,9 +40,20 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
             closeCursor(destCursor);
         }
 
-        logger.debug("Thread [{}--{}] completed an unsharded task in {} ms", Thread.currentThread().getName(),
-                srcShardName, timeSpent(System.currentTimeMillis()));
-        return result;
+        if (result.getFailureCount() > 0) {
+            RetryStatus retryStatus = new RetryStatus(0, System.currentTimeMillis());
+            RetryTask retryTask = new RetryTask(retryStatus, this, result, retryQueue);
+            retryQueue.add(retryTask);
+            output = null;
+        } else {
+            output = result;
+        }
+
+        if (output != null) {
+            logger.debug("Thread [{}--{}] completed an unsharded task in {} ms", Thread.currentThread().getName(),
+                    srcShardName, timeSpent(System.currentTimeMillis()));
+        }
+        return output;
     }
 
 }

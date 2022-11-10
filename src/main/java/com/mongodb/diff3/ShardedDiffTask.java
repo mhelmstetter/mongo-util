@@ -2,6 +2,7 @@ package com.mongodb.diff3;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
@@ -20,10 +21,12 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
 
 
     private RawBsonDocument chunk;
+    private Queue<RetryTask> retryQueue;
 
 
-    public ShardedDiffTask(ShardClient sourceShardClient, ShardClient destShardClient, DiffConfiguration config,
-                           RawBsonDocument chunk, String srcShardName, String destShardName) {
+    public ShardedDiffTask(ShardClient sourceShardClient, ShardClient destShardClient,
+                           DiffConfiguration config, RawBsonDocument chunk, String srcShardName,
+                           String destShardName, Queue<RetryTask> retryQueue) {
         super();
         this.sourceShardClient = sourceShardClient;
         this.destShardClient = destShardClient;
@@ -31,10 +34,12 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
         this.chunk = chunk;
         this.srcShardName = srcShardName;
         this.destShardName = destShardName;
+        this.retryQueue = retryQueue;
     }
 
     @Override
     public DiffResult call() throws Exception {
+        DiffResult output;
         logger.debug("Thread [{}-{}] got a sharded task", Thread.currentThread().getName(), srcShardName);
         this.start = System.currentTimeMillis();
         ShardedDiffResult result = new ShardedDiffResult();
@@ -78,10 +83,23 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
             closeCursor(sourceCursor);
             closeCursor(destCursor);
         }
-        long timeSpent = timeSpent(System.currentTimeMillis());
-        logger.debug("Thread [{}--{}] completed a sharded task in {} ms :: {}", Thread.currentThread().getName(),
-                srcShardName, timeSpent, result.shortString());
-        return result;
+
+        if (result.getFailureCount() > 0) {
+            RetryStatus retryStatus = new RetryStatus(0, System.currentTimeMillis());
+            RetryTask retryTask = new RetryTask(retryStatus, this, result, retryQueue);
+            retryQueue.add(retryTask);
+            output = null;
+        } else {
+            output = result;
+            retryQueue.add(RetryTask.END_TOKEN);
+        }
+
+        if (output != null) {
+            long timeSpent = timeSpent(System.currentTimeMillis());
+            logger.debug("Thread [{}--{}] completed a sharded task in {} ms :: {}", Thread.currentThread().getName(),
+                    srcShardName, timeSpent, result.shortString());
+        }
+        return output;
     }
 
 }

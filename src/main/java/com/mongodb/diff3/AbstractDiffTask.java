@@ -7,6 +7,7 @@ import com.google.common.collect.Maps;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
+import com.mongodb.client.model.Filters;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.CodecUtils;
@@ -16,10 +17,7 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.atomic.LongAdder;
 
 public class AbstractDiffTask {
@@ -48,9 +46,19 @@ public class AbstractDiffTask {
 
 
     protected void computeDiff() {
-        loadSourceDocs();
-        loadDestDocs();
+        loadSourceDocs(null);
+        loadDestDocs(null);
 
+        doComparison();
+    }
+
+    protected void computeDiff(List<String> ids) {
+        loadSourceDocs(ids);
+        loadDestDocs(ids);
+        doComparison();
+    }
+
+    private void doComparison() {
         long compStart = System.currentTimeMillis();
         MapDifference<String, String> diff = Maps.difference(sourceDocs, destDocs);
 
@@ -68,29 +76,37 @@ public class AbstractDiffTask {
                 result.addFailedKey(key);
             }
             result.onlyOnSource = diff.entriesOnlyOnLeft().size();
+            for (String id : diff.entriesOnlyOnLeft().keySet()) {
+                result.addFailedKey(id);
+            }
             result.onlyOnDest = diff.entriesOnlyOnRight().size();
+            for (String id : diff.entriesOnlyOnRight().keySet()) {
+                result.addFailedKey(id);
+            }
         }
         result.bytesProcessed = Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue());
         long diffTime = System.currentTimeMillis() - compStart;
         logger.debug("Computed diff in {} ms[{}]", diffTime, Thread.currentThread().getName());
     }
 
-    protected void loadSourceDocs() {
+    protected void loadSourceDocs(List<String> ids) {
         long loadStart = System.currentTimeMillis();
         MongoClient shardClient = sourceShardClient.getShardMongoClient(srcShardName);
-		MongoCollection<RawBsonDocument> sourceColl = getRawCollection(shardClient, namespace);
-        sourceCursor = sourceColl.find(query).iterator();
+        MongoCollection<RawBsonDocument> sourceColl = getRawCollection(shardClient, namespace);
+        Bson q = (ids != null && ids.size() > 0) ? formIdsQuery(ids) : query;
+        sourceCursor = sourceColl.find(q).iterator();
         sourceDocs = loadDocs(sourceCursor, sourceBytesProcessed);
         long loadTime = System.currentTimeMillis() - loadStart;
         logger.debug("Loaded {} source docs for {} in {} ms[{}--{}]", sourceDocs.size(), namespace, loadTime,
                 Thread.currentThread().getName(), srcShardName);
     }
 
-    protected void loadDestDocs() {
+    protected void loadDestDocs(List<String> ids) {
         long loadStart = System.currentTimeMillis();
         MongoClient shardClient = destShardClient.getShardMongoClient(destShardName);
-		MongoCollection<RawBsonDocument> destColl = getRawCollection(shardClient, namespace);
-        destCursor = destColl.find(query).iterator();
+        MongoCollection<RawBsonDocument> destColl = getRawCollection(shardClient, namespace);
+        Bson q = (ids != null && ids.size() > 0) ? formIdsQuery(ids) : query;
+        destCursor = destColl.find(q).iterator();
         destDocs = loadDocs(destCursor, destBytesProcessed);
         long loadTime = System.currentTimeMillis() - loadStart;
         logger.debug("Loaded {} dest docs for {} in {} ms[{}--{}]", destDocs.size(), namespace, loadTime,
@@ -106,7 +122,6 @@ public class AbstractDiffTask {
             byteCounter.add(docBytes.length);
 
             String docHash = CodecUtils.md5Hex(docBytes);
-//            String docHash = "docHash";
 
             docs.put(id, docHash);
         }
@@ -117,14 +132,17 @@ public class AbstractDiffTask {
         return stop - start;
     }
 
-    protected static void closeCursor(MongoCursor<RawBsonDocument> cursor) {
+    protected void closeCursor(MongoCursor<RawBsonDocument> cursor) {
         try {
             if (cursor != null) {
                 cursor.close();
             }
         } catch (Exception e) {
         }
+    }
 
+    protected Bson formIdsQuery(List<String> ids) {
+        return Filters.in("_id", ids);
     }
 
     protected MongoCollection<RawBsonDocument> getRawCollection(MongoClient client, Namespace ns) {
