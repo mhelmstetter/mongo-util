@@ -229,17 +229,23 @@ public class ShardClient {
 			for (Shard sh : shards) {
 				
 				String seedList = StringUtils.substringAfter(sh.getHost(), "/");
+				String rsName = StringUtils.substringBefore(sh.getHost(), "/");
+				sh.setRsName(rsName);
 				
 				ReplicaSetInfo rsInfo = getReplicaSetInfoFromHost(seedList);
 				
 				String foundHost = null;
 				for (String host : rsInfo.getHosts()) {
+					
 					if (p.matcher(host).find()) {
 						rsInfo = getReplicaSetInfoFromHost(host);
+						logger.debug("match, rs: {}, host: {}, secondary: {}", rsName, host, rsInfo.isSecondary());
 						if (rsInfo.isSecondary()) {
 							foundHost = host;
 							break;
 						}
+					} else {
+						logger.debug("no match, rs: {}, host: {}", rsName, host);
 					}
 				}
 				
@@ -250,8 +256,7 @@ public class ShardClient {
 				
 				logger.debug("regex host: {}, secondary: {}", foundHost, rsInfo.isSecondary());
 
-				String rsName = StringUtils.substringBefore(sh.getHost(), "/");
-				sh.setRsName(rsName);
+				
 				if (this.shardIdFilter == null) {
 					shardsMap.put(sh.getId(), sh);
 				} else if (shardIdFilter.contains(sh.getId())) {
