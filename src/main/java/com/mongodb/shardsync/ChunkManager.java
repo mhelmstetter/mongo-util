@@ -266,7 +266,7 @@ public class ChunkManager {
 				chunkCount++;
 				ts = Instant.now().getEpochSecond();
 				long secondsSinceLastLog = ts - startTsSeconds;
-				if (secondsSinceLastLog > 10) {
+				if (secondsSinceLastLog >= 60) {
 					printChunkStatus(chunkCount, totalChunks);
 				}
 			}
