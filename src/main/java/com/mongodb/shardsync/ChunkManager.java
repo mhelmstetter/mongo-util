@@ -2,12 +2,15 @@ package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.regex;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.commons.collections.MapUtils;
 import org.bson.BsonDocument;
@@ -21,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Sorts;
+import com.mongodb.model.Megachunk;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.shardsync.ShardClient.ShardClientType;
@@ -161,7 +165,9 @@ public class ChunkManager {
 		logger.debug("chunkQuery: {}", chunkQuery);
 
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
-		destShardClient.loadChunksCache(chunkQuery);
+		Map<String, RawBsonDocument> destChunksCache = destShardClient.loadChunksCache(chunkQuery);
+		
+		double totalChunks = (double)sourceChunksCache.size();
 
 		// step 1: build a list of "megachunks", each representing a range of consecutive chunks
 		// that reside on the same shard. See Megachunk inner class.
@@ -175,6 +181,7 @@ public class ChunkManager {
 			}
 			
 			String shard = chunk.getString("shard").getValue();
+			String chunkId = ShardClient.getIdFromChunk(chunk);
 			
 			if (mega == null || !ns.equals(mega.getNs()) || !shard.equals(mega.getShard())) {
 				if (mega != null) {
@@ -184,6 +191,7 @@ public class ChunkManager {
 					optimizedChunks.add(mega);
 				}
 				mega = new Megachunk();
+				mega.setChunkId(chunkId);
 				mega.setNs(ns);
 				mega.setShard(shard);	
 			} 
@@ -200,16 +208,22 @@ public class ChunkManager {
 			optimizedChunks.add(mega);
 		}
 		logger.debug(String.format("optimized chunk count: %s", optimizedChunks.size()));
+		
+		int chunkCount = optimizedChunks.size() / 2;
 
 		// step 2: create splits for each of the megachunks, wherever they reside
 		for (Megachunk mega2 : optimizedChunks) {
-			if (!mega2.isLast) {
-				destShardClient.splitAt(mega2.getNs(), mega2.getMax(), true);
+			if (!mega2.isLast()) {
+				if (! destChunksCache.containsKey(mega.getChunkId())) {
+					destShardClient.splitAt(mega2.getNs(), mega2.getMax(), true);
+				}
+				chunkCount++;
 			}
 		}
 
 		// get current locations of megachunks on destination
-		Map<String, String> destChunkMap = readDestinationChunks();
+		Map<String, String> destChunkToShardMap = readDestinationChunks();
+		Set<String> destMins = getChunkMins();
 
 		int errorCount = 0;
 
@@ -222,10 +236,10 @@ public class ChunkManager {
 						"No destination shard mapping found for source shard: " + mega2.getShard());
 			}
 
-			String destShard = destChunkMap.get(mega2.getId());
+			String destShard = destChunkToShardMap.get(mega2.getId());
 
 			if (destShard == null) {
-				logger.error("Chunk with _id " + mega2.getId() + " not found on destination");
+				//logger.error("Chunk with _id " + mega2.getId() + " not found on destination");
 			} else if (doMove && !mappedShard.equals(destShard)) {
 				//logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
 				if (doMove) {
@@ -238,14 +252,32 @@ public class ChunkManager {
 		}
 
 		// step 4: split megachunks into final chunks
+		long startTsSeconds = Instant.now().getEpochSecond();
+		
+		long ts;
 		for (Megachunk mega2 : optimizedChunks) {
 			for (BsonDocument mid : mega2.getMids()) {
-				destShardClient.splitAt(mega2.getNs(), mid, true);
+				//getChunkMinKey
+				String midHash = ((RawBsonDocument) mid).toJson();
+				String midId = String.format("%s_%s", mega2.getNs(), midHash);
+				if (! destMins.contains(midId)) {
+					destShardClient.splitAt(mega2.getNs(), mid, true);
+				}
+				chunkCount++;
+				ts = Instant.now().getEpochSecond();
+				long secondsSinceLastLog = ts - startTsSeconds;
+				if (secondsSinceLastLog > 10) {
+					printChunkStatus(chunkCount, totalChunks);
+				}
 			}
 		}
-
-		//logger.debug(String.format("%s - created %s chunks", lastNs, currentCount));
+		printChunkStatus(chunkCount, totalChunks);
 		logger.debug("createAndMoveChunks complete");
+	}
+	
+	private void printChunkStatus(int chunkCount, double totalChunks) {
+		double pctComplete = chunkCount/totalChunks * 100.;
+		logger.debug(String.format("%.1f %% of chunks processed ( %,d / %,.0f )", pctComplete, chunkCount, totalChunks));
 	}
 	
 	/**
@@ -378,7 +410,7 @@ public class ChunkManager {
 		logger.debug("Reading destination chunks");
 		Map<String, String> destChunkMap = new HashMap<String, String>();
 		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
-		FindIterable<RawBsonDocument> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min"));
+		FindIterable<RawBsonDocument> destChunks = destChunksColl.find(chunkQuery).sort(Sorts.ascending("ns", "min"));
 
 		for (RawBsonDocument destChunk : destChunks) {
 			String id = ShardClient.getIdFromChunk(destChunk);
@@ -388,6 +420,25 @@ public class ChunkManager {
 		}
 		logger.debug("Done reading destination chunks, count = " + destChunkMap.size());
 		return destChunkMap;
+	}
+	
+	private String getChunkMinKey(RawBsonDocument chunk) {
+		RawBsonDocument min = (RawBsonDocument) chunk.get("min");
+		String ns = chunk.getString("ns").getValue();
+		String minHash = ((RawBsonDocument) min).toJson();
+		String id = String.format("%s_%s", ns, minHash);
+		return id;
+	}
+	
+	private Set<String> getChunkMins() {
+		Set<String> minsSet = new HashSet<>();
+		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
+		FindIterable<RawBsonDocument> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min"));
+
+		for (RawBsonDocument chunk : destChunks) {
+			minsSet.add(getChunkMinKey(chunk));
+		}
+		return minsSet;
 	}
 	
 	@SuppressWarnings({ "rawtypes", "unchecked" })
@@ -407,6 +458,8 @@ public class ChunkManager {
 			for (String dbName : config.getIncludeDatabases()) {
 				orList.add(regex("ns", "^" + dbName + "\\."));
 			}
+		} else {
+			chunkQuery.append("ns", new Document("$ne", "config.system.sessions"));
 		}
 		return chunkQuery;
 	}
@@ -427,65 +480,5 @@ public class ChunkManager {
 
 	public void setChunkQuery(Document chunkQuery) {
 		this.chunkQuery = chunkQuery;
-	}
-
-
-	class Megachunk {
-		private String ns = null;
-		private String shard = null;
-		private BsonDocument min = null;
-		private List<BsonDocument> mids = new LinkedList<>();
-		private BsonDocument max = null;
-		private boolean isLast = false;
-
-		public boolean isLast() {
-			return isLast;
-		}
-		public void setLast(boolean isLast) {
-			this.isLast = isLast;
-		}
-		public BsonDocument getMin() {
-			return min;
-		}
-		public void setMin(BsonDocument min) {
-			this.min = min;
-		}
-
-		public List<BsonDocument> getMids() {
-			return mids;
-		}
-		public void setMids(List<BsonDocument> mids) {
-			this.mids = mids;
-		}
-
-		public BsonDocument getMax() {
-			return max;
-		}
-		public void addMax(BsonDocument max) {
-			if (this.max != null) {
-				this.mids.add(this.max);
-			}
-			this.max = max;
-		}
-
-		public String getNs() {
-			return ns;
-		}
-		public void setNs(String ns) {
-			this.ns = ns;
-		}
-
-		public String getShard() {
-			return shard;
-		}
-		public void setShard(String shard) {
-			this.shard = shard;
-		}
-
-		public String getId() {
-			String minHash = ((RawBsonDocument)min).toJson();
-			String maxHash = ((RawBsonDocument)max).toJson();
-			return String.format("%s_%s_%s", ns, minHash, maxHash);
-		}
 	}
 }

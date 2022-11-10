@@ -1052,11 +1052,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				continue;
 			}
 
-			//dest = destShardClient.getDatabasesCollection().find(new Document("_id", databaseName)).first();
-			
-			//if (dest == null) {
 			dest = destShardClient.createDatabase(databaseName);
-			logger.debug("dest db: " + dest);
 
 			String destPrimary = dest.getString("primary");
 			if (mappedPrimary.equals(destPrimary)) {
