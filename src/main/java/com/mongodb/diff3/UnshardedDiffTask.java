@@ -28,14 +28,15 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
         logger.debug("[{}] got an unsharded task ({}-{})",
                 Thread.currentThread().getName(), namespace.getNamespace(), chunkString);
         this.start = System.currentTimeMillis();
-        result = new UnshardedDiffResult(namespace.getNamespace());
+        result = new DiffResult();
+        result.setNs(namespace.getNamespace());
         query = new BsonDocument();
-        result.chunkString = chunkString;
+        result.setChunkString(chunkString);
 
         try {
             computeDiff();
         } catch (Exception me) {
-            logger.error("fatal error diffing chunk, ns: {}", namespace, me);
+            logger.error("[{}] fatal error diffing chunk, ns: {}", Thread.currentThread().getName(), namespace, me);
             result = null;
         } finally {
             closeCursor(sourceCursor);
@@ -44,7 +45,7 @@ public class UnshardedDiffTask extends AbstractDiffTask implements Callable<Diff
 
         if (result.getFailureCount() > 0) {
             RetryStatus retryStatus = new RetryStatus(0, System.currentTimeMillis());
-            RetryTask retryTask = new RetryTask(retryStatus, this, result, result.failedIds, retryQueue);
+            RetryTask retryTask = new RetryTask(retryStatus, this, result, result.getFailedIds(), retryQueue);
             retryQueue.add(retryTask);
             logger.debug("[{}] detected {} failures and added a retry task ({}-{})",
                     Thread.currentThread().getName(), result.getFailureCount(),

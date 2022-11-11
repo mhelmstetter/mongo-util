@@ -48,9 +48,9 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
         this.namespace = new Namespace(nsStr);
         chunkString = "[" + min.toString() + " : " + max.toString() + "]";
 
-        ShardedDiffResult result = new ShardedDiffResult();
-        result.setChunk(chunk);
-        result.chunkString = chunkString;
+        DiffResult result = new DiffResult();
+
+        result.setChunkString(chunkString);
 
         logger.debug("[{}] got a sharded task ({}-{})", Thread.currentThread().getName(),
                 namespace.getNamespace(), chunkString);
@@ -74,8 +74,7 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
             String key = shardKeys.iterator().next();
             query = and(gte(key, min.get(key)), lt(key, max.get(key)));
         }
-        result.ns = nsStr;
-        result.setChunkQuery(query);
+        result.setNs(nsStr);
         this.result = result;
 
         try {
@@ -90,7 +89,7 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
 
         if (result.getFailureCount() > 0) {
             RetryStatus retryStatus = new RetryStatus(0, System.currentTimeMillis());
-            RetryTask retryTask = new RetryTask(retryStatus, this, result, result.failedIds, retryQueue);
+            RetryTask retryTask = new RetryTask(retryStatus, this, result, result.getFailedIds(), retryQueue);
             retryQueue.add(retryTask);
             logger.debug("[{}] detected {} failures and added a retry task ({}-{})",
                     Thread.currentThread().getName(), result.getFailureCount(),
@@ -104,9 +103,9 @@ public class ShardedDiffTask extends AbstractDiffTask implements Callable<DiffRe
 
         if (output != null) {
             long timeSpent = timeSpent(System.currentTimeMillis());
-            logger.debug("[{}] completed a sharded task in {} ms ({}-{}) :: {}",
+            logger.debug("[{}] completed a sharded task in {} ms :: {}",
                     Thread.currentThread().getName(), timeSpent,
-                    namespace.getNamespace(), chunkString, result.shortString());
+                    namespace.getNamespace(), result.shortString());
         }
         return output;
     }

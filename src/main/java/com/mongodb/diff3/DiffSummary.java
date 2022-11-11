@@ -10,7 +10,6 @@ public class DiffSummary {
     private LongAdder processedChunks;
     private LongAdder processedDocs;
     private LongAdder processedSize;
-    private LongAdder successfulChunks;
     private LongAdder successfulDocs;
     private LongAdder failedChunks;
     private LongAdder failedDocs;
@@ -31,7 +30,6 @@ public class DiffSummary {
         processedDocs = new LongAdder();
         processedChunks = new LongAdder();
         processedSize = new LongAdder();
-        successfulChunks = new LongAdder();
         successfulDocs = new LongAdder();
         failedChunks = new LongAdder();
         failedDocs = new LongAdder();
@@ -50,7 +48,7 @@ public class DiffSummary {
         double chunkProcPct = (processedChunks.longValue() / (double) totalChunks) * 100.;
         double docProcPct = (processedDocs.longValue() / (double) totalDocs) * 100.;
         double chunkFailPct = failedChunks.longValue() > 0 ? ((double) failedChunks.longValue() /
-                (failedChunks.longValue() + successfulChunks.longValue())) * 100. : 0;
+                processedChunks.longValue()) * 100. : 0;
         double docFailPct = failedDocs.longValue() > 0 ? ((double) failedDocs.longValue() /
                 (failedDocs.longValue() + successfulDocs.longValue())) * 100. : 0;
         double sizeProcessedPct = (processedSize.longValue() / (double) totalSize) * 100.;
@@ -106,10 +104,6 @@ public class DiffSummary {
 
     public void incrementProcessedDocs(long num) {
         processedDocs.add(num);
-    }
-
-    public void incrementSuccessfulChunks(int num) {
-        successfulChunks.add(num);
     }
 
     public void incrementSuccessfulDocs(long num) {

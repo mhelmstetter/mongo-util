@@ -1,6 +1,5 @@
 package com.mongodb.diff3;
 
-import com.google.common.base.Equivalence;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.MapDifference.ValueDifference;
 import com.google.common.collect.Maps;
@@ -11,7 +10,6 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.CodecUtils;
-import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
@@ -55,7 +53,7 @@ public class AbstractDiffTask {
         doComparison();
     }
 
-    protected void computeDiff(List<String> ids) {
+    protected void computeDiff(Collection<String> ids) {
         loadSourceDocs(ids);
         loadDestDocs(ids);
         doComparison();
@@ -67,33 +65,34 @@ public class AbstractDiffTask {
 
         if (diff.areEqual()) {
             int numMatches = sourceDocs.size();
-            result.matches = numMatches;
+            result.setMatches(numMatches);
         } else {
             Map<String, ValueDifference<String>> valueDiff = diff.entriesDiffering();
-            int numMatches = sourceDocs.size() - valueDiff.size();
-            result.matches = numMatches;
             for (Iterator<?> it = valueDiff.entrySet().iterator(); it.hasNext(); ) {
                 @SuppressWarnings("unchecked")
                 Map.Entry<String, ValueDifference<String>> entry = (Map.Entry<String, ValueDifference<String>>) it.next();
                 String key = entry.getKey();
                 result.addFailedKey(key);
             }
-            result.onlyOnSource = diff.entriesOnlyOnLeft().size();
+            result.setOnlyOnSource(diff.entriesOnlyOnLeft().size());
             for (String id : diff.entriesOnlyOnLeft().keySet()) {
                 result.addFailedKey(id);
             }
-            result.onlyOnDest = diff.entriesOnlyOnRight().size();
+            result.setOnlyOnDest(diff.entriesOnlyOnRight().size());
             for (String id : diff.entriesOnlyOnRight().keySet()) {
                 result.addFailedKey(id);
             }
+            int numMatches = (int) (sourceDocs.size() - valueDiff.size()
+                    - result.getOnlyOnSource() - result.getOnlyOnDest());
+            result.setMatches(numMatches);
         }
-        result.bytesProcessed = Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue());
+        result.setBytesProcessed(Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue()));
         long diffTime = System.currentTimeMillis() - compStart;
         logger.debug("[{}] computed diff in {} ms ({}-{})",
                 Thread.currentThread().getName(), diffTime, namespace.getNamespace(), chunkString);
     }
 
-    protected void loadSourceDocs(List<String> ids) {
+    protected void loadSourceDocs(Collection<String> ids) {
         long loadStart = System.currentTimeMillis();
         MongoClient shardClient = sourceShardClient.getShardMongoClient(srcShardName);
         MongoCollection<RawBsonDocument> sourceColl = getRawCollection(shardClient, namespace);
@@ -106,7 +105,7 @@ public class AbstractDiffTask {
                 namespace, loadTime, chunkString);
     }
 
-    protected void loadDestDocs(List<String> ids) {
+    protected void loadDestDocs(Collection<String> ids) {
         long loadStart = System.currentTimeMillis();
         MongoClient shardClient = destShardClient.getShardMongoClient(destShardName);
         MongoCollection<RawBsonDocument> destColl = getRawCollection(shardClient, namespace);
@@ -147,7 +146,7 @@ public class AbstractDiffTask {
         }
     }
 
-    protected Bson formIdsQuery(List<String> ids) {
+    protected Bson formIdsQuery(Collection<String> ids) {
         List<Document> idDocs = ids.stream().map(i -> Document.parse(i)).collect(Collectors.toList());
         return Filters.in("_id", idDocs);
     }
