@@ -9,6 +9,10 @@ import java.util.List;
 
 public class UnshardedDiffResult extends DiffResult {
 	private String ns;
+
+	public UnshardedDiffResult(String ns) {
+		this.ns = ns;
+	}
 	@Override
 	public String toString() {
 		StringBuilder builder = new StringBuilder();
