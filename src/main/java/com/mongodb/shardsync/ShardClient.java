@@ -700,7 +700,6 @@ public class ShardClient {
 				Thread.sleep(1000);
 			} catch (InterruptedException e) {
 			}
-			logger.debug("createDatabase() querying for config.databases entry");
 			dbMeta = getDatabasesCollection().find(new Document("_id", databaseName)).first();
 		}
 		
