@@ -1,16 +1,35 @@
 package com.mongodb.shardsync;
 
-import com.mongodb.*;
-import com.mongodb.client.*;
-import com.mongodb.client.model.IndexOptions;
-import com.mongodb.client.model.Sorts;
-import com.mongodb.client.model.UpdateOptions;
-import com.mongodb.client.result.DeleteResult;
-import com.mongodb.internal.dns.DefaultDnsResolver;
-import com.mongodb.model.*;
-import com.mongodb.util.MaskUtil;
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.gt;
+import static com.mongodb.client.model.Filters.in;
+import static com.mongodb.client.model.Filters.ne;
+import static com.mongodb.client.model.Filters.regex;
+import static com.mongodb.client.model.Projections.include;
+import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.regex.Pattern;
+
 import org.apache.commons.lang3.StringUtils;
-import org.bson.*;
+import org.bson.BsonDocument;
+import org.bson.BsonString;
+import org.bson.BsonTimestamp;
+import org.bson.Document;
+import org.bson.RawBsonDocument;
+import org.bson.UuidRepresentation;
 import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
@@ -18,14 +37,37 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collection;
-import java.util.*;
-import java.util.regex.Pattern;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoCommandException;
+import com.mongodb.MongoException;
+import com.mongodb.MongoTimeoutException;
+import com.mongodb.ServerAddress;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.ListCollectionsIterable;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.MongoIterable;
+import com.mongodb.client.model.IndexOptions;
+import com.mongodb.client.model.Sorts;
+import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.result.DeleteResult;
+import com.mongodb.internal.dns.DefaultDnsResolver;
+import com.mongodb.model.Database;
+import com.mongodb.model.DatabaseCatalog;
+import com.mongodb.model.DatabaseStats;
+import com.mongodb.model.IndexSpec;
+import com.mongodb.model.Mongos;
+import com.mongodb.model.Namespace;
+import com.mongodb.model.ReplicaSetInfo;
+import com.mongodb.model.Role;
+import com.mongodb.model.Shard;
+import com.mongodb.model.ShardTimestamp;
+import com.mongodb.model.User;
+import com.mongodb.util.MaskUtil;
 
-import static com.mongodb.client.model.Filters.*;
-import static com.mongodb.client.model.Projections.include;
-import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
-import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 /**
  * This class encapsulates the client related objects needed for each source and
@@ -105,7 +147,8 @@ public class ShardClient {
 	private String connectionStringPattern;
 	private String rsPattern;
 	private String csrsUri;
-
+	private String rsRegex;
+	
 	// Advanced only, for manual configuration / overriding discovery
 	private String[] rsStringsManual;
 
@@ -190,104 +233,143 @@ public class ShardClient {
 
 		MongoCollection<Shard> shardsColl = configDb.getCollection("shards", Shard.class);
 		FindIterable<Shard> shards = shardsColl.find().sort(Sorts.ascending("_id"));
-		for (Shard sh : shards) {
-
-			// TODO fix this for patterned uri
-//        	if (shardIdFilter != null && ! shardIdFilter.contains(sh.getId())) {
-//        		continue;
-//        	}
-
-			if (!patternedUri && !manualShardHosts) {
-				logger.debug(String.format("%s: populateShardList shard: %s", name, sh.getHost()));
-			}
-			String rsName = StringUtils.substringBefore(sh.getHost(), "/");
-			sh.setRsName(rsName);
-			if (this.shardIdFilter == null) {
-				shardsMap.put(sh.getId(), sh);
-			} else if (shardIdFilter.contains(sh.getId())) {
-				shardsMap.put(sh.getId(), sh);
-			}
-		}
-
-		if (patternedUri) {
-			int shardCount = shardsMap.size();
-			tertiaryShardsMap.putAll(shardsMap);
-			shardsMap.clear();
-			for (int shardNum = 0; shardNum < shardCount; shardNum++) {
-
-				String hostBasePre = StringUtils.substringAfter(connectionStringPattern, "mongodb://");
-				String hostBase = StringUtils.substringBefore(hostBasePre, "/");
-				if (hostBase.contains("@")) {
-					hostBase = StringUtils.substringAfter(hostBase, "@");
-				}
-				String host0 = String.format(hostBase, "shard", shardNum, 0);
-				String host1 = String.format(hostBase, "shard", shardNum, 1);
-				String rsName = String.format(this.rsPattern, "shard", shardNum);
-				Shard sh = new Shard();
-				sh.setId(rsName);
+		
+		if (rsRegex != null) {
+			
+			Pattern p = Pattern.compile(rsRegex);
+			for (Shard sh : shards) {
+				
+				String seedList = StringUtils.substringAfter(sh.getHost(), "/");
+				String rsName = StringUtils.substringBefore(sh.getHost(), "/");
 				sh.setRsName(rsName);
-				sh.setHost(String.format("%s/%s,%s", rsName, host0, host1));
-				shardsMap.put(sh.getId(), sh);
-				logger.debug(String.format("%s: populateShardList formatted shard name: %s", name, sh.getHost()));
-			}
-
-		} else if (manualShardHosts) {
-
-			// in some cases the rs name doesn't match the shard name
-			Map<String, String> rsNameToShardIdMap = new HashMap<>();
-			for (Shard shard : shardsMap.values()) {
-				rsNameToShardIdMap.put(shard.getRsName(), shard.getId());
-			}
-			shardsMap.clear();
-
-			for (String rsString : rsStringsManual) {
-
-				Shard sh = new Shard();
-				if (!rsString.contains("/")) {
-					if (rsString.contains(",")) {
-						throw new IllegalArgumentException(String.format("Invalid format for %sRsManual, expecting rsName/host1:port,host2:port,host3:port", name));
+				
+				ReplicaSetInfo rsInfo = getReplicaSetInfoFromHost(seedList);
+				
+				String foundHost = null;
+				for (String host : rsInfo.getHosts()) {
+					
+					if (p.matcher(host).find()) {
+						rsInfo = getReplicaSetInfoFromHost(host);
+						logger.debug("match, rs: {}, host: {}, secondary: {}", rsName, host, rsInfo.isSecondary());
+						if (rsInfo.isSecondary()) {
+							foundHost = host;
+							break;
+						}
 					} else {
-						logger.warn(String.format("Config for %sRsManual is using standalone/direct connect", name));
-						sh.setHost(rsString);
-						String rsName = getRsNameFromHost(rsString);
-						sh.setRsName(rsName);
-						String shardId = rsNameToShardIdMap.get(rsName);
-						sh.setId(shardId);
+						logger.debug("no match, rs: {}, host: {}", rsName, host);
 					}
+				}
+				
+				if (foundHost == null) {
+					throw new IllegalArgumentException(String.format("Unable to find matching host for regex %s, seedList: %s", rsRegex, seedList));
+				}
+				sh.setHost(foundHost);
+				
+				logger.debug("regex host: {}, secondary: {}", foundHost, rsInfo.isSecondary());
 
-				} else {
-					String rsName = StringUtils.substringBefore(rsString, "/");
-					sh.setRsName(rsName);
+				
+				if (this.shardIdFilter == null) {
+					shardsMap.put(sh.getId(), sh);
+				} else if (shardIdFilter.contains(sh.getId())) {
+					shardsMap.put(sh.getId(), sh);
+				}
+			}
+		} else {
+			
+			for (Shard sh : shards) {
+
+				if (!patternedUri && !manualShardHosts) {
+					logger.debug(String.format("%s: populateShardList shard: %s", name, sh.getHost()));
+				}
+				String rsName = StringUtils.substringBefore(sh.getHost(), "/");
+				sh.setRsName(rsName);
+				if (this.shardIdFilter == null) {
+					shardsMap.put(sh.getId(), sh);
+				} else if (shardIdFilter.contains(sh.getId())) {
+					shardsMap.put(sh.getId(), sh);
+				}
+			}
+
+			if (patternedUri) {
+				int shardCount = shardsMap.size();
+				tertiaryShardsMap.putAll(shardsMap);
+				shardsMap.clear();
+				for (int shardNum = 0; shardNum < shardCount; shardNum++) {
+
+					String hostBasePre = StringUtils.substringAfter(connectionStringPattern, "mongodb://");
+					String hostBase = StringUtils.substringBefore(hostBasePre, "/");
+					if (hostBase.contains("@")) {
+						hostBase = StringUtils.substringAfter(hostBase, "@");
+					}
+					String host0 = String.format(hostBase, "shard", shardNum, 0);
+					String host1 = String.format(hostBase, "shard", shardNum, 1);
+					String rsName = String.format(this.rsPattern, "shard", shardNum);
+					Shard sh = new Shard();
 					sh.setId(rsName);
-					sh.setHost(String.format("%s/%s", rsName, StringUtils.substringAfter(rsString, "/")));
+					sh.setRsName(rsName);
+					sh.setHost(String.format("%s/%s,%s", rsName, host0, host1));
+					shardsMap.put(sh.getId(), sh);
+					logger.debug(String.format("%s: populateShardList formatted shard name: %s", name, sh.getHost()));
 				}
 
-
-
-
-
-
-				shardsMap.put(sh.getId(), sh);
-				logger.debug("{}: populateShardList added manual shard connection: {}", name, sh.getHost());
+			} else if (manualShardHosts) {
+				
+				// in some cases the rs name doesn't match the shard name
+				Map<String, String> rsNameToShardIdMap = new HashMap<>();
+				for (Shard shard : shardsMap.values()) {
+					rsNameToShardIdMap.put(shard.getRsName(), shard.getId());
+				}
+				shardsMap.clear();
+				
+				for (String rsString : rsStringsManual) {
+					
+					Shard sh = new Shard();
+					if (!rsString.contains("/")) {
+						if (rsString.contains(",")) {
+							throw new IllegalArgumentException(String.format("Invalid format for %sRsManual, expecting rsName/host1:port,host2:port,host3:port", name));
+						} else {
+							logger.warn(String.format("Config for %sRsManual is using standalone/direct connect", name));
+							sh.setHost(rsString);
+							String rsName = getReplicaSetInfoFromHost(rsString).getRsName();
+							sh.setRsName(rsName);
+							String shardId = rsNameToShardIdMap.get(rsName);
+							sh.setId(shardId);
+						}
+						
+					} else {
+						String rsName = StringUtils.substringBefore(rsString, "/");
+						sh.setRsName(rsName);
+						sh.setId(rsName);
+						sh.setHost(String.format("%s/%s", rsName, StringUtils.substringAfter(rsString, "/")));
+					}
+					
+					shardsMap.put(sh.getId(), sh);
+					logger.debug("{}: populateShardList added manual shard connection: {}", name, sh.getHost());
+				}
 			}
-
 		}
 
 		logger.debug(name + ": populateShardList complete, " + shardsMap.size() + " shards added");
 	}
 
-	private String getRsNameFromHost(String host) {
-		String setName = null;
+
+	
+	private ReplicaSetInfo getReplicaSetInfoFromHost(String host) {
+		ReplicaSetInfo rsInfo = new ReplicaSetInfo();
 		MongoClient tmp = MongoClients.create("mongodb://" + host);
-		Document result = tmp.getDatabase("admin").runCommand(new Document("isMaster", 1));
+		Document result = tmp.getDatabase("admin").runCommand(new Document("hello", 1));
+		
 		if (result.containsKey("setName")) {
-			setName = result.getString("setName");
+			rsInfo.setRsName(result.getString("setName"));
 		} else {
 			logger.warn("Unable to get setName from isMaster result for host: {}", host);
 		}
+		
+		rsInfo.setHosts(result.getList("hosts", String.class));
+		rsInfo.setWritablePrimary(result.getBoolean("isWritablePrimary"));
+		rsInfo.setSecondary(result.getBoolean("secondary"));
 		tmp.close();
-		return setName;
-
+		return rsInfo;
 	}
 
 	private void populateMongosList() {
@@ -1351,4 +1433,13 @@ public class ShardClient {
 	public void setRsStringsManual(String[] rsStringsManual) {
 		this.rsStringsManual = rsStringsManual;
 	}
+
+	public String getRsRegex() {
+		return rsRegex;
+	}
+
+	public void setRsRegex(String rsRegex) {
+		this.rsRegex = rsRegex;
+	}
+
 }
