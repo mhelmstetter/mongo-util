@@ -211,6 +211,9 @@ public class ChunkManager {
 		logger.debug(String.format("optimized chunk count: %s", optimizedChunks.size()));
 		
 		int chunkCount = optimizedChunks.size() / 2;
+		
+		long ts;
+		long startTsSeconds = Instant.now().getEpochSecond();
 
 		// step 2: create splits for each of the megachunks, wherever they reside
 		for (Megachunk mega2 : optimizedChunks) {
@@ -222,8 +225,17 @@ public class ChunkManager {
 					destShardClient.splitAt(mega2.getNs(), mega2.getMax(), true);
 				}
 				chunkCount++;
+				
+				ts = Instant.now().getEpochSecond();
+				long secondsSinceLastLog = ts - startTsSeconds;
+				if (secondsSinceLastLog >= 60) {
+					printChunkStatus(chunkCount, optimizedChunks.size(), "optimized chunks created");
+					startTsSeconds = ts;
+				}
 			}
 		}
+		
+		logger.debug("phase 2 complete, {} optimized chunks created", chunkCount);
 
 		// get current locations of megachunks on destination
 		Map<String, String> destChunkToShardMap = readDestinationChunks();
@@ -231,8 +243,7 @@ public class ChunkManager {
 
 		int errorCount = 0;
 		int moveCount = 0;
-		long ts;
-		long startTsSeconds = Instant.now().getEpochSecond();
+		startTsSeconds = Instant.now().getEpochSecond();
 
 		// step 3: move megachunks to correct shards
 		for (Megachunk mega2 : optimizedChunks) {
@@ -255,10 +266,12 @@ public class ChunkManager {
 			ts = Instant.now().getEpochSecond();
 			long secondsSinceLastLog = ts - startTsSeconds;
 			if (secondsSinceLastLog >= 60) {
-				printChunkStatus(moveCount, optimizedChunks.size(), "moved");
+				printChunkStatus(moveCount, optimizedChunks.size(), "chunks moved");
 				startTsSeconds = ts;
 			}
 		}
+		
+		logger.debug("phase 3 complete, {} chunks moved", moveCount);
 
 		// step 4: split megachunks into final chunks
 		startTsSeconds = Instant.now().getEpochSecond();
@@ -275,18 +288,18 @@ public class ChunkManager {
 				ts = Instant.now().getEpochSecond();
 				long secondsSinceLastLog = ts - startTsSeconds;
 				if (secondsSinceLastLog >= 60) {
-					printChunkStatus(chunkCount, totalChunks, "created");
+					printChunkStatus(chunkCount, totalChunks, "chunks created");
 					startTsSeconds = ts;
 				}
 			}
 		}
-		printChunkStatus(chunkCount, totalChunks, "created");
+		printChunkStatus(chunkCount, totalChunks, "chunks created");
 		logger.debug("createAndMoveChunks complete");
 	}
 	
 	private void printChunkStatus(int chunkCount, double totalChunks, String opType) {
 		double pctComplete = chunkCount/totalChunks * 100.;
-		logger.debug(String.format("%.1f %% of chunks %s ( %,d / %,.0f )", pctComplete, opType, chunkCount, totalChunks));
+		logger.debug(String.format("%.1f %% of %s ( %,d / %,.0f )", pctComplete, opType, chunkCount, totalChunks));
 	}
 	
 	/**

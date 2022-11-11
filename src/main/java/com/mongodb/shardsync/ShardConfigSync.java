@@ -152,6 +152,10 @@ public class ShardConfigSync implements Callable<Integer> {
 	private void createCollections() {
 		MongoClient sourceClient = sourceShardClient.getMongoClient();
 		MongoClient destClient = destShardClient.getMongoClient();
+		
+		destShardClient.populateCollectionsMap();
+		Map<String, Document> existingDestCollections = destShardClient.getCollectionsMap();
+		
 		for (String dbName : sourceClient.listDatabaseNames()) {
 			MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
 			for (Document collectionInfo : sourceDb.listCollections()) {
@@ -164,6 +168,10 @@ public class ShardConfigSync implements Callable<Integer> {
 				String type = collectionInfo.getString("type");
 				if (collectionName.equals("system.views") || type.equals("view")) {
 					logger.warn("Skipping view: {}", ns);	
+					continue;
+				}
+				
+				if (existingDestCollections.containsKey(ns.getNamespace())) {
 					continue;
 				}
 				
