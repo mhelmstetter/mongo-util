@@ -41,6 +41,9 @@ public class ShardConfigSyncApp {
     // Advanced option for manaually overriding the hostnames / bypassing discovery
     private final static String SOURCE_RS_MANUAL = "sourceRsManual";
     private final static String DEST_RS_MANUAL = "destRsManual";
+    
+    private final static String SOURCE_RS_REGEX = "sourceRsRegex";
+    private final static String DEST_RS_REGEX = "destRsRegex";
 
     private final static String MONGOMIRROR_BINARY = "mongomirrorBinary";
 
@@ -372,6 +375,9 @@ public class ShardConfigSyncApp {
 
         config.setSourceRsManual(properties.getStringArray(SOURCE_RS_MANUAL));
         config.setDestRsManual(properties.getStringArray(DEST_RS_MANUAL));
+        
+        config.setSourceRsRegex(properties.getString(SOURCE_RS_REGEX));
+        config.setDestRsRegex(properties.getString(DEST_RS_REGEX));
 
 
         config.setDestCsrsUri(properties.getString(DEST_CSRS_URI));
