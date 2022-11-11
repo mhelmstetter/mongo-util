@@ -25,6 +25,7 @@ import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
+import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -43,6 +44,7 @@ import com.mongodb.MongoException;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.FindIterable;
+import com.mongodb.client.ListCollectionsIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
@@ -53,6 +55,9 @@ import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.internal.dns.DefaultDnsResolver;
+import com.mongodb.model.Database;
+import com.mongodb.model.DatabaseCatalog;
+import com.mongodb.model.DatabaseStats;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
@@ -63,13 +68,14 @@ import com.mongodb.model.ShardTimestamp;
 import com.mongodb.model.User;
 import com.mongodb.util.MaskUtil;
 
+
 /**
  * This class encapsulates the client related objects needed for each source and
  * destination
  *
  */
 public class ShardClient {
-	
+
 	public enum ShardClientType {
 		SHARDED_NO_SRV,
 		SHARDED,
@@ -77,7 +83,8 @@ public class ShardClient {
 	}
 
 	private static Logger logger = LoggerFactory.getLogger(ShardClient.class);
-	
+	private static Pattern excludeCollRegex = Pattern.compile("system\\..*");
+
 	private final static int ONE_GIGABYTE = 1024 * 1024 * 1024;
 	private final static int ONE_MEGABYTE = 1024 * 1024;
 
@@ -90,7 +97,10 @@ public class ShardClient {
 		countPipeline.add(Document.parse("{ $group: { _id: null, count: { $sum: 1 } } }"));
 		countPipeline.add(Document.parse("{ $project: { _id: 0, count: 1 } }"));
 	}
-	
+
+	private final static Document listDatabasesCommand = new Document("listDatabases", 1);
+	private final static Document dbStatsCommand = new Document("dbStats", 1);
+
 	public final static Set<String> excludedSystemDbs = new HashSet<>(Arrays.asList("system", "local", "config", "admin"));
 
 	private ShardClientType shardClientType = ShardClientType.SHARDED;
@@ -101,14 +111,14 @@ public class ShardClient {
 	private MongoClient mongoClient;
 	private MongoDatabase configDb;
 	private Map<String, Shard> shardsMap = new LinkedHashMap<String, Shard>();
-	
+
 	private Map<String, RawBsonDocument> chunksCache = new LinkedHashMap<>();
 
 	private Map<String, Shard> tertiaryShardsMap = new LinkedHashMap<String, Shard>();
 
 	private ConnectionString connectionString;
 	private MongoClientSettings mongoClientSettings;
-	
+
 	private CodecRegistry pojoCodecRegistry;
 
 	private ConnectionString csrsConnectionString;
@@ -123,6 +133,7 @@ public class ShardClient {
 	private Map<String, MongoClient> mongosMongoClients = new TreeMap<String, MongoClient>();
 
 	private Map<String, Document> collectionsMap = new TreeMap<String, Document>();
+	private DatabaseCatalog databaseCatalog;
 
 	private Map<String, MongoClient> shardMongoClients = new TreeMap<String, MongoClient>();
 
@@ -172,7 +183,7 @@ public class ShardClient {
 
 	public void init() {
 		this.manualShardHosts = rsStringsManual != null && rsStringsManual.length > 0;
-		
+
 		if (csrsUri != null) {
 			logger.debug(name + " csrsUri: " + csrsUri);
 			this.csrsConnectionString = new ConnectionString(csrsUri);
@@ -216,7 +227,7 @@ public class ShardClient {
 	 * cluster that's in the midst of LiveMigrate and this tool is being used to
 	 * reverse sync. In that case the data that's in the config server is WRONG.
 	 * But, we'll use that to assume the number of shards (for now)
-	 * 
+	 *
 	 */
 	private void populateShardList() {
 
@@ -335,13 +346,13 @@ public class ShardClient {
 					shardsMap.put(sh.getId(), sh);
 					logger.debug("{}: populateShardList added manual shard connection: {}", name, sh.getHost());
 				}
-				
 			}
-			
 		}
 
 		logger.debug(name + ": populateShardList complete, " + shardsMap.size() + " shards added");
 	}
+
+
 	
 	private ReplicaSetInfo getReplicaSetInfoFromHost(String host) {
 		ReplicaSetInfo rsInfo = new ReplicaSetInfo();
@@ -357,10 +368,8 @@ public class ShardClient {
 		rsInfo.setHosts(result.getList("hosts", String.class));
 		rsInfo.setWritablePrimary(result.getBoolean("isWritablePrimary"));
 		rsInfo.setSecondary(result.getBoolean("secondary"));
-		
 		tmp.close();
 		return rsInfo;
-		
 	}
 
 	private void populateMongosList() {
@@ -475,18 +484,18 @@ public class ShardClient {
 		for (Shard shard : shardsMap.values()) {
 			String shardHost = shard.getHost();
 			String seeds = StringUtils.substringAfter(shardHost, "/");
-			
+
 			MongoClientSettings.Builder settingsBuilder = MongoClientSettings.builder();
 			List<ServerAddress> serverAddressList = new ArrayList<>();
-			
+
 			if (seeds.equals("")) {
 				logger.debug(name + " " + shard.getId() + " populateShardMongoClients() no rs string provided");
 			} else {
 				logger.debug(name + " " + shard.getId() + " populateShardMongoClients() seeds: " + seeds);
 			}
-			
-			
-			
+
+
+
 			if (seeds.contains(",")) {
 				String[] seedHosts = seeds.split(",");
 				for (String seed : seedHosts) {
@@ -499,9 +508,9 @@ public class ShardClient {
 				Integer port = Integer.parseInt(StringUtils.substringAfter(shardHost, ":"));
 				serverAddressList.add(new ServerAddress(host, port));
 			}
-			
+
 			settingsBuilder.applyToClusterSettings(builder -> builder.hosts(serverAddressList));
-			
+
 			if (connectionString.getSslEnabled() != null) {
 				settingsBuilder.applyToSslSettings(builder -> builder.enabled(connectionString.getSslEnabled()));
 			}
@@ -512,10 +521,14 @@ public class ShardClient {
 				settingsBuilder.applicationName(connectionString.getApplicationName());
 			}
 			settingsBuilder.uuidRepresentation(UuidRepresentation.STANDARD);
+
+            if (connectionString.getReadPreference() != null) {
+				settingsBuilder.readPreference(connectionString.getReadPreference());
+			}
 			MongoClientSettings settings = settingsBuilder.build();
 			MongoClient mongoClient = MongoClients.create(settings);
-			
-			
+
+
 			// logger.debug(String.format("%s isMaster started: %s", name, shardHost));
 			Document isMasterResult = mongoClient.getDatabase("admin").runCommand(new Document("isMaster", 1));
 			if (logger.isTraceEnabled()) {
@@ -534,11 +547,11 @@ public class ShardClient {
 		Document doc = coll.find(ne("op", "n")).sort(eq("$natural", -1)).first();
 		return doc;
 	}
-	
+
 	public BsonTimestamp getLatestOplogTimestamp(String shardId) {
 		return getLatestOplogTimestamp(shardId, null);
 	}
-	
+
 	public BsonTimestamp getLatestOplogTimestamp(String shardId, Bson query) {
 		MongoClient client = shardMongoClients.get(shardId);
 		MongoCollection<Document> coll = client.getDatabase("local").getCollection("oplog.rs");
@@ -563,7 +576,7 @@ public class ShardClient {
 			} else {
 				throw new IllegalArgumentException("Error parsing timestamp no comma found, expected format ts,increment");
 			}
-			
+
 		}
 		BsonTimestamp ts = getLatestOplogTimestamp(shardId, query);
 		ShardTimestamp st = new ShardTimestamp(shardId, ts);
@@ -573,7 +586,7 @@ public class ShardClient {
 
 	/**
 	 * This will drop the db on each shard, config data will NOT be touched
-	 * 
+	 *
 	 * @param dbName
 	 */
 	public void dropDatabase(String dbName) {
@@ -585,8 +598,8 @@ public class ShardClient {
 
 	/**
 	 * This will drop the db on each shard, config data will NOT be touched
-	 * 
-	 * @param dbName
+	 *
+	 * @param
 	 */
 	public void dropDatabases(List<String> databasesList) {
 		for (Map.Entry<String, MongoClient> entry : shardMongoClients.entrySet()) {
@@ -623,7 +636,7 @@ public class ShardClient {
 			}
 		}
 	}
-	
+
 	public static Number estimatedDocumentCount(MongoDatabase db, MongoCollection<RawBsonDocument> collection) {
 		return collection.estimatedDocumentCount();
 	}
@@ -644,6 +657,11 @@ public class ShardClient {
 			logger.error(name + " getCollectionCount error");
 			throw mce;
 		}
+	}
+
+	public Number getFastCollectionCount(String dbName, String collName) {
+		MongoDatabase db = mongoClient.getDatabase(dbName);
+		return db.getCollection(collName).estimatedDocumentCount();
 	}
 
 	public Number getFastCollectionCount(MongoDatabase db, String collectionName) {
@@ -682,7 +700,7 @@ public class ShardClient {
 		} else {
 			return getChunksCollectionRaw();
 		}
-		
+
 	}
 
 	public MongoCollection<Document> getDatabasesCollection() {
@@ -702,7 +720,7 @@ public class ShardClient {
 			}
 			dbMeta = getDatabasesCollection().find(new Document("_id", databaseName)).first();
 		}
-		
+
 		mongoClient.getDatabase(databaseName).getCollection(tmpName).drop();
 		return dbMeta;
 	}
@@ -728,12 +746,102 @@ public class ShardClient {
 		return this.mongoClient.listDatabaseNames();
 	}
 
+	public Document listDatabases() {
+		return this.mongoClient.getDatabase("admin").runCommand(listDatabasesCommand);
+	}
+
+	public Document dbStats(String dbName) {
+		return this.mongoClient.getDatabase(dbName).runCommand(dbStatsCommand);
+	}
+
+	private Document collStatsCommand(String collName) {
+		return new Document("collStats", collName);
+	}
+
+	public Document collStats(String dbName, String collName) {
+		return this.mongoClient.getDatabase(dbName).runCommand(collStatsCommand(collName));
+	}
+
+	public DatabaseCatalog getDatabaseCatalog()  {
+		return getDatabaseCatalog(null);
+	}
+
+	public DatabaseCatalog getDatabaseCatalog(Set<Namespace> includeNs) {
+		if (this.databaseCatalog == null) {
+			this.databaseCatalog = new DatabaseCatalog();
+			populateDatabaseCatalog(includeNs);
+		}
+		return databaseCatalog;
+	}
+
+	private void populateDatabaseCatalog(Set<Namespace> includeNs) {
+		MongoIterable<String> dbNames = listDatabaseNames();
+		Map<String, Set<String>> includeMap = new HashMap<>();
+		boolean includeAll = true;
+		if (includeNs != null && includeNs.size() > 0) {
+			includeAll = false;
+			includeNs.forEach(n -> {
+				String db = n.getDatabaseName();
+				String coll = n.getCollectionName();
+				if (!includeMap.containsKey(db)) {
+					includeMap.put(db, new HashSet<>());
+				}
+				includeMap.get(db).add(coll);
+			});
+		}
+		for (String dbName : dbNames) {
+			if (excludedSystemDbs.contains(dbName) || (!includeAll && !includeMap.containsKey(dbName))) {
+				logger.debug("Excluding db: {}", dbName);
+				continue;
+			}
+			Document dbStatsDoc = dbStats(dbName);
+			DatabaseStats dbStats = DatabaseStats.fromDocument(dbStatsDoc);
+			Database db = new Database(dbName, dbStats);
+			ListCollectionsIterable<Document> colls = listCollections(dbName);
+			for (Document coll : colls) {
+				String collName = coll.getString("name");
+
+				if (!includeAll && !includeMap.get(dbName).contains(collName)) {
+					logger.debug("Excluding coll: {} in db: {}", collName, dbName);
+					continue;
+				}
+
+				String collType = coll.getString("type");
+				if (collType.equals("view")) {
+					logger.info("Excluding view: {}", collName);
+					db.excludeCollection(collName);
+					continue;
+				}
+				/* Don't include collections starting with system.* */
+				if (excludeCollRegex.matcher(collName).matches()) {
+					logger.debug("Excluding collection: {}", collName);
+					db.excludeCollection(collName);
+					continue;
+				}
+				String collNs = dbName + "." + collName;
+				//CollectionStats collStats = CollectionStats.fromDocument(collStats(dbName, collName));
+				boolean sharded = collectionsMap.containsKey(collNs);
+				com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(collNs, sharded);
+
+				String shardedStatus = sharded ? "sharded" : "unsharded";
+				db.addCollection(mcoll);
+				logger.debug("Added {} collection {} to catalog for db {}", shardedStatus, collNs, dbName);
+			}
+			logger.debug("Add database {} to catalog with {} docs", dbName, dbStats.getDocumentCount());
+			databaseCatalog.addDatabase(db);
+		}
+	}
+
+	public ListCollectionsIterable<Document> listCollections(String dbName) {
+		return mongoClient.getDatabase(dbName).listCollections();
+	}
+
 	public MongoIterable<String> listCollectionNames(String databaseName) {
 		return this.mongoClient.getDatabase(databaseName).listCollectionNames();
 	}
 
 	public void flushRouterConfig() {
-		
+
 		Document flushRouterConfig = new Document("flushRouterConfig", true);
 
 		try {
@@ -742,7 +850,7 @@ public class ShardClient {
 		} catch (MongoTimeoutException timeout) {
 			logger.debug("Timeout connecting", timeout);
 		}
-		
+
 //		logger.debug(String.format("flushRouterConfig() for %s mongos routers", mongosMongoClients.size()));
 //		for (Map.Entry<String, MongoClient> entry : mongosMongoClients.entrySet()) {
 //			MongoClient client = entry.getValue();
@@ -798,7 +906,7 @@ public class ShardClient {
 	public MongoClient getMongoClient() {
 		return mongoClient;
 	}
-	
+
 	public MongoCollection<Document> getCollection(String nsStr) {
 		return getCollection(new Namespace(nsStr));
 	}
@@ -806,19 +914,23 @@ public class ShardClient {
 	public MongoCollection<Document> getCollection(Namespace ns) {
 		return mongoClient.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName());
 	}
-	
+
 	public Document enableSharding(String dbName) {
 		Document enableSharding = new Document("enableSharding", dbName);
 		return adminCommand(enableSharding);
 	}
-	
+
 	public Document shardCollection(Namespace ns, Document shardKey) {
 		Document shardCommand = new Document("shardCollection", ns.getNamespace());
 		shardCommand.append("key", shardKey);
 		return adminCommand(shardCommand);
 	}
 
-	public MongoCollection<BsonDocument> getCollectionRaw(Namespace ns) {
+	public MongoCollection<RawBsonDocument> getCollectionRaw(Namespace ns) {
+		return mongoClient.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName(), RawBsonDocument.class);
+	}
+
+	public MongoCollection<BsonDocument> getCollectionBson(Namespace ns) {
 		return mongoClient.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName(), BsonDocument.class);
 	}
 
@@ -891,7 +1003,7 @@ public class ShardClient {
 		// createIndexes.append("indexes", indexes);
 
 		for (IndexSpec indexSpec : sourceSpecs) {
-			
+
 			Document indexInfo = indexSpec.getSourceSpec().decode(codec);
 			// BsonDocument indexInfo = indexSpec.getSourceSpec().clone();
 			indexInfo.remove("v");
@@ -915,7 +1027,7 @@ public class ShardClient {
 			}
 		}
 	}
-	
+
 	public List<Role> getRoles() {
 		MongoDatabase db = mongoClient.getDatabase("admin").withCodecRegistry(pojoCodecRegistry);
 		MongoCollection<Role> rolesColl = db.getCollection("system.roles", Role.class);
@@ -923,7 +1035,7 @@ public class ShardClient {
 		rolesColl.find().sort(Sorts.ascending("_id")).into(roles);
 		return roles;
 	}
-	
+
 	public List<User> getUsers() {
 		MongoDatabase db = mongoClient.getDatabase("admin").withCodecRegistry(pojoCodecRegistry);
 		MongoCollection<User> usersColl = db.getCollection("system.users", User.class);
@@ -1010,30 +1122,39 @@ public class ShardClient {
 			lastNs = sourceNs;
 		}
 	}
-	
+
+	public static String getNsFromChunk(BsonDocument doc) {
+		BsonString bs = (BsonString) doc.get("ns");
+		return bs.getValue();
+	}
+
 	public static String getIdFromChunk(BsonDocument sourceChunk) {
 		RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
 		//ByteBuffer byteBuffer = sourceMin.getByteBuffer().asNIO();
         //byte[] minBytes = new byte[byteBuffer.remaining()];
-        
+
 		String minHash = sourceMin.toJson();
-		
+
 		RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
 		//byteBuffer = sourceMax.getByteBuffer().asNIO();
 		//byte[] maxBytes = new byte[byteBuffer.remaining()];
 		String maxHash = sourceMax.toJson();
-		
+
 		String ns = sourceChunk.getString("ns").getValue();
 		//logger.debug(String.format("hash: %s_%s => %s_%s", sourceMin.toString(), sourceMax.toString(), minHash, maxHash));
 		return String.format("%s_%s_%s", ns, minHash, maxHash);
-		
+
 	}
-	
+
+	public static String getShardFromChunk(BsonDocument chunk) {
+		return chunk.getString("shard").getValue();
+	}
+
 	public Map<String, RawBsonDocument> loadChunksCache(Document chunkQuery) {
 		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
-		
+
 		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery).sort(Sorts.ascending("ns", "min"));
-		
+
 		int count = 0;
 		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
 			RawBsonDocument chunk = sourceChunksIterator.next();
@@ -1044,12 +1165,35 @@ public class ShardClient {
 		logger.debug("{}: loaded {} chunks into chunksCache", name, count);
 		return chunksCache;
 	}
-	
+
+	public Map<String, Map<String, RawBsonDocument>> loadChunksCacheMap(Document chunkQuery) {
+		Map<String, Map<String, RawBsonDocument>> output = new HashMap<>();
+		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
+		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery).
+				sort(Sorts.ascending("ns", "min"));
+
+		int count = 0;
+		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
+			RawBsonDocument chunk = sourceChunksIterator.next();
+			String chunkId = getIdFromChunk(chunk);
+			String shard = getShardFromChunk(chunk);
+
+			if (!output.containsKey(shard)) {
+				output.put(shard, new HashMap<>());
+			}
+			Map<String, RawBsonDocument> shardChunkCache = output.get(shard);
+			shardChunkCache.put(chunkId, chunk);
+			count++;
+		}
+		logger.debug("{}: loaded {} chunks into chunksCacheMap", name, count);
+		return output;
+	}
+
 //	public boolean checkChunkExists(BsonDocument chunk) {
 //		String id = getIdFromChunk(chunk);
 //		return chunksCache.containsKey(id);
 //	}
-	
+
 	public boolean checkChunkExists(BsonDocument chunk) {
 		String ns = chunk.getString("ns").getValue();
 		// if the dest chunk exists already, skip it
@@ -1059,7 +1203,7 @@ public class ShardClient {
 		long count = getChunksCollectionRaw().countDocuments(query);
 		return count > 0;
 	}
-	
+
 	public void createChunk(BsonDocument chunk, boolean checkExists, boolean logErrors) {
 		MongoCollection<RawBsonDocument> destChunksColl = getChunksCollectionRaw();
 		String ns = chunk.getString("ns").getValue();
@@ -1072,7 +1216,7 @@ public class ShardClient {
 		}
 
 		BsonDocument max = (BsonDocument) chunk.get("max");
-		
+
 //		for (Iterator i = max.values().iterator(); i.hasNext();) {
 //			Object next = i.next();
 //			if (next instanceof MaxKey || next instanceof BsonMaxKey) {
@@ -1100,7 +1244,7 @@ public class ShardClient {
 			}
 		}
 	}
-	
+
 	public void splitAt(String ns, BsonDocument middle, boolean logErrors) {
 		Document splitCommand = new Document("split", ns);
 		splitCommand.put("middle", middle);
@@ -1113,14 +1257,14 @@ public class ShardClient {
 			}
 		}
 	}
-	
+
 	public boolean moveChunk(RawBsonDocument chunk, String moveToShard, boolean ignoreMissing) {
 		RawBsonDocument min = (RawBsonDocument) chunk.get("min");
 		RawBsonDocument max = (RawBsonDocument) chunk.get("max");
 		String ns = chunk.getString("ns").getValue();
 		return moveChunk(ns, min, max, moveToShard, ignoreMissing);
 	}
-	
+
 	public boolean moveChunk(String namespace, RawBsonDocument min, RawBsonDocument max, String moveToShard, boolean ignoreMissing) {
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
@@ -1135,29 +1279,29 @@ public class ShardClient {
 		}
 		return true;
 	}
-	
+
 	public List<Document> splitVector(Namespace ns, Document collectionMeta) {
 		Document splitVectorCmd = new Document("splitVector", ns.getNamespace());
 		Document keyPattern = (Document)collectionMeta.get("key");
 		splitVectorCmd.append("keyPattern", keyPattern);
 		splitVectorCmd.append("maxChunkSizeBytes", ONE_GIGABYTE);
 		MongoDatabase dbTop = mongoClient.getDatabase(ns.getDatabaseName());
-		
+
 		Document stats = dbTop.runCommand(new Document("collStats", ns.getCollectionName()));
 		Long size = ((Number) stats.get("size")).longValue();
-		
+
 		int shardCount = this.shardsMap.size();
 		long splitSize = (size / shardCount) / 10;
-		
+
 		if (splitSize >= 16793599) {
 			splitSize = 16793599;
 		} else if (splitSize < ONE_MEGABYTE) {
 			splitSize = 2 * ONE_MEGABYTE;
 		}
-		
+
 		logger.debug("{}: size: {}, splitSize: {}", ns, size, splitSize);
 		splitVectorCmd.append("maxChunkSizeBytes", splitSize);
-		
+
 		Document splits = null;
 		List<Document> splitKeys = null;
 		List<Document> splitKeysAll = new ArrayList<>();
@@ -1188,11 +1332,11 @@ public class ShardClient {
 		}
 		return splitKeysAll;
 	}
-	
+
 	public Map<Namespace, List<Document>> splitVector() {
-		
+
 		Map<Namespace, List<Document>> splitPoints = new TreeMap<>();
-		
+
 		for (Document sourceColl : getCollectionsMap().values()) {
 
 			String nsStr = (String) sourceColl.get("_id");
@@ -1200,12 +1344,12 @@ public class ShardClient {
 			if (excludedSystemDbs.contains(ns.getDatabaseName())) {
 				continue;
 			}
-			
+
 			Document splitVectorCmd = new Document("splitVector", nsStr);
 			Document keyPattern = (Document)sourceColl.get("key");
 			splitVectorCmd.append("keyPattern", keyPattern);
 			splitVectorCmd.append("maxChunkSizeBytes", ONE_GIGABYTE);
-			
+
 			Document splits = null;
 			List<Document> splitKeys = null;
 			List<Document> splitKeysAll = new ArrayList<>();
@@ -1213,7 +1357,7 @@ public class ShardClient {
 				MongoClient mongoClient = entry.getValue();
 				String shardId = entry.getKey();
 				MongoDatabase db = mongoClient.getDatabase(ns.getDatabaseName());
-				
+
 				Integer splitCount = null;
 				try {
 					splits = db.runCommand(splitVectorCmd);
@@ -1232,7 +1376,7 @@ public class ShardClient {
 //						for (Document index : indexes) {
 //							logger.warn("    {}", index);
 //						}
-						
+
 					} else {
 						logger.error("splitVector unexpected error", mce);
 					}
@@ -1244,7 +1388,7 @@ public class ShardClient {
 		}
 		return splitPoints;
 	}
-	
+
 
 	public ConnectionString getConnectionString() {
 		return connectionString;

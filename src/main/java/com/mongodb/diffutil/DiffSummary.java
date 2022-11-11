@@ -11,6 +11,7 @@ public class DiffSummary {
 	public long totalMissingDocs = 0;
 	public long totalKeysMisordered = 0;
 	public long totalHashMismatched = 0;
+
 	
 	@Override
 	public int hashCode() {
