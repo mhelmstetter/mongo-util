@@ -118,10 +118,13 @@ public class DiffUtil {
         ThreadFactory retryThreadFactory = new ThreadFactoryBuilder().setNameFormat("RetryPool-%d").build();
         retryPool = Executors.newFixedThreadPool(4, retryThreadFactory);
         List<Future<DiffResult>> retryResults = new CopyOnWriteArrayList<>();
+
+        /* Once the Retryer thread has seen all the END_TOKENs this value is set.
+        *  It is used as a barrier to determine when to stop the retryPool */
         AtomicInteger finalSizeRetryResults = new AtomicInteger(-1);
 
-        ScheduledExecutorService retryer = Executors.newSingleThreadScheduledExecutor();
-        retryer.scheduleWithFixedDelay(new Runnable() {
+        ScheduledExecutorService failedTaskListener = Executors.newSingleThreadScheduledExecutor();
+        failedTaskListener.scheduleWithFixedDelay(new Runnable() {
             int endTokensSeen = 0;
 
             @Override
@@ -131,21 +134,21 @@ public class DiffUtil {
                     if (rt != null) {
                         try {
                             if (rt == RetryTask.END_TOKEN) {
-                                logger.trace("[Retryer] saw an end token ({}/{})",
+                                logger.trace("[FailedTaskListener] saw an end token ({}/{})",
                                         endTokensSeen + 1, totalInitialTasks);
                                 if (++endTokensSeen == totalInitialTasks) {
-                                    logger.debug("[Retryer] has seen all end tokens ({})", endTokensSeen);
+                                    logger.debug("[FailedTaskListener] has seen all end tokens ({})", endTokensSeen);
                                     finalSizeRetryResults.set(retryResults.size());
                                 }
                             } else {
-                                AbstractDiffTask originalTask = rt.getOriginalTask();
-                                logger.debug("[Retryer] submitting retry {} for ({}-{})",
-                                        rt.getRetryStatus().getAttempt() + 1, originalTask.namespace.getNamespace(),
+                                DiffTask originalTask = rt.getOriginalTask();
+                                logger.debug("[FailedTaskListener] submitting retry {} for ({}-{})",
+                                        rt.getRetryStatus().getAttempt() + 1, originalTask.getNamespace(),
                                         originalTask.chunkString);
                                 retryResults.add(retryPool.submit(rt));
                             }
                         } catch (Exception e) {
-                            logger.error("[Retryer] Exception occured while running retry task", e);
+                            logger.error("[FailedTaskListener] Exception occured while running retry task", e);
                             throw new RuntimeException(e);
                         }
                     }
@@ -159,8 +162,9 @@ public class DiffUtil {
             String destShard = destShardNames.get(i);
             Map<String, RawBsonDocument> chunkCache = sourceChunksCacheMap.get(srcShard);
             for (RawBsonDocument chunk : chunkCache.values()) {
-                ShardedDiffTask task = new ShardedDiffTask(sourceShardClient, destShardClient,
-                        config, chunk, srcShard, destShard, retryQueue);
+                String nsStr = chunk.get("ns").asString().getValue();
+                DiffTask task = new DiffTask(sourceShardClient, destShardClient,
+                        config, chunk, nsStr, srcShard, destShard, retryQueue);
                 List<Future<DiffResult>> diffResults = diffResultMap.get(srcShard);
                 ThreadPoolExecutor executor = executorMap.get(srcShard);
                 diffResults.add(executor.submit(task));
@@ -176,7 +180,7 @@ public class DiffUtil {
             int shardIdx = i % numShards;
             String srcShard = srcShardNames.get(shardIdx);
             String destShard = destShardNames.get(shardIdx);
-            UnshardedDiffTask task = new UnshardedDiffTask(sourceShardClient, destShardClient,
+            DiffTask task = new DiffTask(sourceShardClient, destShardClient, config, null,
                     unshardedColl.getNamespace(), srcShard, destShard, retryQueue);
             logger.debug("[Main] Added an UnshardedDiffTask for {}", unshardedColl.getNamespace());
             List<Future<DiffResult>> diffResults = diffResultMap.get(srcShard);
@@ -227,19 +231,7 @@ public class DiffUtil {
                                                 result.getNs(), result.getChunkString(), result.getMatches(),
                                                 result.getFailureCount(), result.getBytesProcessed());
 
-                                        if (failures > 0) {
-                                            summary.incrementFailedChunks(1);
-                                        }
-                                        summary.incrementSuccessfulDocs(result.getMatches() - failures);
-
-                                        summary.incrementRetryChunks(-1);
-                                        summary.incrementProcessedDocs(result.getMatches() + failures);
-                                        summary.incrementFailedDocs(failures);
-                                        summary.incrementProcessedChunks(1);
-
-                                        summary.incrementSourceOnly(result.getOnlyOnSource());
-                                        summary.incrementDestOnly(result.getOnlyOnDest());
-                                        summary.incrementProcessedSize(result.getBytesProcessed());
+                                        summary.updateRetryTask(result);
                                     }
 
                                 } catch (InterruptedException e) {
@@ -292,20 +284,13 @@ public class DiffUtil {
                                         if (failures > 0) {
                                             logger.debug("[WorkerResultCollector] will retry {} failed ids for {}--{} ({})",
                                                     result.getFailureCount(), result.getNs(), shard, result.getChunkString());
-                                            summary.incrementRetryChunks(1);
                                         } else {
                                             logger.debug("[WorkerResultCollector] got result for {}--{} ({}): " +
                                                             "{} matches, {} failures, {} bytes",
                                                     result.getNs(), shard, result.getChunkString(), result.getMatches(),
                                                     result.getFailureCount(), result.getBytesProcessed());
-
-                                            summary.incrementSuccessfulDocs(result.getMatches());
-
-                                            summary.incrementProcessedDocs(result.getMatches());
-                                            summary.incrementProcessedChunks(1);
-
-                                            summary.incrementProcessedSize(result.getBytesProcessed());
                                         }
+                                        summary.updateInitTask(result);
                                     }
 
 //                logger.debug("result: {}", result);
@@ -350,8 +335,8 @@ public class DiffUtil {
         logger.info("[Main] shutting down retryResultCollector thread");
         retryResultCollector.shutdown();
 
-        logger.info("[Main] shutting down retryer thread");
-        retryer.shutdown();
+        logger.info("[Main] shutting down failedTaskListener thread");
+        failedTaskListener.shutdown();
 
         logger.info("[Main] shutting down statusReporter thread");
         statusReporter.shutdown();
