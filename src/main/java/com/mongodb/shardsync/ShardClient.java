@@ -235,7 +235,7 @@ public class ShardClient {
 		FindIterable<Shard> shards = shardsColl.find().sort(Sorts.ascending("_id"));
 		
 		if (rsRegex != null) {
-			
+			logger.debug("{}: populateShardList(), rsRegex:", name, rsRegex);
 			Pattern p = Pattern.compile(rsRegex);
 			for (Shard sh : shards) {
 				
