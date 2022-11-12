@@ -9,6 +9,7 @@ import static com.mongodb.client.model.Filters.regex;
 import static com.mongodb.client.model.Projections.include;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -235,7 +236,7 @@ public class ShardClient {
 		FindIterable<Shard> shards = shardsColl.find().sort(Sorts.ascending("_id"));
 		
 		if (rsRegex != null) {
-			logger.debug("{}: populateShardList(), rsRegex:", name, rsRegex);
+			logger.debug("{}: populateShardList(), rsRegex: {}", name, rsRegex);
 			Pattern p = Pattern.compile(rsRegex);
 			for (Shard sh : shards) {
 				
@@ -245,11 +246,19 @@ public class ShardClient {
 				
 				ReplicaSetInfo rsInfo = getReplicaSetInfoFromHost(seedList);
 				
+				if (rsInfo == null) {
+					throw new RuntimeException("unable to get rsInfo from " + seedList);
+				}
+				
 				String foundHost = null;
 				for (String host : rsInfo.getHosts()) {
 					
 					if (p.matcher(host).find()) {
 						rsInfo = getReplicaSetInfoFromHost(host);
+						// connection may have failed
+						if (rsInfo == null) {
+							continue;
+						}
 						logger.debug("match, rs: {}, host: {}, secondary: {}", rsName, host, rsInfo.isSecondary());
 						if (rsInfo.isSecondary()) {
 							foundHost = host;
@@ -353,11 +362,27 @@ public class ShardClient {
 	}
 
 
-	
+	// TODO - this doesn't handle connection string settings, e.g. ssl
 	private ReplicaSetInfo getReplicaSetInfoFromHost(String host) {
 		ReplicaSetInfo rsInfo = new ReplicaSetInfo();
-		MongoClient tmp = MongoClients.create("mongodb://" + host);
-		Document result = tmp.getDatabase("admin").runCommand(new Document("hello", 1));
+		
+		ConnectionString connectionString = new ConnectionString("mongodb://" + host);
+		MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+                .applyConnectionString(connectionString)
+                .applyToSocketSettings(builder -> {
+                    builder.connectTimeout(5000, MILLISECONDS);
+                  })
+                .build();
+		MongoClient tmp = MongoClients.create(mongoClientSettings);
+		
+		Document result = null;
+		try {
+			result = tmp.getDatabase("admin").runCommand(new Document("hello", 1));
+		} catch (MongoException me) {
+			logger.warn("Error getting hello() for {}, {}", host, me.getMessage());
+			return null;
+		}
+		
 		
 		if (result.containsKey("setName")) {
 			rsInfo.setRsName(result.getString("setName"));
