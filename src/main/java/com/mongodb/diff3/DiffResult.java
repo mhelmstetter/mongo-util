@@ -27,13 +27,13 @@ public class DiffResult {
 
     public DiffResult mergeRetryResult(DiffResult rr) {
         DiffResult merged = new DiffResult();
-        merged.matches = rr.matches;// + this.matches;
+        merged.matches = rr.matches + this.matches;
         merged.onlyOnSource = rr.onlyOnSource;
         merged.onlyOnDest = rr.onlyOnDest;
-        merged.failedIds = rr.failedIds;
+        merged.failedIds = this.failedIds;
         merged.bytesProcessed = this.bytesProcessed;
-        merged.ns = this.ns;
-        merged.chunkString = this.chunkString;
+        merged.ns = rr.ns;
+        merged.chunkString = rr.chunkString;
         merged.retryable = rr.retryable;
         return merged;
     }
@@ -47,7 +47,11 @@ public class DiffResult {
         copy.ns = ns;
         copy.chunkString = chunkString;
         copy.retryable = retryable;
-        copy.failedIds = new HashSet<>(failedIds);
+        if (failedIds == null) {
+            copy.failedIds = new HashSet<>();
+        } else {
+            copy.failedIds = new HashSet<>(failedIds);
+        }
         return copy;
     }
 
@@ -58,7 +62,7 @@ public class DiffResult {
         builder.append(", matches=");
         builder.append(matches);
         builder.append(", failedIds=");
-        builder.append(failedIds.size());
+        builder.append(failedIds == null ? 0 : failedIds.size());
         builder.append(", chunk=");
         builder.append(chunkString);
         builder.append("]");

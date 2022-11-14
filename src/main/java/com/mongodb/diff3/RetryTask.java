@@ -38,7 +38,7 @@ public class RetryTask implements Callable<DiffResult> {
             if (retryStatus.canRetry()) {
                 DiffResult copyOfOriginalResult = originalResult.copy();
                 try {
-                    originalTask.computeDiff(failedIds);
+                    result = originalTask.computeDiff(failedIds);
                 } catch (Exception e) {
                     logger.error("Fatal error performing diffs, ns: {}",
                             originalTask.getNamespace());
@@ -47,7 +47,7 @@ public class RetryTask implements Callable<DiffResult> {
                     originalTask.closeCursor(originalTask.sourceCursor);
                     originalTask.closeCursor(originalTask.destCursor);
                 }
-                result = originalResult.mergeRetryResult(copyOfOriginalResult);
+                result = result.mergeRetryResult(copyOfOriginalResult);
 
                 if (result.getFailureCount() > 0) {
                     RetryStatus newRetryStatus = retryStatus.increment();
@@ -65,6 +65,12 @@ public class RetryTask implements Callable<DiffResult> {
                         retryQueue.add(END_TOKEN);
                         result.setRetryable(false);
                     }
+                } else {
+                    // Retry succeeded
+                    logger.info("[{}] retry task for ({}-{}) succeeded on attempt: {}",
+                            Thread.currentThread().getName(), originalTask.getNamespace(), originalTask.chunkString,
+                            retryStatus.getAttempt());
+                    retryQueue.add(END_TOKEN);
                 }
                 break;
             } else {

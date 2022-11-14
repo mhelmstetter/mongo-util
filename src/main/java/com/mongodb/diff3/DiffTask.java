@@ -111,7 +111,7 @@ public class DiffTask implements Callable<DiffResult> {
                     retryStatus, this, result, result.getFailedIds(), retryQueue);
             retryQueue.add(retryTask);
             logger.debug("[{}] detected {} failures and added a retry task ({}-{})",
-                    Thread.currentThread().getName(), namespace, chunkString);
+                    Thread.currentThread().getName(), result.getFailureCount(), chunkString);
         } else {
             retryQueue.add(RetryTask.END_TOKEN);
         }
