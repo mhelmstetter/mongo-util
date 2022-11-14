@@ -3,6 +3,8 @@ package com.mongodb.diff3;
 
 import com.mongodb.model.Namespace;
 
+import java.util.HashSet;
+
 public class PartitionDiffResult extends DiffResult {
     Partition partition;
     Namespace namespace;
@@ -41,6 +43,11 @@ public class PartitionDiffResult extends DiffResult {
         onlyOnSource += subResult.onlyOnSource;
         onlyOnDest += subResult.onlyOnDest;
         bytesProcessed += subResult.bytesProcessed;
-        failedIds.addAll(subResult.failedIds);
+        if (failedIds == null) {
+            failedIds = new HashSet<>();
+        }
+        if (subResult.failedIds != null) {
+            failedIds.addAll(subResult.failedIds);
+        }
     }
 }

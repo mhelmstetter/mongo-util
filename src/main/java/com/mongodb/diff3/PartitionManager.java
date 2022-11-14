@@ -16,6 +16,7 @@ import org.bson.conversions.Bson;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.mongodb.client.model.Accumulators.max;
 import static com.mongodb.client.model.Accumulators.sum;
 
 public class PartitionManager {
@@ -33,8 +34,8 @@ public class PartitionManager {
 
     public List<Partition> partitionCollection(Namespace ns, MongoClient client) {
         List<Partition> output = new ArrayList<>();
-        Pair<Long, Long> collMetrics = getCollMetrics(client, ns);
-        long collSize = collMetrics.getLeft();
+        Pair<Long, Integer> collMetrics = getCollMetrics(client, ns);
+        double collSize = collMetrics.getLeft();
         long collNumDocs = collMetrics.getRight();
 
         Object minIdBound = getOuterIdBound(ns, client, false);
@@ -59,8 +60,9 @@ public class PartitionManager {
         return output;
     }
 
-    private Pair<Long, Long> getCollMetrics(MongoClient client, Namespace ns) {
-        long collSize = 0, collNumDocs = 0;
+    private Pair<Long, Integer> getCollMetrics(MongoClient client, Namespace ns) {
+        long collSize = 0;
+        int collNumDocs = 0;
         String db = ns.getDatabaseName();
         String coll = ns.getCollectionName();
 
@@ -74,8 +76,8 @@ public class PartitionManager {
 
         MongoCursor<Document> cursor = results.iterator();
         Document first = cursor.next();
-        collSize = first.getLong("size");
-        collNumDocs = first.getLong("count");
+        collSize = asLong(first.get("size"));
+        collNumDocs = asInt(first.get("count"));
         if (cursor.hasNext()) {
             throw new RuntimeException("Expected only result while getting collection metrics");
         }
@@ -127,9 +129,18 @@ public class PartitionManager {
         MongoCursor<Document> cursor = results.iterator();
         while (cursor.hasNext()) {
             Document doc = cursor.next();
-            output.add(doc.get("_id.max"));
+            Object maxId = ((Document) doc.get("_id")).get("max");
+            output.add(maxId);
         }
 
         return output;
+    }
+
+    private long asLong(Object o) {
+        return ((Number) o).longValue();
+    }
+
+    private int asInt(Object o) {
+        return ((Number) o).intValue();
     }
 }

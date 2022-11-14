@@ -1,6 +1,7 @@
 package com.mongodb.diff3;
 
 import java.io.File;
+import java.util.Arrays;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -37,7 +38,7 @@ public class DiffUtilApp {
     private final static String DEFAULT_SAMPLE_RATE = "0.04";
     private final static String DEFAULT_SAMPLE_MIN_DOCS = "101";
     private final static String DEFAULT_MAX_DOCS_TO_SAMPLE_PER_PARTITION = "10";
-    private final static String DEFAULT_DEFAULT_PARTITION_SIZE = String.valueOf(400 * 1024 * 1024);
+    private final static String DEFAULT_DEFAULT_PARTITION_SIZE = String.valueOf(20 * 1024 * 1024);
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -132,7 +133,8 @@ public class DiffUtilApp {
                 partitionMode = true;
             }
         }
-        CommandLine line = initializeAndParseCommandLineOptions(args);
+        String[] remainingArgs = Arrays.copyOfRange(args, 1, args.length);
+        CommandLine line = initializeAndParseCommandLineOptions(remainingArgs);
 
         Configuration properties = readProperties();
 
