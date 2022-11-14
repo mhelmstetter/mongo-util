@@ -19,40 +19,24 @@ import java.util.concurrent.atomic.LongAdder;
 
 
 public class PartitionDiffTask implements Callable<PartitionDiffResult> {
-    private final Namespace namespace;
+    private final Partition partition;
     private final MongoClient sourceClient;
     private final MongoClient destClient;
-    private final PartitionManager partitionManager;
     private static final Logger logger = LoggerFactory.getLogger(PartitionDiffTask.class);
     private long start;
+    static final PartitionDiffTask END_TOKEN = new PartitionDiffTask(null, null, null);
 
 
-    public PartitionDiffTask(Namespace namespace, MongoClient sourceClient, MongoClient destClient,
-                             PartitionManager partitionManager) {
-        this.namespace = namespace;
+    public PartitionDiffTask(Partition partition, MongoClient sourceClient, MongoClient destClient) {
+        this.partition = partition;
         this.sourceClient = sourceClient;
         this.destClient = destClient;
-        this.partitionManager = partitionManager;
     }
 
     @Override
     public PartitionDiffResult call() throws Exception {
         start = System.currentTimeMillis();
-        PartitionDiffResult result = new PartitionDiffResult();
-        logger.debug("Thread [{}] got a task for {}", Thread.currentThread().getName(), namespace.getNamespace());
-
-        result.namespace = namespace;
-        List<Partition> partitions = partitionManager.partitionCollection(namespace, sourceClient);
-        logger.debug("Thread [{}] created {} partitions for {}",
-                Thread.currentThread().getName(), partitions.size(), namespace);
-
-        Collections.shuffle(partitions);
-        for (Partition p : partitions) {
-            logger.debug("Thread [{}] is processing partition: {}", Thread.currentThread().getName(), p.toString());
-
-            PartitionDiffResult subResult = fetchAndCompare(p);
-            result.add(subResult);
-        }
+        PartitionDiffResult result = fetchAndCompare(partition);
         long timeSpent = timeSpent(System.currentTimeMillis());
         logger.debug("Thread [{}] completed a task in {} ms :: {}",
                 Thread.currentThread().getName(), timeSpent, result.shortString());
@@ -62,7 +46,7 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
     private PartitionDiffResult fetchAndCompare(Partition p) {
         logger.debug("Thread [{}] started fetch/compare for {}", Thread.currentThread().getName(), p.toString());
         PartitionDiffResult result = new PartitionDiffResult();
-        result.namespace = namespace;
+        result.namespace = p.getNamespace();
         result.partition = p;
         LongAdder srcBytes = new LongAdder();
         LongAdder destBytes = new LongAdder();
@@ -84,7 +68,13 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
                 result.addFailedKey(key);
             }
             result.onlyOnSource = diff.entriesOnlyOnLeft().size();
+            for (String oos : diff.entriesOnlyOnLeft().keySet()) {
+                result.addFailedKey(oos);
+            }
             result.onlyOnDest = diff.entriesOnlyOnRight().size();
+            for (String ood : diff.entriesOnlyOnRight().keySet()) {
+                result.addFailedKey(ood);
+            }
         }
         result.bytesProcessed = Math.max(srcBytes.longValue(), destBytes.longValue());
         long diffTime = System.currentTimeMillis() - compStart;
@@ -102,7 +92,7 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
         MongoCollection<RawBsonDocument> coll = client.getDatabase(dbName)
                 .getCollection(collName, RawBsonDocument.class);
         Bson pquery = p.query();
-        MongoCursor<RawBsonDocument> cursor = coll.find(pquery).iterator();
+        MongoCursor<RawBsonDocument> cursor = coll.find(pquery).batchSize(10000).iterator();
         try {
             while (cursor.hasNext()) {
                 RawBsonDocument doc = cursor.next();

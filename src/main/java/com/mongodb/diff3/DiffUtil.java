@@ -95,7 +95,7 @@ public class DiffUtil {
     public void run() {
         int totalChunks = getTotalChunks();
         int numShards = srcShardNames.size();
-        DiffSummary summary = new DiffSummary(totalChunks, estimatedTotalDocs, totalSize);
+        DiffSummary summary = new DiffSummary(estimatedTotalDocs, totalSize);
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
         statusReporter.scheduleAtFixedRate(new Runnable() {

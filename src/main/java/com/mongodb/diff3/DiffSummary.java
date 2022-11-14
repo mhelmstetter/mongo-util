@@ -4,7 +4,7 @@ import java.util.Date;
 import java.util.concurrent.atomic.LongAdder;
 
 public class DiffSummary {
-    private final int totalChunks;
+    private int totalChunks = -1;
     private final long totalDocs;
     private final long totalSize;
     private LongAdder processedChunks;
@@ -22,8 +22,7 @@ public class DiffSummary {
     private static final long M = 1024 * 1024;
     private static final long G = 1024 * 1024 * 1024;
 
-    public DiffSummary(int totalChunks, long totalDocs, long totalSize) {
-        this.totalChunks = totalChunks;
+    public DiffSummary(long totalDocs, long totalSize) {
         this.totalDocs = totalDocs;
         this.totalSize = totalSize;
 
@@ -41,11 +40,17 @@ public class DiffSummary {
         this.startTime = new Date().getTime();
     }
 
+    public synchronized void setTotalChunks(int totalChunks) {
+        this.totalChunks = totalChunks;
+    }
+
     public String getSummary(boolean done) {
         long millsElapsed = getTimeElapsed();
         int secondsElapsed = (int) (millsElapsed / 1000.);
 
-        double chunkProcPct = (processedChunks.longValue() / (double) totalChunks) * 100.;
+
+        double chunkProcPct = (totalChunks >= 0) ? (processedChunks.longValue() / (double) totalChunks) * 100. : 0;
+
         double docProcPct = (processedDocs.longValue() / (double) totalDocs) * 100.;
         double chunkFailPct = failedChunks.longValue() > 0 ? ((double) failedChunks.longValue() /
                 (failedChunks.longValue() + successfulChunks.longValue())) * 100. : 0;
@@ -62,9 +67,9 @@ public class DiffSummary {
                         "%.2f %% of chunks failed  (%s/%s chunks).  " +
                         "%.2f %% of documents failed  (%s/%s docs).  " +
                         "%s docs found on source only.  %s docs found on target only", firstLine, chunkProcPct,
-                processedChunks.longValue(), totalChunks, docProcPct, processedDocs.longValue(), totalDocs,
-                sizeProcessedPct, ppSize(processedSize.longValue()), ppTotalSize, chunkFailPct,
-                failedChunks.longValue(), processedChunks.longValue(), docFailPct, failedDocs.longValue(),
+                processedChunks.longValue(), totalChunks > 0 ? totalChunks : "Unknown", docProcPct,
+                processedDocs.longValue(), totalDocs, sizeProcessedPct, ppSize(processedSize.longValue()), ppTotalSize,
+                chunkFailPct, failedChunks.longValue(), processedChunks.longValue(), docFailPct, failedDocs.longValue(),
                 processedDocs.longValue(), sourceOnly.longValue(), destOnly.longValue());
     }
 

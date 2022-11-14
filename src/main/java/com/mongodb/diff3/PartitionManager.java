@@ -10,6 +10,8 @@ import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.model.Namespace;
 import org.apache.commons.lang3.tuple.Pair;
+import org.bson.BsonMaxKey;
+import org.bson.BsonMinKey;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 
@@ -38,8 +40,10 @@ public class PartitionManager {
         double collSize = collMetrics.getLeft();
         long collNumDocs = collMetrics.getRight();
 
-        Object minIdBound = getOuterIdBound(ns, client, false);
-        Object maxIdBound = getOuterIdBound(ns, client, true);
+//        Object minIdBound = getOuterIdBound(ns, client, false);
+//        Object maxIdBound = getOuterIdBound(ns, client, true);
+        Object minIdBound = new BsonMinKey();
+        Object maxIdBound = new BsonMaxKey();
 
         int numPartitions = (int) ((collSize / defaultPartitionSize) + 1);
         List<Object> midIdBounds = getMidIdBounds(ns, client, numPartitions, collNumDocs);
