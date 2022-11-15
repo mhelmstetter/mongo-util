@@ -11,6 +11,7 @@ import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.CodecUtils;
 import org.bson.BsonDocument;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
@@ -22,9 +23,13 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
 
+import static com.mongodb.client.model.Filters.*;
+import static com.mongodb.diff3.DiffTask.Target.DEST;
+import static com.mongodb.diff3.DiffTask.Target.SOURCE;
+
+public class DiffTask implements Callable<DiffResult> {
 
 
-public class PartitionDiffTask implements Callable<PartitionDiffResult> {
     protected enum Target {
         SOURCE("source"),
         DEST("dest");
@@ -40,12 +45,17 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
         }
     }
 
-    private final Partition partition;
-    private final MongoClient sourceClient;
-    private final MongoClient destClient;
-    private static final Logger logger = LoggerFactory.getLogger(PartitionDiffTask.class);
-    private long start;
-    static final PartitionDiffTask END_TOKEN = new PartitionDiffTask(null, null, null, null);
+    protected static final Logger logger = LoggerFactory.getLogger(DiffTask.class);
+    protected ShardClient sourceShardClient;
+    protected ShardClient destShardClient;
+    protected DiffConfiguration config;
+    protected String srcShardName;
+    protected String destShardName;
+
+    protected String namespace;
+    protected Bson query;
+    protected long start;
+    protected RawBsonDocument chunk;
 
     protected LongAdder sourceBytesProcessed = new LongAdder();
     protected LongAdder destBytesProcessed = new LongAdder();
@@ -55,67 +65,106 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
 
     protected Map<String, String> sourceDocs = null;
     protected Map<String, String> destDocs = null;
-    protected Queue<PartitionRetryTask> retryQueue;
-    private Bson query;
+    protected String chunkString = "[:]";
+    protected Queue<RetryTask> retryQueue;
 
-
-    public PartitionDiffTask(Partition partition, MongoClient sourceClient,
-                             MongoClient destClient, Queue<PartitionRetryTask> retryQueue) {
-        this.partition = partition;
-        this.sourceClient = sourceClient;
-        this.destClient = destClient;
+    public DiffTask(ShardClient sourceShardClient, ShardClient destShardClient, DiffConfiguration config,
+                    RawBsonDocument chunk, String namespace, String srcShardName,
+                    String destShardName, Queue<RetryTask> retryQueue) {
+        this.sourceShardClient = sourceShardClient;
+        this.destShardClient = destShardClient;
+        this.config = config;
+        this.chunk = chunk;
+        this.namespace = namespace;
+        this.srcShardName = srcShardName;
+        this.destShardName = destShardName;
         this.retryQueue = retryQueue;
     }
 
+
     @Override
-    public PartitionDiffResult call() throws Exception {
-        PartitionDiffResult result;
+    public DiffResult call() throws Exception {
+        DiffResult result;
         start = System.currentTimeMillis();
         query = new BsonDocument();
-        if (partition != null) {
-            query = partition.query();
+        if (chunk != null) {
+            query = formChunkQuery();
         }
 
         try {
             result = computeDiff();
-        } catch (Exception e) {
-            logger.error("[{}] fatal error diffing ({})", Thread.currentThread().getName(), partition.toString());
+        } catch (Exception e){
+            logger.error("[{}] fatal error diffing ({}-{})",
+                    Thread.currentThread().getName(), namespace, chunkString, e);
             throw new RuntimeException(e);
         } finally {
             closeCursor(sourceCursor);
             closeCursor(destCursor);
         }
 
-        result.setPartition(partition);
-        result.setNamespace(partition.getNamespace());
+        result.setNs(namespace);
+        result.setChunkString(chunkString);
 
         if (result.getFailureCount() > 0) {
-            RetryStatus retryStatus = new RetryStatus(0, System.currentTimeMillis());
-            PartitionRetryTask retryTask = new PartitionRetryTask(retryStatus, this, result, result.getFailedIds(), retryQueue);
+            RetryStatus retryStatus= new RetryStatus(0, System.currentTimeMillis());
+            RetryTask retryTask = new RetryTask(
+                    retryStatus, this, result, result.getFailedIds(), retryQueue);
             retryQueue.add(retryTask);
-            logger.debug("[{}] detected {} failures and added a retry task ({})",
-                    Thread.currentThread().getName(), result.getFailureCount(), partition.toString());
+            logger.debug("[{}] detected {} failures and added a retry task ({}-{})",
+                    Thread.currentThread().getName(), result.getFailureCount(), chunkString);
         } else {
-            retryQueue.add(PartitionRetryTask.END_TOKEN);
+            retryQueue.add(RetryTask.END_TOKEN);
         }
+
         long timeSpent = System.currentTimeMillis() - start;
-        logger.debug("[{}] completed a task in {} ms :: {}",
-                Thread.currentThread().getName(), timeSpent, result.shortString());
+        logger.debug("[{}] completed a diff task in {} ms ({}-{})",
+                Thread.currentThread().getName(), timeSpent, namespace, chunkString);
+
         return result;
     }
 
-    protected PartitionDiffResult computeDiff() {
+    protected Bson formChunkQuery() {
+        Bson query;
+        BsonDocument min = chunk.getDocument("min");
+        BsonDocument max = chunk.getDocument("max");
+        chunkString = "[" + min.toString() + " : " + max.toString() + "]";
+
+        Document shardCollection = sourceShardClient.getCollectionsMap().get(namespace);
+        Document shardKeysDoc = (Document) shardCollection.get("key");
+        Set<String> shardKeys = shardKeysDoc.keySet();
+
+        if (shardKeys.size() > 1) {
+            List<Bson> filters = new ArrayList<>(shardKeys.size());
+            for (String key : shardKeys){
+                BsonValue minkey = min.get(key);
+                BsonValue maxkey = max.get(key);
+                if (minkey.equals(maxkey)) {
+                    filters.add(eq(key, minkey));
+                } else {
+                    filters.add(and(gte(key, minkey), lt(key, maxkey)));
+                }
+            }
+            query = and(filters);
+        } else {
+            String key = shardKeys.iterator().next();
+            query = and(gte(key, min.get(key)), lt(key, max.get(key)));
+        }
+        return query;
+    }
+
+
+    protected DiffResult computeDiff() {
         return computeDiff(null);
     }
 
-    protected PartitionDiffResult computeDiff(Collection<String> ids) {
-        sourceDocs = load(ids, Target.SOURCE);
-        destDocs = load(ids, Target.DEST);
+    protected DiffResult computeDiff(Collection<String> ids) {
+        sourceDocs = load(ids, SOURCE);
+        destDocs = load(ids, DEST);
         return doComparison();
     }
 
-    private PartitionDiffResult doComparison() {
-        PartitionDiffResult result = new PartitionDiffResult();
+    private DiffResult doComparison() {
+        DiffResult result = new DiffResult();
         long compStart = System.currentTimeMillis();
         MapDifference<String, String> diff = Maps.difference(sourceDocs, destDocs);
 
@@ -144,30 +193,33 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
         }
         result.setBytesProcessed(Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue()));
         long diffTime = System.currentTimeMillis() - compStart;
-        logger.debug("[{}] computed diff in {} ms ({})",
-                Thread.currentThread().getName(), diffTime, partition.toString());
+        logger.debug("[{}] computed diff in {} ms ({}-{})",
+                Thread.currentThread().getName(), diffTime, namespace, chunkString);
         return result;
     }
 
     protected Map<String, String> load(Collection<String> ids, Target target) {
         Map<String, String> output = new HashMap<>();
         long loadStart = System.currentTimeMillis();
-        MongoClient client;
-
+        ShardClient shardClient;
+        String shardName;
         LongAdder bytesProcessed;
         switch (target) {
             case SOURCE:
-                client = sourceClient;
+                shardClient = sourceShardClient;
+                shardName = srcShardName;
                 bytesProcessed = sourceBytesProcessed;
                 break;
             case DEST:
-                client = destClient;
+                shardClient = destShardClient;
+                shardName = destShardName;
                 bytesProcessed = destBytesProcessed;
                 break;
             default:
                 throw new RuntimeException("Unexpected target type: " + target.getName());
         }
-        MongoCollection<RawBsonDocument> coll = getRawCollection(client, partition.getNamespace().getNamespace());
+        MongoClient shardMongoClient = shardClient.getShardMongoClient(shardName);
+        MongoCollection<RawBsonDocument> coll = getRawCollection(shardMongoClient, namespace);
         Bson q = (ids != null && ids.size() > 0) ? formIdsQuery(ids) : query;
         MongoCursor<RawBsonDocument> cursor = coll.find(q).batchSize(10000).iterator();
 
@@ -181,8 +233,8 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
             output.put(id, docHash);
         }
         long loadTime = System.currentTimeMillis() - loadStart;
-        logger.debug("[{}] loaded {} {} docs in {} ms ({})",
-                Thread.currentThread().getName(), output.size(), target.getName(), loadTime, partition.toString());
+        logger.debug("[{}] loaded {} {} docs for {} in {} ms ({})",
+                Thread.currentThread().getName(), output.size(), target.getName(), namespace, loadTime, chunkString);
         return output;
     }
 
@@ -205,7 +257,7 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
         return client.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName(), RawBsonDocument.class);
     }
 
-    public Partition getPartition() {
-        return partition;
+    public String getNamespace() {
+        return namespace;
     }
 }

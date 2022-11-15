@@ -17,17 +17,20 @@ public class PartitionTask implements Callable<Pair<String, Integer>> {
     private final MongoClient destClient;
     private final PartitionManager partitionManager;
     private final Queue<PartitionDiffTask> partitionQueue;
+    private final Queue<PartitionRetryTask> retryQueue;
 
     private  static final Logger logger = LoggerFactory.getLogger(PartitionTask.class);
     private long start;
 
     public PartitionTask(Namespace namespace, MongoClient sourceClient, MongoClient destClient,
-                         PartitionManager partitionManager, Queue<PartitionDiffTask> partitionQueue) {
+                         PartitionManager partitionManager, Queue<PartitionDiffTask> partitionQueue,
+                         Queue<PartitionRetryTask> retryQueue) {
         this.namespace = namespace;
         this.sourceClient = sourceClient;
         this.destClient = destClient;
         this.partitionManager = partitionManager;
         this.partitionQueue = partitionQueue;
+        this.retryQueue = retryQueue;
     }
 
     @Override
@@ -41,7 +44,7 @@ public class PartitionTask implements Callable<Pair<String, Integer>> {
 
         for (Partition p : partitions) {
             logger.debug("[{}] added {} to the partition queue", Thread.currentThread().getName(), p.toString());
-            partitionQueue.add(new PartitionDiffTask(p, sourceClient, destClient));
+            partitionQueue.add(new PartitionDiffTask(p, sourceClient, destClient, retryQueue));
         }
         partitionQueue.add(PartitionDiffTask.END_TOKEN);
         logger.debug("[{}] Partition task completed in {} ms",

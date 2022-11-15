@@ -28,11 +28,13 @@ public class DifferentDiffUtil {
     private ThreadPoolExecutor executor;
 
     private ThreadPoolExecutor partitioner;
+    private ExecutorService retryPool;
     private List<Future<PartitionDiffResult>> diffResults = new ArrayList<>();
     private List<Future<Pair<String, Integer>>> partitionResults = new ArrayList<>();
     private long estimatedTotalDocs;
     private long totalSize;
     private Queue<PartitionDiffTask> partitionTaskQueue;
+    private Queue<PartitionRetryTask> retryQueue;
 
     public DifferentDiffUtil(DiffConfiguration config) {
         this.config = config;
@@ -50,10 +52,10 @@ public class DifferentDiffUtil {
         estimatedTotalDocs = sizeAndCount[1];
         Set<String> colls = catalog.getUnshardedCollections().stream()
                 .map(c -> c.getNamespace().getNamespace()).collect(Collectors.toSet());
-        logger.info("Collections: [" + String.join(", ", colls) + "]");
+        logger.info("[Main] collections: [" + String.join(", ", colls) + "]");
 
         int queueSize = colls.size() * 8;
-        logger.debug("Setting queue size to {}", queueSize);
+        logger.debug("[Main] Setting queue size to {}", queueSize);
         BlockingQueue<Runnable> workQueue = new ArrayBlockingQueue<>(queueSize);
         BlockingQueue<Runnable> partitionerWorkQueue = new ArrayBlockingQueue<>(colls.size());
         int numThreads = config.getThreads();
@@ -66,6 +68,7 @@ public class DifferentDiffUtil {
     public void run() {
         Set<Collection> colls = databaseCatalogProvider.get().getUnshardedCollections();
         DiffSummary summary = new DiffSummary(estimatedTotalDocs, totalSize);
+        retryQueue = new LinkedBlockingQueue<>();
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
         statusReporter.scheduleAtFixedRate(new Runnable() {
@@ -86,7 +89,7 @@ public class DifferentDiffUtil {
 
         for (Collection coll : colls) {
             PartitionTask pt = new PartitionTask(coll.getNamespace(), sourceClient,
-                    destClient, partitionManager, partitionTaskQueue);
+                    destClient, partitionManager, partitionTaskQueue, retryQueue);
             partitionResults.add(partitioner.submit(pt));
         }
         partitionListener.scheduleWithFixedDelay(new Runnable() {
@@ -106,6 +109,7 @@ public class DifferentDiffUtil {
                                     logger.debug("[PartitionListener] has seen all end tokens ({})", endTokensSeen);
                                     totalPartitions.set(numPartitions);
                                     summary.setTotalChunks(numPartitions);
+                                    break;
                                 }
                             } else {
                                 diffResults.add(executor.submit(pt));
@@ -120,10 +124,52 @@ public class DifferentDiffUtil {
             }
         }, 0, 100, TimeUnit.MILLISECONDS);
 
+        ThreadFactory retryThreadFactory = new ThreadFactoryBuilder().setNameFormat("RetryPool-%d").build();
+        retryPool = Executors.newFixedThreadPool(4, retryThreadFactory);
+        List<Future<PartitionDiffResult>> retryResults = new CopyOnWriteArrayList<>();
+
+        /* Once the Retryer thread has seen all the END_TOKENs this value is set.
+         *  It is used as a barrier to determine when to stop the retryPool */
+        AtomicInteger finalSizeRetryResults = new AtomicInteger(-1);
+
+        ScheduledExecutorService failedTaskListener = Executors.newSingleThreadScheduledExecutor();
+        failedTaskListener.scheduleWithFixedDelay(new Runnable() {
+            int endTokensSeen = 0;
+
+            @Override
+            public void run() {
+                PartitionRetryTask rt;
+                while ((rt = retryQueue.poll()) != null) {
+                    if (rt != null) {
+                        try {
+                            if (rt == PartitionRetryTask.END_TOKEN) {
+                                logger.debug("[FailedTaskListener] saw an end token ({}/{})",
+                                        endTokensSeen + 1, totalPartitions.get());
+                                int tp = totalPartitions.get();
+                                if (++endTokensSeen == tp) {
+                                    logger.debug("[FailedTaskListener] has seen all end tokens ({})", endTokensSeen);
+                                    finalSizeRetryResults.set(retryResults.size());
+                                }
+                            } else {
+                                PartitionDiffTask originalTask = rt.getOriginalTask();
+                                logger.debug("[FailedTaskListener] submitting retry {} for ({})",
+                                        rt.getRetryStatus().getAttempt() + 1, originalTask.getPartition().toString());
+                                retryResults.add(retryPool.submit(rt));
+                            }
+                        } catch (Exception e) {
+                            logger.error("[FailedTaskListener] Exception occured while running retry task", e);
+                            throw new RuntimeException(e);
+                        }
+                    }
+
+                }
+            }
+        }, 0, 1, TimeUnit.SECONDS);
+
         ThreadFactory workerThreadFactory = new ThreadFactoryBuilder().setNameFormat("WorkerPool-%d").build();
         executor.setThreadFactory(workerThreadFactory);
 
-        ScheduledExecutorService partitionCollector = Executors.newSingleThreadScheduledExecutor();
+        ExecutorService partitionCollector = Executors.newSingleThreadExecutor();
         Set<Future<Pair<String, Integer>>> pFuturesSeen = new HashSet<>();
 
         Future<?> partitionFuture = partitionCollector.submit(new Runnable() {
@@ -137,7 +183,7 @@ public class DifferentDiffUtil {
                         throw new RuntimeException(e);
                     }
                     int expectedResultSize = colls.size();
-                    logger.debug("[PartitionCollector] loop: {} :: {} expected results, {} seen",
+                    logger.trace("[PartitionCollector] loop: {} :: {} expected results, {} seen",
                             ++runs, expectedResultSize, pFuturesSeen.size());
                     if (pFuturesSeen.size() < expectedResultSize) {
                         for (Future<Pair<String, Integer>> future : partitionResults) {
@@ -166,6 +212,64 @@ public class DifferentDiffUtil {
             }
         });
 
+        // Check for futures coming off the retryPool
+        Set<Future<PartitionDiffResult>> retriesSeen = ConcurrentHashMap.newKeySet();
+        ScheduledExecutorService retryResultCollector = Executors.newSingleThreadScheduledExecutor();
+        Future<?> retryPoolResultFuture = retryResultCollector.submit(new Runnable() {
+            @Override
+            public void run() {
+                int runs = 0;
+                while (true) {
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                    int expectedRetryResults = finalSizeRetryResults.get();
+                    logger.trace("[RetryResultCollector] loop: {} :: {} expected retryResults, {} seen",
+                            ++runs, expectedRetryResults, retriesSeen.size());
+                    if (expectedRetryResults >= 0) {
+                        if (retriesSeen.size() < expectedRetryResults) {
+                            for (Future<PartitionDiffResult> future : retryResults) {
+                                try {
+                                    if (!retriesSeen.contains(future) && future.isDone()) {
+                                        retriesSeen.add(future);
+                                        PartitionDiffResult result = future.get();
+                                        int failures = result.getFailureCount();
+
+                                        if (failures > 0 && result.isRetryable()) {
+                                            // There's failures but will retry
+                                            logger.trace("[ResultRetryCollector] ignoring retried result for ({}): " +
+                                                            "{} matches, {} failures, {} bytes",
+                                                    result.getNs(), result.getPartition().toString(),
+                                                    result.getFailureCount(), result.getBytesProcessed());
+                                            continue;
+                                        }
+
+                                        logger.debug("[ResultRetryCollector] got final result for ({}): " +
+                                                        "{} matches, {} failures, {} bytes",
+                                                result.getPartition().toString(), result.getMatches(),
+                                                result.getFailureCount(), result.getBytesProcessed());
+
+                                        summary.updateRetryTask(result);
+                                    }
+
+                                } catch (InterruptedException e) {
+                                    logger.error("[ResultRetryCollector] Diff task was interrupted", e);
+                                    throw new RuntimeException(e);
+                                } catch (ExecutionException e) {
+                                    logger.error("[ResultRetryCollector] Diff task threw an exception", e);
+                                    throw new RuntimeException(e);
+                                }
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
         ScheduledExecutorService partitionDiffCollector = Executors.newSingleThreadScheduledExecutor();
         Set<Future<PartitionDiffResult>> pdFuturesSeen = new HashSet<>();
         Future<?> partitionDiffFuture = partitionDiffCollector.submit(new Runnable() {
@@ -179,7 +283,7 @@ public class DifferentDiffUtil {
                         throw new RuntimeException(e);
                     }
                     int expectedResultSize = totalPartitions.get();
-                    logger.debug("[PartitionDiffCollector] loop: {} :: {} expected results, {} seen",
+                    logger.trace("[PartitionDiffCollector] loop: {} :: {} expected results, {} seen",
                             ++runs, expectedResultSize, pdFuturesSeen.size());
                     if (expectedResultSize >= 0) {
                         if (pdFuturesSeen.size() < expectedResultSize) {
@@ -190,21 +294,10 @@ public class DifferentDiffUtil {
                                         PartitionDiffResult result = future.get();
                                         int failures = result.getFailureCount();
                                         logger.debug("Got result for {}: {} matches, {} failures, {} bytes",
-                                                result.namespace, result.matches, failures, result.bytesProcessed);
+                                                result.getPartition().toString(), result.getMatches(),
+                                                failures, result.getBytesProcessed());
 
-                                        if (failures > 0) {
-                                            summary.incrementFailedChunks(1);
-                                            summary.incrementSuccessfulDocs(result.matches - failures);
-                                        } else {
-                                            summary.incrementSuccessfulChunks(1);
-                                            summary.incrementSuccessfulDocs(result.matches);
-                                        }
-                                        summary.incrementProcessedDocs(result.matches + failures);
-                                        summary.incrementFailedDocs(failures);
-                                        summary.incrementProcessedChunks(1);
-                                        summary.incrementSourceOnly(result.onlyOnSource);
-                                        summary.incrementDestOnly(result.onlyOnDest);
-                                        summary.incrementProcessedSize(result.bytesProcessed);
+                                        summary.updateInitTask(result);
 
                                     }
                                 } catch (InterruptedException e) {
@@ -225,8 +318,9 @@ public class DifferentDiffUtil {
 
         boolean partitionPoolDone = false;
         boolean workerPoolDone = false;
+        boolean retryPoolDone = false;
 
-        while (!(partitionPoolDone && workerPoolDone)) {
+        while (!(partitionPoolDone && workerPoolDone && retryPoolDone)) {
             try {
                 Thread.sleep(100);
 
@@ -234,11 +328,25 @@ public class DifferentDiffUtil {
                     partitionFuture.get();
                     logger.info("[Main] partition pool is Done");
                     partitionPoolDone = true;
+
+                    logger.info("[Main] shutting down partitioner thread pool");
+                    partitioner.shutdown();
+
+                    logger.info("[Main] shutting down partition listener thread");
+                    partitionListener.shutdown();
+
+                    logger.info("[Main] shutting down partition collector thread");
+                    partitionCollector.shutdown();
                 }
                 if (!workerPoolDone && partitionDiffFuture.isDone()) {
                     partitionDiffFuture.get();
                     logger.info("[Main] worker pool is done");
                     workerPoolDone = true;
+                }
+                if (!retryPoolDone && retryPoolResultFuture.isDone()) {
+                    retryPoolResultFuture.get();
+                    logger.info("[Main] retry pool is done");
+                    retryPoolDone = true;
                 }
             } catch (Exception e) {
                 logger.error("[Main] Error collecting partition pool and/or worker pool", e);
@@ -246,14 +354,26 @@ public class DifferentDiffUtil {
             }
         }
 
-
+        logger.info("[Main] shutting down statusReporter thread");
         statusReporter.shutdown();
-        partitioner.shutdown();
-        partitionListener.shutdown();
-        partitionCollector.shutdown();
+
+        logger.info("[Main] shutting down diff collector thread");
         partitionDiffCollector.shutdown();
+
+        logger.info("[Main] shutting down failed task listener thread");
+        failedTaskListener.shutdown();
+
+        logger.info("[Main] shutting down retry collector thread");
+        retryResultCollector.shutdown();
+
+        logger.info("[Main] shutting down retry thread pool");
+        retryPool.shutdown();
+
+        logger.info("[Main] shutting down worker diff pool");
         executor.shutdown();
         logger.info(summary.getSummary(true));
+        sourceClient.close();
+        destClient.close();
     }
 
     private MongoClient initClient(String uri) {
