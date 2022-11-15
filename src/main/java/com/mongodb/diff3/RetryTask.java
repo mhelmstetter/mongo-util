@@ -40,8 +40,8 @@ public class RetryTask implements Callable<DiffResult> {
                 try {
                     result = originalTask.computeDiff(failedIds);
                 } catch (Exception e) {
-                    logger.error("Fatal error performing diffs, ns: {}",
-                            originalTask.getNamespace());
+                    logger.error("[{}] Fatal error performing diffs, ns: {}",
+                            Thread.currentThread().getName(), originalTask.getNamespace(), e);
                     throw new RuntimeException(e);
                 } finally {
                     originalTask.closeCursor(originalTask.sourceCursor);

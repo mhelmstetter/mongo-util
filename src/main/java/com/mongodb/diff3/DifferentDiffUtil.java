@@ -293,7 +293,8 @@ public class DifferentDiffUtil {
                                         pdFuturesSeen.add(future);
                                         PartitionDiffResult result = future.get();
                                         int failures = result.getFailureCount();
-                                        logger.debug("Got result for {}: {} matches, {} failures, {} bytes",
+                                        logger.debug("[PartitionDiffCollector] got result for {}: " +
+                                                        "{} matches, {} failures, {} bytes",
                                                 result.getPartition().toString(), result.getMatches(),
                                                 failures, result.getBytesProcessed());
 

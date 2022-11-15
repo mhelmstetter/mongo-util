@@ -79,7 +79,7 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
         try {
             result = computeDiff();
         } catch (Exception e) {
-            logger.error("[{}] fatal error diffing ({})", Thread.currentThread().getName(), partition.toString());
+            logger.error("[{}] fatal error diffing ({})", Thread.currentThread().getName(), partition.toString(), e);
             throw new RuntimeException(e);
         } finally {
             closeCursor(sourceCursor);

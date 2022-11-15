@@ -40,8 +40,8 @@ public class PartitionRetryTask implements Callable<PartitionDiffResult> {
                 try {
                     result = originalTask.computeDiff(failedIds);
                 } catch (Exception e) {
-                    logger.error("Fatal error performing diffs, partition: {}",
-                            originalTask.getPartition());
+                    logger.error("[{}] fatal error performing diffs, partition: {}",
+                            Thread.currentThread().getName(), originalTask.getPartition(), e);
                     throw new RuntimeException(e);
                 } finally {
                     originalTask.closeCursor(originalTask.sourceCursor);

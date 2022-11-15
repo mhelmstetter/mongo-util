@@ -46,8 +46,8 @@ public class DiffSummary {
                 (failedDocs + successfulDocs) * 100. : 0;
         double sizeProcessedPct = (processedSize / (double) totalSize) * 100.;
 
-        String firstLine = done ? String.format("Completed in %s seconds.  ", secondsElapsed) :
-                String.format("%s seconds have elapsed.  ", secondsElapsed);
+        String firstLine = done ? String.format("[Status] Completed in %s seconds.  ", secondsElapsed) :
+                String.format("[Status] %s seconds have elapsed.  ", secondsElapsed);
         return String.format("%s" +
                         "%.2f %% of chunks processed  (%s/%s chunks).  " +
                         "%.2f %% of docs processed  (%s/%s docs).  " +
