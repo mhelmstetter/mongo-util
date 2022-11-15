@@ -8,9 +8,9 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.model.Filters;
 import com.mongodb.model.Namespace;
-import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.CodecUtils;
 import org.bson.BsonDocument;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
@@ -53,8 +53,8 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
     protected MongoCursor<RawBsonDocument> sourceCursor = null;
     protected MongoCursor<RawBsonDocument> destCursor = null;
 
-    protected Map<String, String> sourceDocs = null;
-    protected Map<String, String> destDocs = null;
+    protected Map<BsonValue, String> sourceDocs = null;
+    protected Map<BsonValue, String> destDocs = null;
     protected Queue<PartitionRetryTask> retryQueue;
     private Bson query;
 
@@ -108,7 +108,7 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
         return computeDiff(null);
     }
 
-    protected PartitionDiffResult computeDiff(Collection<String> ids) {
+    protected PartitionDiffResult computeDiff(Collection<BsonValue> ids) {
         sourceDocs = load(ids, Target.SOURCE);
         destDocs = load(ids, Target.DEST);
         return doComparison();
@@ -117,25 +117,25 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
     private PartitionDiffResult doComparison() {
         PartitionDiffResult result = new PartitionDiffResult();
         long compStart = System.currentTimeMillis();
-        MapDifference<String, String> diff = Maps.difference(sourceDocs, destDocs);
+        MapDifference<BsonValue, String> diff = Maps.difference(sourceDocs, destDocs);
 
         if (diff.areEqual()) {
             int numMatches = sourceDocs.size();
             result.setMatches(numMatches);
         } else {
-            Map<String, ValueDifference<String>> valueDiff = diff.entriesDiffering();
+            Map<BsonValue, ValueDifference<String>> valueDiff = diff.entriesDiffering();
             for (Iterator<?> it = valueDiff.entrySet().iterator(); it.hasNext(); ) {
                 @SuppressWarnings("unchecked")
-                Map.Entry<String, ValueDifference<String>> entry = (Map.Entry<String, ValueDifference<String>>) it.next();
-                String key = entry.getKey();
+                Map.Entry<BsonValue, ValueDifference<String>> entry = (Map.Entry<BsonValue, ValueDifference<String>>) it.next();
+                BsonValue key = entry.getKey();
                 result.addFailedKey(key);
             }
             result.setOnlyOnSource(diff.entriesOnlyOnLeft().size());
-            for (String id : diff.entriesOnlyOnLeft().keySet()) {
+            for (BsonValue id : diff.entriesOnlyOnLeft().keySet()) {
                 result.addFailedKey(id);
             }
             result.setOnlyOnDest(diff.entriesOnlyOnRight().size());
-            for (String id : diff.entriesOnlyOnRight().keySet()) {
+            for (BsonValue id : diff.entriesOnlyOnRight().keySet()) {
                 result.addFailedKey(id);
             }
             int numMatches = (int) (sourceDocs.size() - valueDiff.size()
@@ -149,8 +149,8 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
         return result;
     }
 
-    protected Map<String, String> load(Collection<String> ids, Target target) {
-        Map<String, String> output = new HashMap<>();
+    protected Map<BsonValue, String> load(Collection<BsonValue> ids, Target target) {
+        Map<BsonValue, String> output = new HashMap<>();
         long loadStart = System.currentTimeMillis();
         MongoClient client;
 
@@ -173,7 +173,7 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
 
         while (cursor.hasNext()) {
             RawBsonDocument doc = cursor.next();
-            String id = doc.get("_id").toString();
+            BsonValue id = doc.get("_id");
             byte[] docBytes = doc.getByteBuffer().array();
             bytesProcessed.add(docBytes.length);
 
@@ -195,9 +195,9 @@ public class PartitionDiffTask implements Callable<PartitionDiffResult> {
         }
     }
 
-    protected Bson formIdsQuery(Collection<String> ids) {
-        List<Document> idDocs = ids.stream().map(i -> Document.parse(i)).collect(Collectors.toList());
-        return Filters.in("_id", idDocs);
+    protected Bson formIdsQuery(Collection<BsonValue> ids) {
+//        List<Document> idDocs = ids.stream().map(i -> Document.parse(i)).collect(Collectors.toList());
+        return Filters.in("_id", ids);
     }
 
     protected MongoCollection<RawBsonDocument> getRawCollection(MongoClient client, String namespace) {

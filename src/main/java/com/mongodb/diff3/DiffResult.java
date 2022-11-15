@@ -1,5 +1,7 @@
 package com.mongodb.diff3;
 
+import org.bson.BsonValue;
+
 import java.util.HashSet;
 import java.util.Set;
 
@@ -8,12 +10,12 @@ public class DiffResult {
     protected long onlyOnSource = 0;
     protected long onlyOnDest = 0;
     protected long bytesProcessed = 0;
-    protected Set<String> failedIds;
+    protected Set<BsonValue> failedIds;
     protected String ns;
     protected String chunkString;
     protected boolean retryable = true;
 
-    public void addFailedKey(String id) {
+    public void addFailedKey(BsonValue id) {
         if (failedIds == null) {
             failedIds = new HashSet<>();
         }
@@ -111,11 +113,11 @@ public class DiffResult {
         this.bytesProcessed = bytesProcessed;
     }
 
-    public Set<String> getFailedIds() {
+    public Set<BsonValue> getFailedIds() {
         return failedIds;
     }
 
-    public void setFailedIds(Set<String> failedIds) {
+    public void setFailedIds(Set<BsonValue> failedIds) {
         this.failedIds = failedIds;
     }
 

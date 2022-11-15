@@ -1,5 +1,6 @@
 package com.mongodb.diff3;
 
+import org.bson.BsonValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,14 +15,14 @@ public class RetryTask implements Callable<DiffResult> {
     private final RetryStatus retryStatus;
     private final DiffTask originalTask;
     private final DiffResult originalResult;
-    private final Set<String> failedIds;
+    private final Set<BsonValue> failedIds;
     private final Queue<RetryTask> retryQueue;
     private static final Logger logger = LoggerFactory.getLogger(RetryTask.class);
     private long start;
 
 
     public RetryTask(RetryStatus retryStatus, DiffTask originalTask,
-                     DiffResult originalResult, Set<String> failedIds, Queue<RetryTask> retryQueue) {
+                     DiffResult originalResult, Set<BsonValue> failedIds, Queue<RetryTask> retryQueue) {
         this.retryStatus = retryStatus;
         this.originalTask = originalTask;
         this.originalResult = originalResult;
