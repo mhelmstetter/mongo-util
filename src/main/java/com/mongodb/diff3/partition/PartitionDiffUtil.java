@@ -8,6 +8,8 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.diff3.*;
 import com.mongodb.model.Collection;
 import com.mongodb.model.DatabaseCatalog;
+import com.mongodb.model.DatabaseCatalogProvider;
+import com.mongodb.model.StandardDatabaseCatalogProvider;
 import com.mongodb.util.BlockWhenQueueFull;
 import org.apache.commons.lang3.tuple.Pair;
 import org.bson.UuidRepresentation;

@@ -1,4 +1,4 @@
-package com.mongodb.diff3;
+package com.mongodb.model;
 
 import com.mongodb.model.DatabaseCatalog;
 import com.mongodb.model.Namespace;

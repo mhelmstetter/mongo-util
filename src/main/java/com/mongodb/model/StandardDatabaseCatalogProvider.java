@@ -1,20 +1,17 @@
-package com.mongodb.diff3;
+package com.mongodb.model;
 
 import com.mongodb.client.ListCollectionsIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoIterable;
-import com.mongodb.model.Database;
-import com.mongodb.model.DatabaseCatalog;
-import com.mongodb.model.DatabaseStats;
-import com.mongodb.model.Namespace;
 import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.Collection;
 import java.util.regex.Pattern;
 
-public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider{
+public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider {
     private DatabaseCatalog databaseCatalog;
     private final MongoClient client;
     private Map<String, Document> collectionsMap;
