@@ -2,29 +2,40 @@ package com.mongodb.diff3;
 
 import static com.mongodb.client.model.Filters.regex;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import org.bson.Document;
 
 import com.mongodb.model.Namespace;
 
 public class DiffConfiguration {
-
+	public final static String PARTITION_MODE = "partition";
+	public final static String SHARD_MODE = "shard";
 	public String sourceClusterUri;
 	public String destClusterUri;
 	private boolean filtered;
-	private Document chunkQuery = new Document();
+	private final Document chunkQuery = new Document();
 	private int threads = 8;
 	private double sampleRate;
 	private int sampleMinDocs;
 	private int maxDocsToSamplePerPartition;
 	private long defaultPartitionSize;
+	private String mode;
+	private final String[] knownModes = new String[]{PARTITION_MODE, SHARD_MODE};
 
-	private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
-	private Set<String> includeDatabases = new HashSet<String>();
+	private Set<Namespace> includeNamespaces = new HashSet<>();
+	private Set<String> includeDatabases = new HashSet<>();
+
+	public String getMode() {
+		return mode;
+	}
+
+	public void setMode(String mode) {
+		if (!(Arrays.binarySearch(knownModes, mode) >= 0)){
+			throw new RuntimeException("Unknown mode: " + mode);
+		}
+		this.mode = mode;
+	}
 
 	public String getSourceClusterUri() {
 		return sourceClusterUri;
@@ -77,8 +88,8 @@ public class DiffConfiguration {
 
 	private Document initializeChunkQuery() {
 		if (getIncludeNamespaces().size() > 0 || getIncludeDatabases().size() > 0) {
-			List inList = new ArrayList();
-			List orList = new ArrayList();
+			List<Object> inList = new ArrayList<>();
+			List<Object> orList = new ArrayList<>();
 			// Document orDoc = new Document("$or", orList);
 			chunkQuery.append("$or", orList);
 			Document inDoc = new Document("ns", new Document("$in", inList));

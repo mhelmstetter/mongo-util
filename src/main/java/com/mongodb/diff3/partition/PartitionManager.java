@@ -1,10 +1,9 @@
-package com.mongodb.diff3;
+package com.mongodb.diff3.partition;
 
 import com.mongodb.ReadConcern;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCursor;
-import com.mongodb.client.model.Accumulators;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Sorts;
@@ -18,7 +17,6 @@ import org.bson.conversions.Bson;
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.mongodb.client.model.Accumulators.max;
 import static com.mongodb.client.model.Accumulators.sum;
 
 public class PartitionManager {
@@ -65,8 +63,8 @@ public class PartitionManager {
     }
 
     private Pair<Long, Integer> getCollMetrics(MongoClient client, Namespace ns) {
-        long collSize = 0;
-        int collNumDocs = 0;
+        long collSize;
+        int collNumDocs;
         String db = ns.getDatabaseName();
         String coll = ns.getCollectionName();
 
@@ -105,9 +103,8 @@ public class PartitionManager {
 
         MongoCursor<Document> cursor = results.iterator();
         Document first = cursor.next();
-        Object bound = first.get("_id");
 
-        return bound;
+        return first.get("_id");
     }
 
     private List<Object> getMidIdBounds(Namespace ns, MongoClient client, int numPartitions, long collDocCount) {
@@ -130,11 +127,12 @@ public class PartitionManager {
                 .aggregate(pipeline)
                 .allowDiskUse(true);
 
-        MongoCursor<Document> cursor = results.iterator();
-        while (cursor.hasNext()) {
-            Document doc = cursor.next();
-            Object maxId = ((Document) doc.get("_id")).get("max");
-            output.add(maxId);
+        try (MongoCursor<Document> cursor = results.iterator()) {
+            while (cursor.hasNext()) {
+                Document doc = cursor.next();
+                Object maxId = ((Document) doc.get("_id")).get("max");
+                output.add(maxId);
+            }
         }
 
         return output;

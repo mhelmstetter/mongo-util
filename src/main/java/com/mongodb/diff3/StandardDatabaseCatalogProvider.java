@@ -16,12 +16,12 @@ import java.util.regex.Pattern;
 
 public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider{
     private DatabaseCatalog databaseCatalog;
-    private MongoClient client;
+    private final MongoClient client;
     private Map<String, Document> collectionsMap;
     public final static Set<String> excludedSystemDbs =
             new HashSet<>(Arrays.asList("system", "local", "config", "admin"));
-    private static Pattern excludeCollRegex = Pattern.compile("system\\..*");
-    private static Logger logger = LoggerFactory.getLogger(StandardDatabaseCatalogProvider.class);
+    private static final Pattern excludeCollRegex = Pattern.compile("system\\..*");
+    private static final Logger logger = LoggerFactory.getLogger(StandardDatabaseCatalogProvider.class);
 
     public StandardDatabaseCatalogProvider(MongoClient client){
         this.client = client;
@@ -87,7 +87,7 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider{
                 }
                 Namespace collNs = new Namespace(dbName, collName);
                 //CollectionStats collStats = CollectionStats.fromDocument(collStats(dbName, collName));
-                boolean sharded = collectionsMap == null ? false : collectionsMap.containsKey(collNs.getNamespace());
+                boolean sharded = collectionsMap != null && collectionsMap.containsKey(collNs.getNamespace());
                 com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(collNs, sharded);
 
                 String shardedStatus = sharded ? "sharded" : "unsharded";

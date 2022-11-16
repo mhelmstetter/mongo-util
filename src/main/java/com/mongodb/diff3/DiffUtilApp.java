@@ -1,14 +1,14 @@
 package com.mongodb.diff3;
 
 import java.io.File;
-import java.util.Arrays;
 
+import com.mongodb.diff3.partition.PartitionDiffUtil;
+import com.mongodb.diff3.shard.ShardDiffUtil;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
-import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.configuration2.PropertiesConfiguration;
@@ -17,13 +17,14 @@ import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.mongodb.diff3.DiffConfiguration.PARTITION_MODE;
+import static com.mongodb.diff3.DiffConfiguration.SHARD_MODE;
 import static org.apache.commons.cli.OptionBuilder.withArgName;
 
 public class DiffUtilApp {
 
-    private static Logger logger = LoggerFactory.getLogger(DiffUtilApp.class);
+    private static final Logger logger = LoggerFactory.getLogger(DiffUtilApp.class);
 
-    private static Options options;
     private static CommandLine line;
 
     private final static String SOURCE_URI = "source";
@@ -33,6 +34,8 @@ public class DiffUtilApp {
     private final static String SAMPLE_MIN_DOCS = "sampleMinDocs";
     private final static String MAX_DOCS_TO_SAMPLE_PER_PARTITION = "maxDocsToSamplePerPartition";
     private final static String DEFAULT_PARTITION_SIZE = "defaultPartitionSize";
+    private final static String MODE = "mode";
+    private final static String DEFAULT_MODE = "partition";
 
     private final static String DEFAULT_THREADS = "8";
     private final static String DEFAULT_SAMPLE_RATE = "0.04";
@@ -42,7 +45,7 @@ public class DiffUtilApp {
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
-        options = new Options();
+        Options options = new Options();
         options.addOption(new Option("help", "print this message"));
         options.addOption(withArgName("Source cluster connection uri").hasArg()
                 .withLongOpt(SOURCE_URI).create("s"));
@@ -55,6 +58,8 @@ public class DiffUtilApp {
 
         options.addOption(withArgName("Number of worker threads").hasArg()
                 .withLongOpt(THREADS).create("t"));
+        options.addOption(withArgName("Mode (one of: [shard, partition {default}])").hasArg()
+                .withLongOpt("mode").create("m"));
         options.addOption(withArgName("Sample rate for partitions").hasArg()
                 .withLongOpt(SAMPLE_RATE).create());
         options.addOption(withArgName("Min docs to sample for partitions").hasArg()
@@ -92,7 +97,7 @@ public class DiffUtilApp {
         Configurations configs = new Configurations();
         Configuration defaultConfig = new PropertiesConfiguration();
 
-        File propsFile = null;
+        File propsFile;
         if (line.hasOption("c")) {
             propsFile = new File(line.getOptionValue("c"));
         } else {
@@ -107,8 +112,7 @@ public class DiffUtilApp {
         }
 
         try {
-            Configuration config = configs.properties(propsFile);
-            return config;
+            return configs.properties(propsFile);
         } catch (ConfigurationException e) {
             logger.error("Error loading properties file: " + propsFile, e);
         }
@@ -126,15 +130,7 @@ public class DiffUtilApp {
     }
 
     public static void main(String[] args) throws Exception {
-        boolean partitionMode = false;
-        if (args.length > 0) {
-            String mode = args[0].replaceAll("[-_]*", "").trim().toUpperCase();
-            if (mode.equals("PARTITIONMODE")) {
-                partitionMode = true;
-            }
-        }
-        String[] remainingArgs = Arrays.copyOfRange(args, 1, args.length);
-        CommandLine line = initializeAndParseCommandLineOptions(remainingArgs);
+        CommandLine line = initializeAndParseCommandLineOptions(args);
 
         Configuration properties = readProperties();
 
@@ -144,6 +140,7 @@ public class DiffUtilApp {
         config.setDestClusterUri(getConfigValue(line, properties, DEST_URI));
         int threads = Integer.parseInt(getConfigValue(line, properties, THREADS, DEFAULT_THREADS));
         config.setThreads(threads);
+        config.setMode(getConfigValue(line, properties, MODE, DEFAULT_MODE).trim().toLowerCase());
 
         config.setSampleRate(Double.parseDouble(
                 getConfigValue(line, properties, SAMPLE_RATE, DEFAULT_SAMPLE_RATE)));
@@ -156,12 +153,15 @@ public class DiffUtilApp {
                 getConfigValue(line, properties, DEFAULT_PARTITION_SIZE, DEFAULT_DEFAULT_PARTITION_SIZE)));
 
         config.setNamespaceFilters(line.getOptionValues("f"));
-        if (partitionMode) {
-            DifferentDiffUtil diffUtil = new DifferentDiffUtil(config);
+        if (config.getMode().equals(PARTITION_MODE)) {
+            PartitionDiffUtil diffUtil = new PartitionDiffUtil(config);
             diffUtil.run();
+        } else if (config.getMode().equals(SHARD_MODE)) {
+            ShardDiffUtil shardDiffUtil = new ShardDiffUtil(config);
+            shardDiffUtil.run();
         } else {
-            DiffUtil diffUtil = new DiffUtil(config);
-            diffUtil.run();
+            System.out.println("Unknown mode: " + config.getMode() + ". Exiting.");
+            System.exit(1);
         }
 
     }

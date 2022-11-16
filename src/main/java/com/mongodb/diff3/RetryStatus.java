@@ -4,7 +4,7 @@ public class RetryStatus {
     private final int attempt;
     private final long prevAttempt;
     private final int MAX_ATTEMPTS = 5;
-    private long nextAttemptThreshold;
+    private final long nextAttemptThreshold;
 
     public RetryStatus(int attempt, long prevAttempt) {
         this.attempt = attempt;

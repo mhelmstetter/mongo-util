@@ -1,18 +1,18 @@
 package com.mongodb.diff3;
 
+import com.mongodb.model.Namespace;
 import org.bson.BsonValue;
 
 import java.util.HashSet;
 import java.util.Set;
 
-public class DiffResult {
-    protected long matches = 0;
-    protected long onlyOnSource = 0;
-    protected long onlyOnDest = 0;
-    protected long bytesProcessed = 0;
+public abstract class DiffResult {
+    protected long matches;
+    protected long onlyOnSource;
+    protected long onlyOnDest;
+    protected long bytesProcessed;
     protected Set<BsonValue> failedIds;
-    protected String ns;
-    protected String chunkString;
+    protected Namespace namespace;
     protected boolean retryable = true;
 
     public void addFailedKey(BsonValue id) {
@@ -26,60 +26,12 @@ public class DiffResult {
         return (failedIds == null) ? 0 : failedIds.size();
     }
 
-    public DiffResult mergeRetryResult(DiffResult rr) {
-        DiffResult merged = new DiffResult();
-        merged.matches = rr.matches + this.matches;
-        merged.onlyOnSource = rr.onlyOnSource;
-        merged.onlyOnDest = rr.onlyOnDest;
-        merged.failedIds = this.failedIds;
-        merged.bytesProcessed = this.bytesProcessed;
-        merged.ns = rr.ns;
-        merged.chunkString = rr.chunkString;
-        merged.retryable = rr.retryable;
-        return merged;
-    }
+    public abstract DiffResult mergeRetryResult(DiffResult rr);
 
-    public DiffResult copy() {
-        DiffResult copy = new DiffResult();
-        copy.matches = matches;
-        copy.onlyOnSource = onlyOnSource;
-        copy.onlyOnDest = onlyOnDest;
-        copy.bytesProcessed = bytesProcessed;
-        copy.ns = ns;
-        copy.chunkString = chunkString;
-        copy.retryable = retryable;
-        if (failedIds == null) {
-            copy.failedIds = new HashSet<>();
-        } else {
-            copy.failedIds = new HashSet<>(failedIds);
-        }
-        return copy;
-    }
+    public abstract DiffResult copy();
 
-    public String toString() {
-        StringBuilder builder = new StringBuilder();
-        builder.append("DiffResult [ns=");
-        builder.append(ns);
-        builder.append(", matches=");
-        builder.append(matches);
-        builder.append(", failedIds=");
-        builder.append(failedIds == null ? 0 : failedIds.size());
-        builder.append(", chunk=");
-        builder.append(chunkString);
-        builder.append("]");
-        return builder.toString();
-    }
-
-    public String shortString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("status=");
-        sb.append((failedIds != null && failedIds.size() > 0) ? "FAILED" : "PASSED");
-        sb.append(", ns=");
-        sb.append(ns);
-        sb.append(", chunk=");
-        sb.append(chunkString);
-        return sb.toString();
-    }
+    public abstract String shortString();
+    public abstract String unitLogString();
 
     public long getMatches() {
         return matches;
@@ -121,20 +73,12 @@ public class DiffResult {
         this.failedIds = failedIds;
     }
 
-    public String getNs() {
-        return ns;
+    public Namespace getNamespace() {
+        return namespace;
     }
 
-    public void setNs(String ns) {
-        this.ns = ns;
-    }
-
-    public String getChunkString() {
-        return chunkString;
-    }
-
-    public void setChunkString(String chunkString) {
-        this.chunkString = chunkString;
+    public void setNamespace(Namespace namespace) {
+        this.namespace = namespace;
     }
 
     public boolean isRetryable() {

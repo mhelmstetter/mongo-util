@@ -8,83 +8,91 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
-public class RetryTask implements Callable<DiffResult> {
+public abstract class RetryTask implements Callable<DiffResult> {
 
-    public static final RetryTask END_TOKEN = new RetryTask(null, null
-            , null, null, null);
-    private final RetryStatus retryStatus;
-    private final DiffTask originalTask;
-    private final DiffResult originalResult;
-    private final Set<BsonValue> failedIds;
-    private final Queue<RetryTask> retryQueue;
-    private static final Logger logger = LoggerFactory.getLogger(RetryTask.class);
-    private long start;
+    protected RetryStatus retryStatus;
+    protected DiffTask originalTask;
+    protected DiffResult originalResult;
+    protected Set<BsonValue> failedIds;
+    protected Queue<RetryTask> retryQueue;
+    protected DiffSummary summary;
+    protected static final Logger logger = LoggerFactory.getLogger(RetryTask.class);
+    protected long start;
 
 
-    public RetryTask(RetryStatus retryStatus, DiffTask originalTask,
-                     DiffResult originalResult, Set<BsonValue> failedIds, Queue<RetryTask> retryQueue) {
+    public RetryTask(RetryStatus retryStatus, DiffTask originalTask, DiffResult originalResult,
+                     Set<BsonValue> failedIds, Queue<RetryTask> retryQueue, DiffSummary summary) {
         this.retryStatus = retryStatus;
         this.originalTask = originalTask;
         this.originalResult = originalResult;
         this.failedIds = failedIds;
         this.retryQueue = retryQueue;
+        this.summary = summary;
     }
 
     @Override
     public DiffResult call() throws Exception {
-        logger.debug("[{}] got a retry task", Thread.currentThread().getName());
+        logger.trace("[{}] got a retry task", Thread.currentThread().getName());
         start = System.currentTimeMillis();
         DiffResult result = null;
-        while (true) {
-            if (retryStatus.canRetry()) {
-                DiffResult copyOfOriginalResult = originalResult.copy();
-                try {
-                    result = originalTask.computeDiff(failedIds);
-                } catch (Exception e) {
-                    logger.error("[{}] Fatal error performing diffs, ns: {}",
-                            Thread.currentThread().getName(), originalTask.getNamespace(), e);
-                    throw new RuntimeException(e);
-                } finally {
-                    originalTask.closeCursor(originalTask.sourceCursor);
-                    originalTask.closeCursor(originalTask.destCursor);
-                }
-                result = result.mergeRetryResult(copyOfOriginalResult);
-
-                if (result.getFailureCount() > 0) {
-                    RetryStatus newRetryStatus = retryStatus.increment();
-                    if (newRetryStatus != null) {
-                        RetryTask newRetryTask = new RetryTask(
-                                newRetryStatus, originalTask, result, result.getFailedIds(), retryQueue);
-                        logger.debug("[{}] retry for ({}-{}) failed ({} ids); submitting attempt {} to retryQueue",
-                                Thread.currentThread().getName(), originalTask.getNamespace(),
-                                originalTask.chunkString, result.getFailureCount(), newRetryStatus.getAttempt());
-                        retryQueue.add(newRetryTask);
-                    } else {
-                        logger.info("[{}] retry task for ({}-{}) failed; too many retry attempts",
-                                Thread.currentThread().getName(), originalTask.getNamespace(),
-                                originalTask.chunkString);
-                        retryQueue.add(END_TOKEN);
-                        result.setRetryable(false);
-                    }
-                } else {
-                    // Retry succeeded
-                    logger.info("[{}] retry task for ({}-{}) succeeded on attempt: {}",
-                            Thread.currentThread().getName(), originalTask.getNamespace(), originalTask.chunkString,
-                            retryStatus.getAttempt());
-                    retryQueue.add(END_TOKEN);
-                }
-                break;
-            } else {
-                Thread.sleep(1000);
+        boolean complete = false;
+        if (retryStatus.canRetry()) {
+            DiffResult copyOfOriginalResult = originalResult.copy();
+            try {
+                result = originalTask.computeDiff(failedIds);
+            } catch (Exception e) {
+                logger.error("[{}] Fatal error performing diffs, ns: {}",
+                        Thread.currentThread().getName(), originalTask.getNamespace(), e);
+                throw new RuntimeException(e);
+            } finally {
+                originalTask.closeCursor(originalTask.sourceCursor);
+                originalTask.closeCursor(originalTask.destCursor);
             }
+            result = result.mergeRetryResult(copyOfOriginalResult);
+
+            if (result.getFailureCount() > 0) {
+                RetryStatus newRetryStatus = retryStatus.increment();
+                if (newRetryStatus != null) {
+                    RetryTask newRetryTask = initRetryTask(newRetryStatus, result);
+                    logger.debug("[{}] retry for ({}) failed ({} ids); submitting attempt {} to retryQueue",
+                            Thread.currentThread().getName(), originalTask.unitLogString(),
+                            result.getFailureCount(), newRetryStatus.getAttempt());
+                    retryQueue.add(newRetryTask);
+                } else {
+                    logger.info("[{}] retry task for ({}) failed; too many retry attempts",
+                            Thread.currentThread().getName(), originalTask.unitLogString());
+                    summary.updateRetryingDone(result);
+                    retryQueue.add(endToken());
+                    result.setRetryable(false);
+                    complete = true;
+                }
+            } else {
+                // Retry succeeded
+                logger.info("[{}] retry task for ({}) succeeded on attempt: {}",
+                        Thread.currentThread().getName(), originalTask.unitLogString(),
+                        retryStatus.getAttempt());
+                summary.updateRetryingDone(result);
+                retryQueue.add(endToken());
+                complete = true;
+            }
+        } else {
+            // Re-submit
+            logger.trace("Requeue {}; not enough time elapse to retry", originalTask.unitLogString());
+            retryQueue.add(this);
         }
 
+        if (complete) {
+            logger.debug("[{}] completed a retry task in {} ms :: {}",
+                    Thread.currentThread().getName(), System.currentTimeMillis() - start, result);
 
-        logger.debug("[{}] completed a retry task in {} ms :: {}",
-                Thread.currentThread().getName(), System.currentTimeMillis() - start, result);
-
-        return result.copy();
+            return result.copy();
+        }
+        return null;
     }
+
+    protected abstract RetryTask endToken();
+
+    protected abstract RetryTask initRetryTask(RetryStatus retryStatus, DiffResult result);
 
     public DiffTask getOriginalTask() {
         return originalTask;

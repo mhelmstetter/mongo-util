@@ -1,4 +1,4 @@
-package com.mongodb.diff3;
+package com.mongodb.diff3.partition;
 
 import com.mongodb.client.model.Filters;
 import com.mongodb.model.Namespace;

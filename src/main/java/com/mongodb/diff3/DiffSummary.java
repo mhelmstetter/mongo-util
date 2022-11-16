@@ -1,7 +1,6 @@
 package com.mongodb.diff3;
 
 import java.util.Date;
-import java.util.concurrent.atomic.LongAdder;
 
 public class DiffSummary {
     private int totalChunks = -1;
@@ -17,7 +16,7 @@ public class DiffSummary {
     private final long startTime;
     private long sourceOnly;
     private long destOnly;
-    private String ppTotalSize;
+    private final String ppTotalSize;
     private static final long K = 1024;
     private static final long M = 1024 * 1024;
     private static final long G = 1024 * 1024 * 1024;
@@ -103,13 +102,17 @@ public class DiffSummary {
         }
     }
 
+    public synchronized void updateRetryingDone(DiffResult result){
+        retryChunks--;
+    }
+
     public synchronized void updateRetryTask(DiffResult result) {
         int failures = result.getFailureCount();
         if (failures > 0) {
             failedChunks++;
         }
         successfulDocs += result.getMatches() - failures;
-        retryChunks--;
+//        retryChunks--;
         processedDocs += result.getMatches() + failures;
         failedDocs += failures;
         processedChunks++;
