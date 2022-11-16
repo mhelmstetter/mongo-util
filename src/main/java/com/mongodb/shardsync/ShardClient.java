@@ -63,6 +63,8 @@ import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.ReplicaSetInfo;
+import com.mongodb.model.Privilege;
+import com.mongodb.model.Resource;
 import com.mongodb.model.Role;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardTimestamp;
@@ -544,6 +546,9 @@ public class ShardClient {
 			}
 			if (connectionString.getApplicationName() != null) {
 				settingsBuilder.applicationName(connectionString.getApplicationName());
+			}
+			if (connectionString.getReadPreference() != null) {
+				settingsBuilder.readPreference(connectionString.getReadPreference());
 			}
 			settingsBuilder.uuidRepresentation(UuidRepresentation.STANDARD);
 
@@ -1058,6 +1063,33 @@ public class ShardClient {
 		MongoCollection<Role> rolesColl = db.getCollection("system.roles", Role.class);
 		final List<Role> roles = new ArrayList<>();
 		rolesColl.find().sort(Sorts.ascending("_id")).into(roles);
+		
+		for (Role role : roles) {
+			
+			Map<Resource, Set<String>> resourcePrivilegeActionsMap = new HashMap<>();
+			
+			List<Privilege> canonicalPriviliges = new ArrayList<>();
+			
+			for (Privilege p : role.getPrivileges()) {
+				
+				Set<String> canonicalActions = resourcePrivilegeActionsMap.get(p.getResource());
+				if (canonicalActions == null) {
+					canonicalActions = new HashSet<>();
+					resourcePrivilegeActionsMap.put(p.getResource(), canonicalActions);
+				}
+				canonicalActions.addAll(p.getActions());
+			}
+			
+			for (Map.Entry<Resource, Set<String>> entry : resourcePrivilegeActionsMap.entrySet()) {
+				Privilege p2 = new Privilege();
+				p2.setResource(entry.getKey());
+				p2.setActions(new ArrayList<>(entry.getValue()));
+				canonicalPriviliges.add(p2);
+			}
+			
+			role.setPrivileges(canonicalPriviliges);
+		}
+		
 		return roles;
 	}
 
