@@ -1,17 +1,5 @@
 package com.mongodb.shardsync;
 
-import com.mongodb.*;
-import com.mongodb.client.*;
-import com.mongodb.client.model.IndexOptions;
-import com.mongodb.client.model.Sorts;
-import com.mongodb.client.model.UpdateOptions;
-import com.mongodb.client.result.DeleteResult;
-import com.mongodb.model.DatabaseCatalogProvider;
-import com.mongodb.model.StandardDatabaseCatalogProvider;
-import com.mongodb.internal.dns.DefaultDnsResolver;
-import com.mongodb.model.*;
-import com.mongodb.util.MaskUtil;
-
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.gt;
@@ -19,9 +7,9 @@ import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.regex;
 import static com.mongodb.client.model.Projections.include;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -50,10 +38,6 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collection;
-import java.util.*;
-import java.util.regex.Pattern;
-
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
@@ -72,25 +56,20 @@ import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.internal.dns.DefaultDnsResolver;
-import com.mongodb.model.Database;
 import com.mongodb.model.DatabaseCatalog;
-import com.mongodb.model.DatabaseStats;
+import com.mongodb.model.DatabaseCatalogProvider;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
-import com.mongodb.model.ReplicaSetInfo;
 import com.mongodb.model.Privilege;
+import com.mongodb.model.ReplicaSetInfo;
 import com.mongodb.model.Resource;
 import com.mongodb.model.Role;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardTimestamp;
+import com.mongodb.model.StandardDatabaseCatalogProvider;
 import com.mongodb.model.User;
 import com.mongodb.util.MaskUtil;
-
-import static com.mongodb.client.model.Filters.*;
-import static com.mongodb.client.model.Projections.include;
-import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
-import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 /**
  * This class encapsulates the client related objects needed for each source and
@@ -494,7 +473,10 @@ public class ShardClient {
 	 * Populate only a subset of all collections. Useful if there are a very large
 	 * number of namespaces present.
 	 */
-	public void populateCollectionsMap(Set<String> namespaces) {
+	public void populateCollectionsMap(boolean clearExisting, Set<String> namespaces) {
+		if (clearExisting) {
+			collectionsMap.clear();
+		}
 
 		if (!collectionsMap.isEmpty()) {
 			return;
@@ -516,9 +498,17 @@ public class ShardClient {
 				name, collectionsMap.size()));
 		((StandardDatabaseCatalogProvider)databaseCatalogProvider).setCollectionsMap(collectionsMap);
 	}
+	
+	public void populateCollectionsMap(Set<String> namespaces) {
+		populateCollectionsMap(false, namespaces);
+	}
 
+	public void populateCollectionsMap(boolean clearExisting) {
+		populateCollectionsMap(clearExisting, null);
+	}
+	
 	public void populateCollectionsMap() {
-		populateCollectionsMap(null);
+		populateCollectionsMap(false, null);
 	}
 
 	public void populateShardMongoClients() {
@@ -810,6 +800,10 @@ public class ShardClient {
 
 	public Document collStats(String dbName, String collName) {
 		return this.mongoClient.getDatabase(dbName).runCommand(collStatsCommand(collName));
+	}
+	
+	public void populateDatabaseCatalog() {
+		databaseCatalogProvider.populateDatabaseCatalog();
 	}
 
 	public DatabaseCatalog getDatabaseCatalog()  {

@@ -37,8 +37,14 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider 
         }
         return databaseCatalog;
     }
+    
+    @Override
+    public void populateDatabaseCatalog() {
+    	populateDatabaseCatalog(null);
+    }
 
     private void populateDatabaseCatalog(Collection<Namespace> namespaces) {
+    	databaseCatalog = new DatabaseCatalog();
         MongoIterable<String> dbNames = client.listDatabaseNames();
         Map<String, Set<String>> includeMap = new HashMap<>();
         boolean includeAll = true;

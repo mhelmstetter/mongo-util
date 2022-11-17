@@ -1,9 +1,9 @@
 package com.mongodb.catalog;
 
 import java.io.File;
-import java.util.Set;
 import java.util.Timer;
-import java.util.TimerTask;
+
+import javax.mail.internet.AddressException;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -19,81 +19,55 @@ import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.Sets;
-import com.mongodb.diff3.DiffUtilApp;
-import com.mongodb.model.Collection;
-import com.mongodb.model.DatabaseCatalog;
-import com.mongodb.shardsync.ShardClient;
-
-public class SchemaChangeWatcher extends TimerTask {
+public class SchemaChangeWatcher {
 	
 	
-private static Logger logger = LoggerFactory.getLogger(DiffUtilApp.class);
+	private static Logger logger = LoggerFactory.getLogger(SchemaChangeWatcher.class);
     
     private static Options options;
     private static CommandLine line;
     
-    private final static String SOURCE_URI = "source";
-    private final static String DEST_URI = "dest";
+    private final static String CLUSTER_URI = "uri";
+    private final static String CONFIG_URI_KEYS = "uriKey";
+    private final static String CLUSTER_NAMES = "clusterName";
+    private final static String CHECK_INTERVAL_SECONDS = "checkIntervalSeconds";
+    private static final String EMAIL_RECIPIENTS = "emailReportRecipients";
+    private static final String EMAIL_SMTP_HOST = "emailSmtpHost";
+    private static final String EMAIL_SMTP_PORT = "emailSmtpPort";
+    private static final String EMAIL_SMTP_TLS = "emailSmtpTls";
+    private static final String EMAIL_SMTP_AUTH = "emailSmtpAuth";
+    private static final String EMAIL_FROM = "emailFrom";
+    private static final String EMAIL_SMTP_PASSWORD = "emailSmtpPassword";
+    private static final String DEFAULT_EMAIL_SMTP_HOST = "smtp.gmail.com";
+    private static final String DEFAULT_EMAIL_SMTP_PORT = "587";
+    private static final String DEFAULT_EMAIL_SMTP_TLS = "true";
+    private static final String DEFAULT_EMAIL_SMTP_AUTH = "true";
+	
+	private EmailSender emailSender;
     
-    private String sourceClusterUri;
-    private String destClusterUri;
+    private String[] clusterUris;
+    private String[] clusterUriKeys;
+    private String[] clusterNames;
     
-    private ShardClient sourceShardClient;
-    private ShardClient destShardClient;
-    
-    private DatabaseCatalog sourceCatalog;
-    private DatabaseCatalog destCatalog;
-    
+    private long checkIntervalSeconds;
     
     public void init() {
-    	
-    	sourceShardClient = new ShardClient("source", sourceClusterUri);
-        destShardClient = new ShardClient("dest", destClusterUri);
-
-        sourceShardClient.init();
-        destShardClient.init();
-        
-        //sourceShardClient.populateDatabaseCatalog();
-        sourceCatalog = sourceShardClient.getDatabaseCatalog();
-        
-        //destShardClient.populateDatabaseCatalog();
-        destCatalog = destShardClient.getDatabaseCatalog();
-        
-        Timer timer = new Timer("SchemaChangeWatcher timer");
-        
-        timer.scheduleAtFixedRate(this, 0, 10000);
-        
-    	
+    	logger.debug("SchemaChangeWatcher init(), {} clusterUris configured", clusterUris.length);
+    	String name;
+    	int i = 0;
+    	for (String clusterUri : clusterUris) {
+    		if (clusterNames.length == clusterUris.length) {
+    			name = clusterNames[i++];
+    		} else if (clusterUriKeys.length == clusterUris.length) {
+    			name = clusterUriKeys[i++];
+    		} else {
+    			name = clusterUri;
+    		}
+    		SchemaChangeWatcherTask sourceTask = new SchemaChangeWatcherTask(name, clusterUri, emailSender);
+            Timer timer = new Timer("SchemaChangeWatcher timer");
+            timer.scheduleAtFixedRate(sourceTask, 0, checkIntervalSeconds*1000L);
+    	}
     }
-    
-    @Override
-    public void run()  {
-    	
-    	logger.debug("run started");
-    	
-    	//sourceShardClient.populateDatabaseCatalog();
-    	DatabaseCatalog newSourceCatalog = sourceShardClient.getDatabaseCatalog();
-        
-        //destShardClient.populateDatabaseCatalog();
-        DatabaseCatalog newDestCatalog = destShardClient.getDatabaseCatalog();
-        
-        Set<Collection> newSourceShardedCollections = Sets.difference(newSourceCatalog.getShardedCollections(), sourceCatalog.getShardedCollections());
-        logger.debug("new sharded count: {}, old: {}, diff size: {}", newSourceCatalog.getShardedCollections().size(), 
-        		sourceCatalog.getShardedCollections().size(), 
-        		newSourceShardedCollections.size());
-        
-        Set<Collection> newSourceUnshardedCollections = Sets.difference(newSourceCatalog.getUnshardedCollections(), sourceCatalog.getUnshardedCollections());
-        logger.debug("new unsharded count: {}, old: {}, diff size: {}", newSourceCatalog.getUnshardedCollections().size(), 
-        		sourceCatalog.getUnshardedCollections().size(), 
-        		newSourceUnshardedCollections.size());
-        
-        sourceCatalog = newSourceCatalog;
-        destCatalog = newDestCatalog;
-    	
-        logger.debug("run complete");
-		
-	}
     
     
     private static Configuration readProperties() {
@@ -128,8 +102,7 @@ private static Logger logger = LoggerFactory.getLogger(DiffUtilApp.class);
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
         options = new Options();
         options.addOption(new Option("help", "print this message"));
-        options.addOption(OptionBuilder.withArgName("Source cluster connection uri").hasArg().withLongOpt(SOURCE_URI).create("s"));
-        options.addOption(OptionBuilder.withArgName("Destination cluster connection uri").hasArg().withLongOpt(DEST_URI).create("d"));
+        options.addOption(OptionBuilder.withArgName("Cluster connection uri").hasArgs().withLongOpt(CLUSTER_URI).create("u"));
         options.addOption(OptionBuilder.withArgName("Configuration properties file").hasArg().withLongOpt("config")
                 .isRequired(false).create("c"));
         
@@ -151,6 +124,37 @@ private static Logger logger = LoggerFactory.getLogger(DiffUtilApp.class);
         return line;
     }
 	
+	private void initEmailReportConfig(CommandLine line, Configuration props) throws AddressException {
+		emailSender = new EmailSender();
+        String emailReportRecipientsRaw = getConfigValue(line, props, EMAIL_RECIPIENTS);
+        if (emailReportRecipientsRaw == null) {
+        	logger.debug("{} not configured, skipping mongomirror email reporting config", EMAIL_RECIPIENTS);
+        	return;
+        }
+        String[] rawSplits = emailReportRecipientsRaw.split(",");
+        for (String raw : rawSplits) {
+            if (raw.length() > 0) {
+            	emailSender.addEmailRecipient(raw.trim());
+            }
+        }
+
+        emailSender.setSmtpHost(getConfigValue(line, props, EMAIL_SMTP_HOST, DEFAULT_EMAIL_SMTP_HOST));
+        emailSender.setSmtpPort(Integer.parseInt(getConfigValue(line, props, EMAIL_SMTP_PORT, DEFAULT_EMAIL_SMTP_PORT)));
+        emailSender.setSmtpTls(Boolean.parseBoolean(getConfigValue(line, props, EMAIL_SMTP_TLS, DEFAULT_EMAIL_SMTP_TLS)));
+        emailSender.setSmtpAuth(Boolean.parseBoolean(getConfigValue(line, props, EMAIL_SMTP_AUTH, DEFAULT_EMAIL_SMTP_AUTH)));
+        emailSender.setEmailFrom(getConfigValue(line, props, EMAIL_FROM));
+        emailSender.setSmtpPassword(getConfigValue(line, props, EMAIL_SMTP_PASSWORD));
+        emailSender.init();
+    }
+	
+	private static String[] getConfigValues(CommandLine line, Configuration props, String key) {
+		if (line.hasOption(key)) {
+			return line.getOptionValues(key);
+		} else {
+			return props.getStringArray(key);
+		}
+	}
+	
 	private static String getConfigValue(CommandLine line, Configuration props, String key, String defaultValue) {
         return defaultValue != null && defaultValue.length() > 0 ?
                 line.getOptionValue(key, props.getString(key, defaultValue)) :
@@ -169,24 +173,54 @@ private static Logger logger = LoggerFactory.getLogger(DiffUtilApp.class);
     
 	public static void main(String[] args) throws Exception {
         CommandLine line = initializeAndParseCommandLineOptions(args);
-        
         Configuration properties = readProperties();
-        
         SchemaChangeWatcher watcher = new SchemaChangeWatcher();
         
+    		
+    	String[] clusterUriKeys = getConfigValues(line, properties, CONFIG_URI_KEYS);
+    	if (clusterUriKeys.length > 0) {
+    		int keyNum = 0;
+    		String[] clusterUris = new String[clusterUriKeys.length];
+    		for (String clusterUriKey : clusterUriKeys) {
+    			clusterUris[keyNum++] = getConfigValue(line, properties, clusterUriKey);
+        	}
+    		watcher.setClusterUris(clusterUris);
+    	} else {
+    		watcher.setClusterUris(getConfigValues(line, properties, CLUSTER_URI));
+    	}
+        watcher.setClusterUriKeys(clusterUriKeys);
         
-        watcher.setSourceClusterUri(getConfigValue(line, properties, SOURCE_URI));
-        watcher.setDestClusterUri(getConfigValue(line, properties, DEST_URI));
+        String[] clusterNames = getConfigValues(line, properties, CLUSTER_NAMES);
+        watcher.setClusterNames(clusterNames);
+        watcher.initEmailReportConfig(line, properties);
+        
+        String checkIntervalStr = getConfigValue(line, properties, CHECK_INTERVAL_SECONDS, "60");
+        watcher.setCheckIntervalSeconds(Long.parseLong(checkIntervalStr));
+        
         watcher.init();
+        
     }
 
-	public void setSourceClusterUri(String sourceClusterUri) {
-		this.sourceClusterUri = sourceClusterUri;
+
+	public void setClusterUris(String[] clusterUris) {
+		this.clusterUris = clusterUris;
 	}
 
 
-	public void setDestClusterUri(String destClusterUri) {
-		this.destClusterUri = destClusterUri;
+	public void setClusterUriKeys(String[] clusterUriKeys) {
+		this.clusterUriKeys = clusterUriKeys;
 	}
+
+
+	public void setClusterNames(String[] clusterNames) {
+		this.clusterNames = clusterNames;
+	}
+
+
+	public void setCheckIntervalSeconds(long checkIntervalSeconds) {
+		this.checkIntervalSeconds = checkIntervalSeconds;
+	}
+
+
 
 }

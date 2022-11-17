@@ -36,6 +36,17 @@ public class Collection {
 		Collection other = (Collection) obj;
 		return Objects.equals(namespace, other.namespace) && sharded == other.sharded;
 	}
+
+	@Override
+	public String toString() {
+		StringBuilder builder = new StringBuilder();
+		builder.append("Collection [namespace=");
+		builder.append(namespace);
+		builder.append(", sharded=");
+		builder.append(sharded);
+		builder.append("]");
+		return builder.toString();
+	}
 	
 	
 }
