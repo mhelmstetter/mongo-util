@@ -2,15 +2,15 @@ package com.mongodb.model;
 
 public class Collection {
 	
-	private String namespace;
+	private Namespace namespace;
 	private boolean sharded;
 
-	public Collection(String namespace, boolean sharded) {
+	public Collection(Namespace namespace, boolean sharded) {
 		this.namespace = namespace;
 		this.sharded = sharded;
 	}
 
-	public String getNamespace() {
+	public Namespace getNamespace() {
 		return namespace;
 	}
 

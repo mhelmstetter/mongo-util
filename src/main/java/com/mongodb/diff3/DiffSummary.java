@@ -1,71 +1,64 @@
 package com.mongodb.diff3;
 
 import java.util.Date;
-import java.util.concurrent.atomic.LongAdder;
 
 public class DiffSummary {
-    private final int totalChunks;
+    private int totalChunks = -1;
     private final long totalDocs;
     private final long totalSize;
-    private LongAdder processedChunks;
-    private LongAdder processedDocs;
-    private LongAdder processedSize;
-    private LongAdder successfulChunks;
-    private LongAdder successfulDocs;
-    private LongAdder failedChunks;
-    private LongAdder failedDocs;
+    private long processedChunks;
+    private long processedDocs;
+    private long processedSize;
+    private long successfulDocs;
+    private long failedChunks;
+    private long failedDocs;
+    private long retryChunks;
     private final long startTime;
-    private LongAdder sourceOnly;
-    private LongAdder destOnly;
-    private String ppTotalSize;
+    private long sourceOnly;
+    private long destOnly;
+    private final String ppTotalSize;
     private static final long K = 1024;
     private static final long M = 1024 * 1024;
     private static final long G = 1024 * 1024 * 1024;
 
-    public DiffSummary(int totalChunks, long totalDocs, long totalSize) {
-        this.totalChunks = totalChunks;
+    public DiffSummary(long totalDocs, long totalSize) {
         this.totalDocs = totalDocs;
         this.totalSize = totalSize;
 
-        processedDocs = new LongAdder();
-        processedChunks = new LongAdder();
-        processedSize = new LongAdder();
-        successfulChunks = new LongAdder();
-        successfulDocs = new LongAdder();
-        failedChunks = new LongAdder();
-        failedDocs = new LongAdder();
-        sourceOnly = new LongAdder();
-        destOnly = new LongAdder();
-
         this.ppTotalSize = ppSize(totalSize);
         this.startTime = new Date().getTime();
+    }
+
+    public synchronized void setTotalChunks(int totalChunks) {
+        this.totalChunks = totalChunks;
     }
 
     public String getSummary(boolean done) {
         long millsElapsed = getTimeElapsed();
         int secondsElapsed = (int) (millsElapsed / 1000.);
 
-        double chunkProcPct = (processedChunks.longValue() / (double) totalChunks) * 100.;
-        double docProcPct = (processedDocs.longValue() / (double) totalDocs) * 100.;
-        double chunkFailPct = failedChunks.longValue() > 0 ? ((double) failedChunks.longValue() /
-                (failedChunks.longValue() + successfulChunks.longValue())) * 100. : 0;
-        double docFailPct = failedDocs.longValue() > 0 ? ((double) failedDocs.longValue() /
-                (failedDocs.longValue() + successfulDocs.longValue())) * 100. : 0;
-        double sizeProcessedPct = (processedSize.longValue() / (double) totalSize) * 100.;
+        double chunkProcPct = totalChunks >= 0 ? (processedChunks / (double) totalChunks) * 100. : 0;
+        double docProcPct = (processedDocs / (double) totalDocs) * 100.;
+        double chunkFailPct = failedChunks > 0 ? ((double) failedChunks /
+                processedChunks) * 100. : 0;
+        double docFailPct = failedDocs > 0 ? ((double) failedDocs) /
+                (failedDocs + successfulDocs) * 100. : 0;
+        double sizeProcessedPct = (processedSize / (double) totalSize) * 100.;
 
-        String firstLine = done ? String.format("Completed in %s seconds.  ", secondsElapsed) :
-                String.format("%s seconds have elapsed.  ", secondsElapsed);
+        String firstLine = done ? String.format("[Status] Completed in %s seconds.  ", secondsElapsed) :
+                String.format("[Status] %s seconds have elapsed.  ", secondsElapsed);
         return String.format("%s" +
-                        "%6.2f %% of chunks processed  (%s/%s chunks).  " +
-                        "%6.2f %% of docs processed  (%s/%s docs).  " +
-                        "%6.2f %% of size processed (%s/%s).  " +
-                        "%6.2f %% of chunks failed  (%s/%s chunks).  " +
-                        "%6.2f %% of documents failed  (%s/%s docs).  " +
+                        "%.2f %% of chunks processed  (%s/%s chunks).  " +
+                        "%.2f %% of docs processed  (%s/%s docs).  " +
+                        "%.2f %% of size processed (%s/%s).  " +
+                        "%.2f %% of chunks failed  (%s/%s chunks).  " +
+                        "%.2f %% of documents failed  (%s/%s docs).  " +
+                        "%d chunks are retrying.  " +
                         "%s docs found on source only.  %s docs found on target only", firstLine, chunkProcPct,
-                processedChunks.longValue(), totalChunks, docProcPct, processedDocs.longValue(), totalDocs,
-                sizeProcessedPct, ppSize(processedSize.longValue()), ppTotalSize, chunkFailPct,
-                failedChunks.longValue(), processedChunks.longValue(), docFailPct, failedDocs.longValue(),
-                processedDocs.longValue(), sourceOnly.longValue(), destOnly.longValue());
+                processedChunks, totalChunks >= 0 ? totalChunks : "Unknown", docProcPct, processedDocs, totalDocs,
+                sizeProcessedPct, ppSize(processedSize), ppTotalSize, chunkFailPct,
+                failedChunks, processedChunks, docFailPct, failedDocs,
+                processedDocs, retryChunks, sourceOnly, destOnly);
     }
 
     private String ppSize(long size) {
@@ -97,39 +90,34 @@ public class DiffSummary {
         return now - startTime;
     }
 
-    public void incrementProcessedChunks(int num) {
-        processedChunks.add(num);
+    public synchronized void updateInitTask(DiffResult result) {
+        int failures = result.getFailureCount();
+        if (failures > 0){
+            retryChunks++;
+        } else {
+            successfulDocs += result.getMatches();
+            processedDocs += result.getMatches();
+            processedChunks++;
+            processedSize += result.getBytesProcessed();
+        }
     }
 
-    public void incrementProcessedDocs(long num) {
-        processedDocs.add(num);
+    public synchronized void updateRetryingDone(DiffResult result){
+        retryChunks--;
     }
 
-    public void incrementSuccessfulChunks(int num) {
-        successfulChunks.add(num);
-    }
-
-    public void incrementSuccessfulDocs(long num) {
-        successfulDocs.add(num);
-    }
-
-    public void incrementFailedChunks(int num) {
-        failedChunks.add(num);
-    }
-
-    public void incrementFailedDocs(int num) {
-        failedDocs.add(num);
-    }
-
-    public void incrementSourceOnly(long num) {
-        sourceOnly.add(num);
-    }
-
-    public void incrementDestOnly(long num) {
-        destOnly.add(num);
-    }
-
-    public void incrementProcessedSize(long num) {
-        processedSize.add(num);
+    public synchronized void updateRetryTask(DiffResult result) {
+        int failures = result.getFailureCount();
+        if (failures > 0) {
+            failedChunks++;
+        }
+        successfulDocs += result.getMatches() - failures;
+//        retryChunks--;
+        processedDocs += result.getMatches() + failures;
+        failedDocs += failures;
+        processedChunks++;
+        sourceOnly += result.getOnlyOnSource();
+        destOnly += result.getOnlyOnDest();
+        processedSize += result.getBytesProcessed();
     }
 }

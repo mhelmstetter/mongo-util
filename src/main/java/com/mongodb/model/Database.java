@@ -28,13 +28,13 @@ public class Database {
 	}
 
 	public void addCollection(Collection coll) {
-		allCollections.put(coll.getNamespace(), coll);
+		allCollections.put(coll.getNamespace().getNamespace(), coll);
 		if (coll.isSharded()) {
 			shardedCollections.add(coll);
 		} else {
 			unshardedCollections.add(coll);
 		}
-		Namespace ns = new Namespace(coll.getNamespace());
+		Namespace ns = coll.getNamespace();
 		namespaces.put(ns.getNamespace(), ns);
 	}
 
