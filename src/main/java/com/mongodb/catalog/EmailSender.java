@@ -78,16 +78,16 @@ public class EmailSender {
 
 		StringBuilder body = new StringBuilder();
 		body.append(String.format("Found %s new collections: ", newCollections.size()));
-		body.append("\n\n");
+		body.append("\n");
 		
 		for (Collection c : newCollections) {
 			body.append("    ");
 			body.append(c.getNamespace().getNamespace());
 			body.append("\n");
 		}
-		
+		body.append("\n");
 		body.append(String.format("Found %s dropped collections: ", droppedCollections.size()));
-		body.append("\n\n");
+		body.append("\n");
 		
 		for (Collection c : droppedCollections) {
 			body.append("    ");
