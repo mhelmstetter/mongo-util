@@ -54,10 +54,10 @@ private static Logger logger = LoggerFactory.getLogger(DiffUtilApp.class);
         sourceShardClient.init();
         destShardClient.init();
         
-        sourceShardClient.populateDatabaseCatalog();
+        //sourceShardClient.populateDatabaseCatalog();
         sourceCatalog = sourceShardClient.getDatabaseCatalog();
         
-        destShardClient.populateDatabaseCatalog();
+        //destShardClient.populateDatabaseCatalog();
         destCatalog = destShardClient.getDatabaseCatalog();
         
         Timer timer = new Timer("SchemaChangeWatcher timer");
@@ -72,10 +72,10 @@ private static Logger logger = LoggerFactory.getLogger(DiffUtilApp.class);
     	
     	logger.debug("run started");
     	
-    	sourceShardClient.populateDatabaseCatalog();
+    	//sourceShardClient.populateDatabaseCatalog();
     	DatabaseCatalog newSourceCatalog = sourceShardClient.getDatabaseCatalog();
         
-        destShardClient.populateDatabaseCatalog();
+        //destShardClient.populateDatabaseCatalog();
         DatabaseCatalog newDestCatalog = destShardClient.getDatabaseCatalog();
         
         Set<Collection> newSourceShardedCollections = Sets.difference(newSourceCatalog.getShardedCollections(), sourceCatalog.getShardedCollections());
