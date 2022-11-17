@@ -175,7 +175,7 @@ public class ShardClient {
 
 		this.name = name;
 		this.shardIdFilter = shardIdFilter;
-		logger.debug(String.format("%s client, uri: %s", name, MaskUtil.maskConnectionString(connectionString)));
+		logger.info(String.format("%s client, uri: %s", name, MaskUtil.maskConnectionString(connectionString)));
 	}
 
 	public ShardClient(String name, String clusterUri) {
@@ -218,7 +218,7 @@ public class ShardClient {
 		Document destBuildInfo = adminCommand(new Document("buildinfo", 1));
 		version = destBuildInfo.getString("version");
 		versionArray = (List<Integer>) destBuildInfo.get("versionArray");
-		logger.debug(String.format("%s : MongoDB version: %s, mongos: %s", name, version, mongos));
+		logger.info(String.format("%s : MongoDB version: %s, mongos: %s", name, version, mongos));
 
 		populateMongosList();
 	}
@@ -798,8 +798,13 @@ public class ShardClient {
 		}
 		return databaseCatalog;
 	}
+	
+	public void populateDatabaseCatalog() {
+		populateDatabaseCatalog(null);
+	}
 
-	private void populateDatabaseCatalog(Set<Namespace> includeNs) {
+	public void populateDatabaseCatalog(Set<Namespace> includeNs) {
+		databaseCatalog = new DatabaseCatalog();
 		MongoIterable<String> dbNames = listDatabaseNames();
 		Map<String, Set<String>> includeMap = new HashMap<>();
 		boolean includeAll = true;
@@ -833,7 +838,7 @@ public class ShardClient {
 
 				String collType = coll.getString("type");
 				if (collType.equals("view")) {
-					logger.info("Excluding view: {}", collName);
+					logger.debug("Excluding view: {}", collName);
 					db.excludeCollection(collName);
 					continue;
 				}
