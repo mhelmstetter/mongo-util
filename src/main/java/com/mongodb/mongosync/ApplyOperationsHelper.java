@@ -48,7 +48,7 @@ public class ApplyOperationsHelper  {
 			boolean useOrdered,
 			final BulkWriteOutput output)
 			throws MongoException {
-		MongoCollection<BsonDocument> collection = destShardClient.getCollectionBson(namespace);
+		MongoCollection<BsonDocument> collection = destShardClient.getCollectionRaw(namespace);
 		BulkWriteResult bulkWriteResult = null;
 		
 		try {
