@@ -65,7 +65,6 @@ public class MongoMirrorRunner {
     private Boolean destinationNoSSL;
     private Boolean noIndexRestore;
     private Boolean extendTtl;
-    private Boolean noCollectionCreate = true;
     private Integer stopWhenLagWithin;
 
     private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
@@ -119,7 +118,6 @@ public class MongoMirrorRunner {
         addArg("destinationNoSSL", destinationNoSSL);
         addArg("preserveUUIDs", preserveUUIDs);
         addArg("extendTTL", extendTtl);
-        addArg("noCollectionCreate", noCollectionCreate);
 
         addArg("drop", drop);
         addArg("bookmarkFile", bookmarkFile);
@@ -464,8 +462,4 @@ public class MongoMirrorRunner {
     public void setEmailFrom(String emailFrom) {
         this.emailFrom = emailFrom;
     }
-
-	public void setNoCollectionCreate(Boolean noCollectionCreate) {
-		this.noCollectionCreate = noCollectionCreate;
-	}
 }
