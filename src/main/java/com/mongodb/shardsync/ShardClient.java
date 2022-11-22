@@ -11,6 +11,31 @@ import com.mongodb.model.StandardDatabaseCatalogProvider;
 import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.model.*;
 import com.mongodb.util.MaskUtil;
+
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.gt;
+import static com.mongodb.client.model.Filters.in;
+import static com.mongodb.client.model.Filters.ne;
+import static com.mongodb.client.model.Filters.regex;
+import static com.mongodb.client.model.Projections.include;
+import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.regex.Pattern;
+
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
@@ -28,6 +53,39 @@ import org.slf4j.LoggerFactory;
 import java.util.Collection;
 import java.util.*;
 import java.util.regex.Pattern;
+
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoCommandException;
+import com.mongodb.MongoException;
+import com.mongodb.MongoTimeoutException;
+import com.mongodb.ServerAddress;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.ListCollectionsIterable;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.MongoIterable;
+import com.mongodb.client.model.IndexOptions;
+import com.mongodb.client.model.Sorts;
+import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.result.DeleteResult;
+import com.mongodb.internal.dns.DefaultDnsResolver;
+import com.mongodb.model.Database;
+import com.mongodb.model.DatabaseCatalog;
+import com.mongodb.model.DatabaseStats;
+import com.mongodb.model.IndexSpec;
+import com.mongodb.model.Mongos;
+import com.mongodb.model.Namespace;
+import com.mongodb.model.ReplicaSetInfo;
+import com.mongodb.model.Privilege;
+import com.mongodb.model.Resource;
+import com.mongodb.model.Role;
+import com.mongodb.model.Shard;
+import com.mongodb.model.ShardTimestamp;
+import com.mongodb.model.User;
+import com.mongodb.util.MaskUtil;
 
 import static com.mongodb.client.model.Filters.*;
 import static com.mongodb.client.model.Projections.include;
@@ -202,7 +260,7 @@ public class ShardClient {
 		FindIterable<Shard> shards = shardsColl.find().sort(Sorts.ascending("_id"));
 
 		if (rsRegex != null) {
-
+			logger.debug("{}: populateShardList(), rsRegex: {}", name, rsRegex);
 			Pattern p = Pattern.compile(rsRegex);
 			for (Shard sh : shards) {
 
@@ -212,11 +270,19 @@ public class ShardClient {
 
 				ReplicaSetInfo rsInfo = getReplicaSetInfoFromHost(seedList);
 
+				if (rsInfo == null) {
+					throw new RuntimeException("unable to get rsInfo from " + seedList);
+				}
+				
 				String foundHost = null;
 				for (String host : rsInfo.getHosts()) {
 
 					if (p.matcher(host).find()) {
 						rsInfo = getReplicaSetInfoFromHost(host);
+						// connection may have failed
+						if (rsInfo == null) {
+							continue;
+						}
 						logger.debug("match, rs: {}, host: {}, secondary: {}", rsName, host, rsInfo.isSecondary());
 						if (rsInfo.isSecondary()) {
 							foundHost = host;
@@ -319,13 +385,26 @@ public class ShardClient {
 		logger.debug(name + ": populateShardList complete, " + shardsMap.size() + " shards added");
 	}
 
-
-
 	private ReplicaSetInfo getReplicaSetInfoFromHost(String host) {
 		ReplicaSetInfo rsInfo = new ReplicaSetInfo();
-		MongoClient tmp = MongoClients.create("mongodb://" + host);
-		Document result = tmp.getDatabase("admin").runCommand(new Document("hello", 1));
-
+		
+		ConnectionString connectionString = new ConnectionString("mongodb://" + host);
+		MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+                .applyConnectionString(connectionString)
+                .applyToSocketSettings(builder -> {
+                    builder.connectTimeout(5000, MILLISECONDS);
+                  })
+                .build();
+		MongoClient tmp = MongoClients.create(mongoClientSettings);
+		
+		Document result = null;
+		try {
+			result = tmp.getDatabase("admin").runCommand(new Document("hello", 1));
+		} catch (MongoException me) {
+			logger.warn("Error getting hello() for {}, {}", host, me.getMessage());
+			return null;
+		}
+		
 		if (result.containsKey("setName")) {
 			rsInfo.setRsName(result.getString("setName"));
 		} else {
@@ -487,6 +566,9 @@ public class ShardClient {
 			}
 			if (connectionString.getApplicationName() != null) {
 				settingsBuilder.applicationName(connectionString.getApplicationName());
+			}
+			if (connectionString.getReadPreference() != null) {
+				settingsBuilder.readPreference(connectionString.getReadPreference());
 			}
 			settingsBuilder.uuidRepresentation(UuidRepresentation.STANDARD);
 
@@ -939,6 +1021,33 @@ public class ShardClient {
 		MongoCollection<Role> rolesColl = db.getCollection("system.roles", Role.class);
 		final List<Role> roles = new ArrayList<>();
 		rolesColl.find().sort(Sorts.ascending("_id")).into(roles);
+		
+		for (Role role : roles) {
+			
+			Map<Resource, Set<String>> resourcePrivilegeActionsMap = new HashMap<>();
+			
+			List<Privilege> canonicalPriviliges = new ArrayList<>();
+			
+			for (Privilege p : role.getPrivileges()) {
+				
+				Set<String> canonicalActions = resourcePrivilegeActionsMap.get(p.getResource());
+				if (canonicalActions == null) {
+					canonicalActions = new HashSet<>();
+					resourcePrivilegeActionsMap.put(p.getResource(), canonicalActions);
+				}
+				canonicalActions.addAll(p.getActions());
+			}
+			
+			for (Map.Entry<Resource, Set<String>> entry : resourcePrivilegeActionsMap.entrySet()) {
+				Privilege p2 = new Privilege();
+				p2.setResource(entry.getKey());
+				p2.setActions(new ArrayList<>(entry.getValue()));
+				canonicalPriviliges.add(p2);
+			}
+			
+			role.setPrivileges(canonicalPriviliges);
+		}
+		
 		return roles;
 	}
 
