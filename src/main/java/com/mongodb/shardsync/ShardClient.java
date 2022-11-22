@@ -863,7 +863,7 @@ public class ShardClient {
 		Document result = null;
 		for (int i = 0; i < 2; i++) {
 			try {
-				mongoClient.getDatabase("admin").runCommand(command);
+				result = mongoClient.getDatabase("admin").runCommand(command);
 				return result;
 			} catch (MongoSocketException mse) {
 				if (i == 0) {
