@@ -29,8 +29,6 @@ public class SyncConfiguration {
 	public String destRsPattern;
 	public String[] sourceRsManual;
 	public String[] destRsManual;
-	public String sourceRsRegex;
-	public String destRsRegex;
 	public String destCsrsUri;
 	public boolean dropDestDbs;
 	public boolean dropDestDbsAndConfigMetadata;
@@ -570,21 +568,5 @@ public class SyncConfiguration {
 
 	public void setStopWhenLagWithin(int stopWhenLagWithin) {
 		this.stopWhenLagWithin = stopWhenLagWithin;
-	}
-
-	public String getSourceRsRegex() {
-		return sourceRsRegex;
-	}
-
-	public void setSourceRsRegex(String sourceRsRegex) {
-		this.sourceRsRegex = sourceRsRegex;
-	}
-
-	public String getDestRsRegex() {
-		return destRsRegex;
-	}
-
-	public void setDestRsRegex(String destRsRegex) {
-		this.destRsRegex = destRsRegex;
 	}
 }

@@ -41,13 +41,9 @@ public class ShardConfigSyncApp {
     // Advanced option for manaually overriding the hostnames / bypassing discovery
     private final static String SOURCE_RS_MANUAL = "sourceRsManual";
     private final static String DEST_RS_MANUAL = "destRsManual";
-    
-    private final static String SOURCE_RS_REGEX = "sourceRsRegex";
-    private final static String DEST_RS_REGEX = "destRsRegex";
 
     private final static String MONGOMIRROR_BINARY = "mongomirrorBinary";
 
-    private final static String FILTER = "filter";
     private final static String DROP_DEST_DBS = "dropDestDbs";
     private final static String DROP_DEST_DBS_AND_CONFIG_METADATA = "dropDestDbsAndConfigMeta";
     public final static String NON_PRIVILEGED = "nonPrivileged";
@@ -62,9 +58,6 @@ public class ShardConfigSyncApp {
     private final static String SYNC_METADATA = "syncMetadata";
     private final static String SYNC_METADATA_OPTIMIZED = "syncMetadataOptimized";
     private final static String SYNC_USERS = "syncUsers";
-    private final static String SYNC_ROLES = "syncRoles";
-    private final static String DIFF_USERS = "diffUsers";
-    private final static String DIFF_ROLES = "diffRoles";
     private final static String COMPARE_CHUNKS = "compareChunks";
     private final static String COMPARE_COLLECTION_UUIDS = "compareCollectionUuids";
     private final static String DISABLE_SOURCE_AUTOSPLIT = "disableSourceAutosplit";
@@ -157,14 +150,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(SYNC_METADATA).create(SYNC_METADATA));
         options.addOption(OptionBuilder.withArgName("Synchronize shard metadata (optimized method)")
                 .withLongOpt(SYNC_METADATA_OPTIMIZED).create(SYNC_METADATA_OPTIMIZED));
-        options.addOption(OptionBuilder.withArgName("Synchronize users to Atlas")
+        options.addOption(OptionBuilder.withArgName("Synchronize users and roles")
                 .withLongOpt(SYNC_USERS).create(SYNC_USERS));
-        options.addOption(OptionBuilder.withArgName("Synchronize roles to Atlas")
-                .withLongOpt(SYNC_ROLES).create(SYNC_ROLES));
-        options.addOption(OptionBuilder.withArgName("Diff users with Atlas")
-                .withLongOpt(DIFF_USERS).create(DIFF_USERS));
-        options.addOption(OptionBuilder.withArgName("Diff roles with Atlas")
-                .withLongOpt(DIFF_ROLES).create(DIFF_ROLES));
         options.addOption(OptionBuilder.withArgName("Shard mapping").hasArg().withLongOpt(SHARD_MAP)
                 .isRequired(false).create("m"));
         options.addOption(OptionBuilder.withArgName("Disable autosplit on source cluster")
@@ -205,7 +192,7 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("mongomirror tail only from specificed oplog ts (ts,increment format)")
                 .withLongOpt(TAIL_FROM_TS).hasArg().create(TAIL_FROM_TS));
         options.addOption(OptionBuilder.withArgName("mongomirror namespace filter").hasArgs()
-                .withLongOpt(FILTER).create("f"));
+                .withLongOpt("filter").create("f"));
         options.addOption(OptionBuilder.withArgName("full path to mongomirror binary").hasArg()
                 .withLongOpt(MONGOMIRROR_BINARY).create("p"));
         options.addOption(OptionBuilder.withArgName("mongomirror preserve dest UUIDs (not supported for Atlas dest)")
@@ -385,9 +372,6 @@ public class ShardConfigSyncApp {
 
         config.setSourceRsManual(properties.getStringArray(SOURCE_RS_MANUAL));
         config.setDestRsManual(properties.getStringArray(DEST_RS_MANUAL));
-        
-        config.setSourceRsRegex(properties.getString(SOURCE_RS_REGEX));
-        config.setDestRsRegex(properties.getString(DEST_RS_REGEX));
 
 
         config.setDestCsrsUri(properties.getString(DEST_CSRS_URI));
@@ -409,13 +393,7 @@ public class ShardConfigSyncApp {
             config.setShardMap(line.getOptionValues("m"));
         }
 
-        String[] filter1 = properties.getStringArray(FILTER);
-        if (filter1.length > 0) {
-        	config.setNamespaceFilters(filter1);
-        } else {
-        	config.setNamespaceFilters(line.getOptionValues("f"));
-        }
-        
+        config.setNamespaceFilters(line.getOptionValues("f"));
 
         boolean nonPrivilegedMode = line.hasOption(NON_PRIVILEGED) || properties.getBoolean(NON_PRIVILEGED, false);
         config.setNonPrivilegedMode(nonPrivilegedMode);
@@ -479,18 +457,6 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(SYNC_USERS)) {
             actionFound = true;
             sync.syncUsers();
-            //sync.diffRoles();
-        } else if (line.hasOption(SYNC_ROLES)) {
-            actionFound = true;
-            sync.syncRoles();
-            //sync.diffRoles();
-	    } else if (line.hasOption(DIFF_USERS)) {
-	        actionFound = true;
-	        sync.diffUsers();
-	        //sync.diffRoles();
-		} else if (line.hasOption(DIFF_ROLES)) {
-		    actionFound = true;
-		    sync.diffRoles();
         } else if (line.hasOption(SHARD_COLLECTIONS)) {
             actionFound = true;
             sync.shardCollections();
@@ -561,7 +527,7 @@ public class ShardConfigSyncApp {
             config.setBookmarkFilePrefix(line.getOptionValue(BOOKMARK_FILE_PREFIX));
 
             if (mongoMirrorPath == null) {
-                System.out.println(MONGOMIRROR_BINARY + " required");
+                System.out.println("mongomirrorPath required");
                 printHelpAndExit();
             }
             config.setMongomirrorBinary(mongoMirrorPath);

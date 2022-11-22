@@ -1,6 +1,5 @@
 package com.mongodb.model;
 
-import java.util.Objects;
 
 public class Resource {
 	
@@ -51,24 +50,6 @@ public class Resource {
 
 	public void setAnyResource(Boolean anyResource) {
 		this.anyResource = anyResource;
-	}
-
-	@Override
-	public int hashCode() {
-		return Objects.hash(anyResource, cluster, collection, db);
-	}
-
-	@Override
-	public boolean equals(Object obj) {
-		if (this == obj)
-			return true;
-		if (obj == null)
-			return false;
-		if (getClass() != obj.getClass())
-			return false;
-		Resource other = (Resource) obj;
-		return Objects.equals(anyResource, other.anyResource) && Objects.equals(cluster, other.cluster)
-				&& Objects.equals(collection, other.collection) && Objects.equals(db, other.db);
 	}
     
     
