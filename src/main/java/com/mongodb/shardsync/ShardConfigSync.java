@@ -18,6 +18,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +26,8 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.lang3.StringUtils;
@@ -41,6 +44,7 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Sets;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
@@ -49,6 +53,8 @@ import com.mongodb.MongoCredential;
 import com.mongodb.MongoException;
 import com.mongodb.atlas.AtlasServiceGenerator;
 import com.mongodb.atlas.AtlasUtil;
+import com.mongodb.atlas.model.AtlasRole;
+import com.mongodb.atlas.model.AtlasRoleResponse;
 import com.mongodb.atlas.model.AtlasUser;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
@@ -68,6 +74,8 @@ import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
 import com.mongodb.model.IndexSpec;
 import com.mongodb.model.Namespace;
+import com.mongodb.model.Privilege;
+import com.mongodb.model.Role;
 import com.mongodb.model.Shard;
 import com.mongodb.model.ShardCollection;
 import com.mongodb.model.ShardTimestamp;
@@ -99,6 +107,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	private ShardClient destShardClient;
 	
 	private ChunkManager chunkManager;
+	private AtlasUtil atlasUtil;
 
 	private Map<String, Document> sourceDbInfoMap = new TreeMap<String, Document>();
 	private Map<String, Document> destDbInfoMap = new TreeMap<String, Document>();
@@ -127,6 +136,18 @@ public class ShardConfigSync implements Callable<Integer> {
 		this.sourceShardClient = config.getSourceShardClient();
 		this.destShardClient = config.getDestShardClient();
 		checkDestShardClientIsMongos();
+		initAtlasUtil();
+	}
+	
+	public void initAtlasUtil() {
+		if (config.atlasApiPublicKey == null) {
+			return;
+		}
+		try {
+			atlasUtil = new AtlasUtil(config.atlasApiPublicKey, config.atlasApiPrivateKey);
+		} catch (KeyManagementException | NoSuchAlgorithmException e1) {
+			logger.error("error initializing AtlasUtil", e1);
+		}
 	}
 
 	public void shardCollections() {
@@ -152,6 +173,10 @@ public class ShardConfigSync implements Callable<Integer> {
 	private void createCollections() {
 		MongoClient sourceClient = sourceShardClient.getMongoClient();
 		MongoClient destClient = destShardClient.getMongoClient();
+		
+		destShardClient.populateCollectionsMap();
+		Map<String, Document> existingDestCollections = destShardClient.getCollectionsMap();
+		
 		for (String dbName : sourceClient.listDatabaseNames()) {
 			MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
 			for (Document collectionInfo : sourceDb.listCollections()) {
@@ -164,6 +189,10 @@ public class ShardConfigSync implements Callable<Integer> {
 				String type = collectionInfo.getString("type");
 				if (collectionName.equals("system.views") || type.equals("view")) {
 					logger.warn("Skipping view: {}", ns);	
+					continue;
+				}
+				
+				if (existingDestCollections.containsKey(ns.getNamespace())) {
 					continue;
 				}
 				
@@ -291,51 +320,109 @@ public class ShardConfigSync implements Callable<Integer> {
 		
 	}
 	
-	public void syncUsers() throws IOException {
+	public void diffRoles() {
 		
-		AtlasUtil atlasUtil = null;
-		try {
-			atlasUtil = new AtlasUtil(config.atlasApiPublicKey, config.atlasApiPrivateKey);
-		} catch (KeyManagementException | NoSuchAlgorithmException e1) {
-			e1.printStackTrace();
-			return;
-		}
-//		List<Role> roles = this.sourceShardClient.getRoles();
-//		
-//		List<AtlasRole> atlasRoles = UsersRolesManager.convertMongoRolesToAtlasRoles(roles);
-//		
-//		Set<String> roleNames = new HashSet<>();
-//		
-//		for (AtlasRole role : atlasRoles) {
-//			try {
-//				if (role.getActions().isEmpty() && role.getInheritedRoles().isEmpty()) {
-//					logger.warn("ignoring role {}, no actions or inherited roles", role.getRoleName());
-//					continue;
+		logger.debug("Starting diffRoles");
+		List<Role> sourceRoles = this.sourceShardClient.getRoles();
+		Map<String, Role> sourceRolesMap = sourceRoles.stream().collect(Collectors.toMap(Role::getId, Function.identity()));
+		
+		List<Role> destRoles = this.destShardClient.getRoles();
+		Map<String, Role> destRolesMap = destRoles.stream().collect(Collectors.toMap(Role::getId, Function.identity()));
+		
+		for (Map.Entry<String, Role> entry : sourceRolesMap.entrySet()) {
+			
+			Role sourceRole = entry.getValue();
+			Role destRole = destRolesMap.get(entry.getKey());
+			
+			if (destRole == null) {
+				continue;
+			}
+			
+//			logger.debug("*** sourcePrivileges {} -  ***", sourceRole.getId());
+//			for (Privilege p : sourceRole.getPrivileges()) {
+//				if (! UsersRolesManager.ignoredCollections.contains(p.getResource().getCollection())) {
+//					logger.debug(p.toString());
 //				}
 //				
-//				AtlasRoleResponse result = atlasUtil.createCustomDbRole(config.atlasProjectId, role);
-//				if (result.isSuccess()) {
-//					logger.debug("Custom db role {} created", role.getRoleName());
-//					roleNames.add(role.getRoleName());
-//				} else if (result.isDuplicate()) {
-//					logger.debug("Custom db role {} already exists", role.getRoleName());
-//				} else {
-//					logger.error("Custom db role {} failed: {}", role.getRoleName(), result.getResponseError());
-//					ObjectMapper mapper = new ObjectMapper();
-//					String jsonInString = mapper.writeValueAsString(role);
-//					System.out.println(jsonInString);
-//				}
-//				
-//			} catch (IOException e) {
-//				logger.error("Error creating custom db role: {}", role.getRoleName(), e);
-//			} catch (KeyManagementException e) {
-//				// TODO Auto-generated catch block
-//				e.printStackTrace();
-//			} catch (NoSuchAlgorithmException e) {
-//				// TODO Auto-generated catch block
-//				e.printStackTrace();
 //			}
-//		}
+//			
+//			logger.debug("*** destPrivileges {} -  ***", sourceRole.getId());
+//			for (Privilege p : destRole.getPrivileges()) {
+//				if (! UsersRolesManager.ignoredCollections.contains(p.getResource().getCollection())) {
+//					logger.debug(p.toString());
+//				}
+//				
+//			}
+			
+			
+			Set<Privilege> sourceRoleMap = sourceRole.getResoucePrivilegeSet();
+			Set<Privilege> destRoleMap = destRole.getResoucePrivilegeSet();
+			
+			Sets.SetView<Privilege> diff = Sets.difference(sourceRoleMap, destRoleMap);
+			
+			for (Iterator<Privilege> it = diff.iterator(); it.hasNext();) {
+				Privilege p = it.next();
+				if (! UsersRolesManager.ignoredCollections.contains(p.getResource().getCollection())) {
+					logger.debug("onlyOnSource: {}", p);
+				}
+				
+			}
+			
+			
+			
+			
+			
+			
+			
+	    }
+	}
+	
+	public void diffUsers() {
+		
+	}
+	
+	public void syncRoles() throws IOException {
+		
+		List<Role> roles = this.sourceShardClient.getRoles();
+		
+		List<AtlasRole> atlasRoles = UsersRolesManager.convertMongoRolesToAtlasRoles(roles);
+		
+		Set<String> roleNames = new HashSet<>();
+		
+		for (AtlasRole role : atlasRoles) {
+			try {
+				if (role.getActions().isEmpty() && role.getInheritedRoles().isEmpty()) {
+					logger.warn("ignoring role {}, no actions or inherited roles", role.getRoleName());
+					continue;
+				}
+				
+				AtlasRoleResponse result = atlasUtil.createCustomDbRole(config.atlasProjectId, role);
+				if (result.isSuccess()) {
+					logger.debug("Custom db role {} created", role.getRoleName());
+					roleNames.add(role.getRoleName());
+				} else if (result.isDuplicate()) {
+					logger.debug("Custom db role {} already exists", role.getRoleName());
+				} else {
+					logger.error("Custom db role {} failed: {}", role.getRoleName(), result.getResponseError());
+					ObjectMapper mapper = new ObjectMapper();
+					String jsonInString = mapper.writeValueAsString(role);
+					System.out.println(jsonInString);
+				}
+				
+			} catch (IOException e) {
+				logger.error("Error creating custom db role: {}", role.getRoleName(), e);
+			} catch (KeyManagementException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} catch (NoSuchAlgorithmException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		
+	}
+	
+	public void syncUsers() throws IOException {
 		
 		List<User> users = this.sourceShardClient.getUsers();
 		for (User u : users) {
@@ -352,18 +439,9 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 	
 	public void dropDestinationAtlasUsersAndRoles() {
-		AtlasUtil atlasUtil = null;
-		try {
-			atlasUtil = new AtlasUtil(config.atlasApiPublicKey, config.atlasApiPrivateKey);
-		} catch (KeyManagementException | NoSuchAlgorithmException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		
-		//atlasUtil.deleteRoles(config.atlasProjectId);
-		
+
+		atlasUtil.deleteRoles(config.atlasProjectId);
 		String excludeUser = this.destShardClient.getConnectionString().getCredential().getUserName();
-		
 		atlasUtil.deleteUsers(config.atlasProjectId, excludeUser);
 		AtlasServiceGenerator.shutdown();
 	}
@@ -1052,11 +1130,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				continue;
 			}
 
-			//dest = destShardClient.getDatabasesCollection().find(new Document("_id", databaseName)).first();
-			
-			//if (dest == null) {
 			dest = destShardClient.createDatabase(databaseName);
-			logger.debug("dest db: " + dest);
 
 			String destPrimary = dest.getString("primary");
 			if (mappedPrimary.equals(destPrimary)) {
