@@ -52,6 +52,7 @@ public class MongoMirrorLogHandler extends LogOutputStream {
         StringBuilder sb = new StringBuilder(REGEX_PREFIX);
         Iterator<String> matchIter = Arrays.stream(phrases).iterator();
         while (matchIter.hasNext()) {
+            sb.append("\\b");
             sb.append(matchIter.next());
             if (matchIter.hasNext()){
                 sb.append("|");
