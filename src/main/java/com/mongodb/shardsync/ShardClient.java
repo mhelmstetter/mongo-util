@@ -518,6 +518,11 @@ public class ShardClient {
 		if (shardMongoClients.size() > 0) {
 			logger.debug("populateShardMongoClients already complete, skipping");
 		}
+		
+		if (! this.mongos) {
+			shardMongoClients.put("", this.mongoClient);
+			return;
+		}
 
 		for (Shard shard : shardsMap.values()) {
 			String shardHost = shard.getHost();
