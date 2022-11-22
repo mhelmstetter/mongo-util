@@ -561,7 +561,7 @@ public class ShardConfigSyncApp {
             config.setBookmarkFilePrefix(line.getOptionValue(BOOKMARK_FILE_PREFIX));
 
             if (mongoMirrorPath == null) {
-                System.out.println("mongomirrorPath required");
+                System.out.println(MONGOMIRROR_BINARY + " required");
                 printHelpAndExit();
             }
             config.setMongomirrorBinary(mongoMirrorPath);

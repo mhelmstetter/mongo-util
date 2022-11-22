@@ -42,6 +42,7 @@ import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
+import com.mongodb.MongoSocketException;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.FindIterable;
@@ -859,7 +860,21 @@ public class ShardClient {
 	}
 
 	public Document adminCommand(Document command) {
-		return mongoClient.getDatabase("admin").runCommand(command);
+		Document result = null;
+		for (int i = 0; i < 2; i++) {
+			try {
+				mongoClient.getDatabase("admin").runCommand(command);
+				return result;
+			} catch (MongoSocketException mse) {
+				if (i == 0) {
+					logger.warn("Socket exception in adminCommand(), first attempt will retry", mse);
+				} else {
+					logger.error("Socket exception in adminCommand(), last attempt, no more retries", mse);
+				}
+			}
+		}
+		
+		return result;
 	}
 
 	public String getVersion() {
