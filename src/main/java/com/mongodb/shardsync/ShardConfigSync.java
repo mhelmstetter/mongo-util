@@ -496,14 +496,19 @@ public class ShardConfigSync implements Callable<Integer> {
 			logger.debug("Skipping source balancer stop, patterned uri");
 		}
 		
-		if (config.destClusterPattern == null) {
+		if (config.destClusterPattern == null && !config.isShardToRs()) {
 			try {
 				destShardClient.stopBalancer();
 			} catch (MongoCommandException mce) {
 				logger.error("Could not stop balancer on dest shard: " + mce.getMessage());
 			}
 		} else {
-			logger.debug("Skipping dest balancer stop, patterned uri");
+			if (config.isShardToRs()) {
+				logger.debug("Skipping dest balancer stop, destination is a replica set");
+			} else {
+				logger.debug("Skipping dest balancer stop, patterned uri");
+			}
+			
 		}
 
 		logger.debug("stopBalancers complete");
@@ -1217,6 +1222,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	public void shardToRs() throws ExecuteException, IOException {
 
 		logger.debug("shardToRs() starting");
+		stopBalancers();
 
 		List<MongoMirrorRunner> mongomirrors = new ArrayList<>(sourceShardClient.getShardsMap().size());
 		int httpStatusPort = config.mongoMirrorStartPort;
