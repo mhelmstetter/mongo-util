@@ -384,9 +384,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	public void syncRoles() throws IOException {
 		
 		List<Role> roles = this.sourceShardClient.getRoles();
-		
 		List<AtlasRole> atlasRoles = UsersRolesManager.convertMongoRolesToAtlasRoles(roles);
-		
 		Set<String> roleNames = new HashSet<>();
 		
 		for (AtlasRole role : atlasRoles) {
@@ -406,17 +404,11 @@ public class ShardConfigSync implements Callable<Integer> {
 					logger.error("Custom db role {} failed: {}", role.getRoleName(), result.getResponseError());
 					ObjectMapper mapper = new ObjectMapper();
 					String jsonInString = mapper.writeValueAsString(role);
-					System.out.println(jsonInString);
+					logger.error("failed role json: {}", jsonInString);
 				}
 				
-			} catch (IOException e) {
+			} catch (IOException | KeyManagementException | NoSuchAlgorithmException e ) {
 				logger.error("Error creating custom db role: {}", role.getRoleName(), e);
-			} catch (KeyManagementException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			} catch (NoSuchAlgorithmException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
 			}
 		}
 		
@@ -430,7 +422,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			try {
 				atlasUtil.createUser(config.atlasProjectId, atlasUser);
 			} catch (KeyManagementException | NoSuchAlgorithmException | IOException e) {
-				e.printStackTrace();
+				logger.error("syncUsers() error: {}", atlasUser, e);
 			}
 			
 		}

@@ -479,15 +479,12 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(SYNC_USERS)) {
             actionFound = true;
             sync.syncUsers();
-            //sync.diffRoles();
         } else if (line.hasOption(SYNC_ROLES)) {
             actionFound = true;
             sync.syncRoles();
-            //sync.diffRoles();
 	    } else if (line.hasOption(DIFF_USERS)) {
 	        actionFound = true;
 	        sync.diffUsers();
-	        //sync.diffRoles();
 		} else if (line.hasOption(DIFF_ROLES)) {
 		    actionFound = true;
 		    sync.diffRoles();
