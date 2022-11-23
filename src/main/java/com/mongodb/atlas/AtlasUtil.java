@@ -175,8 +175,14 @@ public class AtlasUtil {
 		webTarget.register(feature);
 		Invocation.Builder invocationBuilder = webTarget.request(MediaType.APPLICATION_JSON);
 		Response response = invocationBuilder.get();
-		List<AtlasRole> roles = response.readEntity(new GenericType<List<AtlasRole>>() {});
-		return roles;
+		
+		if (response.getStatusInfo().getFamily().equals(Response.Status.Family.SUCCESSFUL)) {
+			List<AtlasRole> roles = response.readEntity(new GenericType<List<AtlasRole>>() {});
+			return roles;
+		} else {
+			logger.error("getCustomDbRoles error: {}", response.getStatusInfo());
+			return null;
+		}
 	}
 	
 	public List<AtlasUser> getDatabaseUsers(String groupId) {
