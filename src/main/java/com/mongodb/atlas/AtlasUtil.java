@@ -178,8 +178,10 @@ public class AtlasUtil {
 		
 		if (response.getStatusInfo().getFamily().equals(Response.Status.Family.SUCCESSFUL)) {
 			logger.debug("getCustomDbRoles(), response code: {}", response.getStatus());
-			List<AtlasRole> roles = response.readEntity(new GenericType<List<AtlasRole>>() {});
-			return roles;
+			//List<AtlasRole> roles = response.readEntity(new GenericType<List<AtlasRole>>() {});
+			String resp = response.readEntity(String.class);
+			logger.debug("getCustomDbRoles(), response string: {}", resp);
+			return null;
 		} else {
 			logger.error("getCustomDbRoles error: {}", response.getStatusInfo());
 			return null;
