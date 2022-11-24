@@ -17,10 +17,12 @@ import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
+import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJsonProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.atlas.model.AtlasRole;
+import com.mongodb.atlas.model.AtlasRoleReference;
 import com.mongodb.atlas.model.AtlasRoleResponse;
 import com.mongodb.atlas.model.AtlasUser;
 import com.mongodb.atlas.model.AtlasUsersResponse;
@@ -42,6 +44,8 @@ public class AtlasUtil {
 	private final static String[] FTDC_LOGS = { "FTDC" };
 
 	private static Logger logger = LoggerFactory.getLogger(AtlasUtil.class);
+	
+	private final static AtlasRoleReference atlasAdmin = new AtlasRoleReference("atlasAdmin", "admin");
 
 	private AtlasApi service;
 
@@ -54,6 +58,10 @@ public class AtlasUtil {
 	private SSLContext sslContext;
 
 	private DescriptiveStatistics diskStats = new DescriptiveStatistics();
+	
+	private HttpAuthenticationFeature feature;
+	
+	private Client client;
 
 	public AtlasUtil(String username, String apiKey) throws KeyManagementException, NoSuchAlgorithmException {
 		service = AtlasServiceGenerator.createService(AtlasApi.class, username, apiKey);
@@ -85,6 +93,12 @@ public class AtlasUtil {
 
 		sslContext = SSLContext.getInstance("SSL");
 		sslContext.init(null, trustManager, null);
+		
+		feature = HttpAuthenticationFeature.universalBuilder()
+				.credentialsForBasic(apiPublicKey, apiPrivateKey).credentials(apiPublicKey, apiPrivateKey).build();
+
+		ClientConfig clientConfig = new ClientConfig().register(new JacksonJsonProvider());
+		client = ClientBuilder.newBuilder().sslContext(sslContext).withConfig(clientConfig).build();
 	}
 
 //    public List<Project> getProjects() throws IOException {
@@ -149,11 +163,7 @@ public class AtlasUtil {
 //	}
 	
 	public void deleteCustomDbRole(String groupId, String roleName) {
-		HttpAuthenticationFeature feature = HttpAuthenticationFeature.universalBuilder()
-				.credentialsForBasic(apiPublicKey, apiPrivateKey).credentials(apiPublicKey, apiPrivateKey).build();
-
-		ClientConfig clientConfig = new ClientConfig();
-		Client client = ClientBuilder.newBuilder().sslContext(sslContext).withConfig(clientConfig).build();
+		
 		WebTarget webTarget = client.target(BASE_URL).path("groups").path(groupId).path("customDBRoles").path("roles");
 
 		webTarget.register(feature);
@@ -165,23 +175,18 @@ public class AtlasUtil {
 	}
 	
 	public List<AtlasRole> getCustomDbRoles(String groupId) {
-		HttpAuthenticationFeature feature = HttpAuthenticationFeature.universalBuilder()
-				.credentialsForBasic(apiPublicKey, apiPrivateKey).credentials(apiPublicKey, apiPrivateKey).build();
-
-		ClientConfig clientConfig = new ClientConfig();
-		Client client = ClientBuilder.newBuilder().sslContext(sslContext).withConfig(clientConfig).build();
+		
 		WebTarget webTarget = client.target(BASE_URL).path("groups").path(groupId).path("customDBRoles").path("roles");
-
 		webTarget.register(feature);
 		Invocation.Builder invocationBuilder = webTarget.request(MediaType.APPLICATION_JSON);
 		Response response = invocationBuilder.get();
 		
 		if (response.getStatusInfo().getFamily().equals(Response.Status.Family.SUCCESSFUL)) {
 			logger.debug("getCustomDbRoles(), response code: {}", response.getStatus());
-			//List<AtlasRole> roles = response.readEntity(new GenericType<List<AtlasRole>>() {});
-			String resp = response.readEntity(String.class);
-			logger.debug("getCustomDbRoles(), response string: {}", resp);
-			return null;
+			List<AtlasRole> roles = response.readEntity(new GenericType<List<AtlasRole>>() {});
+			//String resp = response.readEntity(String.class);
+			//logger.debug("getCustomDbRoles(), response string: {}", resp);
+			return roles;
 		} else {
 			logger.error("getCustomDbRoles error: {}", response.getStatusInfo());
 			return null;
@@ -189,11 +194,7 @@ public class AtlasUtil {
 	}
 	
 	public List<AtlasUser> getDatabaseUsers(String groupId) {
-		HttpAuthenticationFeature feature = HttpAuthenticationFeature.universalBuilder()
-				.credentialsForBasic(apiPublicKey, apiPrivateKey).credentials(apiPublicKey, apiPrivateKey).build();
-
-		ClientConfig clientConfig = new ClientConfig();
-		Client client = ClientBuilder.newBuilder().sslContext(sslContext).withConfig(clientConfig).build();
+		
 		WebTarget webTarget = client.target(BASE_URL).path("groups").path(groupId).path("databaseUsers");
 
 		webTarget.register(feature);
@@ -205,24 +206,6 @@ public class AtlasUtil {
 
 	public AtlasRoleResponse createCustomDbRole(String groupId, AtlasRole role)
 			throws IOException, NoSuchAlgorithmException, KeyManagementException {
-
-		
-
-		// HttpAuthenticationFeature feature =
-		// HttpAuthenticationFeature.digest(apiPublicKey, apiPrivateKey);
-
-		HttpAuthenticationFeature feature = HttpAuthenticationFeature.universalBuilder()
-				.credentialsForBasic(apiPublicKey, apiPrivateKey).credentials(apiPublicKey, apiPrivateKey).build();
-
-		ClientConfig clientConfig = new ClientConfig();
-		// clientConfig.register(feature);
-		// clientConfig.register(MoxyJsonFeature.class);
-
-		//clientConfig.register(logging());
-
-		Client client = ClientBuilder.newBuilder().sslContext(sslContext).withConfig(clientConfig).build();
-		// stupid shit doesn't work on the client
-		// client.register(feature);
 
 		// "groups/{groupId}/customDBRoles/roles"
 		WebTarget webTarget = client.target(BASE_URL).path("groups").path(groupId).path("customDBRoles").path("roles");
@@ -251,13 +234,6 @@ public class AtlasUtil {
 	public void deleteRoles(String atlasProjectId) {
 		List<AtlasRole> roles = getCustomDbRoles(atlasProjectId);
 		
-		HttpAuthenticationFeature feature = HttpAuthenticationFeature.universalBuilder()
-				.credentialsForBasic(apiPublicKey, apiPrivateKey).credentials(apiPublicKey, apiPrivateKey).build();
-
-		ClientConfig clientConfig = new ClientConfig();
-		Client client = ClientBuilder.newBuilder().sslContext(sslContext).withConfig(clientConfig).build();
-		
-		
 		for (AtlasRole role : roles) {
 			
 			WebTarget webTarget = client.target(BASE_URL).path("groups").path(atlasProjectId).path("customDBRoles").path("roles").path(role.getRoleName());
@@ -271,7 +247,7 @@ public class AtlasUtil {
 			if (response.getStatusInfo().getFamily().equals(Response.Status.Family.SUCCESSFUL)) {
 				logger.debug("deleted role: {}", str);
 			} else {
-				logger.error("delete role error: {}", response.getStatusInfo());
+				logger.error("delete role error: {}", str);
 			}
 		}
 		
@@ -279,18 +255,19 @@ public class AtlasUtil {
 	
 	public void deleteUsers(String atlasProjectId, String excludeUser) {
 		List<AtlasUser> users = getDatabaseUsers(atlasProjectId);
-		HttpAuthenticationFeature feature = HttpAuthenticationFeature.universalBuilder()
-				.credentialsForBasic(apiPublicKey, apiPrivateKey).credentials(apiPublicKey, apiPrivateKey).build();
-
-		ClientConfig clientConfig = new ClientConfig();
-		Client client = ClientBuilder.newBuilder().sslContext(sslContext).withConfig(clientConfig).build();
+		
 		for (AtlasUser user : users) {
 			
 			String username = user.getUsername();
 			if (username.equals(excludeUser)) {
 				logger.debug("skipping user delete for excluded user: {}", username);
 				continue;
+			} else if (user.hasRole(atlasAdmin)) {
+				logger.debug("skipping user delete for user with atlasAdmin: {}", username);
+				continue;
 			}
+			
+			user.getRoles();
 			
 			WebTarget webTarget = client.target(BASE_URL).path("groups").path(atlasProjectId).path("databaseUsers").path("admin").path(username);
 
@@ -315,19 +292,6 @@ public class AtlasUtil {
 	
 	public void createUser(String groupId, AtlasUser user)
 			throws IOException, NoSuchAlgorithmException, KeyManagementException {
-
-		
-
-		// HttpAuthenticationFeature feature =
-		// HttpAuthenticationFeature.digest(apiPublicKey, apiPrivateKey);
-
-		HttpAuthenticationFeature feature = HttpAuthenticationFeature.universalBuilder()
-				.credentialsForBasic(apiPublicKey, apiPrivateKey).credentials(apiPublicKey, apiPrivateKey).build();
-
-		ClientConfig clientConfig = new ClientConfig();
-		//clientConfig.register(logging());
-
-		Client client = ClientBuilder.newBuilder().sslContext(sslContext).withConfig(clientConfig).build();
 
 		// "groups/{groupId}/customDBRoles/roles"
 		WebTarget webTarget = client.target(BASE_URL).path("groups").path(groupId).path("databaseUsers");

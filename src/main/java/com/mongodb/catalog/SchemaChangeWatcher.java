@@ -3,8 +3,6 @@ package com.mongodb.catalog;
 import java.io.File;
 import java.util.Timer;
 
-import javax.mail.internet.AddressException;
-
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
@@ -18,6 +16,8 @@ import org.apache.commons.configuration2.builder.fluent.Configurations;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import jakarta.mail.internet.AddressException;
 
 public class SchemaChangeWatcher {
 	

@@ -432,9 +432,13 @@ public class ShardConfigSync implements Callable<Integer> {
 	
 	public void dropDestinationAtlasUsersAndRoles() {
 
-		atlasUtil.deleteRoles(config.atlasProjectId);
-		String excludeUser = this.destShardClient.getConnectionString().getCredential().getUserName();
+		String excludeUser = null;
+		MongoCredential credential = this.destShardClient.getConnectionString().getCredential();
+		if (credential != null) {
+			excludeUser = credential.getUserName();
+		}
 		atlasUtil.deleteUsers(config.atlasProjectId, excludeUser);
+		atlasUtil.deleteRoles(config.atlasProjectId);
 		AtlasServiceGenerator.shutdown();
 	}
 	

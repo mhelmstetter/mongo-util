@@ -63,5 +63,16 @@ public class AtlasUser {
 	public void setRoles(List<AtlasRoleReference> roles) {
 		this.roles = roles;
 	}
+	
+	public boolean hasRole(AtlasRoleReference ref) {
+		return roles.contains(ref);
+	}
+	
+	public boolean hasRole(String roleName, String databaseName) {
+		AtlasRoleReference ref = new AtlasRoleReference();
+		ref.setRoleName(roleName);
+		ref.setDatabaseName(databaseName);
+		return roles.contains(ref);
+	}
 
 }

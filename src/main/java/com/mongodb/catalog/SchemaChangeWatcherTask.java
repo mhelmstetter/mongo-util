@@ -4,8 +4,6 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.TimerTask;
 
-import javax.mail.MessagingException;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,6 +11,8 @@ import com.google.common.collect.Sets;
 import com.mongodb.model.Collection;
 import com.mongodb.model.DatabaseCatalog;
 import com.mongodb.shardsync.ShardClient;
+
+import jakarta.mail.MessagingException;
 
 public class SchemaChangeWatcherTask extends TimerTask {
 
