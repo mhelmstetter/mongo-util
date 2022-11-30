@@ -73,8 +73,7 @@ public class PartitionManager {
         pipeline.add(Aggregates.group("$ns", sum("count", "$storageStats.count"),
                 sum("size", "$storageStats.size")));
 
-        AggregateIterable<Document> results = client.getDatabase(db).getCollection(coll)
-                .withReadConcern(ReadConcern.MAJORITY).aggregate(pipeline);
+        AggregateIterable<Document> results = client.getDatabase(db).getCollection(coll).aggregate(pipeline);
 
         MongoCursor<Document> cursor = results.iterator();
         Document first = cursor.next();
