@@ -93,7 +93,7 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider 
 
                 String shardedStatus = sharded ? "sharded" : "unsharded";
                 db.addCollection(mcoll);
-                logger.debug("Added {} collection {} to catalog for db {}", shardedStatus, collNs, dbName);
+                logger.debug("Added {} collection {} to catalog for db {}, stats: {}", shardedStatus, collNs, dbName, collStats);
             }
             logger.debug("Add database {} to catalog with {} docs", dbName, db.getTotalDocumentCount());
             databaseCatalog.addDatabase(db);
