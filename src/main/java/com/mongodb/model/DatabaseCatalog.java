@@ -23,8 +23,8 @@ public class DatabaseCatalog {
 
 	public void addDatabase(Database db) {
 		databases.put(db.getName(), db);
-		totalDocumentCount += db.getDbStats().getDocumentCount();
-		totalDataSize += db.getDbStats().getDataSize();
+		totalDocumentCount += db.getTotalDocumentCount();
+		totalDataSize += db.getTotalSize();
 		shardedCollections.addAll(db.getShardedCollections());
 		unshardedCollections.addAll(db.getUnshardedCollections());
 	}

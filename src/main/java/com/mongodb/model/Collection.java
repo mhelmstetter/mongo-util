@@ -6,10 +6,12 @@ public class Collection {
 	
 	private Namespace namespace;
 	private boolean sharded;
+	private CollectionStats collectionStats;
 
-	public Collection(Namespace namespace, boolean sharded) {
+	public Collection(Namespace namespace, boolean sharded, CollectionStats collectionStats) {
 		this.namespace = namespace;
 		this.sharded = sharded;
+		this.collectionStats = collectionStats;
 	}
 
 	public Namespace getNamespace() {
@@ -18,6 +20,10 @@ public class Collection {
 
 	public boolean isSharded() {
 		return sharded;
+	}
+
+	public CollectionStats getCollectionStats() {
+		return collectionStats;
 	}
 
 	@Override

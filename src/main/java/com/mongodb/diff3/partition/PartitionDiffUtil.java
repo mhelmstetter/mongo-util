@@ -317,17 +317,21 @@ public class PartitionDiffUtil {
         boolean retryTaskPoolResult = false;
         while (!(partitionerTaskPoolDone.get() && initialTaskPoolDone.get() && retryTaskPoolDone.get())) {
             try {
-                Thread.sleep(100);
+                Thread.sleep(1000);
                 logger.trace("Check completion status");
                 if (!partitionerTaskPoolDone.get()) {
                     if (partitionerTaskPoolListenerDone.get() && !partitionerTaskPoolListener.isShutdown()) {
                         logger.info("[Main] shutting down partitioner task pool listener");
                         partitionerTaskPoolListener.shutdown();
+                    } else {
+                        logger.trace("[Main] task pool listener still running");
                     }
                     if (partitionerTaskPoolCollectorDone.get() && !partitionerTaskPoolCollector.isShutdown()) {
                         logger.info("[Main] shutting down partitioner task pool collector");
                         partitionerTaskPoolResult = partitionerTaskPoolFuture.cancel(false);
                         partitionerTaskPoolCollector.shutdown();
+                    } else {
+                        logger.trace("[Main] partitioner task pool collector still running");
                     }
                     if (partitionerTaskPoolResult) {
                         partitionerTaskPoolDone.set(true);
@@ -337,29 +341,39 @@ public class PartitionDiffUtil {
                             partitionerTaskPoolListener.shutdown();
                         }
                     }
+                } else {
+                    logger.trace("[Main] partitioner task pool still running");
                 }
                 if (!initialTaskPoolDone.get()) {
                     if (initialTaskPoolCollectorDone.get() && !initialTaskPoolCollector.isShutdown()) {
                         logger.info("[Main] shutting down initial task pool collector");
                         initialTaskPoolResult = initialTaskPoolFuture.cancel(false);
                         initialTaskPoolCollector.shutdown();
+                    } else {
+                        logger.trace("[Main] Initial task pool collector still running");
                     }
                     if (initialTaskPoolResult) {
                         initialTaskPoolDone.set(true);
                         logger.info("[Main] shutting down initial task pool");
                         initialTaskPool.shutdown();
                     }
+                } else {
+                    logger.trace("[Main] Initial task pool still runnign");
                 }
 
                 if (!retryTaskPoolDone.get()) {
                     if (retryTaskPoolListenerDone.get() && !retryTaskPoolListener.isShutdown()) {
                         logger.info("[Main] shutting down retry task pool listener");
                         retryTaskPoolListener.shutdown();
+                    } else {
+                        logger.trace("[Main] Retry pool listener still running");
                     }
                     if (retryTaskPoolCollectorDone.get() && !retryTaskPoolCollector.isShutdown()) {
                         logger.info("[Main] shutting down retry task pool collector");
                         retryTaskPoolResult = retryTaskPoolFuture.cancel(false);
                         retryTaskPoolCollector.shutdown();
+                    } else {
+                        logger.trace("[Main] retry pool collector still running");
                     }
                     if (retryTaskPoolResult) {
                         retryTaskPoolDone.set(true);
@@ -369,6 +383,8 @@ public class PartitionDiffUtil {
                             retryTaskPoolListener.shutdown();
                         }
                     }
+                } else {
+                    logger.trace("[Main] Retry pool still running");
                 }
             } catch (Exception e) {
                 logger.error("[Main] Error collecting partition pool and/or worker pool", e);
