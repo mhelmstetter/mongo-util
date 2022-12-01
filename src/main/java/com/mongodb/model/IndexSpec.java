@@ -1,5 +1,7 @@
 package com.mongodb.model;
 
+import java.util.Objects;
+
 import org.bson.BsonType;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
@@ -13,7 +15,7 @@ public class IndexSpec {
 	private String name;
 	private Namespace namespace;
 	private boolean sparse;
-	//private boolean background;
+	private boolean background;
 	private boolean unique;
 	private Number expireAfterSeconds;
 	
@@ -30,7 +32,7 @@ public class IndexSpec {
 		}
 		
 		this.sparse = getBoolean(sourceSpec, "sparse");
-		//this.background = getBoolean(sourceSpec, "background");
+		this.background = getBoolean(sourceSpec, "background");
 		this.unique = getBoolean(sourceSpec, "unique");
 	}
 	
@@ -61,11 +63,6 @@ public class IndexSpec {
 		IndexSpec spec = new IndexSpec(sourceSpec);
 		return spec;
 	}
-
-	@Override
-	public int hashCode() {
-		return keyJsonString.hashCode();
-	}
 	
 
 
@@ -74,21 +71,30 @@ public class IndexSpec {
 		return sourceSpec.toJson();
 	}
 
-	@Override
-    public boolean equals(Object obj) {
-        if (this == obj)
-            return true;
-        if (obj == null)
-            return false;
-        if (getClass() != obj.getClass())
-            return false;
-        IndexSpec other = (IndexSpec) obj;
-        return other.keyJsonString.equals(this.keyJsonString);
-		
-	}
+	
 
 	public RawBsonDocument getSourceSpec() {
 		return sourceSpec;
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hash(background, expireAfterSeconds, key, name, namespace, sourceSpec, sparse, unique);
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj)
+			return true;
+		if (obj == null)
+			return false;
+		if (getClass() != obj.getClass())
+			return false;
+		IndexSpec other = (IndexSpec) obj;
+		return background == other.background && Objects.equals(expireAfterSeconds, other.expireAfterSeconds)
+				&& Objects.equals(key, other.key) && Objects.equals(name, other.name)
+				&& Objects.equals(namespace, other.namespace) && Objects.equals(sourceSpec, other.sourceSpec)
+				&& sparse == other.sparse && unique == other.unique;
 	}
 	
 	

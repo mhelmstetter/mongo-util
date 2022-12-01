@@ -497,8 +497,9 @@ public class ShardConfigSyncApp {
             sync.syncIndexesShards(true, extendTtl);
         } else if (line.hasOption(COMPARE_INDEXES)) {
             actionFound = true;
-            boolean extendTtl = line.hasOption(EXTEND_TTL);
-            sync.syncIndexesShards(false, extendTtl);
+            //boolean extendTtl = line.hasOption(EXTEND_TTL);
+            //sync.syncIndexesShards(false, extendTtl);
+            sync.compareIndexes();
         } else if (line.hasOption("k")) {
             String opt = line.getOptionValue("k");
             boolean doSync = opt.equals("sync");

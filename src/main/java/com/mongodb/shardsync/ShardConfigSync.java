@@ -33,6 +33,7 @@ import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BSONException;
 import org.bson.BsonTimestamp;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.UuidRepresentation;
@@ -45,7 +46,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.MapDifference;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.collect.MapDifference.ValueDifference;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
@@ -314,6 +318,33 @@ public class ShardConfigSync implements Callable<Integer> {
     			//logger.debug(String.format("%s - missing dest indexes %s missing, creating", ns, diff));
         		destShardClient.createIndexes(ns, sourceSpecs, extendTtl);
     		}
+		}
+	}
+	
+	public void compareIndexes() {
+		logger.debug("Starting compareIndexes");
+		sourceShardClient.populateShardMongoClients();
+		destShardClient.populateShardMongoClients();
+		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
+		Map<Namespace, Set<IndexSpec>> destIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
+		
+		//MapDifference<Namespace, Set<IndexSpec>> diff = Maps.difference(sourceIndexSpecs, destIndexSpecs);
+		
+		for (Map.Entry<Namespace, Set<IndexSpec>> entry : sourceIndexSpecs.entrySet()) {
+			Namespace ns = entry.getKey();
+			Set<IndexSpec> sourceSpecs = entry.getValue();
+			Set<IndexSpec> destSpecs = destIndexSpecs.get(ns);
+			if (destSpecs == null || destSpecs.isEmpty()) {
+				logger.warn("Destination indexes not found for ns: {}", ns);
+				continue;
+			}
+			
+			Set<IndexSpec> diff = Sets.difference(sourceSpecs, destSpecs);
+			
+			if (!diff.isEmpty()) {
+				logger.debug("Indexes differ for ns: {}, diff: {}", ns, diff);
+			}
+			
 			
 		}
 		
