@@ -308,18 +308,22 @@ public class ShardDiffUtil {
 
         while (!(retryTaskPoolDone.get() && initialTaskPoolDone.get())) {
             try {
-                Thread.sleep(100);
+                Thread.sleep(1000);
                 logger.trace("[Main] check completion status");
 
                 if (!retryTaskPoolDone.get()) {
                     if (retryTaskPoolListenerDone.get() && !retryTaskPoolListener.isShutdown()) {
                         logger.info("[Main] shutting down retry task pool listener");
                         retryTaskPoolListener.shutdown();
+                    } else {
+                        logger.trace("[Main] retry pool listener still running");
                     }
                     if (retryTaskPoolCollectorDone.get() && !retryTaskPoolCollector.isShutdown()) {
                         logger.info("[Main] shutting down retry task pool collector");
                         retryTaskPoolResult = retryTaskPoolFuture.cancel(false);
                         retryTaskPoolCollector.shutdown();
+                    } else {
+                        logger.trace("[Main] retry pool collector still running");
                     }
                     if (retryTaskPoolResult) {
                         retryTaskPoolDone.set(true);
@@ -329,12 +333,16 @@ public class ShardDiffUtil {
                             retryTaskPoolListener.shutdown();
                         }
                     }
+                } else {
+                    logger.trace("[Main] retry pool still running");
                 }
                 if (!initialTaskPoolDone.get()) {
                     if (initialTaskPoolCollectorDone.get() && !initialTaskPoolCollector.isShutdown()) {
                         logger.info("[Main] shutting down initial task pool collector");
                         initialTaskPoolResult = initialTaskPoolFuture.cancel(false);
                         initialTaskPoolCollector.shutdown();
+                    } else {
+                        logger.trace("[Main] Initial task pool collector still running");
                     }
                     if (initialTaskPoolResult) {
                         initialTaskPoolDone.set(true);
@@ -343,6 +351,8 @@ public class ShardDiffUtil {
                             e.shutdown();
                         }
                     }
+                } else {
+                    logger.trace("[Main] Initial task pool still running");
                 }
             } catch (Exception e) {
                 logger.error("[Main] Error collector worker and/or retry pool", e);

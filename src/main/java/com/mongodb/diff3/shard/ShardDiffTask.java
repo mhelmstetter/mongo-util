@@ -4,6 +4,7 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.diff3.*;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
+import org.apache.commons.lang3.tuple.Pair;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.bson.Document;
@@ -39,13 +40,14 @@ public class ShardDiffTask extends DiffTask {
         this.destShardName = destShardName;
     }
 
-    private Bson formChunkQuery() {
+    private Pair<Bson, Bson> findChunkBounds() {
         Bson query;
         BsonDocument min = chunk.getDocument("min");
         BsonDocument max = chunk.getDocument("max");
         chunkString = "[" + min.toString() + " : " + max.toString() + "]";
 
-        Document shardCollection = sourceShardClient.getCollectionsMap().get(namespace.getNamespace());
+        return Pair.of(min, max);
+        /*Document shardCollection = sourceShardClient.getCollectionsMap().get(namespace.getNamespace());
         Document shardKeysDoc = (Document) shardCollection.get("key");
         Set<String> shardKeys = shardKeysDoc.keySet();
 
@@ -65,7 +67,7 @@ public class ShardDiffTask extends DiffTask {
             String key = shardKeys.iterator().next();
             query = and(gte(key, min.get(key)), lt(key, max.get(key)));
         }
-        return query;
+        return query;*/
     }
 
     @Override
@@ -87,9 +89,13 @@ public class ShardDiffTask extends DiffTask {
         return shardClient.getShardMongoClient(shardName);
     }
 
-    @Override
-    protected Bson getDiffQuery() {
-        return (chunk != null) ? formChunkQuery() : new BsonDocument();
+//    @Override
+//    protected Bson getDiffQuery() {
+//        return (chunk != null) ? findChunkBounds() : new BsonDocument();
+//    }
+
+    protected Pair<Bson, Bson> getChunkBounds() {
+        return (chunk != null) ? findChunkBounds() : null;
     }
 
     @Override

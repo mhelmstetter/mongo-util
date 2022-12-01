@@ -9,17 +9,16 @@ public class Database {
 	
 	private String name;
 	
-	private DatabaseStats dbStats;
-	
 	private Map<String, Collection> allCollections;
 	private Set<Collection> shardedCollections;
 	private Set<Collection> unshardedCollections;
 	private Set<String> excludedCollections;
 	private Map<String, Namespace> namespaces;
+	private long totalDocumentCount;
+	private long totalSize;
 
-	public Database(String name, DatabaseStats dbStats) {
+	public Database(String name) {
 		this.name = name;
-		this.dbStats = dbStats;
 		allCollections = new HashMap<>();
 		namespaces = new HashMap<>();
 		shardedCollections = new HashSet<>();
@@ -36,6 +35,8 @@ public class Database {
 		}
 		Namespace ns = coll.getNamespace();
 		namespaces.put(ns.getNamespace(), ns);
+		totalDocumentCount += coll.getCollectionStats().getCount();
+		totalSize += coll.getCollectionStats().getSize();
 	}
 
 	public void excludeCollection(String collNs) {
@@ -44,10 +45,6 @@ public class Database {
 
 	public String getName() {
 		return name;
-	}
-
-	public DatabaseStats getDbStats() {
-		return dbStats;
 	}
 
 	public Set<Collection> getShardedCollections() {
@@ -67,6 +64,14 @@ public class Database {
 
 	public java.util.Collection<Namespace> getNamespaces() {
 		return namespaces.values();
+	}
+
+	public long getTotalDocumentCount() {
+		return totalDocumentCount;
+	}
+
+	public long getTotalSize() {
+		return totalSize;
 	}
 
 }

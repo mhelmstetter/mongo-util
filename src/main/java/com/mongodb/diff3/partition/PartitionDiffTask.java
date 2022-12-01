@@ -2,6 +2,7 @@ package com.mongodb.diff3.partition;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.diff3.*;
+import org.apache.commons.lang3.tuple.Pair;
 import org.bson.BsonDocument;
 import org.bson.conversions.Bson;
 
@@ -27,9 +28,14 @@ public class PartitionDiffTask extends DiffTask {
         this.destClient = destClient;
     }
 
-    @Override
-    protected Bson getDiffQuery() {
+//    @Override
+public Bson getPartitionDiffQuery() {
         return (partition != null) ? partition.query() : new BsonDocument();
+    }
+
+    @Override
+    protected Pair<Bson, Bson> getChunkBounds() {
+        return null;
     }
 
     @Override

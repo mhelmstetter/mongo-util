@@ -64,9 +64,7 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider 
                 logger.debug("Excluding db: {}", dbName);
                 continue;
             }
-            Document dbStatsDoc = dbStats(dbName);
-            DatabaseStats dbStats = DatabaseStats.fromDocument(dbStatsDoc);
-            Database db = new Database(dbName, dbStats);
+            Database db = new Database(dbName);
             ListCollectionsIterable<Document> colls = listCollections(dbName);
             for (Document coll : colls) {
                 String collName = coll.getString("name");
@@ -89,15 +87,15 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider 
                     continue;
                 }
                 Namespace collNs = new Namespace(dbName, collName);
-                //CollectionStats collStats = CollectionStats.fromDocument(collStats(dbName, collName));
+                CollectionStats collStats = CollectionStats.fromDocument(collStats(collNs));
                 boolean sharded = collectionsMap != null && collectionsMap.containsKey(collNs.getNamespace());
-                com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(collNs, sharded);
+                com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(collNs, sharded, collStats);
 
                 String shardedStatus = sharded ? "sharded" : "unsharded";
                 db.addCollection(mcoll);
-                logger.debug("Added {} collection {} to catalog for db {}", shardedStatus, collNs, dbName);
+                logger.debug("Added {} collection {} to catalog for db {}, stats: {}", shardedStatus, collNs, dbName, collStats);
             }
-            logger.debug("Add database {} to catalog with {} docs", dbName, dbStats.getDocumentCount());
+            logger.debug("Add database {} to catalog with {} docs", dbName, db.getTotalDocumentCount());
             databaseCatalog.addDatabase(db);
         }
     }
@@ -108,6 +106,10 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider 
 
     private ListCollectionsIterable<Document> listCollections(String dbName) {
         return client.getDatabase(dbName).listCollections();
+    }
+
+    private Document collStats(Namespace ns) {
+        return client.getDatabase(ns.getDatabaseName()).runCommand(new Document("collStats", ns.getCollectionName()));
     }
 
     public Map<String, Document> getCollectionsMap() {
