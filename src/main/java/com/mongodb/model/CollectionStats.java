@@ -70,4 +70,17 @@ public class CollectionStats {
     public long getCount() {
         return count;
     }
+
+	@Override
+	public String toString() {
+		StringBuilder builder = new StringBuilder();
+		builder.append("CollectionStats [namespace=");
+		builder.append(namespace);
+		builder.append(", size=");
+		builder.append(size);
+		builder.append(", count=");
+		builder.append(count);
+		builder.append("]");
+		return builder.toString();
+	}
 }
