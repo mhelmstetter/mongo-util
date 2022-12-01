@@ -3,13 +3,17 @@ package com.mongodb.diff3;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.MapDifference.ValueDifference;
 import com.google.common.collect.Maps;
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.model.Filters;
+import com.mongodb.diff3.partition.PartitionDiffTask;
 import com.mongodb.model.Namespace;
 import com.mongodb.util.CodecUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.bson.BsonValue;
+import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
@@ -44,7 +48,7 @@ public abstract class DiffTask implements Callable<DiffResult> {
     protected DiffConfiguration config;
 
     protected Namespace namespace;
-    protected Bson query;
+    protected Pair<Bson, Bson> bounds;
     protected long start;
     protected DiffSummary summary;
 
@@ -66,13 +70,15 @@ public abstract class DiffTask implements Callable<DiffResult> {
         this.summary = summary;
     }
 
-    protected abstract Bson getDiffQuery();
+    //    protected abstract Bson getDiffQuery();
+    protected abstract Pair<Bson, Bson> getChunkBounds();
 
     protected abstract String unitLogString();
 
     protected abstract DiffResult initDiffResult();
 
     protected abstract RetryTask createRetryTask(RetryStatus retryStatus, DiffResult result);
+
     protected abstract RetryTask endToken();
 
 
@@ -80,7 +86,8 @@ public abstract class DiffTask implements Callable<DiffResult> {
     public DiffResult call() throws Exception {
         DiffResult result;
         start = System.currentTimeMillis();
-        query = getDiffQuery();
+//        query = getDiffQuery();
+        bounds = getChunkBounds();
 
         try {
             result = computeDiff();
@@ -162,9 +169,34 @@ public abstract class DiffTask implements Callable<DiffResult> {
         Map<BsonValue, String> output = new HashMap<>();
         long loadStart = System.currentTimeMillis();
         MongoCollection<RawBsonDocument> coll = getRawCollection(loadClient, namespace.getNamespace());
-        Bson q = (ids != null && ids.size() > 0) ? formIdsQuery(ids) : query;
+//        Bson q = (ids != null && ids.size() > 0) ? formIdsQuery(ids) : query;
 
-        for (RawBsonDocument doc : coll.find(q).batchSize(10000)) {
+        FindIterable<RawBsonDocument> finder;
+
+        if (ids != null && ids.size() > 0) {
+            Bson q = formIdsQuery(ids);
+            finder = coll.find(q).batchSize(10000);
+        } else if (this instanceof PartitionDiffTask) {
+            PartitionDiffTask pdt = (PartitionDiffTask) this;
+            Bson q = pdt.getPartitionDiffQuery();
+            finder = coll.find(q).batchSize(10000);
+        } else {
+            Pair<Bson, Bson> bounds = getChunkBounds();
+            if (bounds == null) {
+                finder = coll.find().batchSize(10000);
+            } else {
+                Bson min = bounds.getLeft();
+                Bson max = bounds.getRight();
+                Set<String> shardKeys = min.toBsonDocument().keySet();
+                Document hintDoc = new Document();
+                for (String sk : shardKeys) {
+                    hintDoc.put(sk, 1);
+                }
+                finder = coll.find().min(min).max(max).hint(hintDoc).batchSize(10000);
+            }
+        }
+
+        for (RawBsonDocument doc : finder) {
             BsonValue id = doc.get("_id");
             byte[] docBytes = doc.getByteBuffer().array();
             bytesProcessed.add(docBytes.length);
@@ -174,7 +206,8 @@ public abstract class DiffTask implements Callable<DiffResult> {
         }
         long loadTime = System.currentTimeMillis() - loadStart;
         logger.debug("[{}] loaded {} {} docs for {} in {} ms ({})",
-                Thread.currentThread().getName(), output.size(), target.getName(), namespace.getNamespace(), loadTime, unitLogString());
+                Thread.currentThread().getName(), output.size(), target.getName(),
+                namespace.getNamespace(), loadTime, unitLogString());
         return output;
     }
 
