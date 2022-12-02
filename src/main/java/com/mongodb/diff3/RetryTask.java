@@ -62,6 +62,8 @@ public abstract class RetryTask implements Callable<DiffResult> {
                     logger.info("[{}] retry task for ({}) failed; too many retry attempts",
                             Thread.currentThread().getName(), originalTask.unitLogString());
                     summary.updateRetryingDone(result);
+                    logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(),
+                            originalTask.unitLogString());
                     retryQueue.add(endToken());
                     result.setRetryable(false);
                     complete = true;
@@ -72,6 +74,8 @@ public abstract class RetryTask implements Callable<DiffResult> {
                         Thread.currentThread().getName(), originalTask.unitLogString(),
                         retryStatus.getAttempt());
                 summary.updateRetryingDone(result);
+                logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(),
+                        originalTask.unitLogString());
                 retryQueue.add(endToken());
                 complete = true;
             }

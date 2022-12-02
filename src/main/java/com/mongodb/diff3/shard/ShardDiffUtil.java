@@ -136,7 +136,7 @@ public class ShardDiffUtil {
                 while ((rt = (ShardRetryTask) retryQueue.poll()) != null) {
                     try {
                         if (rt == ShardRetryTask.END_TOKEN) {
-                            logger.trace("[RetryTaskPoolListener] saw an end token ({}/{})",
+                            logger.debug("[RetryTaskPoolListener] saw an end token ({}/{})",
                                     endTokensSeen + 1, totalInitialTasks);
                             if (++endTokensSeen == totalInitialTasks) {
                                 logger.debug("[RetryTaskPoolListener] has seen all end tokens ({})", endTokensSeen);
@@ -205,8 +205,8 @@ public class ShardDiffUtil {
                 int expectedRetryResults = finalSizeRetryTaskPoolFutures.get();
                 logger.trace("[RetryTaskPoolCollector] loop: {} :: {} expected retryResults, {} seen",
                         ++runs, expectedRetryResults, retryTaskPoolFuturesSeen.size());
-                if (expectedRetryResults >= 0) {
-                    if (retryTaskPoolFuturesSeen.size() < expectedRetryResults) {
+//                if (expectedRetryResults >= 0) {
+                    if (expectedRetryResults < 0 || (expectedRetryResults >= 0 && retryTaskPoolFuturesSeen.size() < expectedRetryResults)) {
                         for (Future<DiffResult> future : retryTaskPoolFutures) {
                             try {
                                 if (!retryTaskPoolFuturesSeen.contains(future) && future.isDone()) {
@@ -245,7 +245,7 @@ public class ShardDiffUtil {
                     } else {
                         retryTaskPoolCollectorDone.set(true);
                     }
-                }
+//                }
             }
 
         }, 0, 1, TimeUnit.SECONDS);
