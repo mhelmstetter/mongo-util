@@ -143,16 +143,10 @@ public abstract class DiffTask implements Callable<DiffResult> {
                 BsonValue key = entry.getKey();
                 result.addFailedKey(key);
             }
-            result.setOnlyOnSource(diff.entriesOnlyOnLeft().size());
-            for (BsonValue id : diff.entriesOnlyOnLeft().keySet()) {
-                result.addFailedKey(id);
-            }
-            result.setOnlyOnDest(diff.entriesOnlyOnRight().size());
-            for (BsonValue id : diff.entriesOnlyOnRight().keySet()) {
-                result.addFailedKey(id);
-            }
+            result.addOnlyOnSourceKeys(diff.entriesOnlyOnLeft().keySet());
+            result.addOnlyOnDestKeys(diff.entriesOnlyOnRight().keySet());
             int numMatches = (int) (sourceDocs.size() - valueDiff.size()
-                    - result.getOnlyOnSource() - result.getOnlyOnDest());
+                    - result.getOnlyOnSourceCount() - result.getOnlyOnDestCount());
             result.setMatches(numMatches);
         }
         result.setBytesProcessed(Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue()));

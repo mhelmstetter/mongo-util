@@ -10,14 +10,14 @@ public class ShardDiffResult extends DiffResult {
     protected String chunkString;
 
     public void addFailedKey(BsonValue id) {
-        if (failedIds == null) {
-            failedIds = new HashSet<>();
+        if (failedKeys == null) {
+            failedKeys = new HashSet<>();
         }
-        failedIds.add(id);
+        failedKeys.add(id);
     }
 
     public int getFailureCount() {
-        return (failedIds == null) ? 0 : failedIds.size();
+        return (failedKeys == null) ? 0 : failedKeys.size();
     }
 
     @Override
@@ -28,7 +28,12 @@ public class ShardDiffResult extends DiffResult {
         merged.matches = srr.matches + this.matches;
         merged.onlyOnSource = srr.onlyOnSource;
         merged.onlyOnDest = srr.onlyOnDest;
-        merged.failedIds = this.failedIds;
+        merged.failedKeys.addAll(rr.getFailedKeys());
+        merged.failedKeys.addAll(this.getFailedKeys());
+        merged.keysOnlyOnDest.addAll(this.keysOnlyOnDest);
+        merged.keysOnlyOnDest.addAll(rr.getKeysOnlyOnDest());
+        merged.keysOnlyOnSource.addAll(this.keysOnlyOnSource);
+        merged.keysOnlyOnSource.addAll(rr.getKeysOnlyOnSource());
         merged.bytesProcessed = this.bytesProcessed;
         merged.namespace = srr.namespace;
         merged.chunkString = srr.chunkString;
@@ -46,10 +51,10 @@ public class ShardDiffResult extends DiffResult {
         copy.namespace = namespace;
         copy.chunkString = chunkString;
         copy.retryable = retryable;
-        if (failedIds == null) {
-            copy.failedIds = new HashSet<>();
+        if (failedKeys == null) {
+            copy.failedKeys = new HashSet<>();
         } else {
-            copy.failedIds = new HashSet<>(failedIds);
+            copy.failedKeys = new HashSet<>(failedKeys);
         }
         return copy;
     }
@@ -65,7 +70,7 @@ public class ShardDiffResult extends DiffResult {
                 ", matches=" +
                 matches +
                 ", failedIds=" +
-                (failedIds == null ? 0 : failedIds.size()) +
+                (failedKeys == null ? 0 : failedKeys.size()) +
                 ", chunk=" +
                 chunkString +
                 "]";
@@ -73,7 +78,7 @@ public class ShardDiffResult extends DiffResult {
 
     public String shortString() {
         return "status=" +
-                ((failedIds != null && failedIds.size() > 0) ? "FAILED" : "PASSED") +
+                ((failedKeys != null && failedKeys.size() > 0) ? "FAILED" : "PASSED") +
                 ", ns=" +
                 namespace.getNamespace() +
                 ", chunk=" +

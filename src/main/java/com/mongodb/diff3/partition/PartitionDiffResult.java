@@ -18,7 +18,7 @@ public class PartitionDiffResult extends DiffResult {
         this.matches = prr.matches;
         this.onlyOnSource = prr.onlyOnSource;
         this.onlyOnDest = prr.onlyOnDest;
-        this.failedIds = prr.failedIds;
+        this.failedKeys = prr.failedKeys;
         this.bytesProcessed = prr.bytesProcessed;
         this.namespace = prr.namespace;
         this.retryable = prr.retryable;
@@ -32,7 +32,7 @@ public class PartitionDiffResult extends DiffResult {
         builder.append(", matches=");
         builder.append(getMatches());
         builder.append(", failedIds=");
-        builder.append(failedIds == null ? 0 : failedIds.size());
+        builder.append(failedKeys == null ? 0 : failedKeys.size());
         if (partition != null) {
             builder.append(", partitionBounds=[");
             builder.append(partition.getLowerBound()).append(", ").append(partition.getUpperBound());
@@ -62,7 +62,7 @@ public class PartitionDiffResult extends DiffResult {
         merged.matches = prr.matches + this.matches;
         merged.onlyOnSource = prr.onlyOnSource;
         merged.onlyOnDest = prr.onlyOnDest;
-        merged.failedIds = prr.failedIds;
+        merged.failedKeys = prr.failedKeys;
         merged.bytesProcessed = prr.bytesProcessed;
         merged.namespace = prr.namespace;
         merged.retryable = prr.retryable;
@@ -79,10 +79,10 @@ public class PartitionDiffResult extends DiffResult {
         copy.bytesProcessed = this.bytesProcessed;
         copy.namespace = this.namespace;
         copy.retryable = this.retryable;
-        if (failedIds == null) {
-            copy.failedIds = new HashSet<>();
+        if (failedKeys == null) {
+            copy.failedKeys = new HashSet<>();
         } else {
-            copy.failedIds = new HashSet<>(failedIds);
+            copy.failedKeys = new HashSet<>(failedKeys);
         }
         copy.partition = this.partition;
         return copy;

@@ -119,7 +119,7 @@ public class ShardDiffTask extends DiffTask {
     @Override
     protected ShardRetryTask createRetryTask(RetryStatus retryStatus, DiffResult result) {
         return new ShardRetryTask(retryStatus, this, (ShardDiffResult) result,
-                result.getFailedIds(), retryQueue, summary);
+                result.getFailedKeys(), retryQueue, summary);
     }
 
     public String getChunkString() {

@@ -80,7 +80,8 @@ public class ShardDiffUtil {
         for (String shard : srcShardNames) {
             int numThreads = config.getThreads() / srcShardNames.size();
             Map<String, RawBsonDocument> chunkMap = sourceChunksCacheMap.get(shard);
-            int qSize = chunkMap.size() + unshardedColls.size();
+//            int qSize = chunkMap.size() + unshardedColls.size();
+            int qSize = chunkMap.size();
             totalInitialTasks += qSize;
             logger.debug("[Main] Setting workQueue size to {}", qSize);
             BlockingQueue<Runnable> workQueue = new ArrayBlockingQueue<>(qSize);
@@ -92,6 +93,7 @@ public class ShardDiffUtil {
             initialTaskPool.setThreadFactory(initialTaskPoolThreadFactory);
             initialTaskPoolMap.put(shard, initialTaskPool);
         }
+        totalInitialTasks += unshardedColls.size();
 
         logger.info("[Main] found {} initial tasks", totalInitialTasks);
     }

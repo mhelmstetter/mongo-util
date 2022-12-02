@@ -28,6 +28,6 @@ public class ShardRetryTask extends RetryTask {
     @Override
     protected ShardRetryTask initRetryTask(RetryStatus retryStatus, DiffResult result) {
         return new ShardRetryTask(retryStatus, (ShardDiffTask) originalTask, (ShardDiffResult) result,
-                result.getFailedIds(), retryQueue, summary);
+                result.getFailedKeys(), retryQueue, summary);
     }
 }
