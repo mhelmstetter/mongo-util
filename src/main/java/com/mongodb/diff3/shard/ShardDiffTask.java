@@ -1,22 +1,20 @@
 package com.mongodb.diff3.shard;
 
 import com.mongodb.client.MongoClient;
-import com.mongodb.diff3.*;
+import com.mongodb.diff3.DiffConfiguration;
+import com.mongodb.diff3.DiffResult;
+import com.mongodb.diff3.DiffSummary;
+import com.mongodb.diff3.DiffTask;
+import com.mongodb.diff3.RetryStatus;
+import com.mongodb.diff3.RetryTask;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import org.apache.commons.lang3.tuple.Pair;
 import org.bson.BsonDocument;
-import org.bson.BsonValue;
-import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Queue;
-import java.util.Set;
-
-import static com.mongodb.client.model.Filters.*;
 
 public class ShardDiffTask extends DiffTask {
 
@@ -47,27 +45,6 @@ public class ShardDiffTask extends DiffTask {
         chunkString = "[" + min.toString() + " : " + max.toString() + "]";
 
         return Pair.of(min, max);
-        /*Document shardCollection = sourceShardClient.getCollectionsMap().get(namespace.getNamespace());
-        Document shardKeysDoc = (Document) shardCollection.get("key");
-        Set<String> shardKeys = shardKeysDoc.keySet();
-
-        if (shardKeys.size() > 1) {
-            List<Bson> filters = new ArrayList<>(shardKeys.size());
-            for (String key : shardKeys) {
-                BsonValue minkey = min.get(key);
-                BsonValue maxkey = max.get(key);
-                if (minkey.equals(maxkey)) {
-                    filters.add(eq(key, minkey));
-                } else {
-                    filters.add(and(gte(key, minkey), lt(key, maxkey)));
-                }
-            }
-            query = and(filters);
-        } else {
-            String key = shardKeys.iterator().next();
-            query = and(gte(key, min.get(key)), lt(key, max.get(key)));
-        }
-        return query;*/
     }
 
     @Override
@@ -88,11 +65,6 @@ public class ShardDiffTask extends DiffTask {
         }
         return shardClient.getShardMongoClient(shardName);
     }
-
-//    @Override
-//    protected Bson getDiffQuery() {
-//        return (chunk != null) ? findChunkBounds() : new BsonDocument();
-//    }
 
     protected Pair<Bson, Bson> getChunkBounds() {
         return (chunk != null) ? findChunkBounds() : null;

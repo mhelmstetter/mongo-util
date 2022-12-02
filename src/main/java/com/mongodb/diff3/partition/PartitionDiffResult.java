@@ -16,8 +16,8 @@ public class PartitionDiffResult extends DiffResult {
         assert rr instanceof PartitionDiffResult;
         PartitionDiffResult prr = (PartitionDiffResult) rr;
         this.matches = prr.matches;
-        this.onlyOnSource = prr.onlyOnSource;
-        this.onlyOnDest = prr.onlyOnDest;
+        this.keysOnlyOnSource = prr.keysOnlyOnSource;
+        this.keysOnlyOnDest = prr.keysOnlyOnDest;
         this.failedKeys = prr.failedKeys;
         this.bytesProcessed = prr.bytesProcessed;
         this.namespace = prr.namespace;
@@ -60,8 +60,8 @@ public class PartitionDiffResult extends DiffResult {
         PartitionDiffResult prr = (PartitionDiffResult) rr;
         PartitionDiffResult merged = new PartitionDiffResult();
         merged.matches = prr.matches + this.matches;
-        merged.onlyOnSource = prr.onlyOnSource;
-        merged.onlyOnDest = prr.onlyOnDest;
+        merged.keysOnlyOnSource = prr.keysOnlyOnSource;
+        merged.keysOnlyOnDest = prr.keysOnlyOnDest;
         merged.failedKeys = prr.failedKeys;
         merged.bytesProcessed = prr.bytesProcessed;
         merged.namespace = prr.namespace;
@@ -74,8 +74,8 @@ public class PartitionDiffResult extends DiffResult {
     public PartitionDiffResult copy() {
         PartitionDiffResult copy = new PartitionDiffResult();
         copy.matches = this.matches;
-        copy.onlyOnSource = this.onlyOnSource;
-        copy.onlyOnDest = this.onlyOnDest;
+        copy.keysOnlyOnSource = this.keysOnlyOnSource;
+        copy.keysOnlyOnDest = this.keysOnlyOnDest;
         copy.bytesProcessed = this.bytesProcessed;
         copy.namespace = this.namespace;
         copy.retryable = this.retryable;

@@ -8,38 +8,27 @@ import java.util.Set;
 
 public abstract class DiffResult {
     protected long matches;
-    protected long onlyOnSource;
-    protected long onlyOnDest;
     protected long bytesProcessed;
-    protected Set<BsonValue> failedKeys;
-    protected Set<BsonValue> keysOnlyOnSource;
-    protected Set<BsonValue> keysOnlyOnDest;
+    protected Set<BsonValue> failedKeys = new HashSet<>();
+    protected Set<BsonValue> keysOnlyOnSource = new HashSet<>();
+    protected Set<BsonValue> keysOnlyOnDest = new HashSet<>();
     protected Namespace namespace;
     protected boolean retryable = true;
 
     public void addFailedKey(BsonValue id) {
-        if (failedKeys == null) {
-            failedKeys = new HashSet<>();
-        }
         failedKeys.add(id);
     }
     
     public void addOnlyOnSourceKeys(Set<BsonValue> keys) {
-        if (keysOnlyOnSource == null) {
-        	keysOnlyOnSource = new HashSet<>();
-        }
         keysOnlyOnSource.addAll(keys);
     }
     
     public void addOnlyOnDestKeys(Set<BsonValue> keys) {
-        if (keysOnlyOnDest == null) {
-        	keysOnlyOnDest = new HashSet<>();
-        }
         keysOnlyOnDest.addAll(keys);
     }
 
     public int getFailureCount() {
-        return (failedKeys == null) ? 0 : failedKeys.size();
+        return failedKeys.size();
     }
 
     public abstract DiffResult mergeRetryResult(DiffResult rr);
@@ -58,11 +47,11 @@ public abstract class DiffResult {
     }
 
     public long getOnlyOnSourceCount() {
-        return onlyOnSource;
+        return keysOnlyOnSource.size();
     }
 
     public long getOnlyOnDestCount() {
-        return onlyOnDest;
+        return keysOnlyOnDest.size();
     }
 
     public long getBytesProcessed() {

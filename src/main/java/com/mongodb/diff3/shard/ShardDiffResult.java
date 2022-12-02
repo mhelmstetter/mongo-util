@@ -26,8 +26,6 @@ public class ShardDiffResult extends DiffResult {
         ShardDiffResult srr = (ShardDiffResult) rr;
         ShardDiffResult merged = new ShardDiffResult();
         merged.matches = srr.matches + this.matches;
-        merged.onlyOnSource = srr.onlyOnSource;
-        merged.onlyOnDest = srr.onlyOnDest;
         merged.failedKeys.addAll(rr.getFailedKeys());
         merged.failedKeys.addAll(this.getFailedKeys());
         merged.keysOnlyOnDest.addAll(this.keysOnlyOnDest);
@@ -45,17 +43,13 @@ public class ShardDiffResult extends DiffResult {
     public ShardDiffResult copy() {
         ShardDiffResult copy = new ShardDiffResult();
         copy.matches = matches;
-        copy.onlyOnSource = onlyOnSource;
-        copy.onlyOnDest = onlyOnDest;
         copy.bytesProcessed = bytesProcessed;
         copy.namespace = namespace;
         copy.chunkString = chunkString;
         copy.retryable = retryable;
-        if (failedKeys == null) {
-            copy.failedKeys = new HashSet<>();
-        } else {
-            copy.failedKeys = new HashSet<>(failedKeys);
-        }
+        copy.failedKeys = new HashSet<>(failedKeys);
+        copy.keysOnlyOnSource = keysOnlyOnSource;
+        copy.keysOnlyOnDest = keysOnlyOnDest;
         return copy;
     }
 
