@@ -13,6 +13,7 @@ import com.mongodb.model.Namespace;
 import com.mongodb.util.CodecUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.bson.BsonValue;
+import org.bson.ByteBuf;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
@@ -194,8 +195,9 @@ public abstract class DiffTask implements Callable<DiffResult> {
 
         for (RawBsonDocument doc : finder) {
             BsonValue id = doc.get("_id");
-            byte[] docBytes = doc.getByteBuffer().array();
-            bytesProcessed.add(docBytes.length);
+            ByteBuf bb = doc.getByteBuffer();
+            byte[] docBytes = bb.array();
+            bytesProcessed.add(bb.remaining());
 
             String docHash = CodecUtils.md5Hex(docBytes);
             output.put(id, docHash);
