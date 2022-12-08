@@ -56,12 +56,12 @@ public abstract class RetryTask implements Callable<DiffResult> {
                     if (newRetryStatus != null) {
                         RetryTask newRetryTask = initRetryTask(newRetryStatus, result);
                         logger.debug("[{}] retry for ({}) failed ({} ids); submitting attempt {} to retryQueue",
-                                Thread.currentThread().getName(), originalTask.unitLogString(),
+                                Thread.currentThread().getName(), failedIds,
                                 result.getFailureCount(), newRetryStatus.getAttempt());
                         retryQueue.add(newRetryTask);
                     } else {
                         logger.info("[{}] retry task for ({}) failed; too many retry attempts",
-                                Thread.currentThread().getName(), originalTask.unitLogString());
+                                Thread.currentThread().getName(), failedIds);
                         summary.updateRetryingDone(result);
                         logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(),
                                 originalTask.unitLogString());
