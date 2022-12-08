@@ -38,7 +38,7 @@ public abstract class RetryTask implements Callable<DiffResult> {
             DiffResult result = null;
             boolean complete = false;
             if (retryStatus.canRetry()) {
-                DiffResult copyOfOriginalResult = originalResult.copy();
+                //DiffResult copyOfOriginalResult = originalResult.copy();
                 try {
                     result = originalTask.computeDiff(failedIds);
                 } catch (Exception e) {
@@ -49,7 +49,7 @@ public abstract class RetryTask implements Callable<DiffResult> {
                     originalTask.closeCursor(originalTask.sourceCursor);
                     originalTask.closeCursor(originalTask.destCursor);
                 }
-                result = result.mergeRetryResult(copyOfOriginalResult);
+                //result = result.mergeRetryResult(copyOfOriginalResult);
 
                 if (result.getFailureCount() > 0) {
                     RetryStatus newRetryStatus = retryStatus.increment();
