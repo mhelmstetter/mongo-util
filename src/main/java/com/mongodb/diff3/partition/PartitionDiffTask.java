@@ -71,7 +71,7 @@ public Bson getPartitionDiffQuery() {
     @Override
     protected PartitionRetryTask createRetryTask(RetryStatus retryStatus, DiffResult result) {
         return new PartitionRetryTask(retryStatus, this, (PartitionDiffResult) result,
-                result.getFailedIds(), retryQueue, summary);
+                result.getFailedKeys(), retryQueue, summary);
     }
 
     public Partition getPartition() {

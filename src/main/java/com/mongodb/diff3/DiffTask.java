@@ -13,6 +13,7 @@ import com.mongodb.model.Namespace;
 import com.mongodb.util.CodecUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.bson.BsonValue;
+import org.bson.ByteBuf;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
@@ -107,6 +108,8 @@ public abstract class DiffTask implements Callable<DiffResult> {
             logger.debug("[{}] detected {} failures and added a retry task ({})",
                     Thread.currentThread().getName(), result.getFailureCount(), unitLogString());
         } else {
+            logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(),
+                    result.unitLogString());
             retryQueue.add(endToken());
         }
 
@@ -141,16 +144,10 @@ public abstract class DiffTask implements Callable<DiffResult> {
                 BsonValue key = entry.getKey();
                 result.addFailedKey(key);
             }
-            result.setOnlyOnSource(diff.entriesOnlyOnLeft().size());
-            for (BsonValue id : diff.entriesOnlyOnLeft().keySet()) {
-                result.addFailedKey(id);
-            }
-            result.setOnlyOnDest(diff.entriesOnlyOnRight().size());
-            for (BsonValue id : diff.entriesOnlyOnRight().keySet()) {
-                result.addFailedKey(id);
-            }
+            result.addOnlyOnSourceKeys(diff.entriesOnlyOnLeft().keySet());
+            result.addOnlyOnDestKeys(diff.entriesOnlyOnRight().keySet());
             int numMatches = (int) (sourceDocs.size() - valueDiff.size()
-                    - result.getOnlyOnSource() - result.getOnlyOnDest());
+                    - result.getOnlyOnSourceCount() - result.getOnlyOnDestCount());
             result.setMatches(numMatches);
         }
         result.setBytesProcessed(Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue()));
@@ -198,8 +195,9 @@ public abstract class DiffTask implements Callable<DiffResult> {
 
         for (RawBsonDocument doc : finder) {
             BsonValue id = doc.get("_id");
-            byte[] docBytes = doc.getByteBuffer().array();
-            bytesProcessed.add(docBytes.length);
+            ByteBuf bb = doc.getByteBuffer();
+            byte[] docBytes = bb.array();
+            bytesProcessed.add(bb.remaining());
 
             String docHash = CodecUtils.md5Hex(docBytes);
             output.put(id, docHash);

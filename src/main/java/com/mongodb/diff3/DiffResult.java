@@ -8,22 +8,27 @@ import java.util.Set;
 
 public abstract class DiffResult {
     protected long matches;
-    protected long onlyOnSource;
-    protected long onlyOnDest;
     protected long bytesProcessed;
-    protected Set<BsonValue> failedIds;
+    protected Set<BsonValue> failedKeys = new HashSet<>();
+    protected Set<BsonValue> keysOnlyOnSource = new HashSet<>();
+    protected Set<BsonValue> keysOnlyOnDest = new HashSet<>();
     protected Namespace namespace;
     protected boolean retryable = true;
 
     public void addFailedKey(BsonValue id) {
-        if (failedIds == null) {
-            failedIds = new HashSet<>();
-        }
-        failedIds.add(id);
+        failedKeys.add(id);
+    }
+    
+    public void addOnlyOnSourceKeys(Set<BsonValue> keys) {
+        keysOnlyOnSource.addAll(keys);
+    }
+    
+    public void addOnlyOnDestKeys(Set<BsonValue> keys) {
+        keysOnlyOnDest.addAll(keys);
     }
 
     public int getFailureCount() {
-        return (failedIds == null) ? 0 : failedIds.size();
+        return failedKeys.size();
     }
 
     public abstract DiffResult mergeRetryResult(DiffResult rr);
@@ -41,20 +46,12 @@ public abstract class DiffResult {
         this.matches = matches;
     }
 
-    public long getOnlyOnSource() {
-        return onlyOnSource;
+    public long getOnlyOnSourceCount() {
+        return keysOnlyOnSource.size();
     }
 
-    public void setOnlyOnSource(long onlyOnSource) {
-        this.onlyOnSource = onlyOnSource;
-    }
-
-    public long getOnlyOnDest() {
-        return onlyOnDest;
-    }
-
-    public void setOnlyOnDest(long onlyOnDest) {
-        this.onlyOnDest = onlyOnDest;
+    public long getOnlyOnDestCount() {
+        return keysOnlyOnDest.size();
     }
 
     public long getBytesProcessed() {
@@ -65,12 +62,12 @@ public abstract class DiffResult {
         this.bytesProcessed = bytesProcessed;
     }
 
-    public Set<BsonValue> getFailedIds() {
-        return failedIds;
+    public Set<BsonValue> getFailedKeys() {
+        return failedKeys;
     }
 
     public void setFailedIds(Set<BsonValue> failedIds) {
-        this.failedIds = failedIds;
+        this.failedKeys = failedIds;
     }
 
     public Namespace getNamespace() {
@@ -88,4 +85,12 @@ public abstract class DiffResult {
     public void setRetryable(boolean retryable) {
         this.retryable = retryable;
     }
+
+	public Set<BsonValue> getKeysOnlyOnSource() {
+		return keysOnlyOnSource;
+	}
+
+	public Set<BsonValue> getKeysOnlyOnDest() {
+		return keysOnlyOnDest;
+	}
 }

@@ -116,8 +116,8 @@ public class DiffSummary {
         processedDocs += result.getMatches() + failures;
         failedDocs += failures;
         processedChunks++;
-        sourceOnly += result.getOnlyOnSource();
-        destOnly += result.getOnlyOnDest();
+        sourceOnly += result.getOnlyOnSourceCount();
+        destOnly += result.getOnlyOnDestCount();
         processedSize += result.getBytesProcessed();
     }
 }
