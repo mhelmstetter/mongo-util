@@ -10,20 +10,24 @@ public abstract class DiffResult {
     protected long matches;
     protected long bytesProcessed;
     protected Set<BsonValue> failedKeys = new HashSet<>();
+    protected Set<BsonValue> mismatchedKeys = new HashSet<>();
     protected Set<BsonValue> keysOnlyOnSource = new HashSet<>();
     protected Set<BsonValue> keysOnlyOnDest = new HashSet<>();
     protected Namespace namespace;
     protected boolean retryable = true;
 
-    public void addFailedKey(BsonValue id) {
+    public void addMismatchedKey(BsonValue id) {
         failedKeys.add(id);
+        mismatchedKeys.add(id);
     }
     
     public void addOnlyOnSourceKeys(Set<BsonValue> keys) {
+    	failedKeys.addAll(keys);
         keysOnlyOnSource.addAll(keys);
     }
     
     public void addOnlyOnDestKeys(Set<BsonValue> keys) {
+    	failedKeys.addAll(keys);
         keysOnlyOnDest.addAll(keys);
     }
 
@@ -92,5 +96,9 @@ public abstract class DiffResult {
 
 	public Set<BsonValue> getKeysOnlyOnDest() {
 		return keysOnlyOnDest;
+	}
+
+	public Set<BsonValue> getMismatchedKeys() {
+		return mismatchedKeys;
 	}
 }

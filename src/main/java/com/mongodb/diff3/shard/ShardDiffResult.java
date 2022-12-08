@@ -9,7 +9,7 @@ public class ShardDiffResult extends DiffResult {
 
     protected String chunkString;
 
-    public void addFailedKey(BsonValue id) {
+    public void addMismatchedKey(BsonValue id) {
         if (failedKeys == null) {
             failedKeys = new HashSet<>();
         }
@@ -26,6 +26,8 @@ public class ShardDiffResult extends DiffResult {
         ShardDiffResult srr = (ShardDiffResult) rr;
         ShardDiffResult merged = new ShardDiffResult();
         merged.matches = srr.matches + this.matches;
+        merged.mismatchedKeys.addAll(rr.getMismatchedKeys());
+        merged.mismatchedKeys.addAll(this.getMismatchedKeys());
         merged.failedKeys.addAll(rr.getFailedKeys());
         merged.failedKeys.addAll(this.getFailedKeys());
         merged.keysOnlyOnDest.addAll(this.keysOnlyOnDest);
@@ -47,9 +49,10 @@ public class ShardDiffResult extends DiffResult {
         copy.namespace = namespace;
         copy.chunkString = chunkString;
         copy.retryable = retryable;
+        copy.mismatchedKeys = new HashSet<>(mismatchedKeys);
         copy.failedKeys = new HashSet<>(failedKeys);
-        copy.keysOnlyOnSource = keysOnlyOnSource;
-        copy.keysOnlyOnDest = keysOnlyOnDest;
+        copy.keysOnlyOnSource = new HashSet<>(keysOnlyOnSource);
+        copy.keysOnlyOnDest = new HashSet<>(keysOnlyOnDest);
         return copy;
     }
 

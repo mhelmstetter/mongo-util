@@ -142,17 +142,27 @@ public abstract class DiffTask implements Callable<DiffResult> {
             Map<BsonValue, ValueDifference<String>> valueDiff = diff.entriesDiffering();
             for (Map.Entry<BsonValue, ValueDifference<String>> entry : valueDiff.entrySet()) {
                 BsonValue key = entry.getKey();
-                result.addFailedKey(key);
+                result.addMismatchedKey(key);
             }
-            result.addOnlyOnSourceKeys(diff.entriesOnlyOnLeft().keySet());
-            result.addOnlyOnDestKeys(diff.entriesOnlyOnRight().keySet());
+            Set<BsonValue> onlyOnSource = diff.entriesOnlyOnLeft().keySet();
+            if (!onlyOnSource.isEmpty()) {
+            	logger.warn("[{}] diff failure, onlyOnSource: {}", Thread.currentThread().getName(), onlyOnSource);
+            	result.addOnlyOnSourceKeys(onlyOnSource);
+            }
+            
+            Set<BsonValue> onlyOnDest = diff.entriesOnlyOnRight().keySet();
+            if (!onlyOnDest.isEmpty()) {
+            	logger.warn("[{}] diff failure, onlyOnDest: {}", Thread.currentThread().getName(), onlyOnDest);
+            	result.addOnlyOnDestKeys(onlyOnDest);
+            }
+            
             int numMatches = (int) (sourceDocs.size() - valueDiff.size()
                     - result.getOnlyOnSourceCount() - result.getOnlyOnDestCount());
             result.setMatches(numMatches);
         }
         result.setBytesProcessed(Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue()));
         long diffTime = System.currentTimeMillis() - compStart;
-        logger.debug("[{}] computed diff in {} ms ({})",
+        logger.trace("[{}] computed diff in {} ms ({})",
                 Thread.currentThread().getName(), diffTime, unitLogString());
         return result;
     }
