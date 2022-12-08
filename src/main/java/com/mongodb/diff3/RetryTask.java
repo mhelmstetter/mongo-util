@@ -71,9 +71,9 @@ public abstract class RetryTask implements Callable<DiffResult> {
                     }
                 } else {
                     // Retry succeeded
-                    logger.info("[{}] retry task for ({}) succeeded on attempt: {}",
-                            Thread.currentThread().getName(), originalTask.unitLogString(),
-                            retryStatus.getAttempt());
+                    logger.info("[{}] {} - retry task for ({}) succeeded on attempt: {}. ids: {}",
+                            Thread.currentThread().getName(), originalTask.namespace, originalTask.unitLogString(),
+                            retryStatus.getAttempt(), failedIds);
                     summary.updateRetryingDone(result);
                     logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(),
                             originalTask.unitLogString());

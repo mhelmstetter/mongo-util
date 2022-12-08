@@ -146,13 +146,13 @@ public abstract class DiffTask implements Callable<DiffResult> {
             }
             Set<BsonValue> onlyOnSource = diff.entriesOnlyOnLeft().keySet();
             if (!onlyOnSource.isEmpty()) {
-            	logger.warn("[{}] diff failure, onlyOnSource: {}", Thread.currentThread().getName(), onlyOnSource);
+            	logger.warn("[{}] {} - diff failure, onlyOnSource: {}", Thread.currentThread().getName(), namespace, onlyOnSource);
             	result.addOnlyOnSourceKeys(onlyOnSource);
             }
             
             Set<BsonValue> onlyOnDest = diff.entriesOnlyOnRight().keySet();
             if (!onlyOnDest.isEmpty()) {
-            	logger.warn("[{}] diff failure, onlyOnDest: {}", Thread.currentThread().getName(), onlyOnDest);
+            	logger.warn("[{}] {} - diff failure, onlyOnDest: {}", Thread.currentThread().getName(), namespace, onlyOnDest);
             	result.addOnlyOnDestKeys(onlyOnDest);
             }
             
