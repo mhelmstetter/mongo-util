@@ -1,7 +1,10 @@
 package com.mongodb.diff3.shard;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.mongodb.diff3.*;
+import com.mongodb.diff3.DiffConfiguration;
+import com.mongodb.diff3.DiffResult;
+import com.mongodb.diff3.DiffSummary2;
+import com.mongodb.diff3.RetryTask;
 import com.mongodb.model.Collection;
 import com.mongodb.model.DatabaseCatalog;
 import com.mongodb.model.Namespace;
@@ -11,8 +14,26 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -113,7 +134,7 @@ public class ShardDiffUtil {
 
         int totalChunks = getTotalChunks();
         int numShards = srcShardNames.size();
-        DiffSummary summary = new DiffSummary(estimatedTotalDocs, totalSize);
+        DiffSummary2 summary = new DiffSummary2(estimatedTotalDocs, totalSize);
         summary.setTotalChunks(totalChunks);
         retryQueue = new LinkedBlockingQueue<>();
 
@@ -148,8 +169,7 @@ public class ShardDiffUtil {
                         } else {
                             ShardDiffTask originalTask = (ShardDiffTask) rt.getOriginalTask();
                             logger.debug("[RetryTaskPoolListener] submitting retry {} for ({}-{})",
-                                    rt.getRetryStatus().getAttempt() + 1, originalTask.getNamespace(),
-                                    originalTask.getChunkString());
+                                    rt.getRetryStatus().getAttempt() + 1, originalTask.getChunkDef().unitString());
                             retryTaskPoolFutures.add(retryTaskPool.submit(rt));
                         }
                     } catch (Exception e) {
@@ -223,14 +243,14 @@ public class ShardDiffUtil {
                                         // There's failures but will retry
                                         logger.trace("[RetryTaskPoolCollector] ignoring retried result for ({}): " +
                                                         "{} matches, {} failures, {} bytes",
-                                                result.unitLogString(), result.getMatches(),
+                                                result.unitString(), result.getMatches(),
                                                 result.getFailureCount(), result.getBytesProcessed());
                                         continue;
                                     }
 
                                     logger.debug("[RetryTaskPoolCollector] got final result for ({}): " +
                                                     "{} matches, {} failures, {} bytes",
-                                            result.unitLogString(), result.getMatches(),
+                                            result.unitString(), result.getMatches(),
                                             result.getFailureCount(), result.getBytesProcessed());
 
                                     summary.updateRetryTask(result);
@@ -280,17 +300,15 @@ public class ShardDiffUtil {
                                         int failures = result.getFailureCount();
                                         if (failures > 0) {
                                             logger.debug("[InitialTaskPoolCollector] will retry {} failed ids for ({})",
-                                                    result.getFailureCount(), result.unitLogString());
+                                                    result.getFailureCount(), result.unitString());
                                         } else {
                                             logger.debug("[InitialTaskPoolCollector] got result for ({}): " +
                                                             "{} matches, {} failures, {} bytes",
-                                                    result.unitLogString(), result.getMatches(),
+                                                    result.unitString(), result.getMatches(),
                                                     result.getFailureCount(), result.getBytesProcessed());
                                         }
                                         summary.updateInitTask(result);
                                     }
-
-//                logger.debug("result: {}", result);
                                 } catch (InterruptedException e) {
                                     logger.error("[InitialTaskPoolCollector] Diff task was interrupted", e);
                                 } catch (ExecutionException e) {

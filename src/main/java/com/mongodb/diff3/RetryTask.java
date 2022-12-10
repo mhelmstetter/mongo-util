@@ -15,13 +15,13 @@ public abstract class RetryTask implements Callable<DiffResult> {
     protected DiffResult originalResult;
     protected Set<BsonValue> failedIds;
     protected Queue<RetryTask> retryQueue;
-    protected DiffSummary summary;
+    protected DiffSummary2 summary;
     protected static final Logger logger = LoggerFactory.getLogger(RetryTask.class);
     protected long start;
 
 
     public RetryTask(RetryStatus retryStatus, DiffTask originalTask, DiffResult originalResult,
-                     Set<BsonValue> failedIds, Queue<RetryTask> retryQueue, DiffSummary summary) {
+                     Set<BsonValue> failedIds, Queue<RetryTask> retryQueue, DiffSummary2 summary) {
         this.retryStatus = retryStatus;
         this.originalTask = originalTask;
         this.originalResult = originalResult;
@@ -64,7 +64,7 @@ public abstract class RetryTask implements Callable<DiffResult> {
                                 Thread.currentThread().getName(), originalTask.getNamespace(), failedIds);
                         summary.updateRetryingDone(result);
                         logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(),
-                                originalTask.unitLogString());
+                                originalTask.unitString());
                         retryQueue.add(endToken());
                         result.setRetryable(false);
                         complete = true;
@@ -72,17 +72,17 @@ public abstract class RetryTask implements Callable<DiffResult> {
                 } else {
                     // Retry succeeded
                     logger.info("[{}] {} - retry task for ({}) succeeded on attempt: {}. ids: {}",
-                            Thread.currentThread().getName(), originalTask.namespace, originalTask.unitLogString(),
+                            Thread.currentThread().getName(), originalTask.namespace, originalTask.unitString(),
                             retryStatus.getAttempt(), failedIds);
                     summary.updateRetryingDone(result);
                     logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(),
-                            originalTask.unitLogString());
+                            originalTask.unitString());
                     retryQueue.add(endToken());
                     complete = true;
                 }
             } else {
                 // Re-submit
-                logger.trace("Requeue {}; not enough time elapse to retry", originalTask.unitLogString());
+                logger.trace("Requeue {}; not enough time elapse to retry", originalTask.unitString());
                 retryQueue.add(this);
             }
 

@@ -2,7 +2,7 @@ package com.mongodb.diff3.partition;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.diff3.DiffConfiguration;
-import com.mongodb.diff3.DiffSummary;
+import com.mongodb.diff3.DiffSummary2;
 import com.mongodb.diff3.RetryTask;
 import com.mongodb.model.Namespace;
 import org.apache.commons.lang3.tuple.Pair;
@@ -21,14 +21,14 @@ public class PartitionTask implements Callable<Pair<String, Integer>> {
     private final PartitionManager partitionManager;
     private final Queue<PartitionDiffTask> partitionQueue;
     private final Queue<RetryTask> retryQueue;
-    private final DiffSummary summary;
+    private final DiffSummary2 summary;
     private final DiffConfiguration config;
 
     private  static final Logger logger = LoggerFactory.getLogger(PartitionTask.class);
 
     public PartitionTask(Namespace namespace, MongoClient sourceClient, MongoClient destClient,
                          PartitionManager partitionManager, Queue<PartitionDiffTask> partitionQueue,
-                         Queue<RetryTask> retryQueue, DiffSummary summary, DiffConfiguration config) {
+                         Queue<RetryTask> retryQueue, DiffSummary2 summary, DiffConfiguration config) {
         this.namespace = namespace;
         this.sourceClient = sourceClient;
         this.destClient = destClient;

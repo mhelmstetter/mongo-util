@@ -80,7 +80,7 @@ public class PartitionDiffUtil {
         AtomicBoolean initialTaskPoolCollectorDone = new AtomicBoolean(false);
 
         Set<Collection> colls = databaseCatalogProvider.get().getUnshardedCollections();
-        DiffSummary summary = new DiffSummary(estimatedTotalDocs, totalSize);
+        DiffSummary2 summary = new DiffSummary2(estimatedTotalDocs, totalSize);
         retryQueue = new LinkedBlockingQueue<>();
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
@@ -162,7 +162,7 @@ public class PartitionDiffUtil {
                         } else {
                             PartitionDiffTask originalTask = (PartitionDiffTask) rt.getOriginalTask();
                             logger.debug("[RetryTaskPoolListener] submitting retry {} for ({})",
-                                    rt.getRetryStatus().getAttempt() + 1, originalTask.getPartition().toString());
+                                    rt.getRetryStatus().getAttempt() + 1, originalTask.getChunkDef().unitString());
                             retryTaskPoolResults.add(retryTaskPool.submit(rt));
                         }
                     } catch (Exception e) {

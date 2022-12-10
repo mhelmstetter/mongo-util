@@ -12,6 +12,7 @@ import com.mongodb.diff3.partition.PartitionDiffTask;
 import com.mongodb.model.Namespace;
 import com.mongodb.util.CodecUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.bson.ByteBuf;
 import org.bson.Document;
@@ -49,9 +50,10 @@ public abstract class DiffTask implements Callable<DiffResult> {
     protected DiffConfiguration config;
 
     protected Namespace namespace;
-    protected Pair<Bson, Bson> bounds;
+//    protected Pair<Bson, Bson> bounds;
+    protected ChunkDef chunkDef;
     protected long start;
-    protected DiffSummary summary;
+    protected DiffSummary2 summary;
 
     protected LongAdder sourceBytesProcessed = new LongAdder();
     protected LongAdder destBytesProcessed = new LongAdder();
@@ -64,7 +66,7 @@ public abstract class DiffTask implements Callable<DiffResult> {
     protected Queue<RetryTask> retryQueue;
 
     public DiffTask(DiffConfiguration config, Namespace namespace,
-                    Queue<RetryTask> retryQueue, DiffSummary summary) {
+                    Queue<RetryTask> retryQueue, DiffSummary2 summary) {
         this.config = config;
         this.namespace = namespace;
         this.retryQueue = retryQueue;
@@ -72,9 +74,9 @@ public abstract class DiffTask implements Callable<DiffResult> {
     }
 
     //    protected abstract Bson getDiffQuery();
-    protected abstract Pair<Bson, Bson> getChunkBounds();
+//    protected abstract Pair<Bson, Bson> getChunkBounds();
 
-    protected abstract String unitLogString();
+    protected abstract String unitString();
 
     protected abstract DiffResult initDiffResult();
 
@@ -88,13 +90,13 @@ public abstract class DiffTask implements Callable<DiffResult> {
         DiffResult result;
         start = System.currentTimeMillis();
 //        query = getDiffQuery();
-        bounds = getChunkBounds();
-
+//        bounds = getChunkBounds();
+//
         try {
             result = computeDiff();
         } catch (Exception e) {
             logger.error("[{}] fatal error diffing ({})",
-                    Thread.currentThread().getName(), unitLogString(), e);
+                    Thread.currentThread().getName(), unitString(), e);
             throw new RuntimeException(e);
         } finally {
             closeCursor(sourceCursor);
@@ -106,16 +108,16 @@ public abstract class DiffTask implements Callable<DiffResult> {
             RetryTask retryTask = createRetryTask(retryStatus, result);
             retryQueue.add(retryTask);
             logger.debug("[{}] detected {} failures and added a retry task ({})",
-                    Thread.currentThread().getName(), result.getFailureCount(), unitLogString());
+                    Thread.currentThread().getName(), result.getFailureCount(), unitString());
         } else {
             logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(),
-                    result.unitLogString());
+                    result.unitString());
             retryQueue.add(endToken());
         }
 
         long timeSpent = System.currentTimeMillis() - start;
         logger.debug("[{}] completed a diff task in {} ms ({})",
-                Thread.currentThread().getName(), timeSpent, unitLogString());
+                Thread.currentThread().getName(), timeSpent, unitString());
 
         return result;
     }
@@ -149,13 +151,13 @@ public abstract class DiffTask implements Callable<DiffResult> {
             	logger.warn("[{}] {} - diff failure, onlyOnSource: {}", Thread.currentThread().getName(), namespace, onlyOnSource);
             	result.addOnlyOnSourceKeys(onlyOnSource);
             }
-            
+
             Set<BsonValue> onlyOnDest = diff.entriesOnlyOnRight().keySet();
             if (!onlyOnDest.isEmpty()) {
             	logger.warn("[{}] {} - diff failure, onlyOnDest: {}", Thread.currentThread().getName(), namespace, onlyOnDest);
             	result.addOnlyOnDestKeys(onlyOnDest);
             }
-            
+
             int numMatches = (int) (sourceDocs.size() - valueDiff.size()
                     - result.getOnlyOnSourceCount() - result.getOnlyOnDestCount());
             result.setMatches(numMatches);
@@ -163,7 +165,7 @@ public abstract class DiffTask implements Callable<DiffResult> {
         result.setBytesProcessed(Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue()));
         long diffTime = System.currentTimeMillis() - compStart;
         logger.trace("[{}] computed diff in {} ms ({})",
-                Thread.currentThread().getName(), diffTime, unitLogString());
+                Thread.currentThread().getName(), diffTime, unitString());
         return result;
     }
 
@@ -188,13 +190,16 @@ public abstract class DiffTask implements Callable<DiffResult> {
             Bson q = pdt.getPartitionDiffQuery();
             finder = coll.find(q).batchSize(10000);
         } else {
-            Pair<Bson, Bson> bounds = getChunkBounds();
-            if (bounds == null) {
+//            Pair<Bson, Bson> bounds = getChunkBounds();
+            // TODO: not sure if it's possible for one of min/max to be null and not the other
+            if (chunkDef.getMin() == null) {
                 finder = coll.find().batchSize(10000);
             } else {
-                Bson min = bounds.getLeft();
-                Bson max = bounds.getRight();
-                Set<String> shardKeys = min.toBsonDocument().keySet();
+//                Bson min = bounds.getLeft();
+//                Bson max = bounds.getRight();
+                BsonDocument min = chunkDef.getMin();
+                BsonDocument max = chunkDef.getMax();
+                Set<String> shardKeys = min.keySet();
                 Document hintDoc = new Document();
                 for (String sk : shardKeys) {
                     hintDoc.put(sk, 1);
@@ -215,7 +220,7 @@ public abstract class DiffTask implements Callable<DiffResult> {
         long loadTime = System.currentTimeMillis() - loadStart;
         logger.debug("[{}] loaded {} {} docs for {} in {} ms ({})",
                 Thread.currentThread().getName(), output.size(), target.getName(),
-                namespace.getNamespace(), loadTime, unitLogString());
+                namespace.getNamespace(), loadTime, unitString());
         return output;
     }
 
@@ -240,5 +245,9 @@ public abstract class DiffTask implements Callable<DiffResult> {
 
     public Namespace getNamespace() {
         return namespace;
+    }
+
+    public ChunkDef getChunkDef() {
+        return chunkDef;
     }
 }

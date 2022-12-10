@@ -7,7 +7,7 @@ import java.util.HashSet;
 
 public class ShardDiffResult extends DiffResult {
 
-    protected String chunkString;
+//    protected String chunkString;
 
     public void addMismatchedKey(BsonValue id) {
         if (failedKeys == null) {
@@ -36,7 +36,7 @@ public class ShardDiffResult extends DiffResult {
         merged.keysOnlyOnSource.addAll(rr.getKeysOnlyOnSource());
         merged.bytesProcessed = this.bytesProcessed;
         merged.namespace = srr.namespace;
-        merged.chunkString = srr.chunkString;
+        merged.chunkDef = srr.chunkDef;
         merged.retryable = srr.retryable;
         return merged;
     }
@@ -47,7 +47,7 @@ public class ShardDiffResult extends DiffResult {
         copy.matches = matches;
         copy.bytesProcessed = bytesProcessed;
         copy.namespace = namespace;
-        copy.chunkString = chunkString;
+        copy.chunkDef = chunkDef;
         copy.retryable = retryable;
         copy.mismatchedKeys = new HashSet<>(mismatchedKeys);
         copy.failedKeys = new HashSet<>(failedKeys);
@@ -57,8 +57,8 @@ public class ShardDiffResult extends DiffResult {
     }
 
     @Override
-    public String unitLogString() {
-        return namespace.getNamespace() + "-" + chunkString;
+    public String unitString() {
+        return chunkDef.unitString();
     }
 
     public String toString() {
@@ -69,7 +69,7 @@ public class ShardDiffResult extends DiffResult {
                 ", failedIds=" +
                 (failedKeys == null ? 0 : failedKeys.size()) +
                 ", chunk=" +
-                chunkString +
+                chunkDef.unitString() +
                 "]";
     }
 
@@ -79,14 +79,6 @@ public class ShardDiffResult extends DiffResult {
                 ", ns=" +
                 namespace.getNamespace() +
                 ", chunk=" +
-                chunkString;
-    }
-
-    public String getChunkString() {
-        return chunkString;
-    }
-
-    public void setChunkString(String chunkString) {
-        this.chunkString = chunkString;
+                chunkDef.unitString();
     }
 }

@@ -15,6 +15,7 @@ public abstract class DiffResult {
     protected Set<BsonValue> keysOnlyOnDest = new HashSet<>();
     protected Namespace namespace;
     protected boolean retryable = true;
+    protected ChunkDef chunkDef;
 
     public void addMismatchedKey(BsonValue id) {
         failedKeys.add(id);
@@ -32,7 +33,7 @@ public abstract class DiffResult {
     }
 
     public int getFailureCount() {
-        return failedKeys.size();
+        return failedKeys.size() + keysOnlyOnSource.size() + keysOnlyOnDest.size();
     }
 
     public abstract DiffResult mergeRetryResult(DiffResult rr);
@@ -40,7 +41,11 @@ public abstract class DiffResult {
     public abstract DiffResult copy();
 
     public abstract String shortString();
-    public abstract String unitLogString();
+    public abstract String unitString();
+
+    public void setChunkDef(ChunkDef chunkDef) {
+        this.chunkDef = chunkDef;
+    }
 
     public long getMatches() {
         return matches;

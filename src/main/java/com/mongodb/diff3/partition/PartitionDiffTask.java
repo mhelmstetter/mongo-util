@@ -1,12 +1,17 @@
 package com.mongodb.diff3.partition;
 
 import com.mongodb.client.MongoClient;
-import com.mongodb.diff3.*;
+import com.mongodb.diff3.DiffConfiguration;
+import com.mongodb.diff3.DiffResult;
+import com.mongodb.diff3.DiffSummary2;
+import com.mongodb.diff3.DiffTask;
+import com.mongodb.diff3.RetryStatus;
+import com.mongodb.diff3.RetryTask;
 import org.apache.commons.lang3.tuple.Pair;
 import org.bson.BsonDocument;
 import org.bson.conversions.Bson;
 
-import java.util.*;
+import java.util.Queue;
 
 
 public class PartitionDiffTask extends DiffTask {
@@ -19,27 +24,29 @@ public class PartitionDiffTask extends DiffTask {
             null, null, null, null, null, null);
 
 
-
     public PartitionDiffTask(Partition partition, MongoClient sourceClient, MongoClient destClient,
-                             Queue<RetryTask> retryQueue, DiffSummary summary, DiffConfiguration config) {
+                             Queue<RetryTask> retryQueue, DiffSummary2 summary, DiffConfiguration config) {
         super(config, (partition == null) ? null : partition.getNamespace(), retryQueue, summary);
         this.partition = partition;
         this.sourceClient = sourceClient;
         this.destClient = destClient;
+        if (this.partition != null) {
+            this.chunkDef = this.partition.toChunkDef();
+        }
     }
 
-//    @Override
-public Bson getPartitionDiffQuery() {
+    //    @Override
+    public Bson getPartitionDiffQuery() {
         return (partition != null) ? partition.query() : new BsonDocument();
     }
 
-    @Override
-    protected Pair<Bson, Bson> getChunkBounds() {
-        return null;
-    }
+//    @Override
+//    protected Pair<Bson, Bson> getChunkBounds() {
+//        return null;
+//    }
 
     @Override
-    protected String unitLogString() {
+    protected String unitString() {
         return partition.toString();
     }
 

@@ -1,8 +1,8 @@
 package com.mongodb.diff3.partition;
 
 import com.mongodb.diff3.DiffResult;
+import com.mongodb.diff3.DiffSummary2;
 import com.mongodb.diff3.RetryTask;
-import com.mongodb.diff3.DiffSummary;
 import com.mongodb.diff3.RetryStatus;
 import org.bson.BsonValue;
 
@@ -15,7 +15,7 @@ public class PartitionRetryTask extends RetryTask {
 
     public PartitionRetryTask(RetryStatus retryStatus, PartitionDiffTask originalTask,
                               PartitionDiffResult originalResult, Set<BsonValue> failedIds,
-                              Queue<RetryTask> retryQueue, DiffSummary summary) {
+                              Queue<RetryTask> retryQueue, DiffSummary2 summary) {
         super(retryStatus, originalTask, originalResult, failedIds, retryQueue, summary);
     }
 

@@ -1,8 +1,8 @@
 package com.mongodb.diff3.shard;
 
 import com.mongodb.diff3.DiffResult;
+import com.mongodb.diff3.DiffSummary2;
 import com.mongodb.diff3.RetryTask;
-import com.mongodb.diff3.DiffSummary;
 import com.mongodb.diff3.RetryStatus;
 import org.bson.BsonValue;
 
@@ -16,7 +16,7 @@ public class ShardRetryTask extends RetryTask {
 
 
     public ShardRetryTask(RetryStatus retryStatus, ShardDiffTask originalTask, ShardDiffResult originalResult,
-                          Set<BsonValue> failedIds, Queue<RetryTask> retryQueue, DiffSummary summary) {
+                          Set<BsonValue> failedIds, Queue<RetryTask> retryQueue, DiffSummary2 summary) {
         super(retryStatus, originalTask, originalResult, failedIds, retryQueue, summary);
     }
 

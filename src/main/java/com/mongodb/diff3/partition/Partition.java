@@ -1,6 +1,7 @@
 package com.mongodb.diff3.partition;
 
 import com.mongodb.client.model.Filters;
+import com.mongodb.diff3.ChunkDef;
 import com.mongodb.model.Namespace;
 import org.bson.BsonDocument;
 import org.bson.BsonMaxKey;
@@ -24,6 +25,10 @@ public class Partition {
         this.lowerBound = lowerBound;
         this.upperBound = upperBound;
         this.estimatedDocCount = estimatedDocCount;
+    }
+
+    public ChunkDef toChunkDef() {
+        return new ChunkDef(namespace, (BsonDocument) lowerBound, (BsonDocument) upperBound);
     }
 
     public Namespace getNamespace() {

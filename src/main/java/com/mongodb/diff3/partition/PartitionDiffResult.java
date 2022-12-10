@@ -89,7 +89,7 @@ public class PartitionDiffResult extends DiffResult {
     }
 
     @Override
-    public String unitLogString() {
+    public String unitString() {
         return partition.toString();
     }
 
