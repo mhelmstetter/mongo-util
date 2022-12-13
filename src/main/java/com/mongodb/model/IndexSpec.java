@@ -19,14 +19,12 @@ public class IndexSpec {
 	private boolean unique;
 	private Number expireAfterSeconds;
 	
-	private IndexSpec(RawBsonDocument sourceSpec) {
+	private IndexSpec(RawBsonDocument sourceSpec, Namespace ns) {
 		this.sourceSpec = sourceSpec;
 		this.key = (RawBsonDocument)sourceSpec.get("key");
 		this.keyJsonString = key.toJson();
 		this.name = sourceSpec.getString("name").getValue();
-		if (sourceSpec.containsKey("ns")) {
-			this.namespace = new Namespace(sourceSpec.getString("ns").getValue());
-		}
+		this.namespace = ns;
 		if (sourceSpec.containsKey("expireAfterSeconds")) {
 			this.expireAfterSeconds = sourceSpec.getNumber("expireAfterSeconds").doubleValue();
 		}
@@ -59,27 +57,18 @@ public class IndexSpec {
 		return false;
 	}
 	
-	public static IndexSpec fromDocument(RawBsonDocument sourceSpec) {
-		IndexSpec spec = new IndexSpec(sourceSpec);
+	public static IndexSpec fromDocument(RawBsonDocument sourceSpec, Namespace ns) {
+		IndexSpec spec = new IndexSpec(sourceSpec, ns);
 		return spec;
 	}
 	
-
-
-	@Override
-	public String toString() {
-		return sourceSpec.toJson();
-	}
-
-	
-
 	public RawBsonDocument getSourceSpec() {
 		return sourceSpec;
 	}
 
 	@Override
 	public int hashCode() {
-		return Objects.hash(background, expireAfterSeconds, key, name, namespace, sourceSpec, sparse, unique);
+		return Objects.hash(background, expireAfterSeconds, key, name, namespace, sparse, unique);
 	}
 
 	@Override
@@ -93,8 +82,29 @@ public class IndexSpec {
 		IndexSpec other = (IndexSpec) obj;
 		return background == other.background && Objects.equals(expireAfterSeconds, other.expireAfterSeconds)
 				&& Objects.equals(key, other.key) && Objects.equals(name, other.name)
-				&& Objects.equals(namespace, other.namespace) && Objects.equals(sourceSpec, other.sourceSpec)
+				&& Objects.equals(namespace, other.namespace)
 				&& sparse == other.sparse && unique == other.unique;
+	}
+
+	@Override
+	public String toString() {
+		StringBuilder builder = new StringBuilder();
+		builder.append("IndexSpec [key=");
+		builder.append(key);
+		builder.append(", name=");
+		builder.append(name);
+		builder.append(", namespace=");
+		builder.append(namespace);
+		builder.append(", sparse=");
+		builder.append(sparse);
+		builder.append(", background=");
+		builder.append(background);
+		builder.append(", unique=");
+		builder.append(unique);
+		builder.append(", expireAfterSeconds=");
+		builder.append(expireAfterSeconds);
+		builder.append("]");
+		return builder.toString();
 	}
 	
 	

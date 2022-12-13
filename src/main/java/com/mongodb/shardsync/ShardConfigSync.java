@@ -288,7 +288,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				for (RawBsonDocument sourceSpec : collection.listIndexes(RawBsonDocument.class)) {
 					IndexSpec spec = null;
 					try {
-						spec = IndexSpec.fromDocument(sourceSpec);
+						spec = IndexSpec.fromDocument(sourceSpec, ns);
 						indexSpecs.add(spec);
 					} catch (BSONException be) {
 						logger.error("Error getting index spec: {}", sourceSpec);
