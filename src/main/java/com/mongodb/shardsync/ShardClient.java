@@ -392,7 +392,7 @@ public class ShardClient {
 		}
 
 		rsInfo.setHosts(result.getList("hosts", String.class));
-		rsInfo.setWritablePrimary(result.getBoolean("isWritablePrimary"));
+		rsInfo.setWritablePrimary(result.getBoolean("ismaster"));
 		rsInfo.setSecondary(result.getBoolean("secondary"));
 		tmp.close();
 		return rsInfo;
