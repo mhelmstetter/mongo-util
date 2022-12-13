@@ -379,9 +379,9 @@ public class ShardClient {
 		
 		Document result = null;
 		try {
-			result = tmp.getDatabase("admin").runCommand(new Document("hello", 1));
+			result = tmp.getDatabase("admin").runCommand(new Document("isMaster", 1));
 		} catch (MongoException me) {
-			logger.warn("Error getting hello() for {}, {}", host, me.getMessage());
+			logger.warn("Error getting isMaster() for {}, {}", host, me.getMessage());
 			return null;
 		}
 		
