@@ -338,14 +338,11 @@ public class ShardConfigSync implements Callable<Integer> {
 				logger.warn("Destination indexes not found for ns: {}", ns);
 				continue;
 			}
-			
 			Set<IndexSpec> diff = Sets.difference(sourceSpecs, destSpecs);
 			
 			if (!diff.isEmpty()) {
 				logger.debug("Indexes differ for ns: {}, diff: {}", ns, diff);
 			}
-			
-			
 		}
 		
 		

@@ -68,7 +68,7 @@ public class IndexSpec {
 
 	@Override
 	public int hashCode() {
-		return Objects.hash(background, expireAfterSeconds, key, name, namespace, sparse, unique);
+		return Objects.hash(expireAfterSeconds, key, name, namespace, sparse, unique);
 	}
 
 	@Override
@@ -80,9 +80,9 @@ public class IndexSpec {
 		if (getClass() != obj.getClass())
 			return false;
 		IndexSpec other = (IndexSpec) obj;
-		return background == other.background && Objects.equals(expireAfterSeconds, other.expireAfterSeconds)
+		return  Objects.equals(namespace, other.namespace)
 				&& Objects.equals(key, other.key) && Objects.equals(name, other.name)
-				&& Objects.equals(namespace, other.namespace)
+				&& Objects.equals(expireAfterSeconds, other.expireAfterSeconds)
 				&& sparse == other.sparse && unique == other.unique;
 	}
 
