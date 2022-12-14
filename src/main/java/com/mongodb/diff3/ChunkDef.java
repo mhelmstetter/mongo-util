@@ -2,7 +2,7 @@ package com.mongodb.diff3;
 
 import com.mongodb.model.Namespace;
 import org.bson.BsonDocument;
-import org.bson.BsonValue;
+import org.bson.Document;
 
 public class ChunkDef {
     private final Namespace ns;

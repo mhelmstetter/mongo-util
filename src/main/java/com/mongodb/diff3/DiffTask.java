@@ -11,7 +11,6 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.diff3.partition.PartitionDiffTask;
 import com.mongodb.model.Namespace;
 import com.mongodb.util.CodecUtils;
-import org.apache.commons.lang3.tuple.Pair;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.bson.ByteBuf;
@@ -21,9 +20,13 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.atomic.LongAdder;
 
 import static com.mongodb.diff3.DiffTask.Target.DEST;
 import static com.mongodb.diff3.DiffTask.Target.SOURCE;
@@ -53,10 +56,10 @@ public abstract class DiffTask implements Callable<DiffResult> {
 //    protected Pair<Bson, Bson> bounds;
     protected ChunkDef chunkDef;
     protected long start;
-    protected DiffSummary2 summary;
+    protected DiffSummary summary;
 
-    protected LongAdder sourceBytesProcessed = new LongAdder();
-    protected LongAdder destBytesProcessed = new LongAdder();
+    protected long sourceBytesProcessed;
+    protected long destBytesProcessed;
 
     protected MongoCursor<RawBsonDocument> sourceCursor = null;
     protected MongoCursor<RawBsonDocument> destCursor = null;
@@ -66,7 +69,7 @@ public abstract class DiffTask implements Callable<DiffResult> {
     protected Queue<RetryTask> retryQueue;
 
     public DiffTask(DiffConfiguration config, Namespace namespace,
-                    Queue<RetryTask> retryQueue, DiffSummary2 summary) {
+                    Queue<RetryTask> retryQueue, DiffSummary summary) {
         this.config = config;
         this.namespace = namespace;
         this.retryQueue = retryQueue;
@@ -78,8 +81,6 @@ public abstract class DiffTask implements Callable<DiffResult> {
 
     protected abstract String unitString();
 
-    protected abstract DiffResult initDiffResult();
-
     protected abstract RetryTask createRetryTask(RetryStatus retryStatus, DiffResult result);
 
     protected abstract RetryTask endToken();
@@ -89,8 +90,6 @@ public abstract class DiffTask implements Callable<DiffResult> {
     public DiffResult call() throws Exception {
         DiffResult result;
         start = System.currentTimeMillis();
-//        query = getDiffQuery();
-//        bounds = getChunkBounds();
 //
         try {
             result = computeDiff();
@@ -103,15 +102,15 @@ public abstract class DiffTask implements Callable<DiffResult> {
             closeCursor(destCursor);
         }
 
-        if (result.getFailureCount() > 0) {
-            RetryStatus retryStatus = new RetryStatus(0, System.currentTimeMillis());
+        if (result.getFailedKeys().size() > 0) {
+            RetryStatus retryStatus = new RetryStatus(0, System.currentTimeMillis(), config.getMaxRetries());
             RetryTask retryTask = createRetryTask(retryStatus, result);
             retryQueue.add(retryTask);
             logger.debug("[{}] detected {} failures and added a retry task ({})",
-                    Thread.currentThread().getName(), result.getFailureCount(), unitString());
+                    Thread.currentThread().getName(), result.getFailedKeys().size(), unitString());
         } else {
             logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(),
-                    result.unitString());
+                    result.getChunkDef().unitString());
             retryQueue.add(endToken());
         }
 
@@ -133,47 +132,51 @@ public abstract class DiffTask implements Callable<DiffResult> {
     }
 
     private DiffResult doComparison() {
-        DiffResult result = initDiffResult();
+        DiffResult result; // = initDiffResult();
         long compStart = System.currentTimeMillis();
         MapDifference<BsonValue, String> diff = Maps.difference(sourceDocs, destDocs);
 
+        Set<BsonValue> mismatches = new HashSet<>();
+        Set<BsonValue> srcOnly = new HashSet<>();
+        Set<BsonValue> destOnly = new HashSet<>();
+        int numMatches;
         if (diff.areEqual()) {
-            int numMatches = sourceDocs.size();
-            result.setMatches(numMatches);
+            numMatches = sourceDocs.size();
+//            result.setMatches(numMatches);
         } else {
             Map<BsonValue, ValueDifference<String>> valueDiff = diff.entriesDiffering();
             for (Map.Entry<BsonValue, ValueDifference<String>> entry : valueDiff.entrySet()) {
                 BsonValue key = entry.getKey();
-                result.addMismatchedKey(key);
+                mismatches.add(key);
             }
             Set<BsonValue> onlyOnSource = diff.entriesOnlyOnLeft().keySet();
             if (!onlyOnSource.isEmpty()) {
-            	logger.warn("[{}] {} - diff failure, onlyOnSource: {}", Thread.currentThread().getName(), namespace, onlyOnSource);
-            	result.addOnlyOnSourceKeys(onlyOnSource);
+            	logger.debug("[{}] {} - diff failure, onlyOnSource: {}", Thread.currentThread().getName(), namespace, onlyOnSource);
+            	srcOnly.addAll(onlyOnSource);
             }
 
             Set<BsonValue> onlyOnDest = diff.entriesOnlyOnRight().keySet();
             if (!onlyOnDest.isEmpty()) {
             	logger.warn("[{}] {} - diff failure, onlyOnDest: {}", Thread.currentThread().getName(), namespace, onlyOnDest);
-            	result.addOnlyOnDestKeys(onlyOnDest);
+            	destOnly.addAll(onlyOnDest);
             }
 
-            int numMatches = (int) (sourceDocs.size() - valueDiff.size()
-                    - result.getOnlyOnSourceCount() - result.getOnlyOnDestCount());
-            result.setMatches(numMatches);
+            numMatches = (int) (sourceDocs.size() - valueDiff.size()
+                    - onlyOnSource.size() - onlyOnDest.size());
+//            result.setMatches(numMatches);
         }
-        result.setBytesProcessed(Math.max(sourceBytesProcessed.longValue(), destBytesProcessed.longValue()));
+        long bytes = Math.max(sourceBytesProcessed, destBytesProcessed);
         long diffTime = System.currentTimeMillis() - compStart;
         logger.trace("[{}] computed diff in {} ms ({})",
                 Thread.currentThread().getName(), diffTime, unitString());
-        return result;
+        return new DiffResult(numMatches, bytes, mismatches, srcOnly, destOnly, namespace, chunkDef);
     }
 
     protected abstract MongoClient getLoadClient(Target target);
 
     protected Map<BsonValue, String> load(Collection<BsonValue> ids, Target target) {
         MongoClient loadClient = getLoadClient(target);
-        LongAdder bytesProcessed = (target == SOURCE) ? sourceBytesProcessed : destBytesProcessed;
+        long bytesProcessed = 0;
 
         Map<BsonValue, String> output = new HashMap<>();
         long loadStart = System.currentTimeMillis();
@@ -212,10 +215,20 @@ public abstract class DiffTask implements Callable<DiffResult> {
             BsonValue id = doc.get("_id");
             ByteBuf bb = doc.getByteBuffer();
             byte[] docBytes = bb.array();
-            bytesProcessed.add(bb.remaining());
+            bytesProcessed += bb.remaining();
 
             String docHash = CodecUtils.md5Hex(docBytes);
             output.put(id, docHash);
+        }
+        switch (target) {
+            case SOURCE:
+                sourceBytesProcessed = bytesProcessed;
+                break;
+            case DEST:
+                destBytesProcessed = bytesProcessed;
+                break;
+            default:
+                throw new RuntimeException("Unknown target");
         }
         long loadTime = System.currentTimeMillis() - loadStart;
         logger.debug("[{}] loaded {} {} docs for {} in {} ms ({})",

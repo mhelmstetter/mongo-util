@@ -12,5 +12,14 @@
   "srcOnly": [<Bson>],      // List of _ids
   "destOnly": [<Bson>],     // List of _ids
   "bytesProcessed": <Long>,
-  "timestamp": <Date>
+  "timestamp": <Date>,
+  "history": [{
+       "timestamp": <Date>,
+       "status": <String>,   // one of [SUCCESS/FAILURE]
+       "numRetries": <Int>,
+       "matches": <Long>,
+       "mismatches": [<Bson>],
+       "srcOnly": [<Bson>],
+       "destOnly": [<Bson>]
+    }, ... ]
 }

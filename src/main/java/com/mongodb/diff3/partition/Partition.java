@@ -6,6 +6,7 @@ import com.mongodb.model.Namespace;
 import org.bson.BsonDocument;
 import org.bson.BsonMaxKey;
 import org.bson.BsonMinKey;
+import org.bson.Document;
 import org.bson.conversions.Bson;
 
 import java.util.ArrayList;

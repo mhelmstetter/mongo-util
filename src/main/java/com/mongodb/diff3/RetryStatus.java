@@ -3,12 +3,13 @@ package com.mongodb.diff3;
 public class RetryStatus {
     private final int attempt;
     private final long prevAttempt;
-    private final int MAX_ATTEMPTS = 5;
+    private final int maxAttempts;
     private final long nextAttemptThreshold;
 
-    public RetryStatus(int attempt, long prevAttempt) {
+    public RetryStatus(int attempt, long prevAttempt, int maxAttempts) {
         this.attempt = attempt;
         this.prevAttempt = prevAttempt;
+        this.maxAttempts = maxAttempts;
         nextAttemptThreshold = assignNextThreshold();
     }
 
@@ -17,16 +18,20 @@ public class RetryStatus {
         return prevAttempt + interval;
     }
 
+    public long getNextAttemptThreshold() {
+        return nextAttemptThreshold;
+    }
+
     public boolean canRetry() {
         return System.currentTimeMillis() > nextAttemptThreshold;
     }
 
     public RetryStatus increment() {
         int newAttempt = attempt + 1;
-        if (newAttempt >= MAX_ATTEMPTS) {
+        if (newAttempt >= maxAttempts) {
             return null;
         }
-        return new RetryStatus(attempt + 1, System.currentTimeMillis());
+        return new RetryStatus(attempt + 1, System.currentTimeMillis(), maxAttempts);
     }
 
     public int getAttempt() {

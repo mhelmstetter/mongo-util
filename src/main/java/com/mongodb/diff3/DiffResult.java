@@ -6,104 +6,69 @@ import org.bson.BsonValue;
 import java.util.HashSet;
 import java.util.Set;
 
-public abstract class DiffResult {
-    protected long matches;
-    protected long bytesProcessed;
-    protected Set<BsonValue> failedKeys = new HashSet<>();
-    protected Set<BsonValue> mismatchedKeys = new HashSet<>();
-    protected Set<BsonValue> keysOnlyOnSource = new HashSet<>();
-    protected Set<BsonValue> keysOnlyOnDest = new HashSet<>();
-    protected Namespace namespace;
-    protected boolean retryable = true;
-    protected ChunkDef chunkDef;
+public class DiffResult {
+    private final long matches;
+    private final long bytesProcessed;
+    private final Set<BsonValue> failedKeys;
+    private final Set<BsonValue> mismatchedKeys;
+    private final Set<BsonValue> srcOnlyKeys;
+    private final Set<BsonValue> destOnlyKeys;
+    private final Namespace namespace;
+    private boolean retryable = true;
+    private final ChunkDef chunkDef;
 
-    public void addMismatchedKey(BsonValue id) {
-        failedKeys.add(id);
-        mismatchedKeys.add(id);
-    }
-    
-    public void addOnlyOnSourceKeys(Set<BsonValue> keys) {
-    	failedKeys.addAll(keys);
-        keysOnlyOnSource.addAll(keys);
-    }
-    
-    public void addOnlyOnDestKeys(Set<BsonValue> keys) {
-    	failedKeys.addAll(keys);
-        keysOnlyOnDest.addAll(keys);
-    }
-
-    public int getFailureCount() {
-        return failedKeys.size() + keysOnlyOnSource.size() + keysOnlyOnDest.size();
-    }
-
-    public abstract DiffResult mergeRetryResult(DiffResult rr);
-
-    public abstract DiffResult copy();
-
-    public abstract String shortString();
-    public abstract String unitString();
-
-    public void setChunkDef(ChunkDef chunkDef) {
+    public DiffResult(long matches, long bytesProcessed, Set<BsonValue> mismatchedKeys, Set<BsonValue> srcOnlyKeys,
+                      Set<BsonValue> destOnlyKeys, Namespace namespace, ChunkDef chunkDef) {
+        this.matches = matches;
+        this.bytesProcessed = bytesProcessed;
+        this.mismatchedKeys = mismatchedKeys;
+        this.srcOnlyKeys = srcOnlyKeys;
+        this.destOnlyKeys = destOnlyKeys;
+        this.namespace = namespace;
         this.chunkDef = chunkDef;
+        this.failedKeys = new HashSet<>();
+        failedKeys.addAll(this.mismatchedKeys);
+        failedKeys.addAll(this.srcOnlyKeys);
+        failedKeys.addAll(this.destOnlyKeys);
     }
 
     public long getMatches() {
         return matches;
     }
 
-    public void setMatches(long matches) {
-        this.matches = matches;
-    }
-
-    public long getOnlyOnSourceCount() {
-        return keysOnlyOnSource.size();
-    }
-
-    public long getOnlyOnDestCount() {
-        return keysOnlyOnDest.size();
-    }
-
     public long getBytesProcessed() {
         return bytesProcessed;
-    }
-
-    public void setBytesProcessed(long bytesProcessed) {
-        this.bytesProcessed = bytesProcessed;
     }
 
     public Set<BsonValue> getFailedKeys() {
         return failedKeys;
     }
 
-    public void setFailedIds(Set<BsonValue> failedIds) {
-        this.failedKeys = failedIds;
+    public Set<BsonValue> getMismatchedKeys() {
+        return mismatchedKeys;
+    }
+
+    public Set<BsonValue> getSrcOnlyKeys() {
+        return srcOnlyKeys;
+    }
+
+    public Set<BsonValue> getDestOnlyKeys() {
+        return destOnlyKeys;
     }
 
     public Namespace getNamespace() {
         return namespace;
     }
 
-    public void setNamespace(Namespace namespace) {
-        this.namespace = namespace;
-    }
-
     public boolean isRetryable() {
         return retryable;
+    }
+
+    public ChunkDef getChunkDef() {
+        return chunkDef;
     }
 
     public void setRetryable(boolean retryable) {
         this.retryable = retryable;
     }
-
-	public Set<BsonValue> getKeysOnlyOnSource() {
-		return keysOnlyOnSource;
-	}
-
-	public Set<BsonValue> getKeysOnlyOnDest() {
-		return keysOnlyOnDest;
-	}
-
-	public Set<BsonValue> getMismatchedKeys() {
-		return mismatchedKeys;
-	}
 }

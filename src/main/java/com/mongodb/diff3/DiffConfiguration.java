@@ -21,6 +21,11 @@ public class DiffConfiguration {
 	private int maxDocsToSamplePerPartition;
 	private long defaultPartitionSize;
 	private String mode;
+	private int maxRetries;
+	private boolean useStatusDb;
+	private String statusDbUri;
+	private String statusDbName;
+	private String statusDbCollName;
 	private final String[] knownModes = new String[]{PARTITION_MODE, SHARD_MODE};
 
 	private Set<Namespace> includeNamespaces = new HashSet<>();
@@ -150,11 +155,51 @@ public class DiffConfiguration {
 		this.maxDocsToSamplePerPartition = maxDocsToSamplePerPartition;
 	}
 
+	public int getMaxRetries() {
+		return maxRetries;
+	}
+
+	public void setMaxRetries(int maxRetries) {
+		this.maxRetries = maxRetries;
+	}
+
 	public long getDefaultPartitionSize() {
 		return defaultPartitionSize;
 	}
 
 	public void setDefaultPartitionSize(long defaultPartitionSize) {
 		this.defaultPartitionSize = defaultPartitionSize;
+	}
+
+	public boolean isUseStatusDb() {
+		return useStatusDb;
+	}
+
+	public void setUseStatusDb(boolean useStatusDb) {
+		this.useStatusDb = useStatusDb;
+	}
+
+	public String getStatusDbUri() {
+		return statusDbUri;
+	}
+
+	public void setStatusDbUri(String statusDbUri) {
+		this.statusDbUri = statusDbUri;
+	}
+
+	public String getStatusDbName() {
+		return statusDbName;
+	}
+
+	public void setStatusDbName(String statusDbName) {
+		this.statusDbName = statusDbName;
+	}
+
+	public String getStatusDbCollName() {
+		return statusDbCollName;
+	}
+
+	public void setStatusDbCollName(String statusDbCollName) {
+		this.statusDbCollName = statusDbCollName;
 	}
 }

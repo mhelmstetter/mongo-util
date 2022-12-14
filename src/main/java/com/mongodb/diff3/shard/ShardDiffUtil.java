@@ -2,8 +2,10 @@ package com.mongodb.diff3.shard;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.mongodb.diff3.DiffConfiguration;
+//import com.mongodb.diff3.DiffResult;
 import com.mongodb.diff3.DiffResult;
-import com.mongodb.diff3.DiffSummary2;
+import com.mongodb.diff3.DiffSummary;
+import com.mongodb.diff3.DiffSummaryClient;
 import com.mongodb.diff3.RetryTask;
 import com.mongodb.model.Collection;
 import com.mongodb.model.DatabaseCatalog;
@@ -25,11 +27,11 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.DelayQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -134,9 +136,17 @@ public class ShardDiffUtil {
 
         int totalChunks = getTotalChunks();
         int numShards = srcShardNames.size();
-        DiffSummary2 summary = new DiffSummary2(estimatedTotalDocs, totalSize);
+
+        // Initialize diff summary (optionally with db storage)
+        DiffSummaryClient diffSummaryClient = null;
+        if (config.isUseStatusDb()) {
+            diffSummaryClient = new DiffSummaryClient(config.getStatusDbUri(), config.getStatusDbName(),
+                    config.getStatusDbCollName());
+        }
+        DiffSummary summary = new DiffSummary(estimatedTotalDocs, totalSize, diffSummaryClient);
         summary.setTotalChunks(totalChunks);
-        retryQueue = new LinkedBlockingQueue<>();
+//        retryQueue = new LinkedBlockingQueue<>();
+        retryQueue = new DelayQueue<>();
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
         statusReporter.scheduleAtFixedRate(() -> logger.info(summary.getSummary(false)), 0, 5, TimeUnit.SECONDS);
@@ -167,9 +177,8 @@ public class ShardDiffUtil {
                                 retryTaskPoolListenerDone.set(true);
                             }
                         } else {
-                            ShardDiffTask originalTask = (ShardDiffTask) rt.getOriginalTask();
                             logger.debug("[RetryTaskPoolListener] submitting retry {} for ({}-{})",
-                                    rt.getRetryStatus().getAttempt() + 1, originalTask.getChunkDef().unitString());
+                                    rt.getRetryStatus().getAttempt() + 1, rt.getChunkDef().unitString());
                             retryTaskPoolFutures.add(retryTaskPool.submit(rt));
                         }
                     } catch (Exception e) {
@@ -233,25 +242,25 @@ public class ShardDiffUtil {
                             try {
                                 if (!retryTaskPoolFuturesSeen.contains(future) && future.isDone()) {
                                     retryTaskPoolFuturesSeen.add(future);
-                                    ShardDiffResult result = (ShardDiffResult) future.get();
+                                    DiffResult result = future.get();
                                     if (result == null) {
                                         continue;
                                     }
-                                    int failures = result.getFailureCount();
+                                    int failures = result.getFailedKeys().size();
 
                                     if (failures > 0 && result.isRetryable()) {
                                         // There's failures but will retry
                                         logger.trace("[RetryTaskPoolCollector] ignoring retried result for ({}): " +
                                                         "{} matches, {} failures, {} bytes",
-                                                result.unitString(), result.getMatches(),
-                                                result.getFailureCount(), result.getBytesProcessed());
+                                                result.getChunkDef().unitString(), result.getMatches(),
+                                                result.getFailedKeys().size(), result.getBytesProcessed());
                                         continue;
                                     }
 
                                     logger.debug("[RetryTaskPoolCollector] got final result for ({}): " +
                                                     "{} matches, {} failures, {} bytes",
-                                            result.unitString(), result.getMatches(),
-                                            result.getFailureCount(), result.getBytesProcessed());
+                                            result.getChunkDef().unitString(), result.getMatches(),
+                                            result.getFailedKeys().size(), result.getBytesProcessed());
 
                                     summary.updateRetryTask(result);
                                 }
@@ -297,15 +306,15 @@ public class ShardDiffUtil {
                                         futuresSeen.add(future);
 
                                         DiffResult result = future.get();
-                                        int failures = result.getFailureCount();
+                                        int failures = result.getFailedKeys().size();
                                         if (failures > 0) {
                                             logger.debug("[InitialTaskPoolCollector] will retry {} failed ids for ({})",
-                                                    result.getFailureCount(), result.unitString());
+                                                    result.getFailedKeys().size(), result.getChunkDef().unitString());
                                         } else {
                                             logger.debug("[InitialTaskPoolCollector] got result for ({}): " +
                                                             "{} matches, {} failures, {} bytes",
-                                                    result.unitString(), result.getMatches(),
-                                                    result.getFailureCount(), result.getBytesProcessed());
+                                                    result.getChunkDef().unitString(), result.getMatches(),
+                                                    result.getFailedKeys().size(), result.getBytesProcessed());
                                         }
                                         summary.updateInitTask(result);
                                     }

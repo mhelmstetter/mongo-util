@@ -9,6 +9,7 @@ import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.model.Namespace;
 import org.apache.commons.lang3.tuple.Pair;
+import org.bson.BsonDocument;
 import org.bson.BsonMaxKey;
 import org.bson.BsonMinKey;
 import org.bson.Document;
@@ -38,10 +39,10 @@ public class PartitionManager {
         double collSize = collMetrics.getLeft();
         long collNumDocs = collMetrics.getRight();
 
-//        Object minIdBound = getOuterIdBound(ns, client, false);
-//        Object maxIdBound = getOuterIdBound(ns, client, true);
-        Object minIdBound = new BsonMinKey();
-        Object maxIdBound = new BsonMaxKey();
+        Object minIdBound = getOuterIdBound(ns, client, false);
+        Object maxIdBound = getOuterIdBound(ns, client, true);
+//        Object minIdBound = new BsonMinKey();
+//        Object maxIdBound = new BsonMaxKey();
 
         int numPartitions = (int) ((collSize / defaultPartitionSize) + 1);
         List<Object> midIdBounds = getMidIdBounds(ns, client, numPartitions, collNumDocs);
@@ -96,12 +97,12 @@ public class PartitionManager {
         pipeline.add(Aggregates.project(Projections.fields(Projections.include("_id"))));
         pipeline.add(Aggregates.limit(1));
 
-        AggregateIterable<Document> results = client.getDatabase(db).getCollection(coll)
+        AggregateIterable<BsonDocument> results = client.getDatabase(db).getCollection(coll, BsonDocument.class)
                 .withReadConcern(ReadConcern.MAJORITY)
                 .aggregate(pipeline).hint(new Document("_id", 1));
 
-        MongoCursor<Document> cursor = results.iterator();
-        Document first = cursor.next();
+        MongoCursor<BsonDocument> cursor = results.iterator();
+        BsonDocument first = cursor.next();
 
         return first.get("_id");
     }
@@ -122,14 +123,14 @@ public class PartitionManager {
         pipeline.add(Aggregates.project(Projections.fields(Projections.include("_id"))));
         pipeline.add(Aggregates.bucketAuto("$_id", numPartitions));
 
-        AggregateIterable<Document> results = client.getDatabase(db).getCollection(coll)
+        AggregateIterable<BsonDocument> results = client.getDatabase(db).getCollection(coll, BsonDocument.class)
                 .aggregate(pipeline)
                 .allowDiskUse(true);
 
-        try (MongoCursor<Document> cursor = results.iterator()) {
+        try (MongoCursor<BsonDocument> cursor = results.iterator()) {
             while (cursor.hasNext()) {
-                Document doc = cursor.next();
-                Object maxId = ((Document) doc.get("_id")).get("max");
+                BsonDocument doc = cursor.next();
+                Object maxId = ((BsonDocument) doc.get("_id")).get("max");
                 output.add(maxId);
             }
         }

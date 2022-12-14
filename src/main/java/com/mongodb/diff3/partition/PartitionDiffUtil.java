@@ -5,7 +5,12 @@ import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
-import com.mongodb.diff3.*;
+import com.mongodb.diff3.DiffConfiguration;
+//import com.mongodb.diff3.DiffResult;
+import com.mongodb.diff3.DiffResult;
+import com.mongodb.diff3.DiffSummary;
+import com.mongodb.diff3.DiffSummaryClient;
+import com.mongodb.diff3.RetryTask;
 import com.mongodb.model.Collection;
 import com.mongodb.model.DatabaseCatalog;
 import com.mongodb.model.DatabaseCatalogProvider;
@@ -16,8 +21,25 @@ import org.bson.UuidRepresentation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.DelayQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -80,9 +102,16 @@ public class PartitionDiffUtil {
         AtomicBoolean initialTaskPoolCollectorDone = new AtomicBoolean(false);
 
         Set<Collection> colls = databaseCatalogProvider.get().getUnshardedCollections();
-        DiffSummary2 summary = new DiffSummary2(estimatedTotalDocs, totalSize);
-        retryQueue = new LinkedBlockingQueue<>();
 
+        // Initialize diff summary (optionally with db storage)
+        DiffSummaryClient diffSummaryClient = null;
+        if (config.isUseStatusDb()) {
+            diffSummaryClient = new DiffSummaryClient(config.getStatusDbUri(), config.getStatusDbName(),
+                    config.getStatusDbCollName());
+        }
+        DiffSummary summary = new DiffSummary(estimatedTotalDocs, totalSize, diffSummaryClient);
+
+        retryQueue = new DelayQueue<>();
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
         statusReporter.scheduleAtFixedRate(() ->
                 logger.info(summary.getSummary(false)), 0, 5, TimeUnit.SECONDS);
@@ -160,9 +189,8 @@ public class PartitionDiffUtil {
                                 retryTaskPoolListenerDone.set(true);
                             }
                         } else {
-                            PartitionDiffTask originalTask = (PartitionDiffTask) rt.getOriginalTask();
                             logger.debug("[RetryTaskPoolListener] submitting retry {} for ({})",
-                                    rt.getRetryStatus().getAttempt() + 1, originalTask.getChunkDef().unitString());
+                                    rt.getRetryStatus().getAttempt() + 1, rt.getChunkDef().unitString());
                             retryTaskPoolResults.add(retryTaskPool.submit(rt));
                         }
                     } catch (Exception e) {
@@ -226,31 +254,31 @@ public class PartitionDiffUtil {
                 int expectedRetryResults = finalSizeRetryTaskPoolResults.get();
                 logger.trace("[RetryTaskPoolCollector] loop: {} :: {} expected retryResults, {} seen",
                         ++runs, expectedRetryResults, retryTaskPoolFuturesSeen.size());
-                if (expectedRetryResults >= 0) {
-                    if (retryTaskPoolFuturesSeen.size() < expectedRetryResults) {
+//                if (expectedRetryResults >= 0) {
+                if (expectedRetryResults < 0 || (expectedRetryResults >= 0 && retryTaskPoolFuturesSeen.size() < expectedRetryResults)) {
                         for (Future<DiffResult> future : retryTaskPoolResults) {
                             try {
                                 if (!retryTaskPoolFuturesSeen.contains(future) && future.isDone()) {
                                     retryTaskPoolFuturesSeen.add(future);
-                                    PartitionDiffResult result = (PartitionDiffResult) future.get();
+                                    DiffResult result = future.get();
                                     if (result == null) {
                                         continue;
                                     }
-                                    int failures = result.getFailureCount();
+                                    int failures = result.getFailedKeys().size();
 
                                     if (failures > 0 && result.isRetryable()) {
                                         // There's failures but will retry
                                         logger.trace("[RetryTaskPoolCollector] ignoring retried result for ({}): " +
                                                         "{} matches, {} failures, {} bytes",
-                                                result.getPartition().toString(), result.getMatches(),
-                                                result.getFailureCount(), result.getBytesProcessed());
+                                                result.getChunkDef().unitString(), result.getMatches(),
+                                                result.getFailedKeys().size(), result.getBytesProcessed());
                                         continue;
                                     }
 
                                     logger.debug("[RetryTaskPoolCollector] got final result for ({}): " +
                                                     "{} matches, {} failures, {} bytes",
-                                            result.getPartition().toString(), result.getMatches(),
-                                            result.getFailureCount(), result.getBytesProcessed());
+                                            result.getChunkDef().unitString(), result.getMatches(),
+                                            result.getFailedKeys().size(), result.getBytesProcessed());
 
                                     summary.updateRetryTask(result);
                                 }
@@ -266,7 +294,7 @@ public class PartitionDiffUtil {
                     } else {
                         retryTaskPoolCollectorDone.set(true);
                     }
-                }
+//                }
             }
         }, 0, 1, TimeUnit.SECONDS);
 
@@ -286,11 +314,11 @@ public class PartitionDiffUtil {
                             try {
                                 if (!initialTaskPoolFuturesSeen.contains(future) && future.isDone()) {
                                     initialTaskPoolFuturesSeen.add(future);
-                                    PartitionDiffResult result = (PartitionDiffResult) future.get();
-                                    int failures = result.getFailureCount();
+                                    DiffResult result = future.get();
+                                    int failures = result.getFailedKeys().size();
                                     logger.debug("[InitialTaskPoolCollector] got result for {}: " +
                                                     "{} matches, {} failures, {} bytes",
-                                            result.getPartition().toString(), result.getMatches(),
+                                            result.getChunkDef().unitString(), result.getMatches(),
                                             failures, result.getBytesProcessed());
 
                                     summary.updateInitTask(result);
