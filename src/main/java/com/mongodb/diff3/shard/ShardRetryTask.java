@@ -68,7 +68,7 @@ public class ShardRetryTask extends ShardDiffTask implements RetryTask {
                     } else {
                         logger.debug("[{}] {} - retry task for ({}) failed; too many retry attempts",
                                 Thread.currentThread().getName(), namespace, failedIds);
-                        summary.updateRetryingDone(result);
+//                        summary.updateRetryingDone(result);
                         logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(), unitString());
                         retryQueue.add(endToken());
                         result.setRetryable(false);
@@ -79,7 +79,7 @@ public class ShardRetryTask extends ShardDiffTask implements RetryTask {
                     logger.info("[{}] {} - retry task for ({}) succeeded on attempt: {}. ids: {}",
                             Thread.currentThread().getName(), namespace, unitString(),
                             retryStatus.getAttempt(), failedIds);
-                    summary.updateRetryingDone(result);
+//                    summary.updateRetryingDone(result);
                     logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(), unitString());
                     retryQueue.add(endToken());
                     complete = true;
