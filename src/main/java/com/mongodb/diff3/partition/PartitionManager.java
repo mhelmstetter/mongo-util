@@ -98,7 +98,6 @@ public class PartitionManager {
         pipeline.add(Aggregates.limit(1));
 
         AggregateIterable<BsonDocument> results = client.getDatabase(db).getCollection(coll, BsonDocument.class)
-                .withReadConcern(ReadConcern.MAJORITY)
                 .aggregate(pipeline).hint(new Document("_id", 1));
 
         MongoCursor<BsonDocument> cursor = results.iterator();
