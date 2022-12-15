@@ -337,7 +337,7 @@ public class DiffSummary {
                 } else {
                     cr.setStatus(DiffStatus.FAILED);
                 }
-                cr.setMismatches(result.getFailedKeys());
+                cr.setMismatches(result.getMismatchedKeys());
                 cr.setDestOnly(result.getDestOnlyKeys());
                 cr.setSourceOnly(result.getSrcOnlyKeys());
             } else {
