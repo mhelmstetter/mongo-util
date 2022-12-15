@@ -20,7 +20,7 @@
   <logger name="com.mongodb.diff3" level="DEBUG"/>
   <logger name="com.mongodb.schema" level="DEBUG"/>
   <logger name="com.mongodb.shardsync" level="DEBUG" additivity="true"/>
-  <logger name="com.mongodb.shardsync.ShardClient" level="INFO" additivity="true"/>
+  <logger name="com.mongodb.shardsync.ShardClient" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.mongosync" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.corruptutil" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.util" level="DEBUG" additivity="true"/>
