@@ -136,7 +136,7 @@ public abstract class DiffTask implements Callable<DiffResult> {
         long compStart = System.currentTimeMillis();
         MapDifference<BsonValue, String> diff = Maps.difference(sourceDocs, destDocs);
 
-        Set<BsonValue> mismatches = new HashSet<>();
+        Set<DiffResult.MismatchEntry> mismatches = new HashSet<>();
         Set<BsonValue> srcOnly = new HashSet<>();
         Set<BsonValue> destOnly = new HashSet<>();
         int numMatches;
@@ -147,7 +147,8 @@ public abstract class DiffTask implements Callable<DiffResult> {
             Map<BsonValue, ValueDifference<String>> valueDiff = diff.entriesDiffering();
             for (Map.Entry<BsonValue, ValueDifference<String>> entry : valueDiff.entrySet()) {
                 BsonValue key = entry.getKey();
-                mismatches.add(key);
+                ValueDifference<String> val = entry.getValue();
+                mismatches.add(new DiffResult.MismatchEntry(key, val.leftValue(), val.rightValue()));
             }
             Set<BsonValue> onlyOnSource = diff.entriesOnlyOnLeft().keySet();
             if (!onlyOnSource.isEmpty()) {

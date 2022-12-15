@@ -87,7 +87,7 @@ public class DiffSummaryClient {
         updates.add(Updates.set("status", cr.getStatus().toString()));
         updates.add(Updates.set("retryNum", cr.getRetryNum().intValue()));
         updates.add(Updates.set("matches", cr.getMatches().longValue()));
-        updates.add(Updates.set("mismatches", cr.getMismatches()));
+        updates.add(Updates.set("mismatches", cr.getMismatchDocs()));
         updates.add(Updates.set("srcOnly", cr.getSourceOnly()));
         updates.add(Updates.set("destOnly", cr.getDestOnly()));
         updates.add(Updates.set("bytesProcessed", cr.getBytesProcessed().longValue()));

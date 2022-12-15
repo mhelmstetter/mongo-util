@@ -1,6 +1,8 @@
 package com.mongodb.diff3;
 
 import com.mongodb.model.Namespace;
+import org.bson.BsonDocument;
+import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +14,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.stream.Collectors;
 
 public class DiffSummary {
     private static Logger logger = LoggerFactory.getLogger(DiffSummary.class);
@@ -23,7 +26,7 @@ public class DiffSummary {
     public static class ChunkResult {
         private final LongAdder matches;
         private final LongAdder bytesProcessed;
-        private final Set<BsonValue> mismatches;
+        private final Set<DiffResult.MismatchEntry> mismatches;
         private final Set<BsonValue> sourceOnly;
         private final Set<BsonValue> destOnly;
         private final AtomicInteger retryNum;
@@ -55,11 +58,21 @@ public class DiffSummary {
             this.bytesProcessed.add(bytesProcessed);
         }
 
-        public Set<BsonValue> getMismatches() {
+        public Set<DiffResult.MismatchEntry> getMismatches() {
             return mismatches;
         }
 
-        public void setMismatches(Set<BsonValue> mismatches) {
+        public Set<BsonDocument> getMismatchDocs() {
+            return mismatches.stream().map(m -> {
+                BsonDocument d = new BsonDocument();
+                d.put("key", m.getKey());
+                d.put("srcChksum", new BsonString(m.getSrcChksum()));
+                d.put("destChksum", new BsonString(m.getDestChksum()));
+                return d;
+            }).collect(Collectors.toSet());
+        }
+
+        public void setMismatches(Set<DiffResult.MismatchEntry> mismatches) {
             this.mismatches.clear();
             this.mismatches.addAll(mismatches);
         }
@@ -293,7 +306,6 @@ public class DiffSummary {
         boolean hasFailures = result.getFailedKeys().size() > 0;
         ChunkResult cr = new ChunkResult();
         if (hasFailures) {
-            // Currently, we don't update other stats till all the retries are done
             cr.setStatus(DiffStatus.RETRYING);
             cr.getRetryNum().incrementAndGet();
         } else {
@@ -301,7 +313,7 @@ public class DiffSummary {
         }
         cr.addMatches(result.getMatches());
         cr.addBytesProcessed(result.getBytesProcessed());
-        cr.setMismatches(result.getMismatchedKeys());
+        cr.setMismatches(result.getMismatchedEntries());
         cr.setSourceOnly(result.getSrcOnlyKeys());
         cr.setDestOnly(result.getDestOnlyKeys());
 
@@ -337,7 +349,7 @@ public class DiffSummary {
                 } else {
                     cr.setStatus(DiffStatus.FAILED);
                 }
-                cr.setMismatches(result.getMismatchedKeys());
+                cr.setMismatches(result.getMismatchedEntries());
                 cr.setDestOnly(result.getDestOnlyKeys());
                 cr.setSourceOnly(result.getSrcOnlyKeys());
             } else {
