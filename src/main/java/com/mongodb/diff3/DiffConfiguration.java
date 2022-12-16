@@ -27,7 +27,7 @@ public class DiffConfiguration {
 	private String statusDbUri;
 	private String statusDbName;
 	private String statusDbCollName;
-	private final String[] knownModes = new String[]{PARTITION_MODE, SHARD_MODE, RETRY_MODE};
+	private final String[] knownModes = new String[]{PARTITION_MODE, RETRY_MODE, SHARD_MODE};
 
 	private Set<Namespace> includeNamespaces = new HashSet<>();
 	private Set<String> includeDatabases = new HashSet<>();
