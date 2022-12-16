@@ -24,9 +24,9 @@ import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.DiffUtils;
 
-public class RetryUtil {
+public class RecheckUtil {
 	
-	private static Logger logger = LoggerFactory.getLogger(RetryUtil.class);
+	private static Logger logger = LoggerFactory.getLogger(RecheckUtil.class);
 
 	private final ShardClient sourceShardClient;
 	private final ShardClient destShardClient;
@@ -37,7 +37,7 @@ public class RetryUtil {
 
 	private final DiffConfiguration config;
 
-	public RetryUtil(DiffConfiguration config) {
+	public RecheckUtil(DiffConfiguration config) {
 
         this.config = config;
 
@@ -60,7 +60,7 @@ public class RetryUtil {
         destShardClient.init();
 	}
 	
-	public void retry() {
+	public void recheck() {
 		
 		FindIterable<BsonDocument> failedChunks = coll.find(eq("status", DiffStatus.FAILED.name()));
 		
@@ -137,6 +137,7 @@ public class RetryUtil {
 			}
 		} else {
 			logger.debug("{} - doc sizes not equal, id: {}, sourceBytes: {}, destBytes: {}", ns, id, sourceBytes.length, destBytes.length);
+			DiffUtils.compareDocuments(ns.getNamespace(), sourceDoc, destDoc);
 		}
 	}
 

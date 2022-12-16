@@ -2,7 +2,7 @@ package com.mongodb.diff3;
 
 import static com.mongodb.diff3.DiffConfiguration.PARTITION_MODE;
 import static com.mongodb.diff3.DiffConfiguration.SHARD_MODE;
-import static com.mongodb.diff3.DiffConfiguration.RETRY_MODE;
+import static com.mongodb.diff3.DiffConfiguration.RECHECK_MODE;
 import static org.apache.commons.cli.OptionBuilder.withArgName;
 
 import java.io.File;
@@ -185,9 +185,9 @@ public class DiffUtilApp {
             ShardDiffUtil shardDiffUtil = new ShardDiffUtil(config);
             shardDiffUtil.run();
             
-        } else if (config.getMode().equals(RETRY_MODE)) {
-        	RetryUtil retryUtil = new RetryUtil(config);
-        	retryUtil.retry();
+        } else if (config.getMode().equals(RECHECK_MODE)) {
+        	RecheckUtil rechecker = new RecheckUtil(config);
+        	rechecker.recheck();
         	
         } else {
             System.out.println("Unknown mode: " + config.getMode() + ". Exiting.");

@@ -40,10 +40,10 @@ public class DiffUtils {
 		Set<String> diff = null;
 		if (!setsEqual) {
 			diff = Sets.difference(sourceKeys, destKeys);
-			logger.debug("    - keys do not match: keys missing from source" + diff);
+			logger.debug("{} - keys do not match: keys missing from source, diff: {}", ns, diff);
 
 			diff = Sets.difference(destKeys, sourceKeys);
-			logger.debug("    - keys do not match: keys missing from dest" + diff);
+			logger.debug("{} keys do not match: keys missing from dest", ns, diff);
 			sortedKeys.addAll(diff);
 		}
 
@@ -56,7 +56,7 @@ public class DiffUtils {
 			BsonValue destVal = destDoc.get(key);
 			boolean valuesEqual = sourceVal != null && destVal != null && sourceVal.equals(destVal);
 			if (!valuesEqual) {
-				logger.debug(String.format("    - values not equal for key: %s, sourceVal: %s, destVal: %s", key,
+				logger.debug(String.format("{} - values not equal for key: %s, sourceVal: %s, destVal: %s", ns, key,
 						sourceVal, destVal));
 			}
 			if (sourceVal != null) {

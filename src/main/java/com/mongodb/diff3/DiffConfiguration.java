@@ -11,7 +11,7 @@ import com.mongodb.model.Namespace;
 public class DiffConfiguration {
 	public final static String PARTITION_MODE = "partition";
 	public final static String SHARD_MODE = "shard";
-	public final static String RETRY_MODE = "retry";
+	public final static String RECHECK_MODE = "recheck";
 	public String sourceClusterUri;
 	public String destClusterUri;
 	private boolean filtered;
@@ -27,7 +27,7 @@ public class DiffConfiguration {
 	private String statusDbUri;
 	private String statusDbName;
 	private String statusDbCollName;
-	private final String[] knownModes = new String[]{PARTITION_MODE, RETRY_MODE, SHARD_MODE};
+	private final String[] knownModes = new String[]{PARTITION_MODE, RECHECK_MODE, SHARD_MODE};
 
 	private Set<Namespace> includeNamespaces = new HashSet<>();
 	private Set<String> includeDatabases = new HashSet<>();
