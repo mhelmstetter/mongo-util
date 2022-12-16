@@ -91,7 +91,7 @@ public class RetryUtil {
 				RawBsonDocument sourceDoc = null;
 				RawBsonDocument destDoc = null;
 				
-				Iterator<RawBsonDocument> sourceDocs = sourceColl.find(key).iterator();
+				Iterator<RawBsonDocument> sourceDocs = sourceColl.find(eq("_id", key)).iterator();
 				if (sourceDocs.hasNext()) {
 					sourceDoc = sourceDocs.next();
 				} else {
@@ -101,7 +101,7 @@ public class RetryUtil {
 					logger.error("{}: duplicate source documents found with same key: {}", ns, key);
 				}
 				
-				Iterator<RawBsonDocument> destDocs = destColl.find(key).iterator();
+				Iterator<RawBsonDocument> destDocs = destColl.find(eq("_id", key)).iterator();
 				if (destDocs.hasNext()) {
 					destDoc = destDocs.next();
 				} else {
