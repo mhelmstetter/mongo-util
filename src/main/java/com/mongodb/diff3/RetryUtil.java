@@ -2,6 +2,8 @@ package com.mongodb.diff3;
 
 import static com.mongodb.client.model.Filters.eq;
 
+import java.util.Iterator;
+
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
@@ -86,15 +88,26 @@ public class RetryUtil {
 					key = d;
 				}
 				
-				FindIterable<RawBsonDocument> sourceDocs = sourceColl.find(key);
-				RawBsonDocument sourceDoc = sourceDocs.iterator().next();
-				if (sourceDocs.iterator().hasNext()) {
+				RawBsonDocument sourceDoc = null;
+				RawBsonDocument destDoc = null;
+				
+				Iterator<RawBsonDocument> sourceDocs = sourceColl.find(key).iterator();
+				if (sourceDocs.hasNext()) {
+					sourceDoc = sourceDocs.next();
+				} else {
+					logger.debug("{}: source doc does not exist: {}", ns, key);
+				}
+				if (sourceDocs.hasNext()) {
 					logger.error("{}: duplicate source documents found with same key: {}", ns, key);
 				}
 				
-				FindIterable<RawBsonDocument> destDocs = destColl.find(key);
-				RawBsonDocument destDoc = destDocs.iterator().next();
-				if (destDocs.iterator().hasNext()) {
+				Iterator<RawBsonDocument> destDocs = destColl.find(key).iterator();
+				if (destDocs.hasNext()) {
+					destDoc = destDocs.next();
+				} else {
+					logger.debug("{}: dest doc does not exist: {}", ns, key);
+				}
+				if (destDocs.hasNext()) {
 					logger.error("{}: duplicate dest documents found with same key: {}", ns, key);
 				}
 				
