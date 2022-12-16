@@ -6,6 +6,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -26,11 +27,18 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.lang3.StringUtils;
+import org.bson.AbstractBsonReader.State;
 import org.bson.BSONDecoder;
-import org.bson.BSONObject;
 import org.bson.BasicBSONDecoder;
+import org.bson.BsonBinaryReader;
+import org.bson.BsonDocument;
+import org.bson.BsonValue;
+import org.bson.ByteBufNIO;
 import org.bson.Document;
 import org.bson.UuidRepresentation;
+import org.bson.codecs.BsonDocumentCodec;
+import org.bson.codecs.DecoderContext;
+import org.bson.io.ByteBufferBsonInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +58,8 @@ import com.opencsv.CSVWriter;
 public class RollbackUtil {
 
 	private static final Logger logger = LoggerFactory.getLogger(RollbackUtil.class);
+	
+	private final static BsonDocumentCodec documentCodec = new BsonDocumentCodec();
 
 	private Set<String> dbIgnoreList = new HashSet<>(Arrays.asList("system", "local", "config", "admin"));
 
@@ -133,25 +143,41 @@ public class RollbackUtil {
 	private void readBson(Path p) throws IOException {
 		InputStream stream = null;
 		try {
-			stream = Files.newInputStream(p);
+			stream = new BufferedInputStream(Files.newInputStream(p));
 
-			InputStream inputStream = new BufferedInputStream(stream);
+			
 			BSONDecoder decoder = new BasicBSONDecoder();
-
+			
+			byte[] bytes = stream.readAllBytes();
+			
+			ByteBufferBsonInput bsonInput = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(bytes)));
+            BsonBinaryReader reader = new BsonBinaryReader(bsonInput);
+            
+            
 			String fileName = p.getFileName().toString();
 			String uuid = StringUtils.substringBefore(fileName, ".");
 			Namespace ns = uuidToNamespaceMap.get(uuid);
 			if (ns == null) {
-				logger.error("Namespace not found for uuid {}", uuid);
+				return;
+				//logger.error("Namespace not found for uuid {}", uuid);
 			}
-			while (inputStream.available() > 0) {
+			int docCount = 0;
+			while (reader.getState() != State.DONE) {
+				
+				
+				//commandDoc = documentCodec.decode(reader, decoderContext);
+				//logger.debug("doc count {}", docCount++);
+				
+				BsonDocument obj = documentCodec.decode(reader, DecoderContext.builder().build());
+//
+//				BasicBSONObject obj = (BasicBSONObject)decoder.readObject(inputStream);
+//				if (obj == null) {
+//					break;
+//				}
 
-				BSONObject obj = decoder.readObject(inputStream);
-				if (obj == null) {
-					break;
-				}
-
-				Object id = obj.get("_id");
+				BsonValue id = obj.get("_id");
+				
+				
 				System.out.println(id + " " + ns);
 			}
 
