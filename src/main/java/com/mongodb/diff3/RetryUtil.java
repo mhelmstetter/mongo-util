@@ -66,8 +66,6 @@ public class RetryUtil {
 		
 		for (BsonDocument failed : failedChunks) {
 			
-			
-			
 			String db = failed.getString("db").getValue();
 			String coll = failed.getString("coll").getValue();
 			Namespace ns = new Namespace(db, coll);
@@ -138,7 +136,7 @@ public class RetryUtil {
 				logger.debug(String.format("%s - hashes match, id: %s", ns, id));
 			}
 		} else {
-			logger.debug("Doc sizes not equal, id: {}", id);
+			logger.debug("{} - doc sizes not equal, id: {}, sourceBytes: {}, destBytes: {}", ns, id, sourceBytes.length, destBytes.length);
 		}
 	}
 
