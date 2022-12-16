@@ -301,6 +301,10 @@ public class DiffUtil {
 
 	}
 	
+	public void retry() {
+		
+	}
+	
 	private void statusCheck() {
 		long now = System.currentTimeMillis();
 		long elapsedSinceLastReport = now - lastReport;

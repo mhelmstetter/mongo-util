@@ -1,9 +1,12 @@
 package com.mongodb.diff3;
 
+import static com.mongodb.diff3.DiffConfiguration.PARTITION_MODE;
+import static com.mongodb.diff3.DiffConfiguration.SHARD_MODE;
+import static com.mongodb.diff3.DiffConfiguration.RETRY_MODE;
+import static org.apache.commons.cli.OptionBuilder.withArgName;
+
 import java.io.File;
 
-import com.mongodb.diff3.partition.PartitionDiffUtil;
-import com.mongodb.diff3.shard.ShardDiffUtil;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
@@ -17,9 +20,8 @@ import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static com.mongodb.diff3.DiffConfiguration.PARTITION_MODE;
-import static com.mongodb.diff3.DiffConfiguration.SHARD_MODE;
-import static org.apache.commons.cli.OptionBuilder.withArgName;
+import com.mongodb.diff3.partition.PartitionDiffUtil;
+import com.mongodb.diff3.shard.ShardDiffUtil;
 
 public class DiffUtilApp {
 
@@ -182,6 +184,11 @@ public class DiffUtilApp {
         } else if (config.getMode().equals(SHARD_MODE)) {
             ShardDiffUtil shardDiffUtil = new ShardDiffUtil(config);
             shardDiffUtil.run();
+            
+        } else if (config.getMode().equals(RETRY_MODE)) {
+        	RetryUtil retryUtil = new RetryUtil(config);
+        	retryUtil.retry();
+        	
         } else {
             System.out.println("Unknown mode: " + config.getMode() + ". Exiting.");
             System.exit(1);

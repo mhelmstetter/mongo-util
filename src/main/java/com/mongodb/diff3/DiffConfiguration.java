@@ -11,6 +11,7 @@ import com.mongodb.model.Namespace;
 public class DiffConfiguration {
 	public final static String PARTITION_MODE = "partition";
 	public final static String SHARD_MODE = "shard";
+	public final static String RETRY_MODE = "retry";
 	public String sourceClusterUri;
 	public String destClusterUri;
 	private boolean filtered;
