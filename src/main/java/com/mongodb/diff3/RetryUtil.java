@@ -60,7 +60,7 @@ public class RetryUtil {
 	
 	public void retry() {
 		
-		FindIterable<BsonDocument> failedChunks = coll.find(eq("status", DiffStatus.FAILED));
+		FindIterable<BsonDocument> failedChunks = coll.find(eq("status", DiffStatus.FAILED.name()));
 		
 		for (BsonDocument failed : failedChunks) {
 			
