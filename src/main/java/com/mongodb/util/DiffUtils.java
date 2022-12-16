@@ -56,8 +56,8 @@ public class DiffUtils {
 			BsonValue destVal = destDoc.get(key);
 			boolean valuesEqual = sourceVal != null && destVal != null && sourceVal.equals(destVal);
 			if (!valuesEqual) {
-				logger.debug(String.format("{} - values not equal for key: %s, sourceVal: %s, destVal: %s", ns, key,
-						sourceVal, destVal));
+				logger.debug("{} - values not equal for key: {}, sourceVal: {}, destVal: {}", ns, key,
+						sourceVal, destVal);
 			}
 			if (sourceVal != null) {
 				sourceDocNew.append(key, sourceVal);
