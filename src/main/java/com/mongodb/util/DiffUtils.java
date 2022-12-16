@@ -71,7 +71,7 @@ public class DiffUtils {
 				RawBsonDocument destRawNew = new RawBsonDocument(destDocNew, new BsonDocumentCodec());
 				boolean newDocsMatch = DiffUtils.compareHashes(sourceRawNew.getByteBuffer().array(),
 						destRawNew.getByteBuffer().array());
-				logger.debug(String.format("%s - bytes match: %s", ns, newDocsMatch));
+				//logger.debug(String.format("%s - bytes match: %s", ns, newDocsMatch));
 			}
 		}
 		return sourceDoc.equals(destDoc);

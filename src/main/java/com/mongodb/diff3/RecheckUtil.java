@@ -136,8 +136,13 @@ public class RecheckUtil {
 				logger.debug(String.format("%s - hashes match, id: %s", ns, id));
 			}
 		} else {
-			logger.debug("{} - doc sizes not equal, id: {}, sourceBytes: {}, destBytes: {}", ns, id, sourceBytes.length, destBytes.length);
-			DiffUtils.compareDocuments(ns.getNamespace(), sourceDoc, destDoc);
+			
+			boolean docCheck = DiffUtils.compareDocuments(ns.getNamespace(), sourceDoc, destDoc);
+			if (docCheck) {
+				logger.debug("{} - docs are equivalent, id: {}, sourceBytes: {}, destBytes: {}", ns, id, sourceBytes.length, destBytes.length);
+			} else {
+				logger.debug("{} - docs are not equivalent, id: {}, sourceBytes: {}, destBytes: {}", ns, id, sourceBytes.length, destBytes.length);
+			}
 		}
 	}
 
