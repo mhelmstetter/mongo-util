@@ -1,5 +1,12 @@
 package com.mongodb.diff3.shard;
 
+import java.util.HashSet;
+import java.util.Queue;
+import java.util.Set;
+
+import org.bson.BsonValue;
+import org.bson.RawBsonDocument;
+
 import com.mongodb.client.MongoClient;
 import com.mongodb.diff3.DiffConfiguration;
 //import com.mongodb.diff3.DiffResult;
@@ -9,11 +16,6 @@ import com.mongodb.diff3.RetryStatus;
 import com.mongodb.diff3.RetryTask;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
-import org.bson.BsonValue;
-import org.bson.RawBsonDocument;
-
-import java.util.Queue;
-import java.util.Set;
 
 public class ShardRetryTask extends ShardDiffTask implements RetryTask {
 
@@ -112,7 +114,7 @@ public class ShardRetryTask extends ShardDiffTask implements RetryTask {
     @Override
     protected ShardRetryTask createRetryTask(RetryStatus retryStatus, DiffResult result) {
         return new ShardRetryTask(retryStatus, sourceShardClient, destShardClient, srcShardName, destShardName,
-                namespace, chunk, config, failedIds, retryQueue, summary);
+                namespace, chunk, config, new HashSet<>(failedIds), retryQueue, summary);
     }
 
     @Override
