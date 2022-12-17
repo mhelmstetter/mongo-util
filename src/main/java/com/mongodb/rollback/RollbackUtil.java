@@ -6,7 +6,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -27,18 +26,13 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.lang3.StringUtils;
-import org.bson.AbstractBsonReader.State;
 import org.bson.BSONDecoder;
+import org.bson.BSONObject;
 import org.bson.BasicBSONDecoder;
-import org.bson.BsonBinaryReader;
-import org.bson.BsonDocument;
 import org.bson.BsonValue;
-import org.bson.ByteBufNIO;
 import org.bson.Document;
 import org.bson.UuidRepresentation;
 import org.bson.codecs.BsonDocumentCodec;
-import org.bson.codecs.DecoderContext;
-import org.bson.io.ByteBufferBsonInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -148,10 +142,10 @@ public class RollbackUtil {
 			
 			BSONDecoder decoder = new BasicBSONDecoder();
 			
-			byte[] bytes = stream.readAllBytes();
+			//byte[] bytes = stream.readAllBytes();
 			
-			ByteBufferBsonInput bsonInput = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(bytes)));
-            BsonBinaryReader reader = new BsonBinaryReader(bsonInput);
+//			ByteBufferBsonInput bsonInput = new ByteBufferBsonInput(new ByteBufNIO(ByteBuffer.wrap(bytes)));
+//            BsonBinaryReader reader = new BsonBinaryReader(bsonInput);
             
             
 			String fileName = p.getFileName().toString();
@@ -162,23 +156,15 @@ public class RollbackUtil {
 				//logger.error("Namespace not found for uuid {}", uuid);
 			}
 			int docCount = 0;
-			while (reader.getState() != State.DONE) {
+			while (stream.available() > 0) {
 				
-				
-				//commandDoc = documentCodec.decode(reader, decoderContext);
-				//logger.debug("doc count {}", docCount++);
-				
-				BsonDocument obj = documentCodec.decode(reader, DecoderContext.builder().build());
-//
-//				BasicBSONObject obj = (BasicBSONObject)decoder.readObject(inputStream);
-//				if (obj == null) {
-//					break;
-//				}
+				BSONObject obj = decoder.readObject(stream);
+				if (obj == null) {
+					break;
+				}
 
-				BsonValue id = obj.get("_id");
-				
-				
-				System.out.println(id + " " + ns);
+				Object id = obj.get("_id");
+				System.out.println(id + "|" + ns + "|" + uuid);
 			}
 
 		} catch (FileNotFoundException e) {
