@@ -32,6 +32,7 @@ public class SyncConfiguration {
 	public String sourceRsRegex;
 	public String destRsRegex;
 	public String destCsrsUri;
+	public boolean drop;
 	public boolean dropDestDbs;
 	public boolean dropDestDbsAndConfigMetadata;
 	public boolean nonPrivilegedMode;
@@ -203,6 +204,14 @@ public class SyncConfiguration {
 
 	public boolean isDropDestDbs() {
 		return dropDestDbs;
+	}
+	
+	public void setDrop(boolean drop) {
+		this.drop = drop;
+	}
+	
+	public boolean isDrop() {
+		return drop;
 	}
 
 	public void setDropDestDbs(boolean dropDestDbs) {

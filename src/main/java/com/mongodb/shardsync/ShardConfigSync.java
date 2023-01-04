@@ -953,7 +953,14 @@ public class ShardConfigSync implements Callable<Integer> {
 			MongoClient client = destShardClient.getShardMongoClient(shardName);
 			MongoCollection<Document> coll = client.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName());
 			long count = coll.countDocuments();
-			logger.debug("{} - {} - count: {}", ns, shardName, count);
+			if (count == 0 && config.isDrop()) {
+				logger.debug("dropping {} on shard (count = 0)", ns, shardName, count);
+				coll.drop();
+			} else {
+				logger.debug("{} - {} - count: {}", ns, shardName, count);
+			}
+			
+			
 		}
 		
 	}

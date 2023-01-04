@@ -48,6 +48,7 @@ public class ShardConfigSyncApp {
     private final static String MONGOMIRROR_BINARY = "mongomirrorBinary";
 
     private final static String FILTER = "filter";
+    private final static String DROP = "drop";
     private final static String DROP_DEST_DBS = "dropDestDbs";
     private final static String DROP_DEST_DBS_AND_CONFIG_METADATA = "dropDestDbsAndConfigMeta";
     public final static String NON_PRIVILEGED = "nonPrivileged";
@@ -128,6 +129,8 @@ public class ShardConfigSyncApp {
         options.addOption(OptionBuilder.withArgName("Destination cluster connection uri").hasArg().withLongOpt(DEST_URI)
                 .create("d"));
 
+        options.addOption(OptionBuilder.withArgName("Drop (context specific)")
+                .withLongOpt(DROP).create(DROP));
         options.addOption(OptionBuilder.withArgName("Drop destination databases, but preserve config metadata")
                 .withLongOpt(DROP_DEST_DBS).create(DROP_DEST_DBS));
         options.addOption(OptionBuilder.withArgName("Drop destination databases AND config metadata (collections, databases, chunks)")
