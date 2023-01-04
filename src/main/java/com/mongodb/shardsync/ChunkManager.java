@@ -1,5 +1,6 @@
 package com.mongodb.shardsync;
 
+import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.regex;
 
 import java.time.Instant;
@@ -18,6 +19,7 @@ import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.codecs.DecoderContext;
 import org.bson.codecs.DocumentCodec;
+import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -506,5 +508,13 @@ public class ChunkManager {
 
 	public void setChunkQuery(Document chunkQuery) {
 		this.chunkQuery = chunkQuery;
+	}
+	
+	public Set<String> getShardsForNamespace(Namespace ns) {
+		MongoCollection<Document> destChunksColl = destShardClient.getChunksCollection();
+		Bson query = eq("ns", ns.getNamespace());
+		Set<String> shards = new HashSet<>();
+		destChunksColl.distinct("shard", query, String.class).into(shards);
+		return shards;
 	}
 }

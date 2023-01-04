@@ -33,7 +33,6 @@ import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BSONException;
 import org.bson.BsonTimestamp;
-import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.UuidRepresentation;
@@ -42,14 +41,15 @@ import org.bson.codecs.UuidCodecProvider;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
+import org.checkerframework.checker.units.qual.K;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.MapDifference;
-import com.google.common.collect.Maps;
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ListMultimap;
+import com.google.common.collect.Multimaps;
 import com.google.common.collect.Sets;
-import com.google.common.collect.MapDifference.ValueDifference;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
@@ -861,7 +861,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		List<String> dbNames = new ArrayList<>();
 		destShardClient.listDatabaseNames().into(dbNames);
 
-		Map<Namespace, Map<UUID, List<String>>> collectionUuidMappings = new TreeMap<>();
+		Map<Namespace, Map<UUID, Set<String>>> collectionUuidMappings = new TreeMap<>();
 
 		for (Map.Entry<String, MongoClient> entry : destShardClient.getShardMongoClients().entrySet()) {
 			MongoClient client = entry.getValue();
@@ -890,7 +890,7 @@ public class ShardConfigSync implements Callable<Integer> {
 					Document info = (Document) collectionInfo.get("info");
 					UUID uuid = (UUID) info.get("uuid");
 
-					Map<UUID, List<String>> uuidMapping = collectionUuidMappings.get(ns);
+					Map<UUID, Set<String>> uuidMapping = collectionUuidMappings.get(ns);
 					if (uuidMapping == null) {
 						uuidMapping = new TreeMap<>();
 					}
@@ -899,9 +899,9 @@ public class ShardConfigSync implements Callable<Integer> {
 					if (uuid == null) {
 						System.out.println("wtf");
 					}
-					List<String> shardNames = uuidMapping.get(uuid);
+					Set<String> shardNames = uuidMapping.get(uuid);
 					if (shardNames == null) {
-						shardNames = new ArrayList<>();
+						shardNames = new HashSet<>();
 					}
 					uuidMapping.put(uuid, shardNames);
 					shardNames.add(shardName);
@@ -915,15 +915,16 @@ public class ShardConfigSync implements Callable<Integer> {
 		int successCount = 0;
 		int failureCount = 0;
 
-		for (Map.Entry<Namespace, Map<UUID, List<String>>> mappingEntry : collectionUuidMappings.entrySet()) {
+		for (Map.Entry<Namespace, Map<UUID, Set<String>>> mappingEntry : collectionUuidMappings.entrySet()) {
 			Namespace ns = mappingEntry.getKey();
-			Map<UUID, List<String>> uuidMappings = mappingEntry.getValue();
+			Map<UUID, Set<String>> uuidMappings = mappingEntry.getValue();
 			if (uuidMappings.size() == 1) {
 				successCount++;
 				logger.debug(String.format("%s ==> %s", ns, uuidMappings));
 			} else {
 				failureCount++;
 				logger.error(String.format("%s ==> %s", ns, uuidMappings));
+				uuidFailure(ns, uuidMappings);
 			}
 		}
 
@@ -934,7 +935,27 @@ public class ShardConfigSync implements Callable<Integer> {
 			logger.error(String.format("%s - compareCollectionUuids complete: successCount: %s, failureCount: %s", name,
 					successCount, failureCount));
 		}
-
+	}
+	
+	
+	private void uuidFailure(Namespace ns, Map<UUID, Set<String>> uuidMappings) {
+		Set<String> correctShards = chunkManager.getShardsForNamespace(ns);
+		
+		Set<String> allShards = new HashSet<>();
+		for (Set<String> s : uuidMappings.values()) {
+			allShards.addAll(s);
+		}
+		
+		Set<String> incorrectShards = Sets.difference(allShards, correctShards);
+		logger.debug("uuidFailure: {} - correct shards: {}, incorrect shards: {}", ns, correctShards, incorrectShards);
+		
+		for (String shardName : incorrectShards) {
+			MongoClient client = destShardClient.getShardMongoClient(shardName);
+			MongoCollection<Document> coll = client.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName());
+			long count = coll.countDocuments();
+			logger.debug("{} - {} - count: {}", ns, shardName, count);
+		}
+		
 	}
 
 	private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
