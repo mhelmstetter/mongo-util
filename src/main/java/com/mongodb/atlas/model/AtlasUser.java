@@ -20,10 +20,10 @@ public class AtlasUser {
 		
 	}
 
-	public AtlasUser(User u) {
-		this.username = u.getUser();
+	public AtlasUser(User u, String password) {
+		setUsername(u.getUser());
 		this.databaseName = "admin";
-		this.password = "changeme123";
+		this.password = password;
 		for (Role r : u.getRoles()) {
 			AtlasRoleReference ref = new AtlasRoleReference();
 			ref.setDatabaseName(r.getDb());
@@ -37,7 +37,7 @@ public class AtlasUser {
 	}
 
 	public void setUsername(String username) {
-		this.username = username;
+		this.username = username.replaceAll("\\.", "_");
 	}
 
 	public String getDatabaseName() {

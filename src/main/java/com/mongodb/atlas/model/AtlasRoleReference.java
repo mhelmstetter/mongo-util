@@ -49,4 +49,15 @@ public class AtlasRoleReference {
 		return Objects.equals(databaseName, other.databaseName) && Objects.equals(roleName, other.roleName);
 	}
 
+	@Override
+	public String toString() {
+		StringBuilder builder = new StringBuilder();
+		builder.append(roleName);
+		builder.append("@");
+		builder.append(databaseName);
+		return builder.toString();
+	}
+	
+	
+
 }

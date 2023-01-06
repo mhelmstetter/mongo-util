@@ -62,11 +62,6 @@ public class UsersRolesManager {
 						continue;
 					}
 
-					// System.out.println(role.getRole() + " '" + r.getDb() + "'");
-
-					if ("listDatabases".equals(action)) {
-						System.out.println();
-					}
 
 					AtlasRoleAction a = atlasRole.getAction(convertedName);
 					if (a == null) {
@@ -76,7 +71,6 @@ public class UsersRolesManager {
 					}
 
 					if ("admin".equals(r.getDb())) {
-						// System.out.println();
 						continue;
 					}
 
@@ -118,9 +112,6 @@ public class UsersRolesManager {
 				AtlasInheritedRole inheritedRole = new AtlasInheritedRole(r.getDb(), r.getRole());
 				atlasRole.addInheritedRole(inheritedRole);
 			}
-
-			System.out.println(atlasRole);
-
 		}
 		return result;
 

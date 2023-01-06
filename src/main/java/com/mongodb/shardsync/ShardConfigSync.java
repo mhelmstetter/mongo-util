@@ -30,6 +30,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.apache.commons.exec.ExecuteException;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BSONException;
 import org.bson.BsonTimestamp;
@@ -41,14 +42,10 @@ import org.bson.codecs.UuidCodecProvider;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
-import org.checkerframework.checker.units.qual.K;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.ListMultimap;
-import com.google.common.collect.Multimaps;
 import com.google.common.collect.Sets;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
@@ -88,6 +85,7 @@ import com.mongodb.mongomirror.MongoMirrorRunner;
 import com.mongodb.mongomirror.model.MongoMirrorStatus;
 import com.mongodb.mongomirror.model.MongoMirrorStatusInitialSync;
 import com.mongodb.mongomirror.model.MongoMirrorStatusOplogSync;
+import com.opencsv.CSVWriter;
 
 import picocli.CommandLine.Command;
 
@@ -444,17 +442,28 @@ public class ShardConfigSync implements Callable<Integer> {
 	
 	public void syncUsers() throws IOException {
 		
+		CSVWriter writer = new CSVWriter(new FileWriter("users.csv"));
+		String[] header = { "user", "password", "roles"};
+		writer.writeNext(header);
+		
 		List<User> users = this.sourceShardClient.getUsers();
 		for (User u : users) {
-			AtlasUser atlasUser = new AtlasUser(u);
+			String password = RandomStringUtils.random(16, true, true);
+			AtlasUser atlasUser = new AtlasUser(u, password);
+			
+			if (!u.getDb().equals("admin")) {
+				atlasUser.setUsername(u.getUser() + "_" + u.getDb());
+			}
+			
 			try {
 				atlasUtil.createUser(config.atlasProjectId, atlasUser);
 			} catch (KeyManagementException | NoSuchAlgorithmException | IOException e) {
 				logger.error("syncUsers() error: {}", atlasUser, e);
 			}
+			writer.writeNext(new String[] { u.getUser(), password, atlasUser.getRoles().toString() });
 			
 		}
-		
+		writer.flush();
 		AtlasServiceGenerator.shutdown();
 	}
 	

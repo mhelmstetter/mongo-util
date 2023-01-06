@@ -215,7 +215,7 @@ public class AtlasUtil {
 		Response response = invocationBuilder.post(Entity.entity(role, MediaType.APPLICATION_JSON));
 
 		try {
-			if (response.getStatus() == 202 || response.getStatus() == 200) {
+			if (response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL) {
 				//AtlasRole atlasRoleResult = response.readEntity(AtlasRole.class);
 				return AtlasRoleResponse.newSuccessResponse(null);
 			} else if (response.getStatus() == 409) {
@@ -301,9 +301,7 @@ public class AtlasUtil {
 		Response response = invocationBuilder.post(Entity.entity(user, MediaType.APPLICATION_JSON));
 
 		try {
-			if (response.getStatus() == 202 || response.getStatus() == 200) {
-				//AtlasRole atlasRoleResult = response.readEntity(AtlasRole.class);
-				//return AtlasRoleResponse.newSuccessResponse(null);
+			if (response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL) {
 				logger.debug("created user: {}", user.getUsername());
 			} else if (response.getStatus() == 409) {
 				String resp = response.readEntity(String.class);
