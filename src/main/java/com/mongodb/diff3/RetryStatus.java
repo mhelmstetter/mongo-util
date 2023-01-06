@@ -5,6 +5,7 @@ public class RetryStatus {
     private final long prevAttempt;
     private final int maxAttempts;
     private final long nextAttemptThreshold;
+    private final int initialWait = 10*1000;
 
     public RetryStatus(int attempt, long prevAttempt, int maxAttempts) {
         this.attempt = attempt;
@@ -15,7 +16,7 @@ public class RetryStatus {
 
     private long assignNextThreshold() {
         long interval = (long) (Math.pow(2, attempt) * 1000);
-        return prevAttempt + interval;
+        return prevAttempt + interval + initialWait;
     }
 
     public long getNextAttemptThreshold() {
