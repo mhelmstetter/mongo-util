@@ -51,9 +51,6 @@ public class ShardRetryTask extends ShardDiffTask implements RetryTask {
                     logger.error("[{}] Fatal error performing diffs, ns: {}",
                             Thread.currentThread().getName(), namespace.getNamespace(), e);
                     throw new RuntimeException(e);
-                } finally {
-                    closeCursor(sourceCursor);
-                    closeCursor(destCursor);
                 }
 
                 if (result.getFailedKeys().size() > 0) {

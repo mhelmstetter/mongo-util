@@ -1,24 +1,7 @@
 package com.mongodb.diff3;
 
-import com.google.common.collect.MapDifference;
-import com.google.common.collect.MapDifference.ValueDifference;
-import com.google.common.collect.Maps;
-import com.mongodb.client.FindIterable;
-import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
-import com.mongodb.client.model.Filters;
-import com.mongodb.diff3.partition.PartitionDiffTask;
-import com.mongodb.model.Namespace;
-import com.mongodb.util.CodecUtils;
-import org.bson.BsonDocument;
-import org.bson.BsonValue;
-import org.bson.ByteBuf;
-import org.bson.Document;
-import org.bson.RawBsonDocument;
-import org.bson.conversions.Bson;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static com.mongodb.diff3.DiffTask.Target.DEST;
+import static com.mongodb.diff3.DiffTask.Target.SOURCE;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -28,8 +11,27 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
-import static com.mongodb.diff3.DiffTask.Target.DEST;
-import static com.mongodb.diff3.DiffTask.Target.SOURCE;
+import org.bson.BsonDocument;
+import org.bson.BsonValue;
+import org.bson.ByteBuf;
+import org.bson.Document;
+import org.bson.RawBsonDocument;
+import org.bson.conversions.Bson;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.collect.MapDifference;
+import com.google.common.collect.MapDifference.ValueDifference;
+import com.google.common.collect.Maps;
+import com.mongodb.MongoException;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
+import com.mongodb.client.model.Filters;
+import com.mongodb.diff3.partition.PartitionDiffTask;
+import com.mongodb.model.Namespace;
+import com.mongodb.util.CodecUtils;
 
 public abstract class DiffTask implements Callable<DiffResult> {
 
@@ -97,9 +99,6 @@ public abstract class DiffTask implements Callable<DiffResult> {
             logger.error("[{}] fatal error diffing ({})",
                     Thread.currentThread().getName(), unitString(), e);
             throw new RuntimeException(e);
-        } finally {
-            closeCursor(sourceCursor);
-            closeCursor(destCursor);
         }
 
         if (result.getFailedKeys().size() > 0) {
@@ -126,13 +125,20 @@ public abstract class DiffTask implements Callable<DiffResult> {
     }
 
     protected DiffResult computeDiff(Collection<BsonValue> ids) {
-        sourceDocs = load(ids, SOURCE);
-        destDocs = load(ids, DEST);
+    	
+    	for (int i = 1; i <= 3; i++) {
+    		try {
+    			sourceDocs = load(ids, SOURCE);
+    	        destDocs = load(ids, DEST);
+    			break;
+    		} catch (MongoException me) {
+    			logger.warn("computeDiff caught mongo exception on attempt " + i, me);
+    		}
+    	}
         return doComparison();
     }
 
     private DiffResult doComparison() {
-        DiffResult result; // = initDiffResult();
         long compStart = System.currentTimeMillis();
         MapDifference<BsonValue, String> diff = Maps.difference(sourceDocs, destDocs);
 
@@ -236,15 +242,6 @@ public abstract class DiffTask implements Callable<DiffResult> {
                 Thread.currentThread().getName(), output.size(), target.getName(),
                 namespace.getNamespace(), loadTime, unitString());
         return output;
-    }
-
-    protected void closeCursor(MongoCursor<RawBsonDocument> cursor) {
-        try {
-            if (cursor != null) {
-                cursor.close();
-            }
-        } catch (Exception ignored) {
-        }
     }
 
     protected Bson formIdsQuery(Collection<BsonValue> ids) {
