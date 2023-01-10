@@ -43,6 +43,7 @@ public class DiffUtilApp {
     private final static String STATUS_DB_URI = "statusDbUri";
     private final static String STATUS_DB_NAME = "statusDbName";
     private final static String STATUS_DB_COLL_NAME = "statusDbCollName";
+    private static final String SHARD_MAP = "shardMap";
 
     private final static String DEFAULT_THREADS = "8";
     private final static String DEFAULT_SAMPLE_RATE = "0.04";
@@ -175,6 +176,13 @@ public class DiffUtilApp {
             config.setStatusDbName(getConfigValue(line, properties, STATUS_DB_NAME, DEFAULT_STATUS_DB_NAME));
             config.setStatusDbCollName(getConfigValue(line, properties,
                     STATUS_DB_COLL_NAME, DEFAULT_STATUS_DB_COLL_NAME));
+        }
+        
+        String shardMaps = properties.getString(SHARD_MAP);
+        if (shardMaps != null) {
+            config.setShardMap(shardMaps.split(","));
+        } else {
+            config.setShardMap(line.getOptionValues("m"));
         }
 
         config.setNamespaceFilters(line.getOptionValues("f"));

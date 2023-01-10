@@ -97,7 +97,7 @@ public class ShardRetryTask extends ShardDiffTask implements RetryTask {
             }
 
         } catch (Exception e) {
-            logger.error("********* call exception", e);
+            logger.error("********* ShardRetryTask call exception", e);
         }
 
         return null;

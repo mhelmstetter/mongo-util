@@ -1,20 +1,17 @@
 package com.mongodb.diff3;
 
-import static com.mongodb.client.model.Filters.regex;
-
-import java.util.*;
+import java.util.Arrays;
 
 import org.bson.Document;
 
-import com.mongodb.model.Namespace;
+import com.mongodb.shardsync.BaseConfiguration;
 
-public class DiffConfiguration {
+public class DiffConfiguration extends BaseConfiguration {
+	
 	public final static String PARTITION_MODE = "partition";
 	public final static String SHARD_MODE = "shard";
 	public final static String RECHECK_MODE = "recheck";
-	public String sourceClusterUri;
-	public String destClusterUri;
-	private boolean filtered;
+	
 	private final Document chunkQuery = new Document();
 	private int threads = 8;
 	private double sampleRate;
@@ -29,9 +26,6 @@ public class DiffConfiguration {
 	private String statusDbCollName;
 	private final String[] knownModes = new String[]{PARTITION_MODE, RECHECK_MODE, SHARD_MODE};
 
-	private Set<Namespace> includeNamespaces = new HashSet<>();
-	private Set<String> includeDatabases = new HashSet<>();
-
 	public String getMode() {
 		return mode;
 	}
@@ -41,80 +35,6 @@ public class DiffConfiguration {
 			throw new RuntimeException("Unknown mode: " + mode);
 		}
 		this.mode = mode;
-	}
-
-	public String getSourceClusterUri() {
-		return sourceClusterUri;
-	}
-
-	public void setSourceClusterUri(String sourceClusterUri) {
-		this.sourceClusterUri = sourceClusterUri;
-	}
-
-	public String getDestClusterUri() {
-		return destClusterUri;
-	}
-
-	public void setDestClusterUri(String destClusterUri) {
-		this.destClusterUri = destClusterUri;
-	}
-
-	public Set<Namespace> getIncludeNamespaces() {
-		return includeNamespaces;
-	}
-
-	public void setIncludeNamespaces(Set<Namespace> includeNamespaces) {
-		this.includeNamespaces = includeNamespaces;
-	}
-
-	public Set<String> getIncludeDatabases() {
-		return includeDatabases;
-	}
-
-	public void setIncludeDatabases(Set<String> includeDatabases) {
-		this.includeDatabases = includeDatabases;
-	}
-
-	public void setNamespaceFilters(String[] namespaceFilterList) {
-		if (namespaceFilterList == null) {
-			initializeChunkQuery();
-			return;
-		}
-		filtered = true;
-		for (String nsStr : namespaceFilterList) {
-			if (nsStr.contains(".")) {
-				Namespace ns = new Namespace(nsStr);
-				includeNamespaces.add(ns);
-			} else {
-				includeDatabases.add(nsStr);
-			}
-		}
-		initializeChunkQuery();
-	}
-
-	private Document initializeChunkQuery() {
-		if (getIncludeNamespaces().size() > 0 || getIncludeDatabases().size() > 0) {
-			List<Object> inList = new ArrayList<>();
-			List<Object> orList = new ArrayList<>();
-			// Document orDoc = new Document("$or", orList);
-			chunkQuery.append("$or", orList);
-			Document inDoc = new Document("ns", new Document("$in", inList));
-			orList.add(inDoc);
-			// orDoc.append("ns", inDoc);
-			for (Namespace includeNs : getIncludeNamespaces()) {
-				inList.add(includeNs.getNamespace());
-			}
-			for (String dbName : getIncludeDatabases()) {
-				orList.add(regex("ns", "^" + dbName + "\\."));
-			}
-		} else {
-			chunkQuery.append("ns", new Document("$ne", "config.system.sessions"));
-		}
-		return chunkQuery;
-	}
-
-	public boolean isFiltered() {
-		return filtered;
 	}
 
 	public Document getChunkQuery() {

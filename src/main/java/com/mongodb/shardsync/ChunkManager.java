@@ -16,8 +16,6 @@ import org.apache.commons.collections.MapUtils;
 import org.bson.BsonDocument;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
-import org.bson.codecs.DecoderContext;
-import org.bson.codecs.DocumentCodec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,10 +35,6 @@ public class ChunkManager {
 	private ShardClient destShardClient;
 	private ShardClient sourceShardClient;
 	
-	
-	private DocumentCodec codec = new DocumentCodec();
-	private DecoderContext decoderContext = DecoderContext.builder().build();
-	
 	private Map<String, String> sourceToDestShardMap = new HashMap<String, String>();
 	private Map<String, String> destToSourceShardMap = new HashMap<String, String>();
 	
@@ -48,9 +42,9 @@ public class ChunkManager {
 	
 	private List<Megachunk> optimizedChunks = new LinkedList<>();
 	
-	private SyncConfiguration config;
+	private BaseConfiguration config;
 	
-	public ChunkManager (SyncConfiguration config) {
+	public ChunkManager (BaseConfiguration config) {
 		this.config = config;
 	}
 	

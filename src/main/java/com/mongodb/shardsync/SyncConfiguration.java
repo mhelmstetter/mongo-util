@@ -1,37 +1,14 @@
 package com.mongodb.shardsync;
 
 import java.io.File;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.mongodb.model.Namespace;
-
-public class SyncConfiguration {
-	
-	private static Logger logger = LoggerFactory.getLogger(ChunkManager.class);
-	
-	private ShardClient destShardClient;
-	private ShardClient sourceShardClient;
-	
+public class SyncConfiguration extends BaseConfiguration {
 	
 	public String atlasApiPublicKey;
 	public String atlasApiPrivateKey;
 	public String atlasProjectId;
-	public String sourceClusterUri;
-	public String destClusterUri;
-	public String sourceClusterPattern;
-	public String destClusterPattern;
-	public String sourceRsPattern;
-	public String destRsPattern;
-	public String[] sourceRsManual;
-	public String[] destRsManual;
-	public String sourceRsRegex;
-	public String destRsRegex;
-	public String destCsrsUri;
+	
 	public boolean dropDestDbs;
 	public boolean dropDestDbsAndConfigMetadata;
 	public boolean nonPrivilegedMode;
@@ -44,18 +21,7 @@ public class SyncConfiguration {
 	public boolean noIndexRestore;
 	public Integer collStatsThreshold;
 	public boolean dryRun;
-	public boolean shardToRs;
 	public boolean extendTtl;
-	public boolean filtered;
-	
-	private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
-	private Set<String> includeDatabases = new HashSet<String>();
-	
-	// ugly, but we need a set of includeDatabases that we pass to mongomirror
-	// vs. the includes that we use elsewhere
-	private Set<String> includeDatabasesAll = new HashSet<String>();
-	
-	public String[] shardMap;
 	public File mongomirrorBinary;
 
 	/* Mongomirror email report specific settings */
@@ -83,26 +49,8 @@ public class SyncConfiguration {
 	public boolean skipFlushRouterConfig;
 
 	public SyncConfiguration() {
+		super();
 
-	}
-	
-	public boolean filterCheck(String nsStr) {
-		Namespace ns = new Namespace(nsStr);
-		return filterCheck(ns);
-	}
-	
-	public boolean filterCheck(Namespace ns) {
-		if (isFiltered() && !includeNamespaces.contains(ns) && !includeDatabases.contains(ns.getDatabaseName())) {
-			logger.trace("Namespace " + ns + " filtered, skipping");
-			return true;
-		}
-		if (ns.getDatabaseName().equals("config") || ns.getDatabaseName().equals("admin")) {
-			return true;
-		}
-		if (ns.getCollectionName().equals("system.profile") || ns.getCollectionName().equals("system.users")) {
-			return true;
-		}
-		return false;
 	}
 
 	public String getAtlasApiPublicKey() {
@@ -129,78 +77,6 @@ public class SyncConfiguration {
 		this.atlasProjectId = atlasProjectId;
 	}
 
-	public String getSourceClusterUri() {
-		return sourceClusterUri;
-	}
-
-	public void setSourceClusterUri(String sourceClusterUri) {
-		this.sourceClusterUri = sourceClusterUri;
-	}
-
-	public String getDestClusterUri() {
-		return destClusterUri;
-	}
-
-	public void setDestClusterUri(String destClusterUri) {
-		this.destClusterUri = destClusterUri;
-	}
-
-	public String getSourceClusterPattern() {
-		return sourceClusterPattern;
-	}
-
-	public void setSourceClusterPattern(String sourceClusterPattern) {
-		this.sourceClusterPattern = sourceClusterPattern;
-	}
-
-	public String getDestClusterPattern() {
-		return destClusterPattern;
-	}
-
-	public void setDestClusterPattern(String destClusterPattern) {
-		this.destClusterPattern = destClusterPattern;
-	}
-
-	public String getSourceRsPattern() {
-		return sourceRsPattern;
-	}
-
-	public void setSourceRsPattern(String sourceRsPattern) {
-		this.sourceRsPattern = sourceRsPattern;
-	}
-
-	public String getDestRsPattern() {
-		return destRsPattern;
-	}
-
-	public void setDestRsPattern(String destRsPattern) {
-		this.destRsPattern = destRsPattern;
-	}
-
-	public String[] getSourceRsManual() {
-		return sourceRsManual;
-	}
-
-	public void setSourceRsManual(String[] sourceRsManual) {
-		this.sourceRsManual = sourceRsManual;
-	}
-
-	public String[] getDestRsManual() {
-		return destRsManual;
-	}
-
-	public void setDestRsManual(String[] destRsManual) {
-		this.destRsManual = destRsManual;
-	}
-
-	public String getDestCsrsUri() {
-		return destCsrsUri;
-	}
-
-	public void setDestCsrsUri(String destCsrsUri) {
-		this.destCsrsUri = destCsrsUri;
-	}
-
 	public boolean isDropDestDbs() {
 		return dropDestDbs;
 	}
@@ -221,23 +97,6 @@ public class SyncConfiguration {
 		return nonPrivilegedMode;
 	}
 	
-	public void setNamespaceFilters(String[] namespaceFilterList) {
-		if (namespaceFilterList == null) {
-			return;
-		}
-		filtered = true;
-		for (String nsStr : namespaceFilterList) {
-			if (nsStr.contains(".")) {
-				Namespace ns = new Namespace(nsStr);
-				includeNamespaces.add(ns);
-				includeDatabasesAll.add(ns.getDatabaseName());
-			} else {
-				includeDatabases.add(nsStr);
-				includeDatabasesAll.add(nsStr);
-			}
-		}
-	}
-
 	public void setNonPrivilegedMode(boolean nonPrivilegedMode) {
 		this.nonPrivilegedMode = nonPrivilegedMode;
 	}
@@ -314,60 +173,12 @@ public class SyncConfiguration {
 		this.dryRun = dryRun;
 	}
 
-	public boolean isShardToRs() {
-		return shardToRs;
-	}
-
-	public void setShardToRs(boolean shardToRs) {
-		this.shardToRs = shardToRs;
-	}
-
 	public boolean isExtendTtl() {
 		return extendTtl;
 	}
 
 	public void setExtendTtl(boolean extendTtl) {
 		this.extendTtl = extendTtl;
-	}
-
-	public boolean isFiltered() {
-		return filtered;
-	}
-
-	public void setFiltered(boolean filtered) {
-		this.filtered = filtered;
-	}
-
-	public Set<Namespace> getIncludeNamespaces() {
-		return includeNamespaces;
-	}
-
-	public void setIncludeNamespaces(Set<Namespace> includeNamespaces) {
-		this.includeNamespaces = includeNamespaces;
-	}
-
-	public Set<String> getIncludeDatabases() {
-		return includeDatabases;
-	}
-
-	public void setIncludeDatabases(Set<String> includeDatabases) {
-		this.includeDatabases = includeDatabases;
-	}
-
-	public Set<String> getIncludeDatabasesAll() {
-		return includeDatabasesAll;
-	}
-
-	public void setIncludeDatabasesAll(Set<String> includeDatabasesAll) {
-		this.includeDatabasesAll = includeDatabasesAll;
-	}
-
-	public String[] getShardMap() {
-		return shardMap;
-	}
-
-	public void setShardMap(String[] shardMap) {
-		this.shardMap = shardMap;
 	}
 
 	public File getMongomirrorBinary() {
@@ -468,22 +279,6 @@ public class SyncConfiguration {
 		}
 	}
 
-	public ShardClient getDestShardClient() {
-		return destShardClient;
-	}
-
-	public void setDestShardClient(ShardClient destShardClient) {
-		this.destShardClient = destShardClient;
-	}
-
-	public ShardClient getSourceShardClient() {
-		return sourceShardClient;
-	}
-
-	public void setSourceShardClient(ShardClient sourceShardClient) {
-		this.sourceShardClient = sourceShardClient;
-	}
-
 	public List<String> getEmailReportRecipients() {
 		return emailReportRecipients;
 	}
@@ -570,21 +365,5 @@ public class SyncConfiguration {
 
 	public void setStopWhenLagWithin(int stopWhenLagWithin) {
 		this.stopWhenLagWithin = stopWhenLagWithin;
-	}
-
-	public String getSourceRsRegex() {
-		return sourceRsRegex;
-	}
-
-	public void setSourceRsRegex(String sourceRsRegex) {
-		this.sourceRsRegex = sourceRsRegex;
-	}
-
-	public String getDestRsRegex() {
-		return destRsRegex;
-	}
-
-	public void setDestRsRegex(String destRsRegex) {
-		this.destRsRegex = destRsRegex;
 	}
 }

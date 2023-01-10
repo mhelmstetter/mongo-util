@@ -48,13 +48,13 @@ public class PartitionRetryTask extends PartitionDiffTask implements RetryTask {
                     RetryStatus newRetryStatus = retryStatus.increment();
                     if (newRetryStatus != null) {
                         RetryTask newRetryTask = createRetryTask(newRetryStatus, result);
-                        logger.debug("[{}] retry for ({}) failed ({} ids); submitting attempt {} to retryQueue",
-                                Thread.currentThread().getName(), failedIds,
-                                result.getFailedKeys().size(), newRetryStatus.getAttempt());
+//                        logger.debug("[{}] retry for ({}) failed ({} ids); submitting attempt {} to retryQueue",
+//                                Thread.currentThread().getName(), failedIds,
+//                                result.getFailedKeys().size(), newRetryStatus.getAttempt());
                         retryQueue.add(newRetryTask);
                     } else {
-                        logger.debug("[{}] {} - retry task for ({}) failed; too many retry attempts",
-                                Thread.currentThread().getName(), namespace, failedIds);
+//                        logger.debug("[{}] {} - retry task for ({}) failed; too many retry attempts",
+//                                Thread.currentThread().getName(), namespace, failedIds);
                         summary.updateRetryingDone(result);
                         logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(), unitString());
                         retryQueue.add(endToken());
@@ -85,7 +85,7 @@ public class PartitionRetryTask extends PartitionDiffTask implements RetryTask {
             }
 
         } catch (Exception e) {
-            logger.error("********* call exception", e);
+            logger.error("********* PartitionRetryTask call exception", e);
         }
 
         return null;

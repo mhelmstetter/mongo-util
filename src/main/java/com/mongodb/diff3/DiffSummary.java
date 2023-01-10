@@ -175,7 +175,7 @@ public class DiffSummary {
         }
     }
 
-    private final Map<Namespace, Map<String, ChunkResult>> m;
+    private final Map<Namespace, Map<String, ChunkResult>> chunkResultMap;
 
     private int totalChunks = -1;
     private final long totalDocs;
@@ -193,7 +193,7 @@ public class DiffSummary {
         this.dbClient = dbClient;
 
         this.ppTotalSize = ppSize(totalSize);
-        m = new HashMap<>();
+        chunkResultMap = new HashMap<>();
         this.startTime = new Date().getTime();
     }
 
@@ -202,36 +202,42 @@ public class DiffSummary {
     }
 
     public String getSummary(boolean done) {
-        long millsElapsed = getTimeElapsed();
-        int secondsElapsed = (int) (millsElapsed / 1000.);
+    	String summary = null;
+    	try {
+    		long millsElapsed = getTimeElapsed();
+            int secondsElapsed = (int) (millsElapsed / 1000.);
 
-        DiffSnapshot snapshot = getSnapshot();
-        long totalProcessedChunks = snapshot.getTotalProcessedChunks();
-        long totalProcessedDocs = snapshot.getTotalProcessedDocs();
-        long totalFailedChunks = snapshot.getTotalFailedChunks();
-        long totalFailedDocs = snapshot.getTotalFailedDocs();
-        long totalProcessedSize = snapshot.getTotalProcessedSize();
-        long totalRetryChunks = snapshot.getTotalRetryChunks();
-        long totalSourceOnly = snapshot.getTotalSourceOnly();
-        long totalDestOnly = snapshot.getTotalDestOnly();
+            DiffSnapshot snapshot = getSnapshot();
+            long totalProcessedChunks = snapshot.getTotalProcessedChunks();
+            long totalProcessedDocs = snapshot.getTotalProcessedDocs();
+            long totalFailedChunks = snapshot.getTotalFailedChunks();
+            long totalFailedDocs = snapshot.getTotalFailedDocs();
+            long totalProcessedSize = snapshot.getTotalProcessedSize();
+            long totalRetryChunks = snapshot.getTotalRetryChunks();
+            long totalSourceOnly = snapshot.getTotalSourceOnly();
+            long totalDestOnly = snapshot.getTotalDestOnly();
 
-        double chunkProcPct = totalChunks >= 0 ? (totalProcessedChunks / (double) totalChunks) * 100. : 0;
-        double docProcPct = (totalProcessedDocs / (double) totalDocs) * 100.;
-        double sizeProcessedPct = (totalProcessedSize / (double) totalSize) * 100.;
+            double chunkProcPct = totalChunks >= 0 ? (totalProcessedChunks / (double) totalChunks) * 100. : 0;
+            double docProcPct = (totalProcessedDocs / (double) totalDocs) * 100.;
+            double sizeProcessedPct = (totalProcessedSize / (double) totalSize) * 100.;
 
-        String firstLine = done ? String.format("[Status] Completed in %s seconds.  ", secondsElapsed) :
-                String.format("[Status] %s seconds have elapsed.  ", secondsElapsed);
-        String summary = String.format("%s" +
-                        "%.2f %% of chunks processed  (%s/%s chunks).  " +
-                        "%.2f %% of docs processed  (%s/%s docs (est.)).  " +
-                        "%.2f %% of size processed (%s/%s (est.)).  " +
-                        "%d chunks failed.  " +
-                        "%d documents mismatched.  " +
-                        "%d chunks are retrying.  " +
-                        "%s docs found on source only.  %s docs found on target only", firstLine, chunkProcPct,
-                totalProcessedChunks, totalChunks >= 0 ? totalChunks : "Unknown", docProcPct, totalProcessedDocs,
-                totalDocs, sizeProcessedPct, ppSize(totalProcessedSize), ppTotalSize, totalFailedChunks,
-                totalFailedDocs, totalRetryChunks, totalSourceOnly, totalDestOnly);
+            String firstLine = done ? String.format("[Status] Completed in %s seconds.  ", secondsElapsed) :
+                    String.format("[Status] %s seconds have elapsed.  ", secondsElapsed);
+            summary = String.format("%s" +
+                            "%.2f %% of chunks processed  (%s/%s chunks).  " +
+                            "%.2f %% of docs processed  (%s/%s docs (est.)).  " +
+                            "%.2f %% of size processed (%s/%s (est.)).  " +
+                            "%d chunks failed.  " +
+                            "%d documents mismatched.  " +
+                            "%d chunks are retrying.  " +
+                            "%s docs found on source only.  %s docs found on target only", firstLine, chunkProcPct,
+                    totalProcessedChunks, totalChunks >= 0 ? totalChunks : "Unknown", docProcPct, totalProcessedDocs,
+                    totalDocs, sizeProcessedPct, ppSize(totalProcessedSize), ppTotalSize, totalFailedChunks,
+                    totalFailedDocs, totalRetryChunks, totalSourceOnly, totalDestOnly);
+    	} catch (Exception e) {
+    		logger.error("getSummary() error", e);
+    	}
+        
         return summary;
     }
 
@@ -244,7 +250,7 @@ public class DiffSummary {
         long totalRetryChunks = 0;
         long totalSourceOnly = 0;
         long totalDestOnly = 0;
-        for (Map.Entry<Namespace, Map<String, ChunkResult>> nse : m.entrySet()) {
+        for (Map.Entry<Namespace, Map<String, ChunkResult>> nse : chunkResultMap.entrySet()) {
             for (Map.Entry<String, ChunkResult> e : nse.getValue().entrySet()) {
                 ChunkResult cr = e.getValue();
                 if (cr.getStatus() == DiffStatus.SUCCEEDED || cr.getStatus() == DiffStatus.FAILED) {
@@ -321,18 +327,18 @@ public class DiffSummary {
             dbClient.update(result.getChunkDef(), cr);
         }
 
-        synchronized (m) {
-            if (!m.containsKey(ns)) {
-                m.put(ns, new HashMap<>());
+        synchronized (chunkResultMap) {
+            if (!chunkResultMap.containsKey(ns)) {
+                chunkResultMap.put(ns, new HashMap<>());
             }
-            Map<String, ChunkResult> nsMap = m.get(ns);
+            Map<String, ChunkResult> nsMap = chunkResultMap.get(ns);
             // Bc this is the initial task, it will always be a new entry
             nsMap.put(chunkId, cr);
         }
     }
 
     public void updateRetryingDone(DiffResult result) {
-        synchronized (m) {
+        synchronized (chunkResultMap) {
             ChunkResult cr = findChunkResult(result);
             cr.setStatus(DiffStatus.RUNNING);
         }
@@ -340,7 +346,7 @@ public class DiffSummary {
 
     public synchronized void updateRetryTask(DiffResult result) {
         int failures = result.getFailedKeys().size();
-        synchronized (m) {
+        synchronized (chunkResultMap) {
             ChunkResult cr = findChunkResult(result);
             if (failures > 0) {
                 if (result.isRetryable()) {
@@ -370,7 +376,7 @@ public class DiffSummary {
 
     private ChunkResult findChunkResult(DiffResult result) {
         ChunkResult cr;
-        Map<String, ChunkResult> nsMap = m.get(result.getNamespace());
+        Map<String, ChunkResult> nsMap = chunkResultMap.get(result.getNamespace());
         cr = nsMap.get(result.getChunkDef().unitString());
         if (cr == null) {
             logger.error("Could not find chunk ({}) in summary map", result.getChunkDef().unitString());

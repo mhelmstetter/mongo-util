@@ -158,13 +158,13 @@ public abstract class DiffTask implements Callable<DiffResult> {
             }
             Set<BsonValue> onlyOnSource = diff.entriesOnlyOnLeft().keySet();
             if (!onlyOnSource.isEmpty()) {
-            	logger.debug("[{}] {} - diff failure, onlyOnSource: {}", Thread.currentThread().getName(), namespace, onlyOnSource);
+            	//logger.debug("[{}] {} - diff failure, onlyOnSource: {}", Thread.currentThread().getName(), namespace, onlyOnSource);
             	srcOnly.addAll(onlyOnSource);
             }
 
             Set<BsonValue> onlyOnDest = diff.entriesOnlyOnRight().keySet();
             if (!onlyOnDest.isEmpty()) {
-            	logger.warn("[{}] {} - diff failure, onlyOnDest: {}", Thread.currentThread().getName(), namespace, onlyOnDest);
+            	//logger.warn("[{}] {} - diff failure, onlyOnDest: {}", Thread.currentThread().getName(), namespace, onlyOnDest);
             	destOnly.addAll(onlyOnDest);
             }
 
@@ -188,8 +188,6 @@ public abstract class DiffTask implements Callable<DiffResult> {
         Map<BsonValue, String> output = new HashMap<>();
         long loadStart = System.currentTimeMillis();
         MongoCollection<RawBsonDocument> coll = getRawCollection(loadClient, namespace.getNamespace());
-//        Bson q = (ids != null && ids.size() > 0) ? formIdsQuery(ids) : query;
-
         FindIterable<RawBsonDocument> finder;
 
         if (ids != null && ids.size() > 0) {
@@ -205,8 +203,6 @@ public abstract class DiffTask implements Callable<DiffResult> {
             if (chunkDef.getMin() == null) {
                 finder = coll.find().batchSize(10000);
             } else {
-//                Bson min = bounds.getLeft();
-//                Bson max = bounds.getRight();
                 BsonDocument min = chunkDef.getMin();
                 BsonDocument max = chunkDef.getMax();
                 Set<String> shardKeys = min.keySet();
@@ -237,10 +233,13 @@ public abstract class DiffTask implements Callable<DiffResult> {
             default:
                 throw new RuntimeException("Unknown target");
         }
-        long loadTime = System.currentTimeMillis() - loadStart;
-        logger.debug("[{}] loaded {} {} docs for {} in {} ms ({})",
-                Thread.currentThread().getName(), output.size(), target.getName(),
-                namespace.getNamespace(), loadTime, unitString());
+        if (logger.isTraceEnabled()) {
+        	long loadTime = System.currentTimeMillis() - loadStart;
+            logger.trace("[{}] loaded {} {} docs for {} in {} ms ({})",
+                    Thread.currentThread().getName(), output.size(), target.getName(),
+                    namespace.getNamespace(), loadTime, unitString());
+        }
+        
         return output;
     }
 

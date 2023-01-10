@@ -1,21 +1,5 @@
 package com.mongodb.diff3.shard;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.mongodb.diff3.DiffConfiguration;
-//import com.mongodb.diff3.DiffResult;
-import com.mongodb.diff3.DiffResult;
-import com.mongodb.diff3.DiffSummary;
-import com.mongodb.diff3.DiffSummaryClient;
-import com.mongodb.diff3.RetryTask;
-import com.mongodb.model.Collection;
-import com.mongodb.model.DatabaseCatalog;
-import com.mongodb.model.Namespace;
-import com.mongodb.shardsync.ShardClient;
-import com.mongodb.util.BlockWhenQueueFull;
-import org.bson.RawBsonDocument;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -40,6 +24,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import org.bson.RawBsonDocument;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.mongodb.diff3.DiffConfiguration;
+//import com.mongodb.diff3.DiffResult;
+import com.mongodb.diff3.DiffResult;
+import com.mongodb.diff3.DiffSummary;
+import com.mongodb.diff3.DiffSummaryClient;
+import com.mongodb.diff3.RetryTask;
+import com.mongodb.model.Collection;
+import com.mongodb.model.DatabaseCatalog;
+import com.mongodb.model.Namespace;
+import com.mongodb.shardsync.ChunkManager;
+import com.mongodb.shardsync.ShardClient;
+import com.mongodb.util.BlockWhenQueueFull;
+
 public class ShardDiffUtil {
 
     private static final Logger logger = LoggerFactory.getLogger(ShardDiffUtil.class);
@@ -61,18 +63,19 @@ public class ShardDiffUtil {
     private final int numUnshardedCollections;
     private Queue<RetryTask> retryQueue;
     private int totalInitialTasks;
+    
+    private ChunkManager chunkManager;
 
 
     public ShardDiffUtil(DiffConfiguration config) {
 
         this.config = config;
 
-
-        sourceShardClient = new ShardClient("source", config.getSourceClusterUri());
-        destShardClient = new ShardClient("dest", config.getDestClusterUri());
-
-        sourceShardClient.init();
-        destShardClient.init();
+        chunkManager = new ChunkManager(config);
+        chunkManager.initalize();
+        
+        this.sourceShardClient = config.getSourceShardClient();
+		this.destShardClient = config.getDestShardClient();
 
         Set<String> includeNs = config.getIncludeNamespaces().stream()
                 .map(Namespace::getNamespace).collect(Collectors.toSet());
@@ -192,7 +195,8 @@ public class ShardDiffUtil {
 
         for (int i = 0; i < srcShardNames.size(); i++) {
             String srcShard = srcShardNames.get(i);
-            String destShard = destShardNames.get(i);
+            String destShard = chunkManager.getShardMapping(srcShard);
+            //String destShard = destShardNames.get(i);
             Map<String, RawBsonDocument> chunkCache = sourceChunksCacheMap.get(srcShard);
             for (RawBsonDocument chunk : chunkCache.values()) {
                 String nsStr = chunk.get("ns").asString().getValue();
