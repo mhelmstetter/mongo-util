@@ -501,4 +501,8 @@ public class ChunkManager {
 	public void setChunkQuery(Document chunkQuery) {
 		this.chunkQuery = chunkQuery;
 	}
+
+	public Document getChunkQuery() {
+		return chunkQuery;
+	}
 }

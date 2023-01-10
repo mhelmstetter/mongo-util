@@ -74,6 +74,7 @@ public class ShardDiffUtil {
         chunkManager = new ChunkManager(config);
         chunkManager.initalize();
         
+        
         this.sourceShardClient = config.getSourceShardClient();
 		this.destShardClient = config.getDestShardClient();
 
@@ -95,7 +96,7 @@ public class ShardDiffUtil {
         logger.info("[Main] shardedColls:[" + String.join(", ", shardedColls) + "]");
 
         logger.info("[Main] unshardedColls:[" + String.join(", ", unshardedColls) + "]");
-        sourceChunksCacheMap = sourceShardClient.loadChunksCacheMap(config.getChunkQuery());
+        sourceChunksCacheMap = sourceShardClient.loadChunksCacheMap(chunkManager.getChunkQuery());
 
         sourceShardClient.populateShardMongoClients();
         destShardClient.populateShardMongoClients();
@@ -172,7 +173,7 @@ public class ShardDiffUtil {
                 while ((rt = (ShardRetryTask) retryQueue.poll()) != null) {
                     try {
                         if (rt == ShardRetryTask.END_TOKEN) {
-                            logger.debug("[RetryTaskPoolListener] saw an end token ({}/{})",
+                            logger.trace("[RetryTaskPoolListener] saw an end token ({}/{})",
                                     endTokensSeen + 1, totalInitialTasks);
                             if (++endTokensSeen == totalInitialTasks) {
                                 logger.debug("[RetryTaskPoolListener] has seen all end tokens ({})", endTokensSeen);
@@ -315,7 +316,7 @@ public class ShardDiffUtil {
                                             logger.debug("[InitialTaskPoolCollector] will retry {} failed ids for ({})",
                                                     result.getFailedKeys().size(), result.getChunkDef().unitString());
                                         } else {
-                                            logger.debug("[InitialTaskPoolCollector] got result for ({}): " +
+                                            logger.trace("[InitialTaskPoolCollector] got result for ({}): " +
                                                             "{} matches, {} failures, {} bytes",
                                                     result.getChunkDef().unitString(), result.getMatches(),
                                                     result.getFailedKeys().size(), result.getBytesProcessed());

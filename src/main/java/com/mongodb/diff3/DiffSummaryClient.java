@@ -44,7 +44,7 @@ public class DiffSummaryClient {
         this.coll = this.db.getCollection(collName, BsonDocument.class);
     }
 
-    public void update(ChunkDef cd, DiffSummary.ChunkResult cr) {
+    public void update(ChunkDef cd, ChunkResult cr) {
         FindOneAndUpdateOptions opts = new FindOneAndUpdateOptions();
         opts.upsert(true);
         opts.returnDocument(ReturnDocument.AFTER);

@@ -108,7 +108,7 @@ public abstract class DiffTask implements Callable<DiffResult> {
             logger.debug("[{}] detected {} failures and added a retry task ({})",
                     Thread.currentThread().getName(), result.getFailedKeys().size(), unitString());
         } else {
-            logger.debug("[{}] sending end token for ({})", Thread.currentThread().getName(),
+            logger.trace("[{}] sending end token for ({})", Thread.currentThread().getName(),
                     result.getChunkDef().unitString());
             retryQueue.add(endToken());
         }

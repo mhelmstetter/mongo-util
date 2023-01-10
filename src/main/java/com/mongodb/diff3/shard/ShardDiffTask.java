@@ -1,5 +1,10 @@
 package com.mongodb.diff3.shard;
 
+import java.util.Queue;
+
+import org.bson.BsonDocument;
+import org.bson.RawBsonDocument;
+
 import com.mongodb.client.MongoClient;
 import com.mongodb.diff3.ChunkDef;
 import com.mongodb.diff3.DiffConfiguration;
@@ -10,11 +15,6 @@ import com.mongodb.diff3.RetryStatus;
 import com.mongodb.diff3.RetryTask;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
-import org.bson.BsonDocument;
-import org.bson.Document;
-import org.bson.RawBsonDocument;
-
-import java.util.Queue;
 
 public class ShardDiffTask extends DiffTask {
 

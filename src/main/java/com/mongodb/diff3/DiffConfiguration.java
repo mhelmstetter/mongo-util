@@ -12,7 +12,6 @@ public class DiffConfiguration extends BaseConfiguration {
 	public final static String SHARD_MODE = "shard";
 	public final static String RECHECK_MODE = "recheck";
 	
-	private final Document chunkQuery = new Document();
 	private int threads = 8;
 	private double sampleRate;
 	private int sampleMinDocs;
@@ -35,13 +34,6 @@ public class DiffConfiguration extends BaseConfiguration {
 			throw new RuntimeException("Unknown mode: " + mode);
 		}
 		this.mode = mode;
-	}
-
-	public Document getChunkQuery() {
-		if (chunkQuery.isEmpty()) {
-			chunkQuery.append("ns", new Document("$ne", "config.system.sessions"));
-		}
-		return chunkQuery;
 	}
 
 	public int getThreads() {

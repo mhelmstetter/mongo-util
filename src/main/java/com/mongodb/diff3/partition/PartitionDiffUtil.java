@@ -180,7 +180,7 @@ public class PartitionDiffUtil {
                 while ((rt = (PartitionRetryTask) retryQueue.poll()) != null) {
                     try {
                         if (rt == PartitionRetryTask.END_TOKEN) {
-                            logger.debug("[RetryTaskPoolListener] saw an end token ({}/{})",
+                            logger.trace("[RetryTaskPoolListener] saw an end token ({}/{})",
                                     endTokensSeen + 1, totalPartitions.get());
                             int tp = totalPartitions.get();
                             if (++endTokensSeen == tp) {
@@ -316,7 +316,7 @@ public class PartitionDiffUtil {
                                     initialTaskPoolFuturesSeen.add(future);
                                     DiffResult result = future.get();
                                     int failures = result.getFailedKeys().size();
-                                    logger.debug("[InitialTaskPoolCollector] got result for {}: " +
+                                    logger.trace("[InitialTaskPoolCollector] got result for {}: " +
                                                     "{} matches, {} failures, {} bytes",
                                             result.getChunkDef().unitString(), result.getMatches(),
                                             failures, result.getBytesProcessed());
