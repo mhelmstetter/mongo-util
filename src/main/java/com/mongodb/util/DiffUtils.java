@@ -40,10 +40,15 @@ public class DiffUtils {
 		Set<String> diff = null;
 		if (!setsEqual) {
 			diff = Sets.difference(sourceKeys, destKeys);
-			logger.debug("{} - keys do not match: keys missing from source, diff: {}", ns, diff);
+			if (! diff.isEmpty()) {
+				logger.debug("{} - keys do not match, keys missing from source: {}, _id: {}", ns, diff, id);
+			} else {
+				diff = Sets.difference(destKeys, sourceKeys);
+				logger.debug("{} keys do not match, keys missing from dest: {}, _id: {}", ns, diff, id);
+			}
+			
 
-			diff = Sets.difference(destKeys, sourceKeys);
-			logger.debug("{} keys do not match: keys missing from dest", ns, diff);
+			
 			sortedKeys.addAll(diff);
 		}
 

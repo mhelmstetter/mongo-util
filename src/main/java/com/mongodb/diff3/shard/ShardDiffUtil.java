@@ -2,18 +2,14 @@ package com.mongodb.diff3.shard;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.DelayQueue;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -43,7 +39,6 @@ import com.mongodb.model.DatabaseCatalog;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
-import com.mongodb.util.BlockWhenQueueFull;
 
 public class ShardDiffUtil {
 
