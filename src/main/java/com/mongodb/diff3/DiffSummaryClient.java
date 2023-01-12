@@ -28,6 +28,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
+import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.Updates;
@@ -50,7 +51,7 @@ public class DiffSummaryClient {
         this.client = MongoClients.create(mcs);
         this.db = this.client.getDatabase(dbName);
         this.coll = this.db.getCollection(collName, RawBsonDocument.class);
-        //coll.createIndex(Indexes.compoundIndex(Indexes.ascending("ns"), Indexes.ascending("min"), Indexes.ascending("max")));
+        coll.createIndex(Indexes.compoundIndex(Indexes.ascending("ns"), Indexes.ascending("min"), Indexes.ascending("max")));
     }
     
     public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery) {

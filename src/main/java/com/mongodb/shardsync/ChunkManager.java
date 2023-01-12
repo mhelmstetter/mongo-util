@@ -464,7 +464,7 @@ public class ChunkManager {
 	}
 	
 	@SuppressWarnings({ "rawtypes", "unchecked" })
-	private BsonDocument initializeChunkQuery() {
+	public BsonDocument initializeChunkQuery() {
 		
 		chunkQuery = new BsonDocument();
 		if (config.getIncludeNamespaces().size() > 0 || config.getIncludeDatabases().size() > 0) {

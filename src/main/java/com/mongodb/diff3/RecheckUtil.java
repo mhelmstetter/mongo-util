@@ -9,6 +9,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.UuidRepresentation;
+import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +22,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.diff3.DiffSummary.DiffStatus;
 import com.mongodb.model.Namespace;
+import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.DiffUtils;
 
@@ -36,12 +38,19 @@ public class RecheckUtil {
     private final MongoCollection<BsonDocument> coll;
 
 	private final DiffConfiguration config;
+	
+	private ChunkManager chunkManager;
+	private Bson chunkQuery;
 
 	public RecheckUtil(DiffConfiguration config) {
 
         this.config = config;
-
-
+        
+        if (config.isFiltered()) {
+        	chunkManager = new ChunkManager(config);
+    		this.chunkQuery = chunkManager.initializeChunkQuery();
+        }
+        
         sourceShardClient = new ShardClient("source", config.getSourceClusterUri());
         destShardClient = new ShardClient("dest", config.getDestClusterUri());
         
@@ -62,7 +71,14 @@ public class RecheckUtil {
 	
 	public void recheck() {
 		
-		FindIterable<BsonDocument> failedChunks = coll.find(eq("status", DiffStatus.FAILED.name()));
+		FindIterable<BsonDocument> failedChunks = null;
+		
+		if (chunkQuery != null) {
+			failedChunks = coll.find(chunkQuery);
+		} else {
+			failedChunks = coll.find();
+		}
+		
 		
 		for (BsonDocument failed : failedChunks) {
 			

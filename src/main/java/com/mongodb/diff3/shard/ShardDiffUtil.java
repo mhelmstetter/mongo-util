@@ -165,7 +165,6 @@ public class ShardDiffUtil {
 			}
 			Map<String, RawBsonDocument> shardChunkCache = sourceChunksCacheMap.get(shard);
 			shardChunkCache.put(chunkId, chunk);
-			logger.debug("*** put for shard {}", shard);
 			todoCount++;
 		}
 		logger.debug("ShardDiffUtil loaded chunk cache, completedCount: {}, todoCount: {}", alreadyCompletedCount,
