@@ -31,7 +31,7 @@ public class ShardRetryTask extends ShardDiffTask implements RetryTask {
                           String srcShardName, String destShardName, Namespace namespace, RawBsonDocument chunk,
                           DiffConfiguration config, Set<BsonValue> failedIds, Queue<RetryTask> retryQueue,
                           DiffSummary summary) {
-        super(sourceShardClient, destShardClient, config, chunk, namespace,
+        super(config, chunk, namespace,
                 srcShardName, destShardName, retryQueue, summary);
         this.retryStatus = retryStatus;
         this.failedIds = failedIds;

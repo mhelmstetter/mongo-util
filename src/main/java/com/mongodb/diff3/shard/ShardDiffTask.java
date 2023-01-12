@@ -18,20 +18,23 @@ import com.mongodb.shardsync.ShardClient;
 
 public class ShardDiffTask extends DiffTask {
 
-    protected final ShardClient sourceShardClient;
-    protected final ShardClient destShardClient;
+    protected ShardClient sourceShardClient;
+    protected ShardClient destShardClient;
 
     protected final String srcShardName;
     protected final String destShardName;
 
     protected final RawBsonDocument chunk;
 
-    public ShardDiffTask(ShardClient sourceShardClient, ShardClient destShardClient, DiffConfiguration config,
+    public ShardDiffTask(DiffConfiguration config,
                          RawBsonDocument chunk, Namespace namespace, String srcShardName,
                          String destShardName, Queue<RetryTask> retryQueue, DiffSummary summary) {
         super(config, namespace, retryQueue, summary);
-        this.sourceShardClient = sourceShardClient;
-        this.destShardClient = destShardClient;
+        if (config != null) {
+        	 this.sourceShardClient = config.getSourceShardClient();
+             this.destShardClient = config.getDestShardClient();
+        }
+       
         this.chunk = chunk;
         this.srcShardName = srcShardName;
         this.destShardName = destShardName;

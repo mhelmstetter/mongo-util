@@ -10,7 +10,6 @@ import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.BsonValue;
 
-import com.mongodb.diff3.DiffResult.MismatchEntry;
 import com.mongodb.diff3.DiffSummary.DiffStatus;
 
 public class ChunkResult {

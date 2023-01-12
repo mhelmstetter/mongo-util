@@ -2,8 +2,6 @@ package com.mongodb.diff3;
 
 import java.util.Arrays;
 
-import org.bson.Document;
-
 import com.mongodb.shardsync.BaseConfiguration;
 
 public class DiffConfiguration extends BaseConfiguration {
@@ -24,6 +22,16 @@ public class DiffConfiguration extends BaseConfiguration {
 	private String statusDbName;
 	private String statusDbCollName;
 	private final String[] knownModes = new String[]{PARTITION_MODE, RECHECK_MODE, SHARD_MODE};
+	private DiffSummaryClient diffSummaryClient;
+	
+	public DiffSummaryClient getDiffSummaryClient() {
+		if (useStatusDb && diffSummaryClient == null) {
+			diffSummaryClient = new DiffSummaryClient(getStatusDbUri(), getStatusDbName(),
+	                getStatusDbCollName());
+		}
+		return diffSummaryClient;
+		
+	}
 
 	public String getMode() {
 		return mode;

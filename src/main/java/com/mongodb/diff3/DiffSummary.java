@@ -25,6 +25,7 @@ public class DiffSummary {
 	private final LongAdder totalRetryChunks = new LongAdder();
 	private final LongAdder totalSourceOnly = new LongAdder();
 	private final LongAdder totalDestOnly = new LongAdder();
+	//private final LongAdder 
 
 	private final Map<Namespace, Map<String, ChunkResult>> chunkResultMap;
 
@@ -50,6 +51,10 @@ public class DiffSummary {
 
 	public synchronized void setTotalChunks(int totalChunks) {
 		this.totalChunks = totalChunks;
+	}
+	
+	public synchronized boolean isComplete() {
+		return totalProcessedChunks.longValue() >= totalChunks;
 	}
 
 	public String getSummary(boolean done) {
@@ -160,6 +165,8 @@ public class DiffSummary {
 	private void incrementCountersFromChunkResult(ChunkResult cr) {
 		if (cr.getStatus() == DiffStatus.SUCCEEDED || cr.getStatus() == DiffStatus.FAILED) {
 			totalProcessedChunks.increment();
+		} else {
+			logger.debug("******* increment: {}", cr.getStatus());
 		}
 		long numMismatches = cr.getMismatches().size();
 		long numSourceOnly = cr.getSourceOnly().size();
@@ -260,5 +267,33 @@ public class DiffSummary {
 					"Could not update chunk: " + result.getChunkDef().unitString() + "; not found in summary map");
 		}
 		return cr;
+	}
+
+	public LongAdder getTotalProcessedChunks() {
+		return totalProcessedChunks;
+	}
+
+	public LongAdder getTotalProcessedDocs() {
+		return totalProcessedDocs;
+	}
+
+	public LongAdder getTotalFailedChunks() {
+		return totalFailedChunks;
+	}
+
+	public LongAdder getTotalFailedDocs() {
+		return totalFailedDocs;
+	}
+
+	public LongAdder getTotalProcessedSize() {
+		return totalProcessedSize;
+	}
+
+	public LongAdder getTotalSourceOnly() {
+		return totalSourceOnly;
+	}
+
+	public LongAdder getTotalDestOnly() {
+		return totalDestOnly;
 	}
 }

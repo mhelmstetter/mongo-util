@@ -1,36 +1,44 @@
 package com.mongodb.diff3;
 
+import static com.mongodb.client.model.Projections.exclude;
+
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.bson.BsonDocument;
+import org.bson.BsonString;
+import org.bson.BsonValue;
+import org.bson.Document;
+import org.bson.RawBsonDocument;
+import org.bson.UuidRepresentation;
+import org.bson.conversions.Bson;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.Aggregates;
-import com.mongodb.client.model.Field;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
-import com.mongodb.client.model.PushOptions;
 import com.mongodb.client.model.ReturnDocument;
+import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.Updates;
-import org.bson.BsonArray;
-import org.bson.BsonDocument;
-import org.bson.BsonString;
-import org.bson.Document;
-import org.bson.UuidRepresentation;
-import org.bson.conversions.Bson;
-import org.bson.json.JsonWriterSettings;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
+import com.mongodb.diff3.DiffSummary.DiffStatus;
+import com.mongodb.model.Namespace;
+import com.mongodb.shardsync.ShardClient;
 
 public class DiffSummaryClient {
     private final MongoClient client;
     private final MongoDatabase db;
-    private final MongoCollection<BsonDocument> coll;
+    private final MongoCollection<RawBsonDocument> coll;
     private static final Logger logger = LoggerFactory.getLogger(DiffSummaryClient.class);
 
 
@@ -41,22 +49,37 @@ public class DiffSummaryClient {
                 .uuidRepresentation(UuidRepresentation.STANDARD).build();
         this.client = MongoClients.create(mcs);
         this.db = this.client.getDatabase(dbName);
-        this.coll = this.db.getCollection(collName, BsonDocument.class);
+        this.coll = this.db.getCollection(collName, RawBsonDocument.class);
+        //coll.createIndex(Indexes.compoundIndex(Indexes.ascending("ns"), Indexes.ascending("min"), Indexes.ascending("max")));
     }
+    
+    public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery) {
+    	
+    	Map<String, RawBsonDocument> chunksCache = new LinkedHashMap<>();
+    	//Bson projection = include("min", "max", "ns", "status");
+    	Bson projection = exclude("history");
+		FindIterable<RawBsonDocument> sourceChunks = coll.find(chunkQuery).projection(projection).sort(Sorts.ascending("ns", "min"));
+
+		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
+			RawBsonDocument chunk = sourceChunksIterator.next();
+			String chunkId = ShardClient.getIdFromChunk(chunk);
+			chunksCache.put(chunkId, chunk);
+		}
+		return chunksCache;
+	}
 
     public void update(ChunkDef cd, ChunkResult cr) {
         FindOneAndUpdateOptions opts = new FindOneAndUpdateOptions();
         opts.upsert(true);
         opts.returnDocument(ReturnDocument.AFTER);
 
-        BsonDocument chunkBounds = new BsonDocument();
-        chunkBounds.put("min", cd.getMin() == null ? new BsonString("ALL") : cd.getMin());
-        chunkBounds.put("max", cd.getMax() == null ? new BsonString("ALL") : cd.getMax());
+        BsonValue min = cd.getMin() == null ? new BsonString("ALL") : cd.getMin();
+        BsonValue max = cd.getMax() == null ? new BsonString("ALL") : cd.getMax();
 
         Bson filter = Filters.and(
-                Filters.eq("db", cd.getNs().getDatabaseName()),
-                Filters.eq("coll", cd.getNs().getCollectionName()),
-                Filters.eq("chunk", chunkBounds)
+                Filters.eq("ns", cd.getNs().getNamespace()),
+                Filters.eq("min", min),
+                Filters.eq("max", max)
         );
 
         List<Bson> updates = new ArrayList<>();
@@ -102,4 +125,35 @@ public class DiffSummaryClient {
             throw new RuntimeException(e);
         }
     }
+
+	public boolean updateChunkCompletion(Namespace ns, RawBsonDocument chunk, DiffSummary summary) {
+
+        Bson filter = Filters.and(
+            Filters.eq("ns", ns.getNamespace()),
+            Filters.eq("min", chunk.get("min")),
+            Filters.eq("max", chunk.get("max")),
+            Filters.eq("status", DiffStatus.SUCCEEDED.toString())
+        );
+        
+        
+        long count = coll.countDocuments(filter);
+        
+//        RawBsonDocument aggResult = coll.aggregate(Arrays.asList(
+//            Aggregates.match(filter),
+//            Aggregates.project(Projections.fields(
+//            		Projections.computed("mismatchCount", new Document("$size", "$mismatches")),
+//            		Projections.computed("srcOnlyCount", new Document("$size", "$srcOnly")),
+//            		Projections.computed("destOnlyCount", new Document("$size", "$destOnly"))
+//            ))
+//        )).first();
+//        
+//        if (aggResult != null) {
+//        	return true;
+//        }
+//        return false;
+        
+        return count > 0;
+        
+		
+	}
 }

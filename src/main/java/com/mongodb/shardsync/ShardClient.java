@@ -1157,29 +1157,24 @@ public class ShardClient {
 		return bs.getValue();
 	}
 
-	public static String getIdFromChunk(BsonDocument sourceChunk) {
-		RawBsonDocument sourceMin = (RawBsonDocument) sourceChunk.get("min");
-		//ByteBuffer byteBuffer = sourceMin.getByteBuffer().asNIO();
-        //byte[] minBytes = new byte[byteBuffer.remaining()];
-
-		String minHash = sourceMin.toJson();
-
-		RawBsonDocument sourceMax = (RawBsonDocument) sourceChunk.get("max");
-		//byteBuffer = sourceMax.getByteBuffer().asNIO();
-		//byte[] maxBytes = new byte[byteBuffer.remaining()];
-		String maxHash = sourceMax.toJson();
-
+	public static String getIdFromChunk(RawBsonDocument sourceChunk) {
+		RawBsonDocument min = (RawBsonDocument) sourceChunk.get("min");
+		RawBsonDocument max = (RawBsonDocument) sourceChunk.get("max");
 		String ns = sourceChunk.getString("ns").getValue();
-		//logger.debug(String.format("hash: %s_%s => %s_%s", sourceMin.toString(), sourceMax.toString(), minHash, maxHash));
+		return getIdFromChunk(ns, min, max);
+	}
+	
+	public static String getIdFromChunk(String ns, RawBsonDocument min, RawBsonDocument max) {
+		String minHash = min.toJson();
+		String maxHash = max.toJson();
 		return String.format("%s_%s_%s", ns, minHash, maxHash);
-
 	}
 
 	public static String getShardFromChunk(BsonDocument chunk) {
 		return chunk.getString("shard").getValue();
 	}
 
-	public Map<String, RawBsonDocument> loadChunksCache(Document chunkQuery) {
+	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery) {
 		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
 
 		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery).sort(Sorts.ascending("ns", "min"));

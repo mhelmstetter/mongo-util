@@ -66,14 +66,12 @@ public class RecheckUtil {
 		
 		for (BsonDocument failed : failedChunks) {
 			
-			String db = failed.getString("db").getValue();
-			String coll = failed.getString("coll").getValue();
-			Namespace ns = new Namespace(db, coll);
-			MongoDatabase sourceDb = sourceShardClient.getMongoClient().getDatabase(db);
-			MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(coll, RawBsonDocument.class);
+			Namespace ns = new Namespace(failed.getString("ns").getValue());
+			MongoDatabase sourceDb = sourceShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
+			MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(ns.getCollectionName(), RawBsonDocument.class);
 			
-			MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(db);
-			MongoCollection<RawBsonDocument> destColl = destDb.getCollection(coll, RawBsonDocument.class);
+			MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
+			MongoCollection<RawBsonDocument> destColl = destDb.getCollection(ns.getCollectionName(), RawBsonDocument.class);
 			
 			BsonArray mismatches = failed.getArray("mismatches");
 			for (BsonValue m : mismatches) {

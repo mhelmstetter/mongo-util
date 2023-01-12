@@ -13,8 +13,10 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.commons.collections.MapUtils;
+import org.bson.BsonArray;
 import org.bson.BsonDocument;
-import org.bson.Document;
+import org.bson.BsonString;
+import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +33,7 @@ public class ChunkManager {
 
 	private static Logger logger = LoggerFactory.getLogger(ChunkManager.class);
 	
-	private Document chunkQuery;
+	private BsonDocument chunkQuery;
 	private ShardClient destShardClient;
 	private ShardClient sourceShardClient;
 	
@@ -462,24 +464,24 @@ public class ChunkManager {
 	}
 	
 	@SuppressWarnings({ "rawtypes", "unchecked" })
-	private Document initializeChunkQuery() {
-		chunkQuery = new Document();
+	private BsonDocument initializeChunkQuery() {
+		
+		chunkQuery = new BsonDocument();
 		if (config.getIncludeNamespaces().size() > 0 || config.getIncludeDatabases().size() > 0) {
-			List inList = new ArrayList();
+			List<BsonValue> inList = new ArrayList();
 			List orList = new ArrayList();
-			// Document orDoc = new Document("$or", orList);
-			chunkQuery.append("$or", orList);
-			Document inDoc = new Document("ns", new Document("$in", inList));
-			orList.add(inDoc);
-			// orDoc.append("ns", inDoc);
 			for (Namespace includeNs : config.getIncludeNamespaces()) {
-				inList.add(includeNs.getNamespace());
+				inList.add(new BsonString(includeNs.getNamespace()));
 			}
 			for (String dbName : config.getIncludeDatabases()) {
 				orList.add(regex("ns", "^" + dbName + "\\."));
 			}
+			
+			BsonDocument inDoc = new BsonDocument("ns", new BsonDocument("$in", new BsonArray(inList)));
+			orList.add(inDoc);
+			chunkQuery.append("$or", new BsonArray(orList));
 		} else {
-			chunkQuery.append("ns", new Document("$ne", "config.system.sessions"));
+			chunkQuery.append("ns", new BsonDocument("$ne", new BsonString("config.system.sessions")));
 		}
 		return chunkQuery;
 	}
@@ -498,11 +500,11 @@ public class ChunkManager {
 		return destToSourceShardMap.get(destShardName);
 	}
 
-	public void setChunkQuery(Document chunkQuery) {
+	public void setChunkQuery(BsonDocument chunkQuery) {
 		this.chunkQuery = chunkQuery;
 	}
 
-	public Document getChunkQuery() {
+	public BsonDocument getChunkQuery() {
 		return chunkQuery;
 	}
 }

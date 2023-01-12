@@ -92,7 +92,7 @@ public abstract class DiffTask implements Callable<DiffResult> {
     public DiffResult call() throws Exception {
         DiffResult result;
         start = System.currentTimeMillis();
-//
+
         try {
             result = computeDiff();
         } catch (Exception e) {

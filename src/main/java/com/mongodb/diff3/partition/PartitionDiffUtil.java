@@ -104,11 +104,7 @@ public class PartitionDiffUtil {
         Set<Collection> colls = databaseCatalogProvider.get().getUnshardedCollections();
 
         // Initialize diff summary (optionally with db storage)
-        DiffSummaryClient diffSummaryClient = null;
-        if (config.isUseStatusDb()) {
-            diffSummaryClient = new DiffSummaryClient(config.getStatusDbUri(), config.getStatusDbName(),
-                    config.getStatusDbCollName());
-        }
+        DiffSummaryClient diffSummaryClient = config.getDiffSummaryClient();
         DiffSummary summary = new DiffSummary(estimatedTotalDocs, totalSize, diffSummaryClient);
 
         retryQueue = new DelayQueue<>();
