@@ -91,39 +91,45 @@ public class RecheckUtil {
 			
 			BsonArray mismatches = failed.getArray("mismatches");
 			for (BsonValue m : mismatches) {
-				BsonDocument d = (BsonDocument)m;
 				
-				BsonDocument key = null;
-				if (d.containsKey("key")) {
-					key = d.getDocument("key");
+				if (m instanceof BsonDocument) {
+					BsonDocument d = (BsonDocument)m;
+					
+					BsonDocument key = null;
+					if (d.containsKey("key")) {
+						key = d.getDocument("key");
+					} else {
+						key = d;
+					}
+					
+					RawBsonDocument sourceDoc = null;
+					RawBsonDocument destDoc = null;
+					
+					Iterator<RawBsonDocument> sourceDocs = sourceColl.find(eq("_id", key)).iterator();
+					if (sourceDocs.hasNext()) {
+						sourceDoc = sourceDocs.next();
+					} else {
+						logger.debug("{}: source doc does not exist: {}", ns, key);
+					}
+					if (sourceDocs.hasNext()) {
+						logger.error("{}: duplicate source documents found with same key: {}", ns, key);
+					}
+					
+					Iterator<RawBsonDocument> destDocs = destColl.find(eq("_id", key)).iterator();
+					if (destDocs.hasNext()) {
+						destDoc = destDocs.next();
+					} else {
+						logger.debug("{}: dest doc does not exist: {}", ns, key);
+					}
+					if (destDocs.hasNext()) {
+						logger.error("{}: duplicate dest documents found with same key: {}", ns, key);
+					}
+					
+					compareDocuments(ns, sourceDoc, destDoc);
+					
 				} else {
-					key = d;
+					logger.warn("mismatches array entry was not BsonDocument: {}", m);
 				}
-				
-				RawBsonDocument sourceDoc = null;
-				RawBsonDocument destDoc = null;
-				
-				Iterator<RawBsonDocument> sourceDocs = sourceColl.find(eq("_id", key)).iterator();
-				if (sourceDocs.hasNext()) {
-					sourceDoc = sourceDocs.next();
-				} else {
-					logger.debug("{}: source doc does not exist: {}", ns, key);
-				}
-				if (sourceDocs.hasNext()) {
-					logger.error("{}: duplicate source documents found with same key: {}", ns, key);
-				}
-				
-				Iterator<RawBsonDocument> destDocs = destColl.find(eq("_id", key)).iterator();
-				if (destDocs.hasNext()) {
-					destDoc = destDocs.next();
-				} else {
-					logger.debug("{}: dest doc does not exist: {}", ns, key);
-				}
-				if (destDocs.hasNext()) {
-					logger.error("{}: duplicate dest documents found with same key: {}", ns, key);
-				}
-				
-				compareDocuments(ns, sourceDoc, destDoc);
 				
 			}
 		}
