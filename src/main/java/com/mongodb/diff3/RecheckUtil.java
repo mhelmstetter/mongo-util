@@ -20,7 +20,6 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.diff3.DiffSummary.DiffStatus;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
@@ -95,9 +94,9 @@ public class RecheckUtil {
 				if (m instanceof BsonDocument) {
 					BsonDocument d = (BsonDocument)m;
 					
-					BsonDocument key = null;
+					BsonValue key = null;
 					if (d.containsKey("key")) {
-						key = d.getDocument("key");
+						key = d.get("key");
 					} else {
 						key = d;
 					}
