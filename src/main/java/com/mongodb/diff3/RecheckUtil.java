@@ -167,9 +167,10 @@ public class RecheckUtil {
 		Object id = sourceDoc.get("_id");
 		
 		if (sourceBytes.length == destBytes.length) {
-			if (!DiffUtils.compareHashes(sourceBytes, destBytes)) {
-				
-
+			if (DiffUtils.compareHashes(sourceBytes, destBytes)) {
+				//logger.debug("hashes match");
+				return true;
+			} else {
 				if (sourceDoc.equals(destDoc)) {
 					logger.warn(String.format("%s - docs equal, but hash mismatch, id: %s", ns, id));
 					return true;
@@ -177,11 +178,6 @@ public class RecheckUtil {
 					logger.error(String.format("%s - doc hash mismatch, id: %s", ns, id));
 					return false;
 				}
-
-			} else {
-				// should never happen, 2 docs with different byte sizes but matching hashes
-				logger.warn(String.format("%s - hashes match but byte sizes differ, id: %s", ns, id));
-				return false;
 			}
 		} else {
 			
