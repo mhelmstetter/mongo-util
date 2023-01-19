@@ -129,7 +129,8 @@ public class RecheckUtil {
 			if (sourceDocs.hasNext()) {
 				sourceDoc = sourceDocs.next();
 			} else {
-				logger.debug("{}: source doc does not exist: {}", ns, key);
+				logger.error("{}: source doc does not exist: {}", ns, key);
+				continue;
 			}
 			if (sourceDocs.hasNext()) {
 				logger.error("{}: duplicate source documents found with same key: {}", ns, key);
@@ -140,6 +141,7 @@ public class RecheckUtil {
 				destDoc = destDocs.next();
 			} else {
 				logger.debug("{}: dest doc does not exist: {}", ns, key);
+				continue;
 			}
 			if (destDocs.hasNext()) {
 				logger.error("{}: duplicate dest documents found with same key: {}", ns, key);
