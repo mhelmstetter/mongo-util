@@ -128,10 +128,8 @@ public class RecheckUtil {
 			Iterator<RawBsonDocument> sourceDocs = sourceColl.find(eq("_id", key)).iterator();
 			if (sourceDocs.hasNext()) {
 				sourceDoc = sourceDocs.next();
-			} else {
-				logger.error("{}: source doc does not exist: {}", ns, key);
-				continue;
-			}
+			} 
+
 			if (sourceDocs.hasNext()) {
 				logger.error("{}: duplicate source documents found with same key: {}", ns, key);
 			}
@@ -139,12 +137,26 @@ public class RecheckUtil {
 			Iterator<RawBsonDocument> destDocs = destColl.find(eq("_id", key)).iterator();
 			if (destDocs.hasNext()) {
 				destDoc = destDocs.next();
-			} else {
-				logger.debug("{}: dest doc does not exist: {}", ns, key);
-				continue;
-			}
+			} 
+
 			if (destDocs.hasNext()) {
 				logger.error("{}: duplicate dest documents found with same key: {}", ns, key);
+			}
+			
+			if (sourceDoc == null && destDoc == null) {
+				logger.debug("{}: both documents are null, key: {}", ns, key);
+				passedKeys.add(m);
+				continue;
+			}
+			
+			if (sourceDoc == null) {
+				logger.error("{}: source doc does not exist: {}", ns, key);
+				continue;
+			}
+			
+			if (destDoc == null) {
+				logger.error("{}: dest doc does not exist: {}", ns, key);
+				continue;
 			}
 			
 			boolean pass = compareDocuments(ns, sourceDoc, destDoc);
