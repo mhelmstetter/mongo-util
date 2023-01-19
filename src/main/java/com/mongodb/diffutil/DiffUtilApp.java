@@ -32,6 +32,7 @@ public class DiffUtilApp {
     private final static String COMPARE_DOCUMENTS_QUERY = "compareDocumentsQuery";
     
     private final static String COMPARE_IDS = "compareIds";
+    private final static String RETRY = "retry";
     
     private final static String NO_REPORT_MISSING = "noReportMissing";
     private final static String REPORT_MATCHES = "reportMatches";
@@ -53,6 +54,8 @@ public class DiffUtilApp {
                 .withLongOpt(COMPARE_DOCUMENTS_QUERY).create(COMPARE_DOCUMENTS_QUERY));
         options.addOption(OptionBuilder.withArgName("Compare ids ")
                 .withLongOpt(COMPARE_IDS).create(COMPARE_IDS));
+        options.addOption(OptionBuilder.withArgName("Retry failed")
+                .withLongOpt(RETRY).create(RETRY));
         options.addOption(OptionBuilder.withArgName("Do not report missing docs")
                 .withLongOpt(NO_REPORT_MISSING).create(NO_REPORT_MISSING));
         options.addOption(OptionBuilder.withArgName("Report missing docs")
@@ -138,6 +141,9 @@ public class DiffUtilApp {
         }
         if (line.hasOption(COMPARE_IDS)) {
             sync.compareIds();
+        }
+        if (line.hasOption(RETRY)) {
+        	sync.retry();
         }
         
         

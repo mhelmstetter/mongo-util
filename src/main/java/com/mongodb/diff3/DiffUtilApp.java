@@ -1,9 +1,12 @@
 package com.mongodb.diff3;
 
+import static com.mongodb.diff3.DiffConfiguration.PARTITION_MODE;
+import static com.mongodb.diff3.DiffConfiguration.SHARD_MODE;
+import static com.mongodb.diff3.DiffConfiguration.RECHECK_MODE;
+import static org.apache.commons.cli.OptionBuilder.withArgName;
+
 import java.io.File;
 
-import com.mongodb.diff3.partition.PartitionDiffUtil;
-import com.mongodb.diff3.shard.ShardDiffUtil;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
@@ -17,9 +20,8 @@ import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static com.mongodb.diff3.DiffConfiguration.PARTITION_MODE;
-import static com.mongodb.diff3.DiffConfiguration.SHARD_MODE;
-import static org.apache.commons.cli.OptionBuilder.withArgName;
+import com.mongodb.diff3.partition.PartitionDiffUtil;
+import com.mongodb.diff3.shard.ShardDiffUtil;
 
 public class DiffUtilApp {
 
@@ -36,12 +38,22 @@ public class DiffUtilApp {
     private final static String DEFAULT_PARTITION_SIZE = "defaultPartitionSize";
     private final static String MODE = "mode";
     private final static String DEFAULT_MODE = "partition";
+    private final static String MAX_RETRIES = "maxRetries";
+    private final static String USE_STATUS_DB = "useStatusDb";
+    private final static String STATUS_DB_URI = "statusDbUri";
+    private final static String STATUS_DB_NAME = "statusDbName";
+    private final static String STATUS_DB_COLL_NAME = "statusDbCollName";
+    private static final String SHARD_MAP = "shardMap";
 
     private final static String DEFAULT_THREADS = "8";
     private final static String DEFAULT_SAMPLE_RATE = "0.04";
     private final static String DEFAULT_SAMPLE_MIN_DOCS = "101";
     private final static String DEFAULT_MAX_DOCS_TO_SAMPLE_PER_PARTITION = "10";
     private final static String DEFAULT_DEFAULT_PARTITION_SIZE = String.valueOf(400  * 1024 * 1024);
+    private final static String DEFAULT_MAX_RETRIES = "5";
+    private final static String DEFAULT_USE_STATUS_DB = "true";
+    private final static String DEFAULT_STATUS_DB_NAME = "Diff3";
+    private final static String DEFAULT_STATUS_DB_COLL_NAME = "Status";
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -68,6 +80,11 @@ public class DiffUtilApp {
                 .withLongOpt(MAX_DOCS_TO_SAMPLE_PER_PARTITION).create());
         options.addOption(withArgName("Default size (bytes) for partitions").hasArg()
                 .withLongOpt(DEFAULT_PARTITION_SIZE).create());
+        options.addOption(withArgName("Max retries").hasArg().withLongOpt(MAX_RETRIES).create());
+        options.addOption(withArgName("Use Status DB").hasArg().withLongOpt(USE_STATUS_DB).create());
+        options.addOption(withArgName("Status DB URI").hasArg().withLongOpt(STATUS_DB_URI).create());
+        options.addOption(withArgName("Status DB Name").hasArg().withLongOpt(STATUS_DB_NAME).create());
+        options.addOption(withArgName("Status DB Collection Name").hasArg().withLongOpt(STATUS_DB_COLL_NAME).create());
 
         CommandLineParser parser = new GnuParser();
 
@@ -151,6 +168,22 @@ public class DiffUtilApp {
                         DEFAULT_MAX_DOCS_TO_SAMPLE_PER_PARTITION)));
         config.setDefaultPartitionSize(Long.parseLong(
                 getConfigValue(line, properties, DEFAULT_PARTITION_SIZE, DEFAULT_DEFAULT_PARTITION_SIZE)));
+        config.setMaxRetries(Integer.parseInt(getConfigValue(line, properties, MAX_RETRIES, DEFAULT_MAX_RETRIES)));
+        config.setUseStatusDb(Boolean.parseBoolean(getConfigValue(
+                line, properties, USE_STATUS_DB, DEFAULT_USE_STATUS_DB)));
+        if (config.isUseStatusDb()) {
+            config.setStatusDbUri(getConfigValue(line, properties, STATUS_DB_URI));
+            config.setStatusDbName(getConfigValue(line, properties, STATUS_DB_NAME, DEFAULT_STATUS_DB_NAME));
+            config.setStatusDbCollName(getConfigValue(line, properties,
+                    STATUS_DB_COLL_NAME, DEFAULT_STATUS_DB_COLL_NAME));
+        }
+        
+        String shardMaps = properties.getString(SHARD_MAP);
+        if (shardMaps != null) {
+            config.setShardMap(shardMaps.split(","));
+        } else {
+            config.setShardMap(line.getOptionValues("m"));
+        }
 
         config.setNamespaceFilters(line.getOptionValues("f"));
         if (config.getMode().equals(PARTITION_MODE)) {
@@ -159,6 +192,11 @@ public class DiffUtilApp {
         } else if (config.getMode().equals(SHARD_MODE)) {
             ShardDiffUtil shardDiffUtil = new ShardDiffUtil(config);
             shardDiffUtil.run();
+            
+        } else if (config.getMode().equals(RECHECK_MODE)) {
+        	RecheckUtil rechecker = new RecheckUtil(config);
+        	rechecker.recheck();
+        	
         } else {
             System.out.println("Unknown mode: " + config.getMode() + ". Exiting.");
             System.exit(1);

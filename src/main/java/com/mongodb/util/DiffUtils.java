@@ -40,10 +40,15 @@ public class DiffUtils {
 		Set<String> diff = null;
 		if (!setsEqual) {
 			diff = Sets.difference(sourceKeys, destKeys);
-			logger.debug("    - keys do not match: keys missing from source" + diff);
+			if (! diff.isEmpty()) {
+				logger.debug("{} - keys do not match, keys missing from source: {}, _id: {}", ns, diff, id);
+			} else {
+				diff = Sets.difference(destKeys, sourceKeys);
+				logger.debug("{} keys do not match, keys missing from dest: {}, _id: {}", ns, diff, id);
+			}
+			
 
-			diff = Sets.difference(destKeys, sourceKeys);
-			logger.debug("    - keys do not match: keys missing from dest" + diff);
+			
 			sortedKeys.addAll(diff);
 		}
 
@@ -56,8 +61,8 @@ public class DiffUtils {
 			BsonValue destVal = destDoc.get(key);
 			boolean valuesEqual = sourceVal != null && destVal != null && sourceVal.equals(destVal);
 			if (!valuesEqual) {
-				logger.debug(String.format("    - values not equal for key: %s, sourceVal: %s, destVal: %s", key,
-						sourceVal, destVal));
+				logger.debug("{} - values not equal for key: {}, sourceVal: {}, destVal: {}", ns, key,
+						sourceVal, destVal);
 			}
 			if (sourceVal != null) {
 				sourceDocNew.append(key, sourceVal);
@@ -71,7 +76,7 @@ public class DiffUtils {
 				RawBsonDocument destRawNew = new RawBsonDocument(destDocNew, new BsonDocumentCodec());
 				boolean newDocsMatch = DiffUtils.compareHashes(sourceRawNew.getByteBuffer().array(),
 						destRawNew.getByteBuffer().array());
-				logger.debug(String.format("%s - bytes match: %s", ns, newDocsMatch));
+				//logger.debug(String.format("%s - bytes match: %s", ns, newDocsMatch));
 			}
 		}
 		return sourceDoc.equals(destDoc);

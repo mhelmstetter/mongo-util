@@ -1,7 +1,5 @@
 package com.mongodb.oplog.analyzer;
 
-import java.io.FileWriter;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -21,7 +19,6 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.model.Shard;
 import com.mongodb.shardsync.ShardClient;
-import com.opencsv.CSVWriter;
 
 public class OplogAnalyzer {
 

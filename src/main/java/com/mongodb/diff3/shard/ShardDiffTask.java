@@ -1,6 +1,12 @@
 package com.mongodb.diff3.shard;
 
+import java.util.Queue;
+
+import org.bson.BsonDocument;
+import org.bson.RawBsonDocument;
+
 import com.mongodb.client.MongoClient;
+import com.mongodb.diff3.ChunkDef;
 import com.mongodb.diff3.DiffConfiguration;
 import com.mongodb.diff3.DiffResult;
 import com.mongodb.diff3.DiffSummary;
@@ -9,42 +15,37 @@ import com.mongodb.diff3.RetryStatus;
 import com.mongodb.diff3.RetryTask;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
-import org.apache.commons.lang3.tuple.Pair;
-import org.bson.BsonDocument;
-import org.bson.RawBsonDocument;
-import org.bson.conversions.Bson;
-
-import java.util.Queue;
 
 public class ShardDiffTask extends DiffTask {
 
-    private final ShardClient sourceShardClient;
-    private final ShardClient destShardClient;
+    protected ShardClient sourceShardClient;
+    protected ShardClient destShardClient;
 
-    private final String srcShardName;
-    private final String destShardName;
+    protected final String srcShardName;
+    protected final String destShardName;
 
-    private final RawBsonDocument chunk;
-    private String chunkString = "[:]";
+    protected final RawBsonDocument chunk;
 
-    public ShardDiffTask(ShardClient sourceShardClient, ShardClient destShardClient, DiffConfiguration config,
+    public ShardDiffTask(DiffConfiguration config,
                          RawBsonDocument chunk, Namespace namespace, String srcShardName,
                          String destShardName, Queue<RetryTask> retryQueue, DiffSummary summary) {
         super(config, namespace, retryQueue, summary);
-        this.sourceShardClient = sourceShardClient;
-        this.destShardClient = destShardClient;
+        if (config != null) {
+        	 this.sourceShardClient = config.getSourceShardClient();
+             this.destShardClient = config.getDestShardClient();
+        }
+       
         this.chunk = chunk;
         this.srcShardName = srcShardName;
         this.destShardName = destShardName;
+        this.chunkDef = findChunkBounds();
     }
 
-    private Pair<Bson, Bson> findChunkBounds() {
-        Bson query;
-        BsonDocument min = chunk.getDocument("min");
-        BsonDocument max = chunk.getDocument("max");
-        chunkString = "[" + min.toString() + " : " + max.toString() + "]";
-
-        return Pair.of(min, max);
+    private ChunkDef findChunkBounds() {
+        BsonDocument min = chunk != null ? chunk.getDocument("min") : null;
+        BsonDocument max = chunk != null ? chunk.getDocument("max") : null;
+//        chunkString = "[" + min.toString() + " : " + max.toString() + "]";
+        return new ChunkDef(namespace, min, max);
     }
 
     @Override
@@ -66,35 +67,23 @@ public class ShardDiffTask extends DiffTask {
         return shardClient.getShardMongoClient(shardName);
     }
 
-    protected Pair<Bson, Bson> getChunkBounds() {
-        return (chunk != null) ? findChunkBounds() : null;
+//    protected Pair<Bson, Bson> getChunkBounds() {
+//        return (chunk != null) ? findChunkBounds() : null;
+//    }
+
+    @Override
+    protected String unitString() {
+        return chunkDef.unitString();
     }
 
     @Override
-    protected String unitLogString() {
-        return namespace + "-" + chunkString;
-    }
-
-    @Override
-    protected DiffResult initDiffResult() {
-        ShardDiffResult result = new ShardDiffResult();
-        result.setNamespace(namespace);
-        result.setChunkString(chunkString);
-        return result;
-    }
-
-    @Override
-    protected ShardRetryTask endToken() {
+    protected RetryTask endToken() {
         return ShardRetryTask.END_TOKEN;
     }
 
     @Override
     protected ShardRetryTask createRetryTask(RetryStatus retryStatus, DiffResult result) {
-        return new ShardRetryTask(retryStatus, this, (ShardDiffResult) result,
-                result.getFailedKeys(), retryQueue, summary);
-    }
-
-    public String getChunkString() {
-        return chunkString;
+        return new ShardRetryTask(retryStatus, sourceShardClient, destShardClient, srcShardName, destShardName,
+                namespace, chunk, config, result.getFailedKeys(), retryQueue, summary);
     }
 }
