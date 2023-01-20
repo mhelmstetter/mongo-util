@@ -1377,13 +1377,12 @@ public class ShardConfigSync implements Callable<Integer> {
 		sourceShardClient.populateShardMongoClients();
 		Collection<Shard> shards = sourceShardClient.getShardsMap().values();
 		for (Shard shard : shards) {
-			ShardTimestamp st = sourceShardClient.populateLatestOplogTimestamp(shard.getId(), startingTs);
-			logger.debug(st.toString());
+			ShardTimestamp st = sourceShardClient.populateLatestOplogTimestamp(shard, startingTs);
+			logger.debug(st.toJsonString());
 			try {
 				BufferedWriter writer = new BufferedWriter(new FileWriter(new File(shard.getId() + ".timestamp")));
-				writer.write(shard.getRsName());
+				writer.write(st.toJsonString());
 				writer.newLine();
-				writer.write(String.valueOf(st.getTimestamp().getValue()));
 				writer.close();
 				
 			} catch (IOException e) {
@@ -1496,14 +1495,6 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 
 			mongomirror.setMongomirrorBinary(config.mongomirrorBinary);
-			
-//			String dateStr = null;
-//			if (bookmarkFilePrefix != null) {
-//				dateStr = bookmarkFilePrefix;
-//			} else {
-//				dateStr = formatter.format(LocalDateTime.now());
-//			}
-//			mongomirror.setBookmarkFile(String.format("%s_%s.timestamp", dateStr, source.getId()));
 			mongomirror.setBookmarkFile(source.getId() + ".timestamp");
 
 			mongomirror.setNumParallelCollections(config.numParallelCollections);

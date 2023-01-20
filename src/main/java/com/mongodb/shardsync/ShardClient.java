@@ -599,19 +599,43 @@ public class ShardClient {
 	}
 
 	public BsonTimestamp getLatestOplogTimestamp(String shardId, Bson query) {
-		MongoClient client = shardMongoClients.get(shardId);
-		MongoCollection<Document> coll = client.getDatabase("local").getCollection("oplog.rs");
-		Document doc = null;
-		if (query != null) {
-			doc = coll.find(query).comment("getLatestOplogTimestamp").projection(include("ts")).sort(eq("$natural", -1)).first();
-		} else {
-			doc = coll.find().comment("getLatestOplogTimestamp").projection(include("ts")).sort(eq("$natural", -1)).first();
-		}
-		BsonTimestamp ts = (BsonTimestamp) doc.get("ts");
+		BsonDocument doc = getLatestOplogEntry(shardId, query);
+		BsonTimestamp ts = doc.getTimestamp("ts");
 		return ts;
+	}
+	
+	public BsonDocument getLatestOplogEntry(String shardId, Bson query) {
+		MongoClient client = shardMongoClients.get(shardId);
+		MongoCollection<BsonDocument> coll = client.getDatabase("local").getCollection("oplog.rs", BsonDocument.class);
+		Bson proj = include("ts","t","h");
+		Bson sort = eq("$natural", -1);
+		BsonDocument doc = null;
+		if (query != null) {
+			doc = coll.find(query).comment("getLatestOplogTimestamp").projection(proj).sort(sort).first();
+		} else {
+			doc = coll.find().comment("getLatestOplogTimestamp").projection(proj).sort(sort).first();
+		}
+		return doc;
+	}
+	
+	public ShardTimestamp populateLatestOplogTimestamp(Shard shard, String startingTs) {
+		String shardId = shard.getId();
+		Bson query = getLatestOplogQuery(startingTs);
+		BsonDocument oplogEntry = getLatestOplogEntry(shardId, query);
+		ShardTimestamp st = new ShardTimestamp(shard, oplogEntry);
+		this.getShardsMap().get(shardId).setSyncStartTimestamp(st);
+		return st;
 	}
 
 	public ShardTimestamp populateLatestOplogTimestamp(String shardId, String startingTs) {
+		Bson query = getLatestOplogQuery(startingTs);
+		BsonDocument oplogEntry = getLatestOplogEntry(shardId, query);
+		ShardTimestamp st = new ShardTimestamp(shardId, oplogEntry.getTimestamp("ts"));
+		this.getShardsMap().get(shardId).setSyncStartTimestamp(st);
+		return st;
+	}
+	
+	private Bson getLatestOplogQuery(String startingTs) {
 		Bson query = null;
 		if (startingTs != null) {
 			if (startingTs.contains(",")) {
@@ -624,10 +648,7 @@ public class ShardClient {
 			}
 
 		}
-		BsonTimestamp ts = getLatestOplogTimestamp(shardId, query);
-		ShardTimestamp st = new ShardTimestamp(shardId, ts);
-		this.getShardsMap().get(shardId).setSyncStartTimestamp(st);
-		return st;
+		return query;
 	}
 
 	/**
