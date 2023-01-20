@@ -47,7 +47,7 @@ public class ShardTimestamp {
     	ts.addProperty("I", timestamp.getInc());
     	opTime.add("timestamp", ts);
     	opTime.addProperty("term", oplogEntry.getNumber("t").intValue());
-    	opTime.addProperty("hash", oplogEntry.getNumber("h").intValue());
+    	opTime.addProperty("hash", 0);
     	
     	
     	return j.toString();

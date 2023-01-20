@@ -607,7 +607,7 @@ public class ShardClient {
 	public BsonDocument getLatestOplogEntry(String shardId, Bson query) {
 		MongoClient client = shardMongoClients.get(shardId);
 		MongoCollection<BsonDocument> coll = client.getDatabase("local").getCollection("oplog.rs", BsonDocument.class);
-		Bson proj = include("ts","t","h");
+		Bson proj = include("ts","t");
 		Bson sort = eq("$natural", -1);
 		BsonDocument doc = null;
 		if (query != null) {
