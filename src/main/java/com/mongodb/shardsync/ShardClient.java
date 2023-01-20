@@ -622,6 +622,7 @@ public class ShardClient {
 		String shardId = shard.getId();
 		Bson query = getLatestOplogQuery(startingTs);
 		BsonDocument oplogEntry = getLatestOplogEntry(shardId, query);
+		logger.debug("latest oplog entry: {}", oplogEntry);
 		ShardTimestamp st = new ShardTimestamp(shard, oplogEntry);
 		this.getShardsMap().get(shardId).setSyncStartTimestamp(st);
 		return st;
