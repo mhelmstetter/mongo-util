@@ -7,22 +7,22 @@ public class CollectionStats {
     private String namespace;
     private long size;
     private long count;
-    private int numIndexes;
-    private int storageSize;
-    private int freeStorageSize;
-    private int totalIndexSize;
-    private int totalSize;
+    private Number numIndexes;
+    private Number storageSize;
+    private Number freeStorageSize;
+    private Number totalIndexSize;
+    private Number totalSize;
 
     public static CollectionStats fromDocument(Document doc) {
         CollectionStats stats = new CollectionStats();
         Document wt = (Document)doc.get("wiredTiger");
         Document blockManager = (Document)wt.get("block-manager");
-        Integer reuse = blockManager.getInteger("file bytes available for reuse");
-        stats.numIndexes = doc.getInteger("nindexes");
-        stats.freeStorageSize = doc.getInteger("freeStorageSize");
-        stats.storageSize = doc.getInteger("storageSize");
-        stats.totalIndexSize = doc.getInteger("totalIndexSize");
-        stats.totalSize = doc.getInteger("totalSize");
+        Number reuse = getNumber(blockManager, "file bytes available for reuse");
+        stats.numIndexes = getNumber(doc, "nindexes");
+        stats.freeStorageSize = getNumber(doc, "freeStorageSize");
+        stats.storageSize = getNumber(doc, "storageSize");
+        stats.totalIndexSize = getNumber(doc, "totalIndexSize");
+        stats.totalSize = getNumber(doc, "totalSize");
         
         
         if(! reuse.equals(stats.freeStorageSize)) {
@@ -33,6 +33,10 @@ public class CollectionStats {
         stats.size = getLong(doc, "size");
         stats.count = getLong(doc, "count");
         return stats;
+    }
+    
+    private static Number getNumber(Document doc, String key) {
+    	return (Number)doc.get(key);
     }
 
     private static Boolean getBoolean(Document doc, String key) {
@@ -102,23 +106,23 @@ public class CollectionStats {
 		return builder.toString();
 	}
 
-	public int getNumIndexes() {
+	public Number getNumIndexes() {
 		return numIndexes;
 	}
 
-	public int getFreeStorageSize() {
+	public Number getFreeStorageSize() {
 		return freeStorageSize;
 	}
 
-	public int getStorageSize() {
+	public Number getStorageSize() {
 		return storageSize;
 	}
 
-	public int getTotalIndexSize() {
+	public Number getTotalIndexSize() {
 		return totalIndexSize;
 	}
 
-	public int getTotalSize() {
+	public Number getTotalSize() {
 		return totalSize;
 	}
 }
