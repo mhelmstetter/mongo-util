@@ -9,6 +9,7 @@ import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.security.KeyManagementException;
@@ -17,6 +18,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -85,6 +87,8 @@ import com.mongodb.mongomirror.MongoMirrorRunner;
 import com.mongodb.mongomirror.model.MongoMirrorStatus;
 import com.mongodb.mongomirror.model.MongoMirrorStatusInitialSync;
 import com.mongodb.mongomirror.model.MongoMirrorStatusOplogSync;
+import com.opencsv.CSVReader;
+import com.opencsv.CSVReaderBuilder;
 import com.opencsv.CSVWriter;
 
 import picocli.CommandLine.Command;
@@ -440,27 +444,81 @@ public class ShardConfigSync implements Callable<Integer> {
 		
 	}
 	
+	private boolean destUserExists(User user) {
+		Document userDoc = new Document("user", user.getUser()).append("db", user.getDb());
+		Document userInfoCmd = new Document("usersInfo", userDoc);
+		Document usersInfoResult = this.destShardClient.adminCommand(userInfoCmd);
+		List<Document> users = usersInfoResult.getList("users", Document.class);
+		return users != null && !users.isEmpty();
+	}
+	
 	public void syncUsers() throws IOException {
 		
+		boolean sourceIsAtlas = this.sourceShardClient.isAtlas();
+		boolean destIsAtlas = this.destShardClient.isAtlas();
+		logger.debug("sourceIsAtlas: {}, destIsAtlas: {}", sourceIsAtlas, destIsAtlas);
+		
+		Map<String, String> usersMap = null;
+		String usersInputCsv = config.getUsersInputCsv();
+		File usersInputFile = null;
+		if (usersInputCsv != null) {
+			usersInputFile = new File(usersInputCsv);
+			if (usersInputFile.exists()) {
+				CSVReader csvReader = new CSVReaderBuilder(new FileReader(usersInputFile))
+					    .withSkipLines(0)
+					    //.withCSVParser(parser)
+					    .build();
+				usersMap = new HashMap<>();
+				List<String[]> lines = csvReader.readAll();
+				for (String[] line : lines) {
+					usersMap.put(line[0], line[1]);
+				}
+				logger.debug("syncUsers() populated {} users from {}", usersMap.size(), usersInputCsv);
+			}
+		}
+		
 		CSVWriter writer = new CSVWriter(new FileWriter("users.csv"));
-		String[] header = { "user", "password", "roles"};
+		String[] header = { "user", "db", "password", "roles"};
 		writer.writeNext(header);
 		
 		List<User> users = this.sourceShardClient.getUsers();
 		for (User u : users) {
-			String password = RandomStringUtils.random(16, true, true);
+			String password = null;
+			String type = null;
+			if (usersMap != null && usersMap.containsKey(u.getUser())) {
+				password = usersMap.get(u.getUser());
+				type = "password from CSV";
+			} else {
+				password = RandomStringUtils.random(16, true, true);
+				type = "random password";
+			}
 			AtlasUser atlasUser = new AtlasUser(u, password);
 			
-			if (!u.getDb().equals("admin")) {
-				atlasUser.setUsername(u.getUser() + "_" + u.getDb());
+			if (destIsAtlas) {
+				if (!u.getDb().equals("admin")) {
+					atlasUser.setUsername(u.getUser() + "_" + u.getDb());
+				}
+				
+				try {
+					atlasUtil.createUser(config.atlasProjectId, atlasUser);
+				} catch (KeyManagementException | NoSuchAlgorithmException | IOException e) {
+					logger.error("syncUsers() error: {}", atlasUser, e);
+				}
+			} else {
+				if (u.getUser().equals("ctxapp1")) {
+					System.out.println();
+				}
+				if (destUserExists(u)) {
+					Document updateUserCmd = new Document("updateUser", u.getUser()).append("pwd", password);
+					Document result = this.destShardClient.runCommand(updateUserCmd, u.getDb());
+					logger.debug("destination non-Atlas user {} updated with {}, result: {}", u.getUser(), type, result);
+				} else {
+					logger.warn("user {} does not exist, not updating password", u.getUser());
+				}
+				
 			}
 			
-			try {
-				atlasUtil.createUser(config.atlasProjectId, atlasUser);
-			} catch (KeyManagementException | NoSuchAlgorithmException | IOException e) {
-				logger.error("syncUsers() error: {}", atlasUser, e);
-			}
-			writer.writeNext(new String[] { u.getUser(), password, atlasUser.getRoles().toString() });
+			writer.writeNext(new String[] { u.getUser(), u.getDb(), password, atlasUser.getRoles().toString() });
 			
 		}
 		writer.flush();

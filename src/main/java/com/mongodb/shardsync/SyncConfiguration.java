@@ -59,6 +59,9 @@ public class SyncConfiguration extends BaseConfiguration {
 	public boolean sslAllowInvalidHostnames;
 	public boolean sslAllowInvalidCertificates;
 	public boolean skipFlushRouterConfig;
+	
+	private String usersInputCsv;
+    private String usersOutputCsv;
 
 	public SyncConfiguration() {
 		super();
@@ -385,5 +388,21 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setStopWhenLagWithin(int stopWhenLagWithin) {
 		this.stopWhenLagWithin = stopWhenLagWithin;
+	}
+
+	public String getUsersInputCsv() {
+		return usersInputCsv;
+	}
+
+	public void setUsersInputCsv(String usersInputCsv) {
+		this.usersInputCsv = usersInputCsv;
+	}
+
+	public String getUsersOutputCsv() {
+		return usersOutputCsv;
+	}
+
+	public void setUsersOutputCsv(String usersOutputCsv) {
+		this.usersOutputCsv = usersOutputCsv;
 	}
 }

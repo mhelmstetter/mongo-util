@@ -885,23 +885,27 @@ public class ShardClient {
 			adminCommand(new Document("balancerStop", 1));
 		}
 	}
-
-	public Document adminCommand(Document command) {
+	
+	public Document runCommand(Document command, String dbName) {
 		Document result = null;
 		for (int i = 0; i < 2; i++) {
 			try {
-				result = mongoClient.getDatabase("admin").runCommand(command);
+				result = mongoClient.getDatabase(dbName).runCommand(command);
 				return result;
 			} catch (MongoSocketException mse) {
 				if (i == 0) {
-					logger.warn("Socket exception in adminCommand(), first attempt will retry", mse);
+					logger.warn("Socket exception in runCommand(), first attempt will retry", mse);
 				} else {
-					logger.error("Socket exception in adminCommand(), last attempt, no more retries", mse);
+					logger.error("Socket exception in runCommand(), last attempt, no more retries", mse);
 				}
 			}
 		}
 		
 		return result;
+	}
+
+	public Document adminCommand(Document command) {
+		return runCommand(command, "admin");
 	}
 
 	public String getVersion() {
@@ -917,6 +921,18 @@ public class ShardClient {
 			return true;
 		}
 		return false;
+	}
+	
+	public boolean isAtlas() {
+		if (connectionString != null) {
+			List<String> hosts = connectionString.getHosts();
+			if (hosts != null && hosts.size() > 0) {
+				String host = hosts.get(0);
+				return host.contains("mongodb.net");
+			}
+		}
+		return false;
+		
 	}
 
 	public Map<String, Shard> getShardsMap() {

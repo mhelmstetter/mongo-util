@@ -63,6 +63,8 @@ public class ShardConfigSyncApp {
     private final static String SYNC_METADATA = "syncMetadata";
     private final static String SYNC_METADATA_OPTIMIZED = "syncMetadataOptimized";
     private final static String SYNC_USERS = "syncUsers";
+    private final static String USERS_INPUT_CSV = "usersInput";
+    private final static String USERS_OUTPUT_CSV = "usersOutput";
     private final static String SYNC_ROLES = "syncRoles";
     private final static String DIFF_USERS = "diffUsers";
     private final static String DIFF_ROLES = "diffRoles";
@@ -382,6 +384,11 @@ public class ShardConfigSyncApp {
         config.setAtlasApiPublicKey(properties.getString(ATLAS_API_PUBLIC_KEY));
         config.setAtlasApiPrivateKey(properties.getString(ATLAS_API_PRIVATE_KEY));
         config.setAtlasProjectId(properties.getString(ATLAS_PROJECT_ID));
+        
+        String usersInputCsv = getConfigValue(line, properties, USERS_INPUT_CSV, "usersInput.csv");
+        String usersOutputCsv = getConfigValue(line, properties, USERS_OUTPUT_CSV, "usersInput.csv");
+        config.setUsersInputCsv(usersInputCsv);
+        config.setUsersOutputCsv(usersOutputCsv);
 
         config.setSourceClusterPattern(properties.getString(SOURCE_URI_PATTERN));
         config.setDestClusterPattern(properties.getString(DEST_URI_PATTERN));
