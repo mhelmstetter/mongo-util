@@ -74,6 +74,7 @@ public class StatsUtil {
 					CollectionStats cs = c.getCollectionStats();
 					
 					Document stats = new Document();
+					stats.append("host", sa.getHost());
 					stats.append("shardId", shardId);
 					stats.append("ns", c.getNamespace().getNamespace());
 					stats.append("count", cs.getCount());
