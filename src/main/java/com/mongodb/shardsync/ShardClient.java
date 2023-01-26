@@ -553,7 +553,8 @@ public class ShardClient {
 			}
 
 			settingsBuilder.applyToClusterSettings(builder -> builder.hosts(serverAddressList));
-
+			
+			
 			if (connectionString.getSslEnabled() != null) {
 				settingsBuilder.applyToSslSettings(builder -> builder.enabled(connectionString.getSslEnabled()));
 			}
@@ -574,6 +575,7 @@ public class ShardClient {
 			MongoClientSettings settings = settingsBuilder.build();
 			MongoClient mongoClient = MongoClients.create(settings);
 
+			shardMongoClients.put(shard.getId(), mongoClient);
 
 			// logger.debug(String.format("%s isMaster started: %s", name, shardHost));
 			Document isMasterResult = mongoClient.getDatabase("admin").runCommand(new Document("isMaster", 1));
@@ -582,8 +584,6 @@ public class ShardClient {
 			} else {
 				// logger.debug(String.format("%s isMaster complete: %s", name, shardHost));
 			}
-
-			shardMongoClients.put(shard.getId(), mongoClient);
 		}
 	}
 

@@ -61,7 +61,7 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider 
         }
         for (String dbName : dbNames) {
             if (excludedSystemDbs.contains(dbName) || (!includeAll && !includeMap.containsKey(dbName))) {
-                logger.debug("Excluding db: {}", dbName);
+                logger.trace("Excluding db: {}", dbName);
                 continue;
             }
             Database db = new Database(dbName);

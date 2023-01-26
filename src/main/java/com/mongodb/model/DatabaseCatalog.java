@@ -44,5 +44,9 @@ public class DatabaseCatalog {
 	public Database getDatabase(String dbName) {
 		return databases.get(dbName);
 	}
+	
+	public java.util.Collection<Database> getDatabases() {
+		return databases.values();
+	}
 
 }

@@ -7,9 +7,27 @@ public class CollectionStats {
     private String namespace;
     private long size;
     private long count;
+    private int numIndexes;
+    private int storageSize;
+    private int freeStorageSize;
+    private int totalIndexSize;
+    private int totalSize;
 
     public static CollectionStats fromDocument(Document doc) {
         CollectionStats stats = new CollectionStats();
+        Document wt = (Document)doc.get("wiredTiger");
+        Document blockManager = (Document)wt.get("block-manager");
+        Integer reuse = blockManager.getInteger("file bytes available for reuse");
+        stats.numIndexes = doc.getInteger("nindexes");
+        stats.freeStorageSize = doc.getInteger("freeStorageSize");
+        stats.storageSize = doc.getInteger("storageSize");
+        stats.totalIndexSize = doc.getInteger("totalIndexSize");
+        stats.totalSize = doc.getInteger("totalSize");
+        
+        
+        if(! reuse.equals(stats.freeStorageSize)) {
+        	System.out.println(doc.get("ns") + " reuse differs from freeStorageSize");
+        }
         stats.sharded = getBoolean(doc, "sharded");
         stats.namespace = getString(doc, "ns");
         stats.size = getLong(doc, "size");
@@ -27,7 +45,7 @@ public class CollectionStats {
                         .getClass().getName()));
             }
         }
-        return null;
+        return false;
     }
 
     private static String getString(Document doc, String key) {
@@ -82,5 +100,25 @@ public class CollectionStats {
 		builder.append(count);
 		builder.append("]");
 		return builder.toString();
+	}
+
+	public int getNumIndexes() {
+		return numIndexes;
+	}
+
+	public int getFreeStorageSize() {
+		return freeStorageSize;
+	}
+
+	public int getStorageSize() {
+		return storageSize;
+	}
+
+	public int getTotalIndexSize() {
+		return totalIndexSize;
+	}
+
+	public int getTotalSize() {
+		return totalSize;
 	}
 }
