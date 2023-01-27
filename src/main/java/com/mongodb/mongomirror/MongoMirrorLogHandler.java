@@ -17,7 +17,7 @@ public class MongoMirrorLogHandler extends LogOutputStream {
     };
     
     // don't alert if we match an error that also matches any exclusion
-    private final static String[] EXCLUSION_PHRASES = new String[] {"warning"};
+    private final static String[] EXCLUSION_PHRASES = new String[] {"warning", "Recoverable error", "transient error"};
     
     private static final String REGEX_PREFIX = ".*(?:";
     private static final String REGEX_SUFFIX = ").*";
