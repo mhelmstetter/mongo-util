@@ -920,11 +920,12 @@ public class ShardConfigSync implements Callable<Integer> {
 		}
 	}
 	
-	public void compareCollectionUuids() {
+	public List<String> compareCollectionUuids() {
 		String name = "dest";
 		logger.debug(String.format("%s - Starting compareCollectionUuids", name));
 		destShardClient.populateShardMongoClients();
 
+		List<String> failures = new ArrayList<>();
 		List<String> dbNames = new ArrayList<>();
 		destShardClient.listDatabaseNames().into(dbNames);
 
@@ -964,7 +965,7 @@ public class ShardConfigSync implements Callable<Integer> {
 					collectionUuidMappings.put(ns, uuidMapping);
 
 					if (uuid == null) {
-						System.out.println("wtf");
+						logger.error("Unexpected - uuid for {}.{} was null", databaseName, collectionName);
 					}
 					Set<String> shardNames = uuidMapping.get(uuid);
 					if (shardNames == null) {
@@ -990,7 +991,9 @@ public class ShardConfigSync implements Callable<Integer> {
 				logger.debug(String.format("%s ==> %s", ns, uuidMappings));
 			} else {
 				failureCount++;
-				logger.error(String.format("%s ==> %s", ns, uuidMappings));
+				String failureMessage = String.format("%s ==> %s", ns, uuidMappings);
+				logger.error(failureMessage);
+				failures.add(failureMessage);
 				uuidFailure(ns, uuidMappings);
 			}
 		}
@@ -1002,6 +1005,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			logger.error(String.format("%s - compareCollectionUuids complete: successCount: %s, failureCount: %s", name,
 					successCount, failureCount));
 		}
+		return failures;
 	}
 	
 	

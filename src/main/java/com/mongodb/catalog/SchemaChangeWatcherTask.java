@@ -42,7 +42,7 @@ public class SchemaChangeWatcherTask extends TimerTask {
 	@Override
 	public void run() {
 
-		logger.debug("{}: run started", name);
+		logger.debug("{}: {} run started", name, this.getClass().getSimpleName());
 		shardClient.populateCollectionsMap(true);
 		shardClient.populateDatabaseCatalog();
 		DatabaseCatalog newCatalog = shardClient.getDatabaseCatalog();
@@ -73,7 +73,7 @@ public class SchemaChangeWatcherTask extends TimerTask {
 		}
 
 		catalog = newCatalog;
-		logger.debug("{}: run complete", name);
+		logger.debug("{}: {} run complete", name, this.getClass().getSimpleName());
 	}
 
 }

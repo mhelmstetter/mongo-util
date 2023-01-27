@@ -1,5 +1,8 @@
 package com.mongodb.catalog;
 
+import static com.mongodb.shardsync.BaseConfiguration.Constants.DEST_URI;
+import static com.mongodb.shardsync.BaseConfiguration.Constants.SOURCE_URI;
+
 import java.io.File;
 import java.util.Timer;
 
@@ -16,6 +19,9 @@ import org.apache.commons.configuration2.builder.fluent.Configurations;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.mongodb.shardsync.ShardConfigSync;
+import com.mongodb.shardsync.SyncConfiguration;
 
 import jakarta.mail.internet.AddressException;
 
@@ -51,8 +57,20 @@ public class SchemaChangeWatcher {
     
     private long checkIntervalSeconds;
     
+    private ShardConfigSync sync;
+    
+    public SchemaChangeWatcher(Configuration properties) {
+    	SyncConfiguration config = new SyncConfiguration();
+        config.setSourceClusterUri(line.getOptionValue("s", properties.getString(SOURCE_URI)));
+        config.setDestClusterUri(line.getOptionValue("d", properties.getString(DEST_URI)));
+        
+        sync = new ShardConfigSync(config);
+        sync.initialize();
+    }
+    
     public void init() {
     	logger.debug("SchemaChangeWatcher init(), {} clusterUris configured", clusterUris.length);
+    	
     	String name;
     	int i = 0;
     	for (String clusterUri : clusterUris) {
@@ -66,6 +84,10 @@ public class SchemaChangeWatcher {
     		SchemaChangeWatcherTask sourceTask = new SchemaChangeWatcherTask(name, clusterUri, emailSender);
             Timer timer = new Timer("SchemaChangeWatcher timer");
             timer.scheduleAtFixedRate(sourceTask, 0, checkIntervalSeconds*1000L);
+            
+            CollectionUuidWatcherTask uuidTask = new CollectionUuidWatcherTask(name, sync, emailSender);
+            Timer t2 = new Timer("CollectionUuidWatcher timer");
+            t2.scheduleAtFixedRate(uuidTask, 0, checkIntervalSeconds*1000L);
     	}
     }
     
@@ -135,6 +157,8 @@ public class SchemaChangeWatcher {
         for (String raw : rawSplits) {
             if (raw.length() > 0) {
             	emailSender.addEmailRecipient(raw.trim());
+            } else {
+            	throw new AddressException("No email recipients specified");
             }
         }
 
@@ -174,9 +198,8 @@ public class SchemaChangeWatcher {
 	public static void main(String[] args) throws Exception {
         CommandLine line = initializeAndParseCommandLineOptions(args);
         Configuration properties = readProperties();
-        SchemaChangeWatcher watcher = new SchemaChangeWatcher();
+        SchemaChangeWatcher watcher = new SchemaChangeWatcher(properties);
         
-    		
     	String[] clusterUriKeys = getConfigValues(line, properties, CONFIG_URI_KEYS);
     	if (clusterUriKeys.length > 0) {
     		int keyNum = 0;

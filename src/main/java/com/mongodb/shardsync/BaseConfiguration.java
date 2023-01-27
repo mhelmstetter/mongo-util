@@ -10,7 +10,14 @@ import com.mongodb.model.Namespace;
 
 public class BaseConfiguration {
 
-	protected static Logger logger = LoggerFactory.getLogger(ChunkManager.class);
+	protected static Logger logger = LoggerFactory.getLogger(BaseConfiguration.class);
+	
+	public class Constants {
+		public final static String SOURCE_URI = "source";
+	    public final static String DEST_URI = "dest";
+	}
+    
+    
 	private ShardClient destShardClient;
 	private ShardClient sourceShardClient;
 	public String sourceClusterUri;

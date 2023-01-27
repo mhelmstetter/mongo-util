@@ -1,5 +1,7 @@
 package com.mongodb.shardsync;
 
+import static com.mongodb.shardsync.BaseConfiguration.Constants.*;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -27,9 +29,6 @@ public class ShardConfigSyncApp {
 
     private static Options options;
     private static CommandLine line;
-
-    private final static String SOURCE_URI = "source";
-    private final static String DEST_URI = "dest";
 
     private final static String SOURCE_URI_PATTERN = "sourceUriPattern";
     private final static String DEST_URI_PATTERN = "destUriPattern";

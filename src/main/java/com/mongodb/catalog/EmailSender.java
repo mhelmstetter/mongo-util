@@ -70,6 +70,26 @@ public class EmailSender {
 
 		Transport.send(msg);
 	}
+	
+	public void sendUuidFailureReport(String name, List<String> uuidFailures)
+			throws MessagingException {
+
+		Session session = Session.getInstance(props, new Authenticator() {
+			@Override
+			protected PasswordAuthentication getPasswordAuthentication() {
+				return new PasswordAuthentication(props.getProperty("mail.from"),
+						props.getProperty("mail.from.password"));
+			}
+		});
+
+		MimeMessage msg = composeUuidFailureMessage(name, uuidFailures, session);
+		msg.setFrom(emailFromAddress);
+		for (String r : emailRecipients) {
+			msg.addRecipient(Message.RecipientType.TO, new InternetAddress(r));
+		}
+
+		Transport.send(msg);
+	}
 
 	private MimeMessage composeMessage(String name, Set<Collection> newCollections, Set<Collection> droppedCollections, Session session)
 			throws MessagingException {
@@ -92,6 +112,27 @@ public class EmailSender {
 		for (Collection c : droppedCollections) {
 			body.append("    ");
 			body.append(c.getNamespace().getNamespace());
+			body.append("\n");
+		}
+
+		MimeMessage msg = new MimeMessage(session);
+		msg.setSubject(subj);
+		msg.setText(body.toString());
+		return msg;
+	}
+	
+	private MimeMessage composeUuidFailureMessage(String name, List<String> uuidFailures, Session session)
+			throws MessagingException {
+		String subj = String.format("%s: UUID mismatch detected", name);
+		
+
+		StringBuilder body = new StringBuilder();
+		body.append(String.format("Found %s uuid mismatches: ", uuidFailures.size()));
+		body.append("\n");
+		
+		for (String failure : uuidFailures) {
+			body.append("  ");
+			body.append(failure);
 			body.append("\n");
 		}
 
