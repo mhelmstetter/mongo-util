@@ -25,9 +25,9 @@ public class CollectionStats {
         stats.totalSize = getNumber(doc, "totalSize");
         
         
-        if(! reuse.equals(stats.freeStorageSize)) {
-        	System.out.println(doc.get("ns") + " reuse differs from freeStorageSize");
-        }
+//        if(! reuse.equals(stats.freeStorageSize)) {
+//        	System.out.println(doc.get("ns") + " reuse differs from freeStorageSize");
+//        }
         stats.sharded = getBoolean(doc, "sharded");
         stats.namespace = getString(doc, "ns");
         stats.size = getLong(doc, "size");
