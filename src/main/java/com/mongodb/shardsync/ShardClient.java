@@ -547,7 +547,8 @@ public class ShardClient {
 					serverAddressList.add(new ServerAddress(host, port));
 				}
 			} else {
-				String host = StringUtils.substringBefore(shardHost, ":");
+				String rs = StringUtils.substringBefore(shardHost, ":");
+				String host = StringUtils.substringAfter(rs, "/");
 				Integer port = Integer.parseInt(StringUtils.substringAfter(shardHost, ":"));
 				serverAddressList.add(new ServerAddress(host, port));
 			}
