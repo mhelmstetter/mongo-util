@@ -18,6 +18,7 @@ public class DiffConfiguration extends BaseConfiguration {
 	private String mode;
 	private int maxRetries;
 	private boolean useStatusDb;
+	private boolean archiveAndDeleteDestOnly;
 	private String statusDbUri;
 	private String statusDbName;
 	private String statusDbCollName;
@@ -122,5 +123,13 @@ public class DiffConfiguration extends BaseConfiguration {
 
 	public void setStatusDbCollName(String statusDbCollName) {
 		this.statusDbCollName = statusDbCollName;
+	}
+
+	public boolean isArchiveAndDeleteDestOnly() {
+		return archiveAndDeleteDestOnly;
+	}
+
+	public void setArchiveAndDeleteDestOnly(boolean archiveAndDeleteDestOnly) {
+		this.archiveAndDeleteDestOnly = archiveAndDeleteDestOnly;
 	}
 }

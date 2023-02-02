@@ -149,8 +149,11 @@ public class RecheckUtil {
 				continue;
 			}
 			
-			if (sourceDoc == null) {
+			if (sourceDoc == null && destDoc != null) {
 				logger.error("{}: source doc does not exist: {}", ns, key);
+				if (config.isArchiveAndDeleteDestOnly()) {
+					
+				}
 				continue;
 			}
 			
@@ -172,6 +175,10 @@ public class RecheckUtil {
 			logger.debug("Status update result: {}", result);
 		}
 
+	}
+	
+	private void archiveAndDeleteDestOnly() {
+		
 	}
 	
 	private boolean compareDocuments(Namespace ns, RawBsonDocument sourceDoc, RawBsonDocument destDoc) {

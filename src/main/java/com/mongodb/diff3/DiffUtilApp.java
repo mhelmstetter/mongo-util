@@ -44,6 +44,7 @@ public class DiffUtilApp {
     private final static String STATUS_DB_NAME = "statusDbName";
     private final static String STATUS_DB_COLL_NAME = "statusDbCollName";
     private static final String SHARD_MAP = "shardMap";
+    private final static String ARCHIVE_AND_DELETE_DEST_ONLY = "archiveAndDeleteDestOnly";
 
     private final static String DEFAULT_THREADS = "8";
     private final static String DEFAULT_SAMPLE_RATE = "0.04";
@@ -171,6 +172,10 @@ public class DiffUtilApp {
         config.setMaxRetries(Integer.parseInt(getConfigValue(line, properties, MAX_RETRIES, DEFAULT_MAX_RETRIES)));
         config.setUseStatusDb(Boolean.parseBoolean(getConfigValue(
                 line, properties, USE_STATUS_DB, DEFAULT_USE_STATUS_DB)));
+        config.setArchiveAndDeleteDestOnly(Boolean.parseBoolean(getConfigValue(
+                line, properties, ARCHIVE_AND_DELETE_DEST_ONLY, "false")));
+        
+        
         if (config.isUseStatusDb()) {
             config.setStatusDbUri(getConfigValue(line, properties, STATUS_DB_URI));
             config.setStatusDbName(getConfigValue(line, properties, STATUS_DB_NAME, DEFAULT_STATUS_DB_NAME));
