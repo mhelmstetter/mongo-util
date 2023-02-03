@@ -152,7 +152,7 @@ public class RecheckUtil {
 			if (sourceDoc == null && destDoc != null) {
 				logger.error("{}: source doc does not exist: {}", ns, key);
 				if (config.isArchiveAndDeleteDestOnly()) {
-					
+					archiveAndDeleteDestOnly(ns, destDoc, destColl, key);
 				}
 				continue;
 			}
@@ -177,8 +177,11 @@ public class RecheckUtil {
 
 	}
 	
-	private void archiveAndDeleteDestOnly() {
-		
+	private void archiveAndDeleteDestOnly(Namespace ns, RawBsonDocument destDoc, MongoCollection<RawBsonDocument> destColl, BsonValue key) {
+		MongoDatabase db = destShardClient.getMongoClient().getDatabase("rollbackArchive");
+		MongoCollection<RawBsonDocument> coll = db.getCollection(ns.getNamespace(), RawBsonDocument.class);
+		coll.insertOne(destDoc);
+		destColl.deleteOne(eq("_id", key));
 	}
 	
 	private boolean compareDocuments(Namespace ns, RawBsonDocument sourceDoc, RawBsonDocument destDoc) {
