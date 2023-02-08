@@ -166,7 +166,9 @@ public class RecheckUtil {
 			
 			if (pass) {
 				passedKeys.add(m);
-			}			
+			} else {
+				logger.debug("{}: doc mismatch, key: {}", ns, key);
+			}
 		}
 		if (passedKeys.size() > 0) {
 			Bson filter = eq("_id", failed.get("_id"));
