@@ -19,6 +19,7 @@ public class DiffConfiguration extends BaseConfiguration {
 	private int maxRetries;
 	private boolean useStatusDb;
 	private boolean archiveAndDeleteDestOnly;
+	private boolean syncMismatches;
 	private String statusDbUri;
 	private String statusDbName;
 	private String statusDbCollName;
@@ -131,5 +132,13 @@ public class DiffConfiguration extends BaseConfiguration {
 
 	public void setArchiveAndDeleteDestOnly(boolean archiveAndDeleteDestOnly) {
 		this.archiveAndDeleteDestOnly = archiveAndDeleteDestOnly;
+	}
+
+	public boolean isSyncMismatches() {
+		return syncMismatches;
+	}
+
+	public void setSyncMismatches(boolean syncMismatches) {
+		this.syncMismatches = syncMismatches;
 	}
 }

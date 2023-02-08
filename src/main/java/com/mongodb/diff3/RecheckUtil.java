@@ -168,6 +168,9 @@ public class RecheckUtil {
 				passedKeys.add(m);
 			} else {
 				logger.debug("{}: doc mismatch, key: {}", ns, key);
+				if (config.isSyncMismatches()) {
+					syncMismatch(sourceDoc, destColl, key);
+				}
 			}
 		}
 		if (passedKeys.size() > 0) {
@@ -177,6 +180,10 @@ public class RecheckUtil {
 			logger.debug("Status update result: {}", result);
 		}
 
+	}
+	
+	private void syncMismatch(RawBsonDocument srcDoc, MongoCollection<RawBsonDocument> destColl, BsonValue key) {
+		destColl.replaceOne(eq("_id", key), srcDoc);
 	}
 	
 	private void archiveAndDeleteDestOnly(Namespace ns, RawBsonDocument destDoc, MongoCollection<RawBsonDocument> destColl, BsonValue key) {
