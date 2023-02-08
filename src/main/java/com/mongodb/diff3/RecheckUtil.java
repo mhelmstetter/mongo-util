@@ -159,6 +159,9 @@ public class RecheckUtil {
 			
 			if (destDoc == null) {
 				logger.error("{}: dest doc does not exist: {}", ns, key);
+				if (config.isSyncMismatches()) {
+					syncSourceOnly(sourceDoc, destColl);
+				}
 				continue;
 			}
 			
@@ -180,6 +183,10 @@ public class RecheckUtil {
 			logger.debug("Status update result: {}", result);
 		}
 
+	}
+	
+	private void syncSourceOnly(RawBsonDocument srcDoc, MongoCollection<RawBsonDocument> destColl) {
+		destColl.insertOne(srcDoc);
 	}
 	
 	private void syncMismatch(RawBsonDocument srcDoc, MongoCollection<RawBsonDocument> destColl, BsonValue key) {
