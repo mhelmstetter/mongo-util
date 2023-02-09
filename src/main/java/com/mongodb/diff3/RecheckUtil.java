@@ -17,7 +17,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.ConnectionString;
+import com.mongodb.ErrorCategory;
 import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoWriteException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
@@ -160,7 +162,14 @@ public class RecheckUtil {
 			if (destDoc == null) {
 				logger.error("{}: dest doc does not exist: {}", ns, key);
 				if (config.isSyncMismatches()) {
-					syncSourceOnly(sourceDoc, destColl);
+					try {
+						syncSourceOnly(sourceDoc, destColl);
+					} catch (MongoWriteException ex) {
+						if(ex.getError().getCategory() == ErrorCategory.DUPLICATE_KEY) {
+					        logger.error("duplicate key error: {}", key);
+					    } 
+					}
+					
 				}
 				continue;
 			}
