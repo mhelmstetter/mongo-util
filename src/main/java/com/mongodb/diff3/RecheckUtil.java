@@ -165,8 +165,9 @@ public class RecheckUtil {
 					try {
 						syncSourceOnly(sourceDoc, destColl);
 					} catch (MongoWriteException ex) {
+						
 						if(ex.getError().getCategory() == ErrorCategory.DUPLICATE_KEY) {
-					        logger.error("duplicate key error: {}", key);
+					        logger.error("duplicate key error: {}", ex);
 					    } 
 					}
 					
