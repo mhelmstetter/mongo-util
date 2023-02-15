@@ -74,7 +74,7 @@ public class DupeIdFinderWorker implements Runnable {
                 long delta = (current - last) / 1000;
                 if (delta >= 30) {
                     logger.debug(String.format("%s - checked %s / %s documents, dupe id count: %s",
-                            collection.getNamespace(), count, total));
+                            collection.getNamespace(), count, total, dupeCount));
                     last = current;
                 }
             }
