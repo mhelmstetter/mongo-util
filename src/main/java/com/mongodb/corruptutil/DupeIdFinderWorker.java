@@ -48,7 +48,7 @@ public class DupeIdFinderWorker implements Runnable {
         	Bson proj = include("_id");
     		Bson sort = eq("_id", 1);
     		
-            cursor = collection.find().noCursorTimeout(true).projection(proj).sort(sort).iterator();
+            cursor = collection.find().projection(proj).sort(sort).iterator();
             Number total = collection.estimatedDocumentCount();
             BsonValue lastId = null;
             while (cursor.hasNext()) {
