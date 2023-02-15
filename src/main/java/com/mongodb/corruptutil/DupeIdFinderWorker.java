@@ -66,7 +66,7 @@ public class DupeIdFinderWorker implements Runnable {
                 
                 if (id.equals(lastId)) {
                 	dupeCount++;
-                	logger.warn("duplicate _id found for _id: {}", id);
+                	logger.warn("{} - duplicate _id found for _id: {}", collection.getNamespace(), id);
                 }
                 lastId = id;
 
