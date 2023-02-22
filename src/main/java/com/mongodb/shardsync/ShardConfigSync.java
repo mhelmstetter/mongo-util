@@ -505,9 +505,6 @@ public class ShardConfigSync implements Callable<Integer> {
 					logger.error("syncUsers() error: {}", atlasUser, e);
 				}
 			} else {
-				if (u.getUser().equals("ctxapp1")) {
-					System.out.println();
-				}
 				if (destUserExists(u)) {
 					Document updateUserCmd = new Document("updateUser", u.getUser()).append("pwd", password);
 					Document result = this.destShardClient.runCommand(updateUserCmd, u.getDb());

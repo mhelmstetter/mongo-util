@@ -37,7 +37,7 @@ public class AtlasUser {
 	}
 
 	public void setUsername(String username) {
-		this.username = username.replaceAll("\\.", "_");
+		this.username = username.replaceAll("[\\.|-]", "_");
 	}
 
 	public String getDatabaseName() {
