@@ -500,6 +500,7 @@ public class ShardConfigSync implements Callable<Integer> {
 					password = RandomStringUtils.random(16, true, true);
 					type = "random password";
 				}
+				atlasUser.setPassword(password);
 				
 				try {
 					atlasUtil.createUser(config.atlasProjectId, atlasUser);
