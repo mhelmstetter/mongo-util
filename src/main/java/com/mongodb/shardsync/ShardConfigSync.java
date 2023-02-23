@@ -486,18 +486,19 @@ public class ShardConfigSync implements Callable<Integer> {
 		for (User u : users) {
 			String password = null;
 			String type = null;
-			if (usersMap != null && usersMap.containsKey(u.getUser())) {
-				password = usersMap.get(u.getUser());
-				type = "password from CSV";
-			} else {
-				password = RandomStringUtils.random(16, true, true);
-				type = "random password";
-			}
 			AtlasUser atlasUser = new AtlasUser(u, password);
 			
 			if (destIsAtlas) {
 				if (!u.getDb().equals("admin")) {
 					atlasUser.setUsername(u.getUser() + "_" + u.getDb());
+				}
+				
+				if (usersMap != null && usersMap.containsKey(atlasUser.getUsername())) {
+					password = usersMap.get(u.getUser());
+					type = "password from CSV";
+				} else {
+					password = RandomStringUtils.random(16, true, true);
+					type = "random password";
 				}
 				
 				try {
@@ -507,6 +508,15 @@ public class ShardConfigSync implements Callable<Integer> {
 				}
 			} else {
 				if (destUserExists(u)) {
+					
+					if (usersMap != null && usersMap.containsKey(u.getUser())) {
+						password = usersMap.get(u.getUser());
+						type = "password from CSV";
+					} else {
+						password = RandomStringUtils.random(16, true, true);
+						type = "random password";
+					}
+					
 					Document updateUserCmd = new Document("updateUser", u.getUser()).append("pwd", password);
 					Document result = this.destShardClient.runCommand(updateUserCmd, u.getDb());
 					logger.debug("destination non-Atlas user {} updated with {}, result: {}", u.getUser(), type, result);
