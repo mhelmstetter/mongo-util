@@ -479,7 +479,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		
 		
 		CSVWriter writer = new CSVWriter(new FileWriter(config.getUsersOutputCsv()));
-		String[] header = { "user", "db", "password", "roles"};
+		String[] header = { "user", "password"};
 		writer.writeNext(header);
 		
 		List<User> users = this.sourceShardClient.getUsers();
@@ -516,7 +516,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				
 			}
 			
-			writer.writeNext(new String[] { u.getUser(), u.getDb(), password, atlasUser.getRoles().toString() });
+			writer.writeNext(new String[] { atlasUser.getUsername(), password });
 			
 		}
 		writer.flush();
