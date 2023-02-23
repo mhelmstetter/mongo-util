@@ -385,7 +385,7 @@ public class ShardConfigSyncApp {
         config.setAtlasProjectId(properties.getString(ATLAS_PROJECT_ID));
         
         String usersInputCsv = getConfigValue(line, properties, USERS_INPUT_CSV, "usersInput.csv");
-        String usersOutputCsv = getConfigValue(line, properties, USERS_OUTPUT_CSV, "usersInput.csv");
+        String usersOutputCsv = getConfigValue(line, properties, USERS_OUTPUT_CSV, "usersOutput.csv");
         config.setUsersInputCsv(usersInputCsv);
         config.setUsersOutputCsv(usersOutputCsv);
 

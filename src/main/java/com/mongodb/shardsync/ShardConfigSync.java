@@ -477,7 +477,8 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 		}
 		
-		CSVWriter writer = new CSVWriter(new FileWriter("users.csv"));
+		
+		CSVWriter writer = new CSVWriter(new FileWriter(config.getUsersOutputCsv()));
 		String[] header = { "user", "db", "password", "roles"};
 		writer.writeNext(header);
 		
