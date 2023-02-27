@@ -106,6 +106,38 @@ public class IndexSpec {
 		builder.append("]");
 		return builder.toString();
 	}
+
+	public Number getExpireAfterSeconds() {
+		return expireAfterSeconds;
+	}
+
+	public RawBsonDocument getKey() {
+		return key;
+	}
+
+	public String getKeyJsonString() {
+		return keyJsonString;
+	}
+
+	public String getName() {
+		return name;
+	}
+
+	public Namespace getNamespace() {
+		return namespace;
+	}
+
+	public boolean isSparse() {
+		return sparse;
+	}
+
+	public boolean isBackground() {
+		return background;
+	}
+
+	public boolean isUnique() {
+		return unique;
+	}
 	
 	
 

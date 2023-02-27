@@ -1149,6 +1149,9 @@ public class ShardClient {
 				Document createIndexesResult = db.runCommand(createIndexes);
 				// logger.debug(String.format("%s result: %s", ns, createIndexesResult));
 			} catch (MongoCommandException mce) {
+				if (mce.getCode() == 85) {
+					
+				}
 				logger.error(String.format("%s createIndexes failed: %s", ns, mce.getMessage()));
 			}
 

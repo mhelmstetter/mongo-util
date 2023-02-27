@@ -86,6 +86,7 @@ public class ShardConfigSyncApp {
     private final static String CLEANUP_ORPHANS_SLEEP = "cleanupOrphansSleep";
     private final static String CLEANUP_ORPHANS_DEST = "cleanupOrphansDest";
     private final static String SYNC_INDEXES = "syncIndexes";
+    private final static String COLL_MOD_TTL = "collModTtl";
     private final static String COMPARE_INDEXES = "compareIndexes";
     private final static String EXTEND_TTL = "extendTtl";
     private final static String CLEANUP_PREVIOUS_ALL = "cleanupPreviousAll";
@@ -184,6 +185,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(SHARD_COLLECTIONS).create());
         options.addOption(OptionBuilder.withArgName("Copy indexes from source to dest")
                 .withLongOpt(SYNC_INDEXES).create(SYNC_INDEXES));
+        options.addOption(OptionBuilder.withArgName("collMod all ttl indexes on dest based on source")
+                .withLongOpt(COLL_MOD_TTL).create(COLL_MOD_TTL));
         options.addOption(OptionBuilder.withArgName("Compare indexes from source to dest")
                 .withLongOpt(COMPARE_INDEXES).create(COMPARE_INDEXES));
         options.addOption(OptionBuilder.withArgName("Extend TTL expiration (use with syncIndexes)")
@@ -509,7 +512,10 @@ public class ShardConfigSyncApp {
             actionFound = true;
             //boolean extendTtl = line.hasOption(EXTEND_TTL);
             //sync.syncIndexesShards(false, extendTtl);
-            sync.compareIndexes();
+            sync.compareIndexes(false);
+        } else if (line.hasOption(COLL_MOD_TTL)) {
+            actionFound = true;
+            sync.compareIndexes(true);
         } else if (line.hasOption("k")) {
             String opt = line.getOptionValue("k");
             boolean doSync = opt.equals("sync");

@@ -97,7 +97,7 @@ import picocli.CommandLine.Command;
 public class ShardConfigSync implements Callable<Integer> {
 	
 	
-	//private final static DocumentCodec codec = new DocumentCodec();
+	private final static DocumentCodec codec = new DocumentCodec();
 
 	DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm_ss");
 
@@ -323,18 +323,21 @@ public class ShardConfigSync implements Callable<Integer> {
 		}
 	}
 	
-	public void compareIndexes() {
+	public void compareIndexes(boolean collModTtl) {
 		logger.debug("Starting compareIndexes");
 		sourceShardClient.populateShardMongoClients();
 		destShardClient.populateShardMongoClients();
 		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
 		Map<Namespace, Set<IndexSpec>> destIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
-		
+		int diffCount = 0;
+		int indexCount = 0;
+		int modifiedCount = 0;
 		//MapDifference<Namespace, Set<IndexSpec>> diff = Maps.difference(sourceIndexSpecs, destIndexSpecs);
 		
 		for (Map.Entry<Namespace, Set<IndexSpec>> entry : sourceIndexSpecs.entrySet()) {
 			Namespace ns = entry.getKey();
 			Set<IndexSpec> sourceSpecs = entry.getValue();
+			indexCount += sourceSpecs.size();
 			Set<IndexSpec> destSpecs = destIndexSpecs.get(ns);
 			if (destSpecs == null || destSpecs.isEmpty()) {
 				logger.warn("Destination indexes not found for ns: {}", ns);
@@ -344,10 +347,42 @@ public class ShardConfigSync implements Callable<Integer> {
 			
 			if (!diff.isEmpty()) {
 				logger.debug("Indexes differ for ns: {}, diff: {}", ns, diff);
+				diffCount += diff.size();
+				if (collModTtl) {
+					modifiedCount += collModTtl(sourceIndexSpecs, diff);
+				}
 			}
 		}
+		if (collModTtl) {
+			logger.debug("collModTtl {} indexes modified", modifiedCount);
+		} else {
+			logger.debug("Checked {} indexes, {} indexes failed", indexCount, diffCount);
+		}
 		
-		
+	}
+	
+	private int collModTtl(Map<Namespace, Set<IndexSpec>> sourceIndexSpecsMap, Set<IndexSpec> diff) {
+		int modifiedCount = 0;
+		for (IndexSpec spec : diff) {
+			if (spec.getExpireAfterSeconds() != null) {
+				Namespace ns = spec.getNamespace();
+				
+				Document indexInfo = spec.getSourceSpec().decode(codec);
+				indexInfo.remove("v");
+				Document collMod = new Document("collMod", ns.getCollectionName());
+				collMod.append("index", indexInfo);
+
+				logger.debug(String.format("%s collMod: %s", ns, collMod));
+				try {
+					Document result = destShardClient.runCommand(collMod, ns.getDatabaseName());
+					logger.debug(String.format("%s collMod result: %s", ns, result));
+					modifiedCount++;
+				} catch (MongoCommandException mce) {
+					logger.error(String.format("%s createIndexes failed: %s", ns, mce.getMessage()));
+				}
+			}
+		}
+		return modifiedCount;
 	}
 	
 	public void diffRoles() {
