@@ -447,12 +447,9 @@ public class ChunkManager {
 			String sourceShard = m.getShard();
 			String mappedShard = getShardMapping(sourceShard);
 			m.setShard(mappedShard);
-			logger.debug("sourceMega: {}", m);
+			//logger.debug("sourceMega: {}", m);
 		}
 		
-		for (Megachunk m : destMega) {
-			logger.debug("destMega: {}", m);
-		}
 		
 		List<Megachunk> diff1 = new ArrayList<>(Sets.difference(Sets.newHashSet(sourceMega), Sets.newHashSet(destMega)));
 		List<Megachunk> diff2 = new ArrayList<>(Sets.difference(Sets.newHashSet(destMega), Sets.newHashSet(sourceMega)));
