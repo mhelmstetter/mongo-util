@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -24,6 +23,7 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Sets;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Sorts;
@@ -44,8 +44,6 @@ public class ChunkManager {
 	private Map<String, String> destToSourceShardMap = new HashMap<String, String>();
 	
 	private Map<String, String> altSourceToDestShardMap = new HashMap<String, String>();
-	
-	private List<Megachunk> optimizedChunks = new LinkedList<>();
 	
 	private BaseConfiguration config;
 	
@@ -157,27 +155,12 @@ public class ChunkManager {
 		}
 	}
 	
-	/**
-	 * Create chunks and move them, using the "optimized" method to reduce the total
-	 * number of chunk moves required.
-	 */
-	public void createAndMoveChunks() {
-		boolean doMove = true;
-
-		logger.debug("createAndMoveChunks (optimized) started");
-		logger.debug("chunkQuery: {}", chunkQuery);
-
-		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
-		Map<String, RawBsonDocument> destChunksCache = destShardClient.loadChunksCache(chunkQuery);
-		Set<String> destMins = getChunkMins();
+	private List<Megachunk> getMegaChunks(Map<String, RawBsonDocument> chunksCache) {
+		List<Megachunk> optimizedChunks = new ArrayList<>();
 		
-		double totalChunks = (double)sourceChunksCache.size();
-
-		// step 1: build a list of "megachunks", each representing a range of consecutive chunks
-		// that reside on the same shard. See Megachunk inner class.
 		Megachunk mega = null;
 
-		for (RawBsonDocument chunk : sourceChunksCache.values()) {
+		for (RawBsonDocument chunk : chunksCache.values()) {
 
 			String ns = chunk.getString("ns").getValue();
 			if (config.filterCheck(ns)) {
@@ -211,6 +194,27 @@ public class ChunkManager {
 			mega.setLast(true);
 			optimizedChunks.add(mega);
 		}
+		return optimizedChunks;
+	}
+	
+	/**
+	 * Create chunks and move them, using the "optimized" method to reduce the total
+	 * number of chunk moves required.
+	 */
+	public void createAndMoveChunks() {
+		boolean doMove = true;
+
+		logger.debug("createAndMoveChunks (optimized) started");
+		logger.debug("chunkQuery: {}", chunkQuery);
+
+		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
+		Set<String> destMins = getChunkMins();
+		
+		double totalChunks = (double)sourceChunksCache.size();
+
+		// step 1: build a list of "megachunks", each representing a range of consecutive chunks
+		// that reside on the same shard. See Megachunk inner class.
+		List<Megachunk> optimizedChunks = getMegaChunks(sourceChunksCache);
 		logger.debug(String.format("optimized chunk count: %s", optimizedChunks.size()));
 		
 		int chunkCount = optimizedChunks.size() / 2;
@@ -429,6 +433,39 @@ public class ChunkManager {
 					sourceTotalCount, destChunkMap.size(), mismatchedCount, missingCount));
 		}
 
+	}
+	
+	public void compareChunksEquivalent() {
+		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
+		Map<String, RawBsonDocument> destChunksCache = destShardClient.loadChunksCache(chunkQuery);
+		
+		List<Megachunk> sourceMega = getMegaChunks(sourceChunksCache);
+		
+		List<Megachunk> destMega = getMegaChunks(destChunksCache);
+		
+		for (Megachunk m : sourceMega) {
+			String sourceShard = m.getShard();
+			String mappedShard = getShardMapping(sourceShard);
+			m.setShard(mappedShard);
+			logger.debug("sourceMega: {}", m);
+		}
+		
+		for (Megachunk m : destMega) {
+			logger.debug("destMega: {}", m);
+		}
+		
+		List<Megachunk> diff1 = new ArrayList<>(Sets.difference(Sets.newHashSet(sourceMega), Sets.newHashSet(destMega)));
+		List<Megachunk> diff2 = new ArrayList<>(Sets.difference(Sets.newHashSet(destMega), Sets.newHashSet(sourceMega)));
+		
+		
+		logger.debug("compareChunksEquivalent: source mega count: {}, dest mega count: {}", sourceMega.size(), destMega.size());
+		logger.debug("diff1: {}", diff1);
+		logger.debug("diff2: {}", diff2);
+		
+		logger.debug("source: {}", sourceMega);
+		logger.debug("dest: {}", destMega);
+		
+		
 	}
 	
 	private Map<String, String> readDestinationChunks() {

@@ -2,6 +2,7 @@ package com.mongodb.model;
 
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 
 import org.bson.BsonDocument;
 import org.bson.RawBsonDocument;
@@ -80,4 +81,41 @@ public class Megachunk {
 	public void setChunkId(String chunkId) {
 		this.chunkId = chunkId;
 	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hash(max, min, ns, shard);
+		//return Objects.hash(chunkId, shard);
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj)
+			return true;
+		if (obj == null)
+			return false;
+		if (getClass() != obj.getClass())
+			return false;
+		Megachunk other = (Megachunk) obj;
+		return Objects.equals(max, other.max) && Objects.equals(min, other.min) && Objects.equals(ns, other.ns)
+				&& Objects.equals(shard, other.shard);
+	}
+
+	@Override
+	public String toString() {
+		StringBuilder builder = new StringBuilder();
+		builder.append("Megachunk [chunkId=");
+		builder.append(chunkId);
+		builder.append(", ns=");
+		builder.append(ns);
+		builder.append(", shard=");
+		builder.append(shard);
+		builder.append(", min=");
+		builder.append(min);
+		builder.append(", max=");
+		builder.append(max);
+		builder.append("]");
+		return builder.toString();
+	}
+	
 }

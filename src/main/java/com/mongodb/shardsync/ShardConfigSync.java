@@ -658,6 +658,10 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 
 
+	public void compareChunksEquivalent() {
+		chunkManager.compareChunksEquivalent();
+	}
+	
 	public void compareChunks() {
 		chunkManager.compareAndMoveChunks(false, false);
 	}

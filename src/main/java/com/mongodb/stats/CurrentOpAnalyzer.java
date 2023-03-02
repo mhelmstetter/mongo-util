@@ -2,10 +2,16 @@ package com.mongodb.stats;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 
+import org.bson.BsonInt64;
+import org.bson.BsonNumber;
 import org.bson.Document;
+import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,6 +30,8 @@ import picocli.CommandLine.Option;
 public class CurrentOpAnalyzer implements Callable<Integer> {
 	
 	private static Logger logger = LoggerFactory.getLogger(CurrentOpAnalyzer.class);
+	
+	private final static Set<String> ignoreOps = new HashSet<>(Arrays.asList("hello", "isMaster"));
 	
 	
 	@Option(names = {"--uri"}, description = "mongodb uri connection string", required = true)
@@ -47,14 +55,31 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 		MongoDatabase db = mongoClient.getDatabase("admin");
 		List<Document> pipeline = new ArrayList<>(1);
 		pipeline.add(new Document("$currentOp", new Document()));
-		AggregateIterable<Document> it = null; 
-		for (int i = 0; i < 1000; i++) {
-			it = db.aggregate(pipeline);
-			for (Document result : it) {
-				Document meta = (Document)result.get("clientMetadata");
-				if (meta != null) {
-					Document driver = (Document)meta.get("driver");
-					System.out.println(driver.hashCode());
+		AggregateIterable<RawBsonDocument> it = null; 
+		while (true) {
+			it = db.aggregate(pipeline, RawBsonDocument.class);
+			for (RawBsonDocument result : it) {
+				String desc = result.getString("desc").getValue();
+				String op = result.getString("op").getValue();
+				RawBsonDocument cmd = (RawBsonDocument)result.get("command");
+				String cmdStr = null;
+				if (!cmd.isEmpty()) {
+					cmdStr = cmd.getFirstKey();
+				}
+				
+				Long secs = null;
+				if (result.containsKey("secs_running")) {
+					BsonInt64 num = result.getInt64("secs_running");
+					if (num != null) {
+						secs = num.longValue();
+					}
+				}
+				
+				String cmdFull = cmd.toString();
+				boolean currentOp = cmdFull.contains("$currentOp");
+				
+				if (!currentOp && cmdStr != null && !ignoreOps.contains(cmdStr)) {
+					System.out.println(desc + " " + op + " " + cmdStr + " " + secs);
 				}
 				
 			}

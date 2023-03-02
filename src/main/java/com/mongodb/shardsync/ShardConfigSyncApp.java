@@ -68,6 +68,7 @@ public class ShardConfigSyncApp {
     private final static String DIFF_USERS = "diffUsers";
     private final static String DIFF_ROLES = "diffRoles";
     private final static String COMPARE_CHUNKS = "compareChunks";
+    private final static String COMPARE_CHUNKS_EQUIVALENT = "compareChunksEquivalent";
     private final static String COMPARE_COLLECTION_UUIDS = "compareCollectionUuids";
     private final static String DISABLE_SOURCE_AUTOSPLIT = "disableSourceAutosplit";
     private final static String MONGOMIRROR_START_PORT = "mongoMirrorStartPort";
@@ -149,6 +150,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(FLUSH_ROUTER).create(FLUSH_ROUTER));
         options.addOption(OptionBuilder.withArgName("Compare all shard chunks (do not sync/migrate)")
                 .withLongOpt(COMPARE_CHUNKS).create(COMPARE_CHUNKS));
+        options.addOption(OptionBuilder.withArgName("Compare all shard chunks for equivalency")
+                .withLongOpt(COMPARE_CHUNKS_EQUIVALENT).create(COMPARE_CHUNKS_EQUIVALENT));
         options.addOption(OptionBuilder.withArgName("Compare all shard chunks, move any misplaced chunks")
                 .withLongOpt(COMPARE_AND_MOVE_CHUNKS).create(COMPARE_AND_MOVE_CHUNKS));
         options.addOption(OptionBuilder.withArgName("Compare all collection UUIDs")
@@ -471,6 +474,9 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(COMPARE_CHUNKS)) {
             actionFound = true;
             sync.compareChunks();
+        } else if (line.hasOption(COMPARE_CHUNKS_EQUIVALENT)) {
+            actionFound = true;
+            sync.compareChunksEquivalent();
         } else if (line.hasOption(COMPARE_AND_MOVE_CHUNKS)) {
             actionFound = true;
             if (nonPrivilegedMode) {
