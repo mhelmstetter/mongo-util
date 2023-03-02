@@ -55,7 +55,8 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 		MongoDatabase db = mongoClient.getDatabase("admin");
 		List<Document> pipeline = new ArrayList<>(1);
 		pipeline.add(new Document("$currentOp", new Document()));
-		AggregateIterable<RawBsonDocument> it = null; 
+		AggregateIterable<RawBsonDocument> it = null;
+		int skipCount = 0;
 		while (true) {
 			it = db.aggregate(pipeline, RawBsonDocument.class);
 			for (RawBsonDocument result : it) {
@@ -80,6 +81,15 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 				
 				if (!currentOp && cmdStr != null && !ignoreOps.contains(cmdStr)) {
 					System.out.println(desc + " " + op + " " + cmdStr + " " + secs);
+				} else {
+					skipCount++;
+				}
+				
+				if (skipCount % 1000 == 0) {
+					System.out.print(".");
+				}
+				if (skipCount % 100000 == 0) {
+					System.out.println();
 				}
 				
 			}
