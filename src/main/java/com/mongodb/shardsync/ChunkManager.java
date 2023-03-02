@@ -447,7 +447,6 @@ public class ChunkManager {
 			String sourceShard = m.getShard();
 			String mappedShard = getShardMapping(sourceShard);
 			m.setShard(mappedShard);
-			//logger.debug("sourceMega: {}", m);
 		}
 		
 		
@@ -458,10 +457,6 @@ public class ChunkManager {
 		logger.debug("compareChunksEquivalent: source mega count: {}, dest mega count: {}", sourceMega.size(), destMega.size());
 		logger.debug("diff1: {}", diff1);
 		logger.debug("diff2: {}", diff2);
-		
-		logger.debug("source: {}", sourceMega);
-		logger.debug("dest: {}", destMega);
-		
 		
 	}
 	
