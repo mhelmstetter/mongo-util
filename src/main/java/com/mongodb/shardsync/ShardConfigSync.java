@@ -536,7 +536,7 @@ public class ShardConfigSync implements Callable<Integer> {
 					password = usersMap.get(atlasUser.getUsername());
 					type = "password from CSV";
 				} else if (usersMap != null && usersMap.containsKey(u.getUser())) {
-					password = usersMap.get(atlasUser.getUsername());
+					password = usersMap.get(u.getUser());
 					type = "password from CSV";
 				} else {
 					password = RandomStringUtils.random(16, true, true);
