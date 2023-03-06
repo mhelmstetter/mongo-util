@@ -137,12 +137,17 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 	
 	public void initialize() {
-		chunkManager = new ChunkManager(config);
-		chunkManager.initalize();
 		this.sourceShardClient = config.getSourceShardClient();
 		this.destShardClient = config.getDestShardClient();
-		checkDestShardClientIsMongos();
+		//checkDestShardClientIsMongos();
 		initAtlasUtil();
+	}
+	
+	public void initChunkManager() {
+		if (chunkManager == null) {
+			chunkManager = new ChunkManager(config);
+			chunkManager.initalize();
+		}
 	}
 	
 	public void initAtlasUtil() {
@@ -586,6 +591,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		logger.debug(String.format("Starting metadata sync/migration, %s: %s", 
 				ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
 
+		initChunkManager();
 		stopBalancers();
 		//checkAutosplit();
 		createCollections();
@@ -605,6 +611,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		logger.debug(String.format("Starting optimized metadata sync/migration, %s: %s", 
 				ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
 		
+		initChunkManager();
 		stopBalancers();
 		createCollections();
 		enableDestinationSharding();
@@ -659,14 +666,17 @@ public class ShardConfigSync implements Callable<Integer> {
 
 
 	public void compareChunksEquivalent() {
+		initChunkManager();
 		chunkManager.compareChunksEquivalent();
 	}
 	
 	public void compareChunks() {
+		initChunkManager();
 		chunkManager.compareAndMoveChunks(false, false);
 	}
 	
 	public void compareAndMoveChunks(boolean doMove, boolean ignoreMissing) {
+		initChunkManager();
 		chunkManager.compareAndMoveChunks(doMove, ignoreMissing);
 	}
 
@@ -971,6 +981,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	public List<String> compareCollectionUuids() {
 		String name = "dest";
 		logger.debug(String.format("%s - Starting compareCollectionUuids", name));
+		initChunkManager();
 		destShardClient.populateShardMongoClients();
 
 		List<String> failures = new ArrayList<>();
@@ -1249,6 +1260,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 
 	public void enableDestinationSharding() {
+		initChunkManager();
 		sourceShardClient.populateShardMongoClients();
 		
 		logger.debug("enableDestinationSharding()");
@@ -1546,7 +1558,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 
 	public void mongomirror() throws ExecuteException, IOException {
-
+		initChunkManager();
 		destShardClient.populateShardMongoClients();
 
 		List<MongoMirrorRunner> mongomirrors = new ArrayList<>(sourceShardClient.getShardsMap().size());

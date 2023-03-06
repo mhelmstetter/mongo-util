@@ -434,7 +434,7 @@ public class ShardConfigSyncApp {
 
         boolean nonPrivilegedMode = line.hasOption(NON_PRIVILEGED) || properties.getBoolean(NON_PRIVILEGED, false);
         config.setNonPrivilegedMode(nonPrivilegedMode);
-        boolean noIndexRestore = line.hasOption(NO_INDEX_RESTORE) || properties.getBoolean(NON_PRIVILEGED, false);
+        boolean noIndexRestore = line.hasOption(NO_INDEX_RESTORE) || properties.getBoolean(NO_INDEX_RESTORE, false);
         config.setNoIndexRestore(noIndexRestore);
         config.setDrop(line.hasOption(DROP));
         config.setDropDestDbs(line.hasOption(DROP_DEST_DBS));

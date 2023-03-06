@@ -121,6 +121,10 @@ public class BaseConfiguration {
 	}
 
 	public ShardClient getDestShardClient() {
+		if (destShardClient == null) {
+			destShardClient = new ShardClient("dest", destClusterUri);
+			destShardClient.init();
+		}
 		return destShardClient;
 	}
 
@@ -129,6 +133,10 @@ public class BaseConfiguration {
 	}
 
 	public ShardClient getSourceShardClient() {
+		if (sourceShardClient == null) {
+			sourceShardClient = new ShardClient("source", sourceClusterUri);
+			sourceShardClient.init();
+		}
 		return sourceShardClient;
 	}
 
