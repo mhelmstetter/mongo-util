@@ -54,7 +54,7 @@ public class BaseConfiguration {
 			logger.trace("Namespace " + ns + " filtered, skipping");
 			return true;
 		}
-		if (ns.getDatabaseName().equals("config") || ns.getDatabaseName().equals("admin")) {
+		if (ns.getDatabaseName().equals("config") || ns.getDatabaseName().equals("admin") || ns.getDatabaseName().equals("local")) {
 			return true;
 		}
 		if (ns.getCollectionName().equals("system.profile") || ns.getCollectionName().equals("system.users")) {
