@@ -607,6 +607,9 @@ public class ShardClient {
 	
 	public BsonDocument getLatestOplogEntry(String shardId, Bson query) {
 		MongoClient client = shardMongoClients.get(shardId);
+		if (client == null) {
+			client = this.getMongoClient();
+		}
 		MongoCollection<BsonDocument> coll = client.getDatabase("local").getCollection("oplog.rs", BsonDocument.class);
 		Bson proj = include("ts","t");
 		Bson sort = eq("$natural", -1);
@@ -620,12 +623,20 @@ public class ShardClient {
 	}
 	
 	public ShardTimestamp populateLatestOplogTimestamp(Shard shard, String startingTs) {
-		String shardId = shard.getId();
+		
 		Bson query = getLatestOplogQuery(startingTs);
-		BsonDocument oplogEntry = getLatestOplogEntry(shardId, query);
+		String shardId = null;
+		BsonDocument oplogEntry = null;
+		if (shard != null) {
+			shardId = shard.getId();
+			oplogEntry = getLatestOplogEntry(shardId, query);
+		} else {
+			
+			oplogEntry = getLatestOplogEntry(null, query);
+		}
 		logger.debug("latest oplog entry: {}", oplogEntry);
 		ShardTimestamp st = new ShardTimestamp(shard, oplogEntry);
-		this.getShardsMap().get(shardId).setSyncStartTimestamp(st);
+		shard.setSyncStartTimestamp(st);
 		return st;
 	}
 

@@ -443,6 +443,9 @@ public class ShardConfigSyncApp {
         config.setNumParallelCollections(line.getOptionValue("y"));
         config.setWriteConcern(line.getOptionValue("w"));
         config.setDryRun(line.hasOption(DRY_RUN));
+        
+        boolean extendTtl = line.hasOption(EXTEND_TTL);
+        config.setExtendTtl(extendTtl);
 
         config.setSslAllowInvalidCertificates(line.hasOption(SSL_ALLOW_INVALID_CERTS));
         config.setSslAllowInvalidHostnames(line.hasOption(SSL_ALLOW_INVALID_HOSTNAMES));
@@ -512,7 +515,6 @@ public class ShardConfigSyncApp {
             sync.shardCollections();
         } else if (line.hasOption(SYNC_INDEXES)) {
             actionFound = true;
-            boolean extendTtl = line.hasOption(EXTEND_TTL);
             sync.syncIndexesShards(true, extendTtl);
         } else if (line.hasOption(COMPARE_INDEXES)) {
             actionFound = true;
@@ -560,7 +562,6 @@ public class ShardConfigSyncApp {
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", properties.getString(MONGOMIRROR_BINARY));
             boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
-            boolean extendTtl = line.hasOption(EXTEND_TTL);
 
 
             if (line.hasOption(COLL_STATS_THRESHOLD)) {
@@ -588,7 +589,6 @@ public class ShardConfigSyncApp {
             config.setDropDestDbs(line.hasOption(DROP_DEST_DBS));
             config.setPreserveUUIDs(preserveUUIDs);
             config.setNoIndexRestore(noIndexRestore);
-            config.setExtendTtl(extendTtl);
             String stopLagWithin = getConfigValue(line, properties, STOP_WHEN_LAG_WITHIN, "");
             if (stopLagWithin != null) {
                 config.setStopWhenLagWithin(Integer.parseInt(stopLagWithin));

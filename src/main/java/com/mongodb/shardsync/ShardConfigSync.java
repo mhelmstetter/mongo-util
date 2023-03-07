@@ -143,7 +143,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 	
 	public void initChunkManager() {
-		if (chunkManager == null) {
+		if (chunkManager == null && ! config.isDryRun()) {
 			chunkManager = new ChunkManager(config);
 			chunkManager.initalize();
 		}
@@ -355,6 +355,10 @@ public class ShardConfigSync implements Callable<Integer> {
 				if (collModTtl) {
 					modifiedCount += collModTtl(sourceIndexSpecs, diff);
 				}
+			} else if (config.extendTtl) {
+				logger.debug("collModTtl with extendTtl");
+				modifiedCount += collModTtl(sourceIndexSpecs, sourceSpecs);
+				
 			}
 		}
 		if (collModTtl) {
@@ -375,6 +379,13 @@ public class ShardConfigSync implements Callable<Integer> {
 				indexInfo.remove("v");
 				Document collMod = new Document("collMod", ns.getCollectionName());
 				collMod.append("index", indexInfo);
+				
+				if (config.extendTtl) {
+					Number expireAfterSeconds = (Number) indexInfo.get("expireAfterSeconds");
+					indexInfo.put("expireAfterSeconds", 50 * ShardConfigSync.SECONDS_IN_YEAR);
+					logger.debug(String.format("Extending TTL for %s %s from %s to %s", ns, indexInfo.get("name"),
+							expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
+				}
 
 				logger.debug(String.format("%s collMod: %s", ns, collMod));
 				try {
@@ -1500,24 +1511,40 @@ public class ShardConfigSync implements Callable<Integer> {
 
 	}
 	
+	private void writeTimestampFile(Shard shard, String startingTs) throws IOException {
+		ShardTimestamp st = sourceShardClient.populateLatestOplogTimestamp(shard, startingTs);
+		logger.debug(st.toJsonString());
+		try {
+			File tsFile = new File(shard.getId() + ".timestamp");
+			BufferedWriter writer = new BufferedWriter(new FileWriter(tsFile));
+			writer.write(st.toJsonString());
+			writer.newLine();
+			writer.close();
+			
+		} catch (IOException e) {
+			logger.error(String.format("Error writing timestamp file for shard %s", shard.getId()), e);
+			throw e;
+		}
+	}
+	
 	public void mongomirrorTailFromLatestOplogTs(String startingTs)  throws IOException {
 		logger.debug("Starting mongomirrorTailFromTs, startingTs: {}", startingTs);
 		sourceShardClient.populateShardMongoClients();
 		Collection<Shard> shards = sourceShardClient.getShardsMap().values();
-		for (Shard shard : shards) {
-			ShardTimestamp st = sourceShardClient.populateLatestOplogTimestamp(shard, startingTs);
-			logger.debug(st.toJsonString());
-			try {
-				BufferedWriter writer = new BufferedWriter(new FileWriter(new File(shard.getId() + ".timestamp")));
-				writer.write(st.toJsonString());
-				writer.newLine();
-				writer.close();
-				
-			} catch (IOException e) {
-				logger.error(String.format("Error writing timestamp file for shard %s", shard.getId()), e);
-				throw e;
+		
+		if (shards.isEmpty()) {
+			Document isMasterResult = sourceShardClient.getMongoClient().getDatabase("admin").runCommand(new Document("isMaster", 1));
+			String shardId = isMasterResult.getString("setName");
+			Shard shard = new Shard();
+			shard.setId(shardId);
+			shard.setRsName(shardId);
+			writeTimestampFile(shard, startingTs);
+		} else {
+			for (Shard shard : shards) {
+				writeTimestampFile(shard, startingTs);
 			}
 		}
+		
 		mongomirror();
 	}
 	
