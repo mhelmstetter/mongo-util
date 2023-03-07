@@ -497,6 +497,9 @@ public class ShardConfigSync implements Callable<Integer> {
 		boolean destIsAtlas = this.destShardClient.isAtlas();
 		logger.debug("sourceIsAtlas: {}, destIsAtlas: {}", sourceIsAtlas, destIsAtlas);
 		
+		//List<AtlasUser> existingUsers = atlasUtil.getDatabaseUsers(config.atlasProjectId);
+		
+		
 		Map<String, String> usersMap = null;
 		String usersInputCsv = config.getUsersInputCsv();
 		File usersInputFile = null;
@@ -700,7 +703,8 @@ public class ShardConfigSync implements Callable<Integer> {
 		for (Document sourceInfo : sourceDatabaseInfo) {
 			String dbName = sourceInfo.getString("name");
 
-			if (config.filtered && !config.getIncludeDatabasesAll().contains(dbName) || dbName.equals("config")) {
+			if (config.filtered && !config.getIncludeDatabasesAll().contains(dbName) 
+					|| dbName.equals("config") || dbName.equals("local") || dbName.equals("admin")) {
 				logger.debug("Ignore " + dbName + " for compare, filtered");
 				continue;
 			}
