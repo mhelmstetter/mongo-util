@@ -1,7 +1,5 @@
 package com.mongodb.corruptutil;
 
-import java.io.File;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -25,6 +23,7 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
+import com.mongodb.model.Namespace;
 
 public class DupeUtil {
     
@@ -32,6 +31,9 @@ public class DupeUtil {
     
     private Set<String> databasesExcludeList = new HashSet<>(Arrays.asList("system", "local", "config", "admin"));
     private Set<String> collectionsExcludeList = new HashSet<>(Arrays.asList("system.indexes", "system.profile"));
+    
+    private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
+    private boolean filtered;
     
     private static Options options;
     
@@ -46,6 +48,7 @@ public class DupeUtil {
                 .applyConnectionString(connectionString)
                 .build();
     	sourceClient = MongoClients.create(mongoClientSettings);
+    	
     }
     
     public void run() throws InterruptedException {
@@ -60,6 +63,11 @@ public class DupeUtil {
                     if (collectionsExcludeList.contains(collectionName)) {
                         continue;
                     }
+                    Namespace ns = new Namespace(dbName, collectionName);
+                    if (filtered && !includeNamespaces.contains(ns)) {
+						continue;
+					}
+                    
                     MongoCollection<RawBsonDocument> coll = db.getCollection(collectionName, RawBsonDocument.class);
                     Runnable worker = new DupeIdFinderWorker(sourceClient, coll);
                     executor.execute(worker);
@@ -75,6 +83,14 @@ public class DupeUtil {
         logger.debug("CorruptUtil complete");
     }
     
+    private void addFilters(String[] filters) {
+    	this.filtered = filters != null;
+    	for (String f : filters) {
+    		Namespace ns = new Namespace(f);
+    		includeNamespaces.add(ns);
+    	}
+    }
+    
     private void setThreads(int threads) {
         this.threads = threads;
     }
@@ -86,6 +102,7 @@ public class DupeUtil {
         options.addOption(Option.builder("s").desc("Source cluster connection uri").hasArgs().longOpt("source")
                 .required(true).build());
         options.addOption(Option.builder("t").desc("# threads").hasArgs().longOpt("threads").build());
+        options.addOption(Option.builder("f").desc("namespace filter").hasArgs().longOpt("filter").build());
         
 
         CommandLineParser parser = new DefaultParser();
@@ -120,6 +137,9 @@ public class DupeUtil {
             int threads = Integer.parseInt(threadsStr);
             util.setThreads(threads);
         }
+        
+        String[] filters = line.getOptionValues("f");
+        util.addFilters(filters);
         
         util.run();
 
