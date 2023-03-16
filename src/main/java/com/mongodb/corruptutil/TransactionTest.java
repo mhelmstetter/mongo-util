@@ -28,6 +28,8 @@ public class TransactionTest {
     private int threads = 100;
     private boolean useTransactions;
     
+    private String dbName;
+    
     private ExecutorService executor;
     
     public TransactionTest(String sourceUriStr) {
@@ -42,13 +44,12 @@ public class TransactionTest {
         executor = Executors.newFixedThreadPool(threads);
         
         for (int i = 0; i < threads; i++) {
-        	Runnable worker = new TransactionWorker(sourceClient, i, useTransactions);
+        	Runnable worker = new TransactionWorker(sourceClient, i, useTransactions, dbName);
             executor.execute(worker);
         }
         
         executor.shutdown();
         while (!executor.isTerminated()) {
-            logger.debug("Waiting for executor to terminate");
             Thread.sleep(1000);
         }
         logger.debug("CorruptUtil complete");
@@ -64,6 +65,9 @@ public class TransactionTest {
         options.addOption(new Option("help", "print this message"));
         options.addOption(OptionBuilder.withArgName("Source cluster connection uri").hasArgs().withLongOpt("source")
                 .isRequired(true).create("s"));
+        
+        options.addOption(OptionBuilder.withArgName("database name").hasArgs().withLongOpt("db")
+                .isRequired(true).create("d"));
         
         options.addOption(OptionBuilder.withArgName("use transactions")
                 .withLongOpt("withTransaction").create("x"));
@@ -106,6 +110,9 @@ public class TransactionTest {
         boolean useTransactions = line.hasOption("x");
         util.setUseTransactions(useTransactions);
         
+        String dbName = line.getOptionValue("d");
+        util.setDbName(dbName);
+        
         util.run();
 
     }
@@ -116,6 +123,14 @@ public class TransactionTest {
 
 	public void setUseTransactions(boolean useTransactions) {
 		this.useTransactions = useTransactions;
+	}
+
+	public String getDbName() {
+		return dbName;
+	}
+
+	public void setDbName(String dbName) {
+		this.dbName = dbName;
 	}
 
 

@@ -1,5 +1,7 @@
 package com.mongodb.corruptutil;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.bson.RawBsonDocument;
@@ -10,7 +12,6 @@ import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.MongoIterable;
 
 public class TransactionWorker implements Runnable {
 
@@ -21,11 +22,13 @@ public class TransactionWorker implements Runnable {
     AtomicInteger atomicInteger = new AtomicInteger();
     private int id;
     private boolean useTransaction;
+    private String dbName;
 
-    public TransactionWorker(MongoClient client, int id, boolean useTransaction) {
+    public TransactionWorker(MongoClient client, int id, boolean useTransaction, String dbName) {
         this.client = client;
         this.id = id;
         this.useTransaction = useTransaction;
+        this.dbName = dbName;
     }
 
     @Override
@@ -42,17 +45,19 @@ public class TransactionWorker implements Runnable {
     	
         
         try {
-        	MongoIterable<String> dbNames = client.listDatabaseNames();
-            for (String dbName : dbNames) {
+        	
                 
-                MongoDatabase db = client.getDatabase(dbName);
-                //logger.debug("db " + dbName);
-                MongoIterable<String> collectionNames = db.listCollectionNames();
-                for (String collectionName : collectionNames) {
-                    MongoCollection<RawBsonDocument> coll = db.getCollection(collectionName, RawBsonDocument.class);
-                    Thread.currentThread().sleep(10);
-                }
+            MongoDatabase db = client.getDatabase(dbName);
+            //logger.debug("db " + dbName);
+            List<String> collectionNames = new ArrayList<>();
+            db.listCollectionNames().into(collectionNames);
+            
+            logger.debug("TransactionWorker id: {}, collCount: {}", id, collectionNames.size());
+            
+            for (String collectionName : collectionNames) {
+                MongoCollection<RawBsonDocument> coll = db.getCollection(collectionName, RawBsonDocument.class);
             }
+            
             if (useTransaction) {
             	trxSession.commitTransaction();
             }
