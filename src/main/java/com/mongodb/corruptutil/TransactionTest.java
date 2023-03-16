@@ -1,10 +1,5 @@
 package com.mongodb.corruptutil;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -15,7 +10,6 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
-import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,22 +17,16 @@ import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.MongoIterable;
 
 public class TransactionTest {
     
     private static Logger logger = LoggerFactory.getLogger(TransactionTest.class);
     
-    private Set<String> databasesBlacklist = new HashSet<>(Arrays.asList("system", "local", "config", "admin"));
-    private Set<String> collectionsBlacklist = new HashSet<>(Arrays.asList("system.indexes", "system.profile"));
-    
     private static Options options;
     
     private MongoClient sourceClient;
     private int threads = 100;
-    private File outDir;
+    private boolean useTransactions;
     
     private ExecutorService executor;
     
@@ -54,7 +42,7 @@ public class TransactionTest {
         executor = Executors.newFixedThreadPool(threads);
         
         for (int i = 0; i < threads; i++) {
-        	Runnable worker = new TransactionWorker(sourceClient, i);
+        	Runnable worker = new TransactionWorker(sourceClient, i, useTransactions);
             executor.execute(worker);
         }
         
@@ -77,6 +65,8 @@ public class TransactionTest {
         options.addOption(OptionBuilder.withArgName("Source cluster connection uri").hasArgs().withLongOpt("source")
                 .isRequired(true).create("s"));
         
+        options.addOption(OptionBuilder.withArgName("use transactions")
+                .withLongOpt("withTransaction").create("x"));
         options.addOption(OptionBuilder.withArgName("# threads").hasArgs().withLongOpt("threads").create("t"));
         
 
@@ -113,9 +103,20 @@ public class TransactionTest {
             util.setThreads(threads);
         }
         
+        boolean useTransactions = line.hasOption("x");
+        util.setUseTransactions(useTransactions);
+        
         util.run();
 
     }
+
+	public boolean isUseTransactions() {
+		return useTransactions;
+	}
+
+	public void setUseTransactions(boolean useTransactions) {
+		this.useTransactions = useTransactions;
+	}
 
 
 

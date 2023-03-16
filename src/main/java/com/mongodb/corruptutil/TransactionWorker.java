@@ -20,11 +20,12 @@ public class TransactionWorker implements Runnable {
     
     AtomicInteger atomicInteger = new AtomicInteger();
     private int id;
-    
+    private boolean useTransaction;
 
-    public TransactionWorker(MongoClient client, int id) {
+    public TransactionWorker(MongoClient client, int id, boolean useTransaction) {
         this.client = client;
         this.id = id;
+        this.useTransaction = useTransaction;
     }
 
     @Override
@@ -33,9 +34,12 @@ public class TransactionWorker implements Runnable {
     	int count = atomicInteger.incrementAndGet();
     	logger.debug("TransactionWorker start iteration: {}", id);
         
-    	ClientSession trxSession = client.startSession();
-
-        trxSession.startTransaction();
+    	ClientSession trxSession =  null;
+    	if (useTransaction) {
+    		trxSession = client.startSession();
+            trxSession.startTransaction();
+    	}
+    	
         
         try {
         	MongoIterable<String> dbNames = client.listDatabaseNames();
@@ -49,17 +53,23 @@ public class TransactionWorker implements Runnable {
                     Thread.currentThread().sleep(10);
                 }
             }
-            trxSession.commitTransaction();
+            if (useTransaction) {
+            	trxSession.commitTransaction();
+            }
+            
             
         } catch (Throwable trxException) {
 
             logger.error("Exception throw while initializing mongo collections", trxException);
-            trxSession.abortTransaction();
+            if (useTransaction) {
+            	trxSession.abortTransaction();
+            }
+            
 
           } finally {
-
-            trxSession.close();
-
+        	  if (useTransaction) {
+        		  trxSession.close();
+        	  }
           }
         
     	logger.debug("TransactionWorker complete iteration: {}", id);
