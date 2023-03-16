@@ -9,7 +9,6 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 
 import org.bson.BsonInt64;
-import org.bson.BsonNumber;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
@@ -36,6 +35,12 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 	
 	@Option(names = {"--uri"}, description = "mongodb uri connection string", required = true)
     private String uri;
+	
+	@Option(names = "--i", description = "include idle operations")
+    boolean idle;
+	
+	@Option(names = "--d", description = "discover toplogy hosts")
+    boolean discover;
 	
 	
 	MongoClient mongoClient;
