@@ -1721,8 +1721,8 @@ public class ShardConfigSync implements Callable<Integer> {
 					continue;
 				}
 				if (status.getErrorMessage() != null) {
-					logger.error(
-							String.format("%s - mongomirror error %s", mongomirror.getId(), status.getErrorMessage()));
+					logger.error("{} - mongomirror error, count={}, {}", mongomirror.getId(), 
+							mongomirror.getErrorCount(), status.getErrorMessage());
 				} else if (status.isInitialSync()) {
 					MongoMirrorStatusInitialSync st = (MongoMirrorStatusInitialSync) status;
 					if (st.isCopyingIndexes()) {

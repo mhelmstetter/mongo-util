@@ -137,7 +137,7 @@ public class EmailSender implements MongoMirrorEventListener {
 
     @Override
     public void procLoggedError(String msg) {
-        logger.info("Trapped an error message");
+        logger.info("Trapped an error message: {}", msg);
         if (emailsSent < totalEmailsMax) {
             /* If we've already sent out the max reports for this MM run, do nothing */
             addError(msg);

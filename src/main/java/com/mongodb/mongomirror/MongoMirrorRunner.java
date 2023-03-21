@@ -2,6 +2,9 @@ package com.mongodb.mongomirror;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -11,6 +14,7 @@ import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecuteResultHandler;
 import org.apache.commons.exec.DefaultExecutor;
 import org.apache.commons.exec.ExecuteException;
+import org.apache.commons.exec.ExecuteWatchdog;
 import org.apache.commons.exec.PumpStreamHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,6 +85,8 @@ public class MongoMirrorRunner {
     private boolean smtpAuth;
     private String smtpPassword;
     private String emailFrom;
+    
+    private int errorCount;
 
     private String id;
 
@@ -88,7 +94,10 @@ public class MongoMirrorRunner {
 
     private HttpUtils httpUtils;
     private MongoMirrorLogHandler logHandler;
-    //private Gson gson;
+    private EmailSender emailSender;
+    
+    private DefaultExecutor executor;
+    private ExecuteWatchdog watchdog;
 
     public MongoMirrorRunner(String id) {
         this.id = id;
@@ -99,6 +108,7 @@ public class MongoMirrorRunner {
     public void execute(boolean dryRun) throws ExecuteException, IOException {
 
         logger.debug("execute() start id: " + id);
+        
         executeResultHandler = new DefaultExecuteResultHandler();
         cmdLine = new CommandLine(mongomirrorBinary);
 
@@ -145,7 +155,7 @@ public class MongoMirrorRunner {
             return;
         }
         
-        EmailSender emailSender = null;
+        
         if (!emailRecipients.isEmpty()) {
             emailSender = new EmailSender(emailRecipients, smtpHost, smtpPort, smtpTls, smtpAuth, emailFrom,
                     smtpPassword, errMsgWindowSecs, errorRptMaxErrors, totalEmailsMax, id);
@@ -153,12 +163,15 @@ public class MongoMirrorRunner {
         logHandler = new MongoMirrorLogHandler(emailSender, id);
         PumpStreamHandler psh = new PumpStreamHandler(logHandler);
 
-        DefaultExecutor executor = new DefaultExecutor();
+        executor = new DefaultExecutor();
+        watchdog = new ExecuteWatchdog(ExecuteWatchdog.INFINITE_TIMEOUT);
         //executor.setExitValue(0);
+        executor.setWatchdog(watchdog);
         executor.setStreamHandler(psh);
 
         logger.debug("mongomirror execute id: " + id + " cmdLine: " + MaskUtil.maskCommandLine(cmdLine, PASSWORD_KEYS));
         executor.execute(cmdLine, executeResultHandler);
+        
 
 //        try {
 //            executeResultHandler.waitFor();
@@ -180,11 +193,34 @@ public class MongoMirrorRunner {
         } catch (IOException e) {
             logger.error(statusStr);
             logger.error("Error checking mongomirror status: " + e.getMessage());
+            processError(e.getMessage());
         } catch (Exception e) {
             logger.error(statusStr);
             logger.error("Error checking mongomirror status", e);
+            processError(e.getMessage());
         }
         return null;
+    }
+    
+    private boolean bookmarkFileExists() {
+    	Path path = Paths.get(bookmarkFile);
+    	return Files.exists(path);
+    }
+    
+    private void processError(String error) {
+    	errorCount++;
+    	if (errorCount >= 5 && bookmarkFileExists()) {
+    		
+    		ExecuteWatchdog wd = executor.getWatchdog();
+    		logger.warn("stopping process after {} errors", errorCount);
+    		wd.destroyProcess();
+    		try {
+				executor.execute(cmdLine, executeResultHandler);
+			} catch (IOException e) {
+				logger.error("error restarting process", e);
+			}
+    		errorCount = 0;
+    	}
     }
 
     public MongoMirrorStatus parseStatus(String statusStr) {
@@ -206,6 +242,7 @@ public class MongoMirrorRunner {
 
         if (statusJson.has("errorMessage")) {
             errorMessage = statusJson.get("errorMessage").getAsString();
+            processError(errorMessage);
         }
 
         if ("initial sync".equals(stage) && !"applying oplog entries".equals(phase)) {
@@ -467,5 +504,9 @@ public class MongoMirrorRunner {
 
 	public void setNoCollectionCreate(Boolean noCollectionCreate) {
 		this.noCollectionCreate = noCollectionCreate;
+	}
+
+	public int getErrorCount() {
+		return errorCount;
 	}
 }
