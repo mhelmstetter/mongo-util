@@ -38,16 +38,21 @@ public class DupeUtil {
     private static Options options;
     
     private MongoClient sourceClient;
+    private MongoDatabase archiveDb;
+    
     private int threads = 4;
     
     private ExecutorService executor;
     
-    public DupeUtil(String sourceUriStr) {
+    public DupeUtil(String sourceUriStr, String archiveDbName) {
     	ConnectionString connectionString = new ConnectionString(sourceUriStr);
     	MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString)
                 .build();
     	sourceClient = MongoClients.create(mongoClientSettings);
+    	if (archiveDbName != null) {
+        	archiveDb = sourceClient.getDatabase(archiveDbName);
+        }
     	
     }
     
@@ -69,7 +74,7 @@ public class DupeUtil {
 					}
                     
                     MongoCollection<RawBsonDocument> coll = db.getCollection(collectionName, RawBsonDocument.class);
-                    Runnable worker = new DupeIdFinderWorker(sourceClient, coll);
+                    Runnable worker = new DupeIdFinderWorker(sourceClient, coll, archiveDb);
                     executor.execute(worker);
                 }
             }
@@ -85,6 +90,9 @@ public class DupeUtil {
     
     private void addFilters(String[] filters) {
     	this.filtered = filters != null;
+    	if (filters == null) {
+    		return;
+    	}
     	for (String f : filters) {
     		Namespace ns = new Namespace(f);
     		includeNamespaces.add(ns);
@@ -95,7 +103,6 @@ public class DupeUtil {
         this.threads = threads;
     }
 
-    @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
         options = new Options();
         options.addOption(new Option("help", "print this message"));
@@ -103,6 +110,7 @@ public class DupeUtil {
                 .required(true).build());
         options.addOption(Option.builder("t").desc("# threads").hasArgs().longOpt("threads").build());
         options.addOption(Option.builder("f").desc("namespace filter").hasArgs().longOpt("filter").build());
+        options.addOption(Option.builder("a").desc("archive database name").hasArgs().longOpt("archive").build());
         
 
         CommandLineParser parser = new DefaultParser();
@@ -131,7 +139,7 @@ public class DupeUtil {
 
     public static void main(String[] args) throws Exception {
         CommandLine line = initializeAndParseCommandLineOptions(args);
-        DupeUtil util = new DupeUtil(line.getOptionValue("s"));
+        DupeUtil util = new DupeUtil(line.getOptionValue("s"), line.getOptionValue("a"));
         String threadsStr = line.getOptionValue("t");
         if (threadsStr != null) {
             int threads = Integer.parseInt(threadsStr);
@@ -144,5 +152,9 @@ public class DupeUtil {
         util.run();
 
     }
+
+	public void setArchiveDb(MongoDatabase archiveDb) {
+		this.archiveDb = archiveDb;
+	}
 
 }
