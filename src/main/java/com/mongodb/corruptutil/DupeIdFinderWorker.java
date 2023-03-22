@@ -40,12 +40,17 @@ public class DupeIdFinderWorker implements Runnable {
     
 
     private void handleDupes(RawBsonDocument doc, RawBsonDocument lastDoc, int dupeNum) {
-    	if (archiveDb != null) {
+    	if (archiveDb != null && dupeNum <= 2) {
     		String base = collection.getNamespace().getFullName();
-    		MongoCollection<RawBsonDocument> c1 = archiveDb.getCollection(String.format("%s_%s", base, dupeNum-1), RawBsonDocument.class);
-    		MongoCollection<RawBsonDocument> c2 = archiveDb.getCollection(String.format("%s_%s", base, dupeNum), RawBsonDocument.class);
-    		c1.insertOne(doc);
-    		c2.insertOne(lastDoc);
+    		Bson query = eq("_id", doc.get("_id"));
+    		int d = 1;
+    		MongoCursor<RawBsonDocument> cursor = collection.find(query).iterator();
+    		while (cursor.hasNext()) {
+    			RawBsonDocument fullDoc = cursor.next();
+    			String collName = String.format("%s_%s", base, d++);
+    			MongoCollection<RawBsonDocument> c1 = archiveDb.getCollection(collName, RawBsonDocument.class);
+    			c1.insertOne(fullDoc);
+    		}
     	}
     	
     }
