@@ -66,9 +66,11 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 	}
 	
 	private String getStringValue(RawBsonDocument result, String key) {
-		BsonString bs = result.getString(key);
-		if (bs != null) {
-			return bs.getValue();
+		if (result.containsKey(key)) {
+			BsonString bs = result.getString(key);
+			if (bs != null) {
+				return bs.getValue();
+			}
 		}
 		return null;
 	}
