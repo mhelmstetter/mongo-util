@@ -32,13 +32,13 @@ import com.mongodb.util.HttpUtils;
 import com.mongodb.util.MaskUtil;
 
 public class MongoMirrorRunner {
+	
+	private static final int WAITFOR_TIMEOUT = 60000;
 
     public final static String[] PASSWORD_KEYS = {"--password", "--destinationPassword"};
 
     private File mongomirrorBinary;
     private CommandLine cmdLine;
-
-    private DefaultExecuteResultHandler executeResultHandler;
 
     private String sourceHost;
     private String sourceUsername;
@@ -98,6 +98,7 @@ public class MongoMirrorRunner {
     
     private DefaultExecutor executor;
     private ExecuteWatchdog watchdog;
+    private DefaultExecuteResultHandler executeResultHandler;
 
     public MongoMirrorRunner(String id) {
         this.id = id;
@@ -109,7 +110,6 @@ public class MongoMirrorRunner {
 
         logger.debug("execute() start id: " + id);
         
-        executeResultHandler = new DefaultExecuteResultHandler();
         cmdLine = new CommandLine(mongomirrorBinary);
 
         addArg("host", sourceHost);
@@ -163,6 +163,7 @@ public class MongoMirrorRunner {
         logHandler = new MongoMirrorLogHandler(emailSender, id);
         PumpStreamHandler psh = new PumpStreamHandler(logHandler);
 
+        executeResultHandler = new DefaultExecuteResultHandler();
         executor = new DefaultExecutor();
         watchdog = new ExecuteWatchdog(ExecuteWatchdog.INFINITE_TIMEOUT);
         //executor.setExitValue(0);
@@ -213,12 +214,19 @@ public class MongoMirrorRunner {
     		
     		ExecuteWatchdog wd = executor.getWatchdog();
     		logger.warn("stopping process after {} errors", errorCount);
+    		logHandler.getListener().procLoggedError("***** stopping mongomirror");
     		wd.destroyProcess();
+    		try {
+				executeResultHandler.waitFor(WAITFOR_TIMEOUT);
+			} catch (InterruptedException e1) {
+				logger.warn("executeResultHandler interrupted", e1);
+			}
     		try {
 				executor.execute(cmdLine, executeResultHandler);
 			} catch (IOException e) {
 				logger.error("error restarting process", e);
 			}
+    		logHandler.getListener().procLoggedError("***** mongomirror restarted");
     		errorCount = 0;
     	}
     }

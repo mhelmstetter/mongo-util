@@ -3,6 +3,7 @@ package com.mongodb.stats;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -14,12 +15,10 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.ConnectionString;
-import com.mongodb.MongoClientSettings;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.shardsync.ShardClient;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -30,7 +29,7 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 	
 	private static Logger logger = LoggerFactory.getLogger(CurrentOpAnalyzer.class);
 	
-	private final static Set<String> ignoreOps = new HashSet<>(Arrays.asList("hello", "isMaster"));
+	private final static Set<String> ignoreOps = new HashSet<>(Arrays.asList("hello", "isMaster", "ismaster"));
 	
 	
 	@Option(names = {"--uri"}, description = "mongodb uri connection string", required = true)
@@ -43,23 +42,30 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
     boolean discover;
 	
 	
-	MongoClient mongoClient;
+	List<Document> pipeline = new ArrayList<>(1);
 	
-	private void connect() {
-		ConnectionString connectionString = new ConnectionString(uri);
-		MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
-                .applyConnectionString(connectionString)
-                .build();
-		mongoClient = MongoClients.create(mongoClientSettings);
+	
+	
+	public CurrentOpAnalyzer() {
+		Document options = new Document("allUsers", true);
+		options.append("idleConnections", true);
+		options.append("idleCursors", true);
+		options.append("idleSessions", true);
+		options.append("localOps", true);
+		Document currentOpPipeline = new Document("$currentOp", options);
+		pipeline.add(currentOpPipeline);
 	}
 	
+	private ShardClient shardClient;
 	
+	private void connect() {
+		shardClient = new ShardClient("source", uri);
+		shardClient.init();
+		shardClient.populateShardMongoClients();
+	}
 	
-	private void analyze() throws IOException {
-		
+	private void analyze(MongoClient mongoClient) {
 		MongoDatabase db = mongoClient.getDatabase("admin");
-		List<Document> pipeline = new ArrayList<>(1);
-		pipeline.add(new Document("$currentOp", new Document()));
 		AggregateIterable<RawBsonDocument> it = null;
 		int skipCount = 0;
 		while (true) {
@@ -96,13 +102,24 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 				if (skipCount % 100000 == 0) {
 					System.out.println();
 				}
-				
 			}
 		}
+	}
 	
 	
+	private void analyze() throws IOException {
 		
-		
+	
+		if (shardClient.isMongos()) {
+			
+			Collection<MongoClient> mongoClients = shardClient.getShardMongoClients().values();
+			for (MongoClient mc : mongoClients) {
+				analyze(mc);
+			}
+			
+		} else {
+			analyze(shardClient.getMongoClient());
+		}
 	}
 	
 	

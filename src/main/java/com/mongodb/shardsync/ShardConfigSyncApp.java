@@ -116,7 +116,7 @@ public class ShardConfigSyncApp {
     private static final String DEFAULT_EMAIL_SMTP_PORT = "587";
     private static final String DEFAULT_EMAIL_SMTP_TLS = "true";
     private static final String DEFAULT_EMAIL_SMTP_AUTH = "true";
-    private static final String DEFAULT_ERROR_MESSAGE_WINDOW_SECS = "240";
+    private static final String DEFAULT_ERROR_MESSAGE_WINDOW_SECS = "300";
     private static final String DEFAULT_ERROR_REPORT_MAX = "25";
     private static final String DEFAULT_EMAIL_REPORT_MAX = "9999";
 

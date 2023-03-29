@@ -59,7 +59,7 @@ public class EmailSender implements MongoMirrorEventListener {
         props.put("mail.from.password", smtpPassword);
     }
 
-    public void sendReport(boolean success, List<String> errors, List<String> recipients) throws MessagingException {
+    public void sendReport(boolean success) throws MessagingException {
         logger.info(String.format("Sending an email report with %s errors", errors.size()));
         Session session = Session.getInstance(props, new Authenticator() {
             @Override
@@ -105,33 +105,29 @@ public class EmailSender implements MongoMirrorEventListener {
     }
 
     private void addError(String err) {
-        /* Ignore error messages after we've hit the max number for this report */
-        if (errors.size() < errorRptMax) {
-            errors.add(err);
-
-            if (!inErrMsgWindow) {
-                /* It's either the first error we've seen or the first in a while */
-                logger.info("Opening an error message window");
-                inErrMsgWindow = true;
-                Timer timer = new Timer("Error window timer");
-                long delay = errorMsgWindowSecs * 1000;
-                TimerTask t = new TimerTask() {
-                    @Override
-                    public void run() {
-                        try {
-                            /* When the "window" timer elapses, send a report */
-                            logger.info("Closing error message window");
-                            sendReport(false, errors, recipients);
-                            emailsSent++;
-                            errors.clear();
-                            inErrMsgWindow = false;
-                        } catch (MessagingException e) {
-                            logger.error("Exception thrown while sending email report", e);
-                        }
+        
+        if (!inErrMsgWindow) {
+            /* It's either the first error we've seen or the first in a while */
+            logger.info("Opening an error message window");
+            inErrMsgWindow = true;
+            Timer timer = new Timer("Error window timer");
+            long delay = errorMsgWindowSecs * 1000;
+            TimerTask t = new TimerTask() {
+                @Override
+                public void run() {
+                    try {
+                        /* When the "window" timer elapses, send a report */
+                        logger.info("Closing error message window");
+                        sendReport(false);
+                        emailsSent++;
+                        errors.clear();
+                        inErrMsgWindow = false;
+                    } catch (MessagingException e) {
+                        logger.error("Exception thrown while sending email report", e);
                     }
-                };
-                timer.schedule(t, delay);
-            }
+                }
+            };
+            timer.schedule(t, delay);
         }
     }
 
@@ -151,7 +147,7 @@ public class EmailSender implements MongoMirrorEventListener {
         /* in which case sufficient detail will be in that report which is still being generated */
         if (!inErrMsgWindow) {
             try {
-                sendReport(errors.size() > 0, errors, recipients);
+                sendReport(errors.size() > 0);
             } catch (MessagingException e) {
                 logger.error("Exception thrown while sending email report", e);
             }
