@@ -75,7 +75,6 @@ public class DupeUtil {
         for (String dbName : dbNames) {
             if (! databasesExcludeList.contains(dbName)) {
                 MongoDatabase db = sourceClient.getDatabase(dbName);
-                logger.debug("db " + dbName);
                 MongoIterable<String> collectionNames = db.listCollectionNames();
                 for (String collectionName : collectionNames) {
                     if (collectionsExcludeList.contains(collectionName)) {
@@ -95,7 +94,6 @@ public class DupeUtil {
         
         executor.shutdown();
         while (!executor.isTerminated()) {
-            logger.debug("Waiting for executor to terminate");
             Thread.sleep(1000);
         }
         logger.debug("CorruptUtil complete");
