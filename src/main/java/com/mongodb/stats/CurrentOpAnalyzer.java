@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 
 import org.bson.BsonInt64;
+import org.bson.BsonString;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
@@ -64,6 +65,14 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 		shardClient.populateShardMongoClients();
 	}
 	
+	private String getStringValue(RawBsonDocument result, String key) {
+		BsonString bs = result.getString(key);
+		if (bs != null) {
+			return bs.getValue();
+		}
+		return null;
+	}
+	
 	private void analyze(MongoClient mongoClient) {
 		MongoDatabase db = mongoClient.getDatabase("admin");
 		AggregateIterable<RawBsonDocument> it = null;
@@ -71,8 +80,8 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 		while (true) {
 			it = db.aggregate(pipeline, RawBsonDocument.class);
 			for (RawBsonDocument result : it) {
-				String desc = result.getString("desc").getValue();
-				String op = result.getString("op").getValue();
+				String desc = getStringValue(result, "desc");
+				String op = getStringValue(result, "op");
 				RawBsonDocument cmd = (RawBsonDocument)result.get("command");
 				String cmdStr = null;
 				if (!cmd.isEmpty()) {
