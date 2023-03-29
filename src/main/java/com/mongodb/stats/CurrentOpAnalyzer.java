@@ -86,7 +86,7 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 				String op = getStringValue(result, "op");
 				RawBsonDocument cmd = (RawBsonDocument)result.get("command");
 				String cmdStr = null;
-				if (!cmd.isEmpty()) {
+				if (cmd != null && !cmd.isEmpty()) {
 					cmdStr = cmd.getFirstKey();
 				}
 				
