@@ -121,7 +121,7 @@ public class DupeUtil {
         options.addOption(new Option("help", "print this message"));
         options.addOption(Option.builder("s").desc("Source cluster connection uri").hasArgs().longOpt("source")
                 .required(true).build());
-        options.addOption(Option.builder("d").desc("Destination (archive) cluster connection uri").hasArgs().longOpt("source").build());
+        options.addOption(Option.builder("d").desc("Destination (archive) cluster connection uri").hasArgs().longOpt("dest").build());
         options.addOption(Option.builder("t").desc("# threads").hasArgs().longOpt("threads").build());
         options.addOption(Option.builder("f").desc("namespace filter").hasArgs().longOpt("filter").build());
         options.addOption(Option.builder("a").desc("archive database name").hasArgs().longOpt("archive").build());
