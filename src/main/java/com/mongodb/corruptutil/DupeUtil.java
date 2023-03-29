@@ -38,20 +38,33 @@ public class DupeUtil {
     private static Options options;
     
     private MongoClient sourceClient;
+    private MongoClient destClient;
+    
     private MongoDatabase archiveDb;
     
     private int threads = 4;
     
     private ExecutorService executor;
     
-    public DupeUtil(String sourceUriStr, String archiveDbName) {
+    public DupeUtil(String sourceUriStr, String destUriStr, String archiveDbName) {
     	ConnectionString connectionString = new ConnectionString(sourceUriStr);
     	MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString)
                 .build();
     	sourceClient = MongoClients.create(mongoClientSettings);
+    	
+    	if (destUriStr != null) {
+    		ConnectionString cs = new ConnectionString(destUriStr);
+        	MongoClientSettings mcs = MongoClientSettings.builder()
+                    .applyConnectionString(cs)
+                    .build();
+        	destClient = MongoClients.create(mcs);
+    	} else {
+    		destClient = sourceClient;
+    	}
+    	
     	if (archiveDbName != null) {
-        	archiveDb = sourceClient.getDatabase(archiveDbName);
+        	archiveDb = destClient.getDatabase(archiveDbName);
         }
     	
     }
@@ -108,6 +121,7 @@ public class DupeUtil {
         options.addOption(new Option("help", "print this message"));
         options.addOption(Option.builder("s").desc("Source cluster connection uri").hasArgs().longOpt("source")
                 .required(true).build());
+        options.addOption(Option.builder("d").desc("Destination (archive) cluster connection uri").hasArgs().longOpt("source").build());
         options.addOption(Option.builder("t").desc("# threads").hasArgs().longOpt("threads").build());
         options.addOption(Option.builder("f").desc("namespace filter").hasArgs().longOpt("filter").build());
         options.addOption(Option.builder("a").desc("archive database name").hasArgs().longOpt("archive").build());
@@ -139,7 +153,7 @@ public class DupeUtil {
 
     public static void main(String[] args) throws Exception {
         CommandLine line = initializeAndParseCommandLineOptions(args);
-        DupeUtil util = new DupeUtil(line.getOptionValue("s"), line.getOptionValue("a"));
+        DupeUtil util = new DupeUtil(line.getOptionValue("s"), line.getOptionValue("d"), line.getOptionValue("a"));
         String threadsStr = line.getOptionValue("t");
         if (threadsStr != null) {
             int threads = Integer.parseInt(threadsStr);
