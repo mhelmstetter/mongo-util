@@ -86,8 +86,12 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 				String op = getStringValue(result, "op");
 				RawBsonDocument cmd = (RawBsonDocument)result.get("command");
 				String cmdStr = null;
+				String cmdFull = null;
+				boolean currentOp = false;
 				if (cmd != null && !cmd.isEmpty()) {
 					cmdStr = cmd.getFirstKey();
+					cmdFull = cmd.toString();
+					cmdFull.contains("$currentOp");
 				}
 				
 				Long secs = null;
@@ -98,8 +102,6 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 					}
 				}
 				
-				String cmdFull = cmd.toString();
-				boolean currentOp = cmdFull.contains("$currentOp");
 				
 				if (!currentOp && cmdStr != null && !ignoreOps.contains(cmdStr)) {
 					System.out.println(desc + " " + op + " " + cmdStr + " " + secs);
