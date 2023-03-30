@@ -1144,6 +1144,10 @@ public class ShardConfigSync implements Callable<Integer> {
 
 		for (Document sourceInfo : sourceDatabaseInfo) {
 			String dbName = sourceInfo.getString("_id");
+			
+			MongoDatabase db = sourceShardClient.getMongoClient().getDatabase(dbName);
+			List<String> collNames = new ArrayList<>();
+			db.listCollectionNames().into(collNames);
 
 			if (config.filtered && !config.getIncludeDatabasesAll().contains(dbName) 
 					|| dbName.equals("config") || dbName.equals("local") || dbName.equals("admin")) {
@@ -1153,7 +1157,7 @@ public class ShardConfigSync implements Callable<Integer> {
 
 			Document destInfo = destDbInfoMap.get(dbName);
 			if (destInfo == null) {
-				logger.warn(String.format("Destination db not found, name: %s", dbName));
+				logger.warn(String.format("Destination db not found, name: %s, collCount: %", dbName, collNames.size()));
 			} else {
 				String sourcePrimary = sourceInfo.getString("primary");
 				String destPrimary = destInfo.getString("primary");
