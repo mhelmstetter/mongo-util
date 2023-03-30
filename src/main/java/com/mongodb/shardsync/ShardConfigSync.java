@@ -1112,6 +1112,22 @@ public class ShardConfigSync implements Callable<Integer> {
 		
 	}
 	
+	private void enableSharding(String dbName, String primaryShard) {
+		try {
+			Document cmd = new Document("enableSharding", dbName);
+			if (primaryShard != null) {
+				cmd.append("primaryShard", primaryShard);
+			}
+			destShardClient.adminCommand(cmd);
+		} catch (MongoCommandException mce) {
+			if (mce.getCode() == 23 && mce.getErrorMessage().contains("sharding already enabled")) {
+				logger.debug("Sharding already enabled: " + dbName);
+			} else {
+				throw mce;
+			}
+		}
+	}
+	
 	@SuppressWarnings("unchecked")
 	public void compareDatabaseMetadata() {
 		initChunkManager();
@@ -1147,6 +1163,8 @@ public class ShardConfigSync implements Callable<Integer> {
 					logger.debug("{} exists on source and dest", dbName);
 				} else {
 					logger.warn("{} exists on source and dest, primary shard mismatch", dbName);
+					logger.debug("enableSharding on {}, in order to fix primary shard mismatch", dbName);
+					enableSharding(dbName, mappedPrimary);
 				}
 				
 				
@@ -1361,16 +1379,7 @@ public class ShardConfigSync implements Callable<Integer> {
 					.find(new Document("_id", databaseName)).first();
 			if (database.getBoolean("partitioned", true)) {
 				logger.debug(String.format("enableSharding: %s", databaseName));
-				try {
-					destShardClient.adminCommand(new Document("enableSharding", databaseName));
-				} catch (MongoCommandException mce) {
-					if (mce.getCode() == 23 && mce.getErrorMessage().contains("sharding already enabled")) {
-						logger.debug("Sharding already enabled: " + databaseName);
-					} else {
-						throw mce;
-					}
-				}
-
+				enableSharding(databaseName, null);
 			}
 
 			// this needs to be the atlas-xxx id
