@@ -1157,7 +1157,7 @@ public class ShardConfigSync implements Callable<Integer> {
 
 			Document destInfo = destDbInfoMap.get(dbName);
 			if (destInfo == null) {
-				logger.warn(String.format("Destination db not found, name: %s, collCount: %", dbName, collNames.size()));
+				logger.warn("Destination db not found, name: {}, collCount: {}", dbName, collNames.size());
 			} else {
 				String sourcePrimary = sourceInfo.getString("primary");
 				String destPrimary = destInfo.getString("primary");
