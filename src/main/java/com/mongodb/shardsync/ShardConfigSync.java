@@ -1114,6 +1114,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	
 	@SuppressWarnings("unchecked")
 	public void compareDatabaseMetadata() {
+		initChunkManager();
 		MongoCollection<Document> sourceDbs = sourceShardClient.getCollection("config.databases");
 		MongoCollection<Document> destDbs = destShardClient.getCollection("config.databases");
 		
@@ -1138,7 +1139,17 @@ public class ShardConfigSync implements Callable<Integer> {
 			if (destInfo == null) {
 				logger.warn(String.format("Destination db not found, name: %s", dbName));
 			} else {
-				logger.debug("{} exists on source and dest", dbName);
+				String sourcePrimary = sourceInfo.getString("primary");
+				String destPrimary = destInfo.getString("primary");
+				String mappedPrimary = chunkManager.getShardMapping(sourcePrimary);
+				
+				if (mappedPrimary.equals(destPrimary)) {
+					logger.debug("{} exists on source and dest", dbName);
+				} else {
+					logger.warn("{} exists on source and dest, primary shard mismatch", dbName);
+				}
+				
+				
 			}
 		}
 			
