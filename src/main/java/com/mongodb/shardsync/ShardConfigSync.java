@@ -1111,6 +1111,36 @@ public class ShardConfigSync implements Callable<Integer> {
 		}
 		
 	}
+	
+	@SuppressWarnings("unchecked")
+	public void compareDatabaseMetadata() {
+		Document listDatabases = new Document("listDatabases", 1);
+		Document sourceDatabases = sourceShardClient.adminCommand(listDatabases);
+		Document destDatabases = destShardClient.adminCommand(listDatabases);
+
+		List<Document> sourceDatabaseInfo = (List<Document>) sourceDatabases.get("databases");
+		List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
+
+		populateDbMap(sourceDatabaseInfo, sourceDbInfoMap);
+		populateDbMap(destDatabaseInfo, destDbInfoMap);
+
+		for (Document sourceInfo : sourceDatabaseInfo) {
+			String dbName = sourceInfo.getString("name");
+
+			if (config.filtered && !config.getIncludeDatabasesAll().contains(dbName) 
+					|| dbName.equals("config") || dbName.equals("local") || dbName.equals("admin")) {
+				logger.debug("Ignore " + dbName + " for compare, filtered");
+				continue;
+			}
+
+			Document destInfo = destDbInfoMap.get(dbName);
+			if (destInfo == null) {
+				logger.warn(String.format("Destination db not found, name: %s", dbName));
+			}
+		}
+			
+		
+	}
 
 	private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
 		for (Document dbInfo : dbInfoList) {

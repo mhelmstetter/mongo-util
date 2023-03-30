@@ -70,6 +70,7 @@ public class ShardConfigSyncApp {
     private final static String COMPARE_CHUNKS = "compareChunks";
     private final static String COMPARE_CHUNKS_EQUIVALENT = "compareChunksEquivalent";
     private final static String COMPARE_COLLECTION_UUIDS = "compareCollectionUuids";
+    private final static String COMPARE_DB_META = "compareDbMeta";
     private final static String DISABLE_SOURCE_AUTOSPLIT = "disableSourceAutosplit";
     private final static String MONGOMIRROR_START_PORT = "mongoMirrorStartPort";
     private final static String OPLOG_BASE_PATH = "oplogBasePath";
@@ -156,6 +157,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(COMPARE_AND_MOVE_CHUNKS).create(COMPARE_AND_MOVE_CHUNKS));
         options.addOption(OptionBuilder.withArgName("Compare all collection UUIDs")
                 .withLongOpt(COMPARE_COLLECTION_UUIDS).create(COMPARE_COLLECTION_UUIDS));
+        options.addOption(OptionBuilder.withArgName("Compare database metadata")
+                .withLongOpt(COMPARE_DB_META).create(COMPARE_DB_META));
         options.addOption(OptionBuilder.withArgName("Cleanup (remove) destination data on all shards")
                 .withLongOpt(CLEANUP_PREVIOUS_ALL).create(CLEANUP_PREVIOUS_ALL));
         options.addOption(OptionBuilder.withArgName("Cleanup (remove) destination data on specified shards").hasArgs()
@@ -492,6 +495,9 @@ public class ShardConfigSyncApp {
         } else if (line.hasOption(COMPARE_COLLECTION_UUIDS)) {
             actionFound = true;
             sync.compareCollectionUuids();
+        } else if (line.hasOption(COMPARE_DB_META)) {
+            actionFound = true;
+            sync.compareDatabaseMetadata();
         } else if (line.hasOption(SYNC_METADATA)) {
             actionFound = true;
             sync.syncMetadata();

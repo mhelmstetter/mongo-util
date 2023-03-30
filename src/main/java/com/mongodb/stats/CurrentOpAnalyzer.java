@@ -66,7 +66,7 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 	}
 	
 	private String getStringValue(RawBsonDocument result, String key) {
-		if (result.containsKey(key)) {
+		if (result != null && result.containsKey(key)) {
 			BsonString bs = result.getString(key);
 			if (bs != null) {
 				return bs.getValue();
@@ -79,43 +79,75 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 		MongoDatabase db = mongoClient.getDatabase("admin");
 		AggregateIterable<RawBsonDocument> it = null;
 		int skipCount = 0;
-		while (true) {
-			it = db.aggregate(pipeline, RawBsonDocument.class);
-			for (RawBsonDocument result : it) {
-				String desc = getStringValue(result, "desc");
-				String op = getStringValue(result, "op");
-				RawBsonDocument cmd = (RawBsonDocument)result.get("command");
-				String cmdStr = null;
-				String cmdFull = null;
-				boolean currentOp = false;
-				if (cmd != null && !cmd.isEmpty()) {
-					cmdStr = cmd.getFirstKey();
-					cmdFull = cmd.toString();
-					cmdFull.contains("$currentOp");
+		
+		it = db.aggregate(pipeline, RawBsonDocument.class);
+		for (RawBsonDocument result : it) {
+			String desc = getStringValue(result, "desc");
+			
+			if (desc == null || !desc.startsWith("conn")) {
+				continue;
+			}
+			
+			RawBsonDocument clientMeta = (RawBsonDocument)result.get("clientMetadata");
+			if (clientMeta != null) {
+				RawBsonDocument driver = (RawBsonDocument)clientMeta.get("driver");
+				String driverName = getStringValue(driver, "name");
+				if (driverName != null && (driverName.startsWith("NetworkInterface") || driverName.startsWith("MongoDB Internal"))) {
+					continue;
 				}
 				
-				Long secs = null;
-				if (result.containsKey("secs_running")) {
-					BsonInt64 num = result.getInt64("secs_running");
-					if (num != null) {
-						secs = num.longValue();
-					}
+				RawBsonDocument os = (RawBsonDocument)clientMeta.get("os");
+				String type = getStringValue(os, "type");
+				if (type.equals("Darwin")) {
+					continue;
 				}
 				
-				
-				if (!currentOp && cmdStr != null && !ignoreOps.contains(cmdStr)) {
-					System.out.println(desc + " " + op + " " + cmdStr + " " + secs);
-				} else {
-					skipCount++;
+			}
+			
+			String client = getStringValue(result, "client");
+			
+			String op = getStringValue(result, "op");
+			String appName = getStringValue(result, "appName");
+			RawBsonDocument cmd = (RawBsonDocument)result.get("command");
+			String cmdStr = null;
+			String cmdFull = null;
+			boolean currentOp = false;
+			if (cmd != null && !cmd.isEmpty()) {
+				cmdStr = cmd.getFirstKey();
+				cmdFull = cmd.toString();
+				if (cmdFull.contains("$currentOp")) {
+					continue;
 				}
 				
-				if (skipCount % 1000 == 0) {
-					System.out.print(".");
-				}
-				if (skipCount % 100000 == 0) {
-					System.out.println();
+			}
+			
+			Long secs = null;
+			if (result.containsKey("secs_running")) {
+				BsonInt64 num = result.getInt64("secs_running");
+				if (num != null) {
+					secs = num.longValue();
 				}
 			}
+			
+			if (appName != null && (appName.startsWith("MongoDB Automation Agent")
+					|| appName.startsWith("MongoDB Monitoring Module")
+					|| appName.equals("mongomirror"))) {
+				continue;
+			}
+			
+			
+			
+			
+			if (appName != null) {
+				System.out.println(appName);
+			}
+			
+//				if (skipCount % 1000 == 0) {
+//					System.out.print(".");
+//				}
+//				if (skipCount % 100000 == 0) {
+//					System.out.println();
+//				}
 		}
 	}
 	
@@ -126,9 +158,12 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 		if (shardClient.isMongos()) {
 			
 			Collection<MongoClient> mongoClients = shardClient.getShardMongoClients().values();
-			for (MongoClient mc : mongoClients) {
-				analyze(mc);
+			while (true) {
+				for (MongoClient mc : mongoClients) {
+					analyze(mc);
+				}
 			}
+			
 			
 		} else {
 			analyze(shardClient.getMongoClient());
