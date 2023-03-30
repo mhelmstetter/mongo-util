@@ -1114,18 +1114,19 @@ public class ShardConfigSync implements Callable<Integer> {
 	
 	@SuppressWarnings("unchecked")
 	public void compareDatabaseMetadata() {
-		Document listDatabases = new Document("listDatabases", 1);
-		Document sourceDatabases = sourceShardClient.adminCommand(listDatabases);
-		Document destDatabases = destShardClient.adminCommand(listDatabases);
+		MongoCollection<Document> sourceDbs = sourceShardClient.getCollection("config.databases");
+		MongoCollection<Document> destDbs = destShardClient.getCollection("config.databases");
+		
+		List<Document> sourceDatabaseInfo = new ArrayList<>();
+		sourceDbs.find().into(sourceDatabaseInfo);
+		List<Document> destDatabaseInfo = new ArrayList<>();
+		destDbs.find().into(destDatabaseInfo);
 
-		List<Document> sourceDatabaseInfo = (List<Document>) sourceDatabases.get("databases");
-		List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
-
-		populateDbMap(sourceDatabaseInfo, sourceDbInfoMap);
-		populateDbMap(destDatabaseInfo, destDbInfoMap);
+		populateDbMap(sourceDatabaseInfo, sourceDbInfoMap, "_id");
+		populateDbMap(destDatabaseInfo, destDbInfoMap, "_id");
 
 		for (Document sourceInfo : sourceDatabaseInfo) {
-			String dbName = sourceInfo.getString("name");
+			String dbName = sourceInfo.getString("_id");
 
 			if (config.filtered && !config.getIncludeDatabasesAll().contains(dbName) 
 					|| dbName.equals("config") || dbName.equals("local") || dbName.equals("admin")) {
@@ -1143,11 +1144,15 @@ public class ShardConfigSync implements Callable<Integer> {
 			
 		
 	}
+	
+	private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap, String nameKey) {
+		for (Document dbInfo : dbInfoList) {
+			databaseMap.put(dbInfo.getString(nameKey), dbInfo);
+		}
+	}
 
 	private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
-		for (Document dbInfo : dbInfoList) {
-			databaseMap.put(dbInfo.getString("name"), dbInfo);
-		}
+		populateDbMap(dbInfoList, databaseMap, "name");
 	}
 
 	public void shardDestinationCollections() {
