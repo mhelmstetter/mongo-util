@@ -537,7 +537,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			usersInputFile = new File(usersInputCsv);
 			if (usersInputFile.exists()) {
 				CSVReader csvReader = new CSVReaderBuilder(new FileReader(usersInputFile))
-					    .withSkipLines(0)
+					    .withSkipLines(1)
 					    //.withCSVParser(parser)
 					    .build();
 				usersMap = new LinkedHashMap<>();
