@@ -53,7 +53,8 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 		options.append("idleCursors", true);
 		options.append("idleSessions", true);
 		options.append("localOps", true);
-		Document currentOpPipeline = new Document("$currentOp", options);
+		//Document currentOpPipeline = new Document("$currentOp", options);
+		Document currentOpPipeline = new Document("$currentOp", new Document());
 		pipeline.add(currentOpPipeline);
 	}
 	
@@ -96,11 +97,11 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 					continue;
 				}
 				
-				RawBsonDocument os = (RawBsonDocument)clientMeta.get("os");
-				String type = getStringValue(os, "type");
-				if (type.equals("Darwin")) {
-					continue;
-				}
+//				RawBsonDocument os = (RawBsonDocument)clientMeta.get("os");
+//				String type = getStringValue(os, "type");
+//				if (type.equals("Darwin")) {
+//					continue;
+//				}
 				
 			}
 			
@@ -114,6 +115,11 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 			boolean currentOp = false;
 			if (cmd != null && !cmd.isEmpty()) {
 				cmdStr = cmd.getFirstKey();
+				
+				if (ignoreOps.contains(cmdStr)) {
+					continue;
+				}
+				
 				cmdFull = cmd.toString();
 				if (cmdFull.contains("$currentOp")) {
 					continue;
@@ -142,6 +148,8 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 				System.out.println(appName);
 			}
 			
+			System.out.println(result);
+			
 //				if (skipCount % 1000 == 0) {
 //					System.out.print(".");
 //				}
@@ -166,7 +174,11 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 			
 			
 		} else {
-			analyze(shardClient.getMongoClient());
+			MongoClient mc = shardClient.getMongoClient();
+			while (true) {
+				analyze(mc);
+			}
+			
 		}
 	}
 	

@@ -46,7 +46,9 @@ public class DupeUtil {
     
     private ExecutorService executor;
     
-    public DupeUtil(String sourceUriStr, String destUriStr, String archiveDbName) {
+    private Integer startId;
+    
+    public DupeUtil(String sourceUriStr, String destUriStr, String archiveDbName, String startIdStr) {
     	ConnectionString connectionString = new ConnectionString(sourceUriStr);
     	MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString)
@@ -66,6 +68,10 @@ public class DupeUtil {
     	if (archiveDbName != null) {
         	archiveDb = destClient.getDatabase(archiveDbName);
         }
+    	
+    	if (startIdStr != null) {
+    		startId = Integer.parseInt(startIdStr);
+    	}
     	
     }
     
@@ -123,6 +129,7 @@ public class DupeUtil {
         options.addOption(Option.builder("t").desc("# threads").hasArgs().longOpt("threads").build());
         options.addOption(Option.builder("f").desc("namespace filter").hasArgs().longOpt("filter").build());
         options.addOption(Option.builder("a").desc("archive database name").hasArgs().longOpt("archive").build());
+        options.addOption(Option.builder("i").desc("starting id ($gte)").hasArgs().longOpt("startId").build());
         
 
         CommandLineParser parser = new DefaultParser();
@@ -151,7 +158,7 @@ public class DupeUtil {
 
     public static void main(String[] args) throws Exception {
         CommandLine line = initializeAndParseCommandLineOptions(args);
-        DupeUtil util = new DupeUtil(line.getOptionValue("s"), line.getOptionValue("d"), line.getOptionValue("a"));
+        DupeUtil util = new DupeUtil(line.getOptionValue("s"), line.getOptionValue("d"), line.getOptionValue("a"), line.getOptionValue("i"));
         String threadsStr = line.getOptionValue("t");
         if (threadsStr != null) {
             int threads = Integer.parseInt(threadsStr);

@@ -67,6 +67,7 @@ public class ShardConfigSyncApp {
     private final static String SYNC_ROLES = "syncRoles";
     private final static String DIFF_USERS = "diffUsers";
     private final static String DIFF_ROLES = "diffRoles";
+    private final static String TEST_USERS_AUTH = "testUsersAuth";
     private final static String COMPARE_CHUNKS = "compareChunks";
     private final static String COMPARE_CHUNKS_EQUIVALENT = "compareChunksEquivalent";
     private final static String COMPARE_COLLECTION_UUIDS = "compareCollectionUuids";
@@ -93,6 +94,8 @@ public class ShardConfigSyncApp {
     private final static String EXTEND_TTL = "extendTtl";
     private final static String CLEANUP_PREVIOUS_ALL = "cleanupPreviousAll";
     private final static String CLEANUP_PREVIOUS_SHARDS = "cleanupPreviousShards";
+    private final static String COLLATION = "collation";
+    private final static String DROP_INDEXES = "dropIndexes";
 
     private final static String SSL_ALLOW_INVALID_HOSTNAMES = "sslAllowInvalidHostnames";
     private final static String SSL_ALLOW_INVALID_CERTS = "sslAllowInvalidCertificates";
@@ -176,6 +179,11 @@ public class ShardConfigSyncApp {
                 .withLongOpt(DIFF_USERS).create(DIFF_USERS));
         options.addOption(OptionBuilder.withArgName("Diff roles with Atlas")
                 .withLongOpt(DIFF_ROLES).create(DIFF_ROLES));
+        options.addOption(OptionBuilder.withArgName("Test user authentications using credentials from input csv")
+                .withLongOpt(TEST_USERS_AUTH).create(TEST_USERS_AUTH));
+        options.addOption(OptionBuilder.withArgName("users input csv").hasArg()
+                .withLongOpt(USERS_INPUT_CSV).create(USERS_INPUT_CSV));
+        
         options.addOption(OptionBuilder.withArgName("Shard mapping").hasArg().withLongOpt(SHARD_MAP)
                 .isRequired(false).create("m"));
         options.addOption(OptionBuilder.withArgName("Disable autosplit on source cluster")
@@ -189,8 +197,12 @@ public class ShardConfigSyncApp {
 
         options.addOption(OptionBuilder.withArgName("Shard destination collections")
                 .withLongOpt(SHARD_COLLECTIONS).create());
+        options.addOption(OptionBuilder.withArgName("Drop dest indexes")
+                .withLongOpt(DROP_INDEXES).create(DROP_INDEXES));
         options.addOption(OptionBuilder.withArgName("Copy indexes from source to dest")
                 .withLongOpt(SYNC_INDEXES).create(SYNC_INDEXES));
+        options.addOption(OptionBuilder.withArgName("Collation to apply to index creation")
+                .withLongOpt(COLLATION).create(COLLATION));
         options.addOption(OptionBuilder.withArgName("collMod all ttl indexes on dest based on source")
                 .withLongOpt(COLL_MOD_TTL).create(COLL_MOD_TTL));
         options.addOption(OptionBuilder.withArgName("Compare indexes from source to dest")
@@ -328,7 +340,7 @@ public class ShardConfigSyncApp {
     }
 
     private static String getConfigValue(CommandLine line, Configuration props, String key, String defaultValue) {
-        return defaultValue != null && defaultValue.length() > 0 ?
+    	return defaultValue != null && defaultValue.length() > 0 ?
                 line.getOptionValue(key, props.getString(key, defaultValue)) :
                 line.getOptionValue(key, props.getString(key));
     }
@@ -516,12 +528,16 @@ public class ShardConfigSyncApp {
 		} else if (line.hasOption(DIFF_ROLES)) {
 		    actionFound = true;
 		    sync.diffRoles();
+		} else if (line.hasOption(TEST_USERS_AUTH)) {
+		    actionFound = true;
+		    sync.testUsersAuth();
         } else if (line.hasOption(SHARD_COLLECTIONS)) {
             actionFound = true;
             sync.shardCollections();
         } else if (line.hasOption(SYNC_INDEXES)) {
+        	String collation = line.getOptionValue(COLLATION, properties.getString(COLLATION));
             actionFound = true;
-            sync.syncIndexesShards(true, extendTtl);
+            sync.syncIndexesShards(true, extendTtl, collation);
         } else if (line.hasOption(COMPARE_INDEXES)) {
             actionFound = true;
             //boolean extendTtl = line.hasOption(EXTEND_TTL);

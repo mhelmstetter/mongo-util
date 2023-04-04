@@ -1123,7 +1123,7 @@ public class ShardClient {
 		return users;
 	}
 
-	public void createIndexes(Namespace ns, Set<IndexSpec> sourceSpecs, boolean extendTtl) {
+	public void createIndexes(Namespace ns, Set<IndexSpec> sourceSpecs, boolean extendTtl, Document collation) {
 		//MongoClient client = getShardMongoClient(shardName);
 		MongoDatabase db = mongoClient.getDatabase(ns.getDatabaseName());
 
@@ -1151,6 +1151,14 @@ public class ShardClient {
 							expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
 				}
 
+			}
+			if (collation != null) {
+				
+				Document key = (Document)indexInfo.get("key");
+				if (key != null && !key.containsKey("_id")) {
+					indexInfo.put("collation", collation);
+				}
+				
 			}
 			indexes.add(indexInfo);
 		}

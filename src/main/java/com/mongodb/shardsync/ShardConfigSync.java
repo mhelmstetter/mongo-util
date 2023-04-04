@@ -18,7 +18,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -54,6 +53,7 @@ import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoCredential;
 import com.mongodb.MongoException;
+import com.mongodb.MongoSecurityException;
 import com.mongodb.atlas.AtlasServiceGenerator;
 import com.mongodb.atlas.AtlasUtil;
 import com.mongodb.atlas.model.AtlasRole;
@@ -61,6 +61,7 @@ import com.mongodb.atlas.model.AtlasRoleResponse;
 import com.mongodb.atlas.model.AtlasUser;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
@@ -307,8 +308,15 @@ public class ShardConfigSync implements Callable<Integer> {
 		return sourceIndexSpecs;
 	}
 	
-	public void syncIndexesShards(boolean createMissing, boolean extendTtl) {
+	public void syncIndexesShards(boolean createMissing, boolean extendTtl, String collationStr) {
 		logger.debug(String.format("Starting syncIndexes: extendTtl: %s", extendTtl));
+		
+		Document collation = null;
+		if (collationStr != null) {
+			collation = Document.parse(collationStr);
+		}
+		
+		
 		sourceShardClient.populateShardMongoClients();
 		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
 		
@@ -322,7 +330,7 @@ public class ShardConfigSync implements Callable<Integer> {
             
             if (createMissing) {
     			//logger.debug(String.format("%s - missing dest indexes %s missing, creating", ns, diff));
-        		destShardClient.createIndexes(ns, sourceSpecs, extendTtl);
+        		destShardClient.createIndexes(ns, sourceSpecs, extendTtl, collation);
     		}
 		}
 	}
@@ -447,18 +455,37 @@ public class ShardConfigSync implements Callable<Integer> {
 				}
 				
 			}
-			
-			
-			
-			
-			
-			
-			
 	    }
 	}
 	
 	public void diffUsers() {
 		
+	}
+	
+	public void testUsersAuth() throws IOException {
+		Map<String, String> usersMap = readUsersInputCsv();
+		
+		ConnectionString cs = destShardClient.getConnectionString();
+		
+		for (Map.Entry<String, String> entry : usersMap.entrySet()) {
+			String username = entry.getKey();
+			String password = entry.getValue();
+			
+			MongoCredential credential = MongoCredential.createScramSha1Credential(username, "admin", password.toCharArray());
+
+			MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
+					.applyConnectionString(cs)
+					.credential(credential)
+					.build();
+			MongoClient mongoClient = MongoClients.create(mongoClientSettings);
+			try {
+				mongoClient.getDatabase("admin").runCommand(new Document("ping", 1));
+				logger.debug("{} auth pass", username);
+			} catch (MongoSecurityException mse) {
+				logger.warn("{} auth fail", username);
+			}
+			
+		}
 	}
 	
 	public void syncRoles() throws IOException {
@@ -502,15 +529,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		return users != null && !users.isEmpty();
 	}
 	
-	public void syncUsers() throws IOException {
-		
-		boolean sourceIsAtlas = this.sourceShardClient.isAtlas();
-		boolean destIsAtlas = this.destShardClient.isAtlas();
-		logger.debug("sourceIsAtlas: {}, destIsAtlas: {}", sourceIsAtlas, destIsAtlas);
-		
-		//List<AtlasUser> existingUsers = atlasUtil.getDatabaseUsers(config.atlasProjectId);
-		
-		
+	private Map<String, String> readUsersInputCsv() throws IOException {
 		Map<String, String> usersMap = null;
 		String usersInputCsv = config.getUsersInputCsv();
 		File usersInputFile = null;
@@ -521,14 +540,27 @@ public class ShardConfigSync implements Callable<Integer> {
 					    .withSkipLines(0)
 					    //.withCSVParser(parser)
 					    .build();
-				usersMap = new HashMap<>();
+				usersMap = new LinkedHashMap<>();
 				List<String[]> lines = csvReader.readAll();
 				for (String[] line : lines) {
 					usersMap.put(line[0], line[1]);
 				}
-				logger.debug("syncUsers() populated {} users from {}", usersMap.size(), usersInputCsv);
+				logger.debug("readUsersInputCsv() populated {} users from {}", usersMap.size(), usersInputCsv);
 			}
 		}
+		return usersMap;
+	}
+	
+	public void syncUsers() throws IOException {
+		
+		boolean sourceIsAtlas = this.sourceShardClient.isAtlas();
+		boolean destIsAtlas = this.destShardClient.isAtlas();
+		logger.debug("sourceIsAtlas: {}, destIsAtlas: {}", sourceIsAtlas, destIsAtlas);
+		
+		//List<AtlasUser> existingUsers = atlasUtil.getDatabaseUsers(config.atlasProjectId);
+		
+		
+		Map<String, String> usersMap = readUsersInputCsv();
 		
 		
 		CSVWriter writer = new CSVWriter(new FileWriter(config.getUsersOutputCsv()));
