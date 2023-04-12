@@ -144,7 +144,7 @@ public class ShardConfigSync implements Callable<Integer> {
 	}
 	
 	public void initChunkManager() {
-		if (chunkManager == null && ! config.isDryRun()) {
+		if (chunkManager == null) {
 			chunkManager = new ChunkManager(config);
 			chunkManager.initalize();
 		}

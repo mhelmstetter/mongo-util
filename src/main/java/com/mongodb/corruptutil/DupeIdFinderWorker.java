@@ -3,24 +3,26 @@ package com.mongodb.corruptutil;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Projections.include;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
+import java.util.ArrayList;
+import java.util.List;
 
-import org.bson.BsonSerializationException;
+import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.MongoBulkWriteException;
+import com.mongodb.bulk.BulkWriteError;
+import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.BulkWriteOptions;
+import com.mongodb.client.model.InsertOneModel;
+import com.mongodb.client.model.WriteModel;
 
 public class DupeIdFinderWorker implements Runnable {
 
@@ -30,6 +32,12 @@ public class DupeIdFinderWorker implements Runnable {
     private MongoClient client;
     
     private MongoDatabase archiveDb;
+    
+    private final static int BATCH_SIZE = 5000;
+    
+    private final static BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
+    
+    List<WriteModel<RawBsonDocument>> writeModels = new ArrayList<>();
 
     public DupeIdFinderWorker(MongoClient client, MongoCollection<RawBsonDocument> collection, MongoDatabase archiveDb) {
     	collection.getNamespace();
@@ -45,15 +53,45 @@ public class DupeIdFinderWorker implements Runnable {
     		Bson query = eq("_id", doc.get("_id"));
     		int d = 1;
     		MongoCursor<RawBsonDocument> cursor = collection.find(query).iterator();
-    		while (cursor.hasNext()) {
-    			RawBsonDocument fullDoc = cursor.next();
-    			String collName = String.format("%s_%s", base, d++);
-    			MongoCollection<RawBsonDocument> c1 = archiveDb.getCollection(collName, RawBsonDocument.class);
-    			c1.insertOne(fullDoc);
+    		try {
+    			while (cursor.hasNext()) {
+        			RawBsonDocument fullDoc = cursor.next();
+        			String collName = String.format("%s_%s", base, d++);
+        			MongoCollection<RawBsonDocument> c1 = archiveDb.getCollection(collName, RawBsonDocument.class);
+        			c1.insertOne(fullDoc);
+        			
+        			WriteModel<RawBsonDocument> model = new InsertOneModel<>(fullDoc);
+        			writeModels.add(model);
+        			if (writeModels.size() >= BATCH_SIZE) {
+    					flush();
+    				}
+    				
+        		}
+    		} finally {
+    			flush();
     		}
+    		
     	}
     	
     }
+    
+    private void flush() {
+
+		
+
+		BulkWriteResult bulkWriteResult = null;
+		try {
+			bulkWriteResult = collection.bulkWrite(writeModels, bulkWriteOptions);
+			writeModels.clear();
+		} catch (MongoBulkWriteException err) {
+			List<BulkWriteError> errors = err.getWriteErrors();
+			bulkWriteResult = err.getWriteResult();
+			logger.error("bulk write errors: {}", bulkWriteResult);
+		} catch (Exception ex) {
+			logger.error("{} unknown error: {}", ex.getMessage(), ex);
+		}
+
+	}
 
     @Override
     public void run() {
@@ -107,6 +145,7 @@ public class DupeIdFinderWorker implements Runnable {
 
         } finally {
             cursor.close();
+            flush();
         }
         long end = System.currentTimeMillis();
         Double dur = (end - start) / 1000.0;
