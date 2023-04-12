@@ -129,7 +129,7 @@ public class DupeUtil {
         options.addOption(Option.builder("t").desc("# threads").hasArgs().longOpt("threads").build());
         options.addOption(Option.builder("f").desc("namespace filter").hasArgs().longOpt("filter").build());
         options.addOption(Option.builder("a").desc("archive database name").hasArgs().longOpt("archive").build());
-        options.addOption(Option.builder("i").desc("starting id ($gt)").hasArgs().longOpt("startId").build());
+        options.addOption(Option.builder("i").desc("starting id ($gte)").hasArgs().longOpt("startId").build());
         
 
         CommandLineParser parser = new DefaultParser();

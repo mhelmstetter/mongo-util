@@ -103,13 +103,14 @@ public class DupeIdFinderWorker implements Runnable {
 		try {
 			MongoCollection<RawBsonDocument> c1 = archiveDb.getCollection(collName, RawBsonDocument.class);
 			bulkWriteResult = c1.bulkWrite(writeModels, bulkWriteOptions);
-			writeModels.clear();
 		} catch (MongoBulkWriteException err) {
 			//List<BulkWriteError> errors = err.getWriteErrors();
 			bulkWriteResult = err.getWriteResult();
 			logger.error("bulk write error", err);
 		} catch (Exception ex) {
 			logger.error("{} unknown error: {}", ex.getMessage(), ex);
+		} finally {
+			writeModels.clear();
 		}
     }
     
