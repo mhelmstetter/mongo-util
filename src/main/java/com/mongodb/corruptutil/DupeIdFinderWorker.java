@@ -5,7 +5,9 @@ import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Projections.include;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
@@ -37,7 +39,9 @@ public class DupeIdFinderWorker implements Runnable {
     
     private final static BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
     
-    List<WriteModel<RawBsonDocument>> writeModels = new ArrayList<>();
+    private Map<String, List<WriteModel<RawBsonDocument>>> writeModelsMap = new HashMap<>();
+    
+    
     
     private Integer startId;
 
@@ -60,13 +64,8 @@ public class DupeIdFinderWorker implements Runnable {
     			while (cursor.hasNext()) {
         			RawBsonDocument fullDoc = cursor.next();
         			String collName = String.format("%s_%s", base, d++);
-        			MongoCollection<RawBsonDocument> c1 = archiveDb.getCollection(collName, RawBsonDocument.class);
         			
-        			WriteModel<RawBsonDocument> model = new InsertOneModel<>(fullDoc);
-        			writeModels.add(model);
-        			if (writeModels.size() >= BATCH_SIZE) {
-    					flush();
-    				}
+        			
     				
         		}
     		} finally {
@@ -77,23 +76,43 @@ public class DupeIdFinderWorker implements Runnable {
     	
     }
     
-    private void flush() {
-
-		if (writeModels.size() == 0) {
-			return;
+    private void insert(RawBsonDocument fullDoc, String collName) {
+    	WriteModel<RawBsonDocument> model = new InsertOneModel<>(fullDoc);
+    	
+    	List<WriteModel<RawBsonDocument>> writeModels = writeModelsMap.get(collName);
+    	if (writeModels == null) {
+    		writeModels = new ArrayList<>();
+    		writeModelsMap.put(collName, writeModels);
+    	}
+    	
+		writeModels.add(model);
+		if (writeModels.size() >= BATCH_SIZE) {
+			flush();
 		}
     	
-		BulkWriteResult bulkWriteResult = null;
-		try {
-			bulkWriteResult = collection.bulkWrite(writeModels, bulkWriteOptions);
-			writeModels.clear();
-		} catch (MongoBulkWriteException err) {
-			List<BulkWriteError> errors = err.getWriteErrors();
-			bulkWriteResult = err.getWriteResult();
-			logger.error("bulk write errors: {}", bulkWriteResult);
-		} catch (Exception ex) {
-			logger.error("{} unknown error: {}", ex.getMessage(), ex);
-		}
+    }
+    
+    private void flush() {
+    	
+    	for (Map.Entry<String, List<WriteModel<RawBsonDocument>>> entry : writeModelsMap.entrySet()) {
+    		String collName = entry.getKey();
+    		List<WriteModel<RawBsonDocument>> writeModels = entry.getValue();
+    		if (writeModels.size() == 0) {
+    			continue;
+    		}
+    		BulkWriteResult bulkWriteResult = null;
+    		try {
+    			MongoCollection<RawBsonDocument> c1 = archiveDb.getCollection(collName, RawBsonDocument.class);
+    			bulkWriteResult = c1.bulkWrite(writeModels, bulkWriteOptions);
+    			writeModels.clear();
+    		} catch (MongoBulkWriteException err) {
+    			//List<BulkWriteError> errors = err.getWriteErrors();
+    			bulkWriteResult = err.getWriteResult();
+    			logger.error("bulk write error", err);
+    		} catch (Exception ex) {
+    			logger.error("{} unknown error: {}", ex.getMessage(), ex);
+    		}
+    	}
 
 	}
 
