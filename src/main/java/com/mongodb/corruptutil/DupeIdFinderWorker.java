@@ -61,7 +61,6 @@ public class DupeIdFinderWorker implements Runnable {
         			RawBsonDocument fullDoc = cursor.next();
         			String collName = String.format("%s_%s", base, d++);
         			MongoCollection<RawBsonDocument> c1 = archiveDb.getCollection(collName, RawBsonDocument.class);
-        			c1.insertOne(fullDoc);
         			
         			WriteModel<RawBsonDocument> model = new InsertOneModel<>(fullDoc);
         			writeModels.add(model);
