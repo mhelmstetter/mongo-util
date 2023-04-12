@@ -1,12 +1,12 @@
 package com.mongodb.corruptutil;
 
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Projections.include;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
@@ -38,12 +38,15 @@ public class DupeIdFinderWorker implements Runnable {
     private final static BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
     
     List<WriteModel<RawBsonDocument>> writeModels = new ArrayList<>();
+    
+    private Integer startId;
 
-    public DupeIdFinderWorker(MongoClient client, MongoCollection<RawBsonDocument> collection, MongoDatabase archiveDb) {
+    public DupeIdFinderWorker(MongoClient client, MongoCollection<RawBsonDocument> collection, MongoDatabase archiveDb, Integer startId) {
     	collection.getNamespace();
         this.collection = collection;
         this.client = client;
         this.archiveDb = archiveDb;
+        this.startId = startId;
     }
     
 
@@ -77,8 +80,10 @@ public class DupeIdFinderWorker implements Runnable {
     
     private void flush() {
 
-		
-
+		if (writeModels.size() == 0) {
+			return;
+		}
+    	
 		BulkWriteResult bulkWriteResult = null;
 		try {
 			bulkWriteResult = collection.bulkWrite(writeModels, bulkWriteOptions);
@@ -106,7 +111,12 @@ public class DupeIdFinderWorker implements Runnable {
         	Bson proj = include("_id");
     		Bson sort = eq("_id", 1);
     		
-            cursor = collection.find().projection(proj).sort(sort).iterator();
+    		Bson query = null;
+    		if (startId != null) {
+    			query = gte("_id", startId);
+    		}
+    		
+            cursor = collection.find(query).projection(proj).sort(sort).iterator();
             Number total = collection.estimatedDocumentCount();
             BsonValue lastId = null;
             RawBsonDocument lastDocument = null;
