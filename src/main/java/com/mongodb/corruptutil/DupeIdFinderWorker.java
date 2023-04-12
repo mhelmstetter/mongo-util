@@ -64,12 +64,10 @@ public class DupeIdFinderWorker implements Runnable {
     			while (cursor.hasNext()) {
         			RawBsonDocument fullDoc = cursor.next();
         			String collName = String.format("%s_%s", base, d++);
-        			
-        			
-    				
+    				insert(fullDoc, collName);
         		}
     		} finally {
-    			flush();
+    			flushAll();
     		}
     		
     	}
@@ -87,31 +85,40 @@ public class DupeIdFinderWorker implements Runnable {
     	
 		writeModels.add(model);
 		if (writeModels.size() >= BATCH_SIZE) {
-			flush();
+			flush(collName);
 		}
     	
     }
     
-    private void flush() {
+    private void flush(String collName) {
+    	List<WriteModel<RawBsonDocument>> writeModels = writeModelsMap.get(collName);
+    	flushInternal(collName, writeModels);
+    }
+    
+    private void flushInternal(String collName, List<WriteModel<RawBsonDocument>> writeModels) {
+    	if (writeModels.size() == 0) {
+			return;
+		}
+		BulkWriteResult bulkWriteResult = null;
+		try {
+			MongoCollection<RawBsonDocument> c1 = archiveDb.getCollection(collName, RawBsonDocument.class);
+			bulkWriteResult = c1.bulkWrite(writeModels, bulkWriteOptions);
+			writeModels.clear();
+		} catch (MongoBulkWriteException err) {
+			//List<BulkWriteError> errors = err.getWriteErrors();
+			bulkWriteResult = err.getWriteResult();
+			logger.error("bulk write error", err);
+		} catch (Exception ex) {
+			logger.error("{} unknown error: {}", ex.getMessage(), ex);
+		}
+    }
+    
+    private void flushAll() {
     	
     	for (Map.Entry<String, List<WriteModel<RawBsonDocument>>> entry : writeModelsMap.entrySet()) {
     		String collName = entry.getKey();
     		List<WriteModel<RawBsonDocument>> writeModels = entry.getValue();
-    		if (writeModels.size() == 0) {
-    			continue;
-    		}
-    		BulkWriteResult bulkWriteResult = null;
-    		try {
-    			MongoCollection<RawBsonDocument> c1 = archiveDb.getCollection(collName, RawBsonDocument.class);
-    			bulkWriteResult = c1.bulkWrite(writeModels, bulkWriteOptions);
-    			writeModels.clear();
-    		} catch (MongoBulkWriteException err) {
-    			//List<BulkWriteError> errors = err.getWriteErrors();
-    			bulkWriteResult = err.getWriteResult();
-    			logger.error("bulk write error", err);
-    		} catch (Exception ex) {
-    			logger.error("{} unknown error: {}", ex.getMessage(), ex);
-    		}
+    		flushInternal(collName, writeModels);
     	}
 
 	}
@@ -173,7 +180,7 @@ public class DupeIdFinderWorker implements Runnable {
 
         } finally {
             cursor.close();
-            flush();
+            flushAll();
         }
         long end = System.currentTimeMillis();
         Double dur = (end - start) / 1000.0;
