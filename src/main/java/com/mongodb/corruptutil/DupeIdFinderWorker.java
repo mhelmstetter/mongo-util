@@ -60,15 +60,12 @@ public class DupeIdFinderWorker implements Runnable {
     		Bson query = eq("_id", doc.get("_id"));
     		int d = 1;
     		MongoCursor<RawBsonDocument> cursor = collection.find(query).iterator();
-    		try {
-    			while (cursor.hasNext()) {
-        			RawBsonDocument fullDoc = cursor.next();
-        			String collName = String.format("%s_%s", base, d++);
-    				insert(fullDoc, collName);
-        		}
-    		} finally {
-    			flushAll();
+			while (cursor.hasNext()) {
+    			RawBsonDocument fullDoc = cursor.next();
+    			String collName = String.format("%s_%s", base, d++);
+				insert(fullDoc, collName);
     		}
+    		
     		
     	}
     	
