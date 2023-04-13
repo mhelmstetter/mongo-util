@@ -51,7 +51,6 @@ public class DupeIdFinderWorker implements Runnable {
     Bson sort = eq("_id", 1);
 
     public DupeIdFinderWorker(MongoClient client, MongoCollection<RawBsonDocument> collection, MongoDatabase archiveDb, Integer startId) {
-    	collection.getNamespace();
         this.collection = collection;
         this.client = client;
         this.archiveDb = archiveDb;
