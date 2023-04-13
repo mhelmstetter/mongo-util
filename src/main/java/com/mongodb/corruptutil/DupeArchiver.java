@@ -119,16 +119,17 @@ public class DupeArchiver {
     }
 	
 	public void shutdown() {
-		logger.debug("ShardedCollectionCloneWorker starting shutdown");
+		logger.debug("DupeArchiver starting shutdown");
 		executor.shutdown();
 		try {
 			executor.awaitTermination(999, TimeUnit.DAYS);
 		} catch (InterruptedException e) {
-			logger.warn("ShardedCollectionCloneWorker interrupted");
+			logger.warn("DupeArchiver interrupted");
 			Thread.currentThread().interrupt();
 		}
-		logger.debug("ShardedCollectionCloneWorker shutdown complete");
+		logger.debug("DupeArchiver shutdown complete");
 	}
+	
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
         options = new Options();
         options.addOption(new Option("help", "print this message"));
