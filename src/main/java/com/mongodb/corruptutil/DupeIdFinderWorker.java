@@ -1,6 +1,7 @@
 package com.mongodb.corruptutil;
 
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Projections.include;
 
@@ -10,13 +11,13 @@ import java.util.List;
 import java.util.Map;
 
 import org.bson.BsonValue;
+import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoBulkWriteException;
-import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
@@ -35,15 +36,19 @@ public class DupeIdFinderWorker implements Runnable {
     
     private MongoDatabase archiveDb;
     
-    private final static int BATCH_SIZE = 5000;
+    private final static int BATCH_SIZE = 1000;
     
     private final static BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
     
     private Map<String, List<WriteModel<RawBsonDocument>>> writeModelsMap = new HashMap<>();
     
+    private List<BsonValue> dupesBatch = new ArrayList<>(BATCH_SIZE);
     
+    private String base;
     
     private Integer startId;
+    
+    Bson sort = eq("_id", 1);
 
     public DupeIdFinderWorker(MongoClient client, MongoCollection<RawBsonDocument> collection, MongoDatabase archiveDb, Integer startId) {
     	collection.getNamespace();
@@ -51,22 +56,48 @@ public class DupeIdFinderWorker implements Runnable {
         this.client = client;
         this.archiveDb = archiveDb;
         this.startId = startId;
+        this.base = collection.getNamespace().getFullName();
     }
     
 
-    private void handleDupes(RawBsonDocument doc, RawBsonDocument lastDoc, int dupeNum) {
-    	if (archiveDb != null && dupeNum <= 2) {
-    		String base = collection.getNamespace().getFullName();
-    		Bson query = eq("_id", doc.get("_id"));
-    		int d = 1;
-    		MongoCursor<RawBsonDocument> cursor = collection.find(query).iterator();
-			while (cursor.hasNext()) {
-    			RawBsonDocument fullDoc = cursor.next();
-    			String collName = String.format("%s_%s", base, d++);
-				insert(fullDoc, collName);
+    private void handleDupes(RawBsonDocument doc) {
+    	if (archiveDb != null) {
+    		
+    		dupesBatch.add(doc.get("_id"));
+    		if (dupesBatch.size() <= BATCH_SIZE) {
+    			
+    			Bson query = in("_id", dupesBatch);
+        		int d = 1;
+        		MongoCursor<RawBsonDocument> cursor = collection.find(query).sort(sort).iterator();
+        		
+        		BsonValue lastId = null;
+        		
+        		while (cursor.hasNext()) {
+                    RawBsonDocument fullDoc = cursor.next();
+                    BsonValue id = null;
+                    try {
+                        id = doc.get("_id");
+                    } catch (Exception e) {
+                        logger.warn(String.format("%s - Error reading doc id, fullDoc: %s, error: %s",
+                                collection.getNamespace(), fullDoc, e));
+                        continue;
+                    }
+                    
+                    if (id.equals(lastId)) {
+                    	handleDupes(doc);
+                    	logger.warn("{} - duplicate _id found for _id: {}", collection.getNamespace(), id);
+                    	
+                    	String collName = String.format("%s_%s", base, d++);
+        				insert(fullDoc, collName);
+                    } else {
+                    	d = 1;
+                    }
+                    lastId = id;
+        		}
+        		
+        		dupesBatch.clear();
+        		
     		}
-    		
-    		
     	}
     	
     }
@@ -128,11 +159,10 @@ public class DupeIdFinderWorker implements Runnable {
         long last = start;
         long count = 0;
         long dupeCount = 0;
-        int dupeNum = 1;
 
         try {
         	Bson proj = include("_id");
-    		Bson sort = eq("_id", 1);
+    		
     		
     		Bson query = null;
     		if (startId != null) {
@@ -142,7 +172,7 @@ public class DupeIdFinderWorker implements Runnable {
             cursor = collection.find(query).projection(proj).sort(sort).iterator();
             Number total = collection.estimatedDocumentCount();
             BsonValue lastId = null;
-            RawBsonDocument lastDocument = null;
+            //RawBsonDocument lastDocument = null;
             
             while (cursor.hasNext()) {
                 count++;
@@ -157,15 +187,12 @@ public class DupeIdFinderWorker implements Runnable {
                 }
                 
                 if (id.equals(lastId)) {
-                	handleDupes(doc, lastDocument, dupeNum);
-                	dupeNum++;
+                	handleDupes(doc);
                 	dupeCount++;
                 	logger.warn("{} - duplicate _id found for _id: {}", collection.getNamespace(), id);
-                } else {
-                	dupeNum = 1;
                 }
                 lastId = id;
-                lastDocument = doc;
+                //lastDocument = doc;
 
                 long current = System.currentTimeMillis();
                 long delta = (current - last) / 1000;
