@@ -98,10 +98,11 @@ public class DupeArchiver {
 	    	String line = reader.readLine();
 	    	
 	    	List<BsonValue> dupesBatch = new ArrayList<>(BATCH_SIZE);
-
+	    	Namespace ns = null;
+	    	
 			while (line != null) {
 				String[] splits = line.split(",");
-		    	Namespace ns = new Namespace(splits[0]);
+		    	ns = new Namespace(splits[0]);
 		    	String id = splits[1];
 		    	BsonValue idVal = new BsonInt64(Long.parseLong(id));
 		    	dupesBatch.add(idVal);
@@ -116,6 +117,10 @@ public class DupeArchiver {
 		    	
 				line = reader.readLine();
 			}
+			MongoDatabase db = sourceClient.getDatabase(ns.getDatabaseName());
+    		MongoCollection<RawBsonDocument> coll = db.getCollection(ns.getCollectionName(), RawBsonDocument.class);
+    		DupeArchiverTask task = new DupeArchiverTask(coll, archiveDb, Collections.unmodifiableList(dupesBatch));
+    		executor.submit(task);
 	    	
 		} finally {
 			reader.close();
