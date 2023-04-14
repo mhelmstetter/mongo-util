@@ -124,6 +124,7 @@ public class DupeArchiverTask implements Callable<Integer> {
 			bulkWriteResult = c1.bulkWrite(writeModels, bulkWriteOptions);
 		} catch (MongoBulkWriteException err) {
 			//List<BulkWriteError> errors = err.getWriteErrors();
+			bulkWriteResult = err.getWriteResult();
 			logger.warn("bulk write errors, insertedCount: {}, errorCount: {}", bulkWriteResult.getInsertedCount(), err.getWriteErrors().size());
 			logger.error("bulk write error", err);
 		} catch (Exception ex) {
