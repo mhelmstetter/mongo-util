@@ -41,7 +41,7 @@ public class DupeArchiver {
 	
 	private static Options options;
 	
-	private final int queueSize = 100000;
+	private final int queueSize = 1000000;
 	private final int threads = 8;
 	
 	BlockingQueue<Runnable> workQueue;
@@ -54,7 +54,7 @@ public class DupeArchiver {
 	
 	private File sourceFile;
 	
-	private final static int BATCH_SIZE = 10;
+	private final static int BATCH_SIZE = 10000;
 	
     public DupeArchiver(String sourceFileStr, String sourceUriStr, String destUriStr, String archiveDbName) throws IOException {
     	
