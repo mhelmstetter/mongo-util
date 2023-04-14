@@ -166,9 +166,12 @@ public class DupeIdFinderWorker implements Runnable {
     		Bson query = null;
     		if (startId != null) {
     			query = gte("_id", startId);
+    			cursor = collection.find(query).projection(proj).sort(sort).iterator();
+    		} else {
+    			 cursor = collection.find().projection(proj).sort(sort).iterator();
     		}
     		
-            cursor = collection.find(query).projection(proj).sort(sort).iterator();
+           
             Number total = collection.estimatedDocumentCount();
             BsonValue lastId = null;
             //RawBsonDocument lastDocument = null;
@@ -201,7 +204,8 @@ public class DupeIdFinderWorker implements Runnable {
                     last = current;
                 }
             }
-
+        } catch (Exception e) {
+            logger.error("worker run error", e);
         } finally {
             cursor.close();
             flushAll();

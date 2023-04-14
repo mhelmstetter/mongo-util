@@ -28,7 +28,7 @@ public class DupeArchiverTask implements Callable<Integer> {
 	
 	private static Logger logger = LoggerFactory.getLogger(DupeArchiverTask.class);
 	
-	private final static int BATCH_SIZE = 1000;
+	private final static int BATCH_SIZE = 10;
 	private final static BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
 	Bson sort = eq("_id", 1);
 
@@ -46,6 +46,7 @@ public class DupeArchiverTask implements Callable<Integer> {
         this.collection = collection;
         this.archiveDb = archiveDb;
         this.base = collection.getNamespace().getFullName();
+        this.dupesBatch = dupesBatch;
     }
 
 	@Override
@@ -57,9 +58,7 @@ public class DupeArchiverTask implements Callable<Integer> {
     		
     		BsonValue lastId = null;
     		
-    		List<RawBsonDocument> docsBuffer = new ArrayList<>(BATCH_SIZE);
-    		
-    		String collName = String.format("%s_%s", base, d++);
+    		List<RawBsonDocument> dupesBuffer = new ArrayList<>(2);
     		
     		while (cursor.hasNext()) {
                 RawBsonDocument fullDoc = cursor.next();
@@ -73,11 +72,11 @@ public class DupeArchiverTask implements Callable<Integer> {
                 }
                 
                 if (id.equals(lastId)) {
-                	insert(fullDoc, collName);
+                	dupesBuffer.add(fullDoc);
                 	logger.warn("{} - duplicate _id found for _id: {}", collection.getNamespace(), id);
-    				insert(fullDoc, collName);
                 } else {
-                	d = 1;
+                	flushDupes(dupesBuffer);
+                	dupesBuffer.add(fullDoc);
                 }
                 lastId = id;
     		}
@@ -92,12 +91,21 @@ public class DupeArchiverTask implements Callable<Integer> {
 	
 	
     
-    private void insert(RawBsonDocument fullDoc, String collName) {
+    private void flushDupes(List<RawBsonDocument> dupesBuffer) {
+		int i = 1;
+		for (RawBsonDocument dupe : dupesBuffer) {
+			String collName = String.format("%s_%s", base, i++);
+			insert(dupe, collName);
+		}
+		dupesBuffer.clear();
+	}
+
+	private void insert(RawBsonDocument fullDoc, String collName) {
     	WriteModel<RawBsonDocument> model = new InsertOneModel<>(fullDoc);
     	
     	List<WriteModel<RawBsonDocument>> writeModels = writeModelsMap.get(collName);
     	if (writeModels == null) {
-    		writeModels = new ArrayList<>();
+    		writeModels = new ArrayList<>(BATCH_SIZE);
     		writeModelsMap.put(collName, writeModels);
     	}
     	

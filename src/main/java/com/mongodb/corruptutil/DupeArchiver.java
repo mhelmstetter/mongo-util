@@ -54,7 +54,7 @@ public class DupeArchiver {
 	
 	private File sourceFile;
 	
-	private final static int BATCH_SIZE = 1000;
+	private final static int BATCH_SIZE = 10;
 	
     public DupeArchiver(String sourceFileStr, String sourceUriStr, String destUriStr, String archiveDbName) throws IOException {
     	
@@ -64,12 +64,15 @@ public class DupeArchiver {
                 .build();
     	sourceClient = MongoClients.create(mongoClientSettings);
     	
-    	ConnectionString cs = new ConnectionString(destUriStr);
-    	MongoClientSettings mcs = MongoClientSettings.builder()
-                .applyConnectionString(cs)
-                .build();
-    	destClient = MongoClients.create(mcs);
-    	
+    	if (destUriStr != null) {
+    		ConnectionString cs = new ConnectionString(destUriStr);
+        	MongoClientSettings mcs = MongoClientSettings.builder()
+                    .applyConnectionString(cs)
+                    .build();
+        	destClient = MongoClients.create(mcs);
+    	} else {
+    		destClient = sourceClient;
+    	}
     	
     	if (archiveDbName != null) {
         	archiveDb = destClient.getDatabase(archiveDbName);
@@ -108,6 +111,7 @@ public class DupeArchiver {
 		    		MongoCollection<RawBsonDocument> coll = db.getCollection(ns.getCollectionName(), RawBsonDocument.class);
 		    		DupeArchiverTask task = new DupeArchiverTask(coll, archiveDb, Collections.unmodifiableList(dupesBatch));
 		    		executor.submit(task);
+		    		dupesBatch = new ArrayList<>(BATCH_SIZE);
 		    	}
 		    	
 				line = reader.readLine();
