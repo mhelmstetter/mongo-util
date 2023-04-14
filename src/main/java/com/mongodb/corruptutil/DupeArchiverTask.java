@@ -80,11 +80,12 @@ public class DupeArchiverTask implements Callable<Integer> {
                 }
                 lastId = id;
     		}
+    		flushDupes(dupesBuffer);
     		flushAll();
 			
 		} catch (Exception e) {
 			logger.error("call error", e);
-			flushAll();
+			//flushAll();
 		}
 		return null;
 	}
@@ -123,7 +124,7 @@ public class DupeArchiverTask implements Callable<Integer> {
 			bulkWriteResult = c1.bulkWrite(writeModels, bulkWriteOptions);
 		} catch (MongoBulkWriteException err) {
 			//List<BulkWriteError> errors = err.getWriteErrors();
-			bulkWriteResult = err.getWriteResult();
+			logger.warn("bulk write errors, insertedCount: {}, errorCount: {}", bulkWriteResult.getInsertedCount(), err.getWriteErrors().size());
 			logger.error("bulk write error", err);
 		} catch (Exception ex) {
 			logger.error("{} unknown error: {}", ex.getMessage(), ex);
