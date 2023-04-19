@@ -71,11 +71,13 @@ public class DupeArchiverTask implements Callable<Integer> {
                     continue;
                 }
                 
-                if (id.equals(lastId)) {
+                if (lastId != null && id.equals(lastId)) {
                 	dupesBuffer.add(fullDoc);
                 	logger.warn("{} - duplicate _id found for _id: {}", collection.getNamespace(), id);
-                } else {
+                } else if (lastId != null) {
                 	flushDupes(dupesBuffer);
+                	dupesBuffer.add(fullDoc);
+                } else {
                 	dupesBuffer.add(fullDoc);
                 }
                 lastId = id;
@@ -93,11 +95,16 @@ public class DupeArchiverTask implements Callable<Integer> {
 	
     
     private void flushDupes(List<RawBsonDocument> dupesBuffer) {
-		int i = 1;
-		for (RawBsonDocument dupe : dupesBuffer) {
-			String collName = String.format("%s_%s", base, i++);
-			insert(dupe, collName);
-		}
+    	if (dupesBuffer.size() > 1) {
+    		int i = 1;
+    		for (RawBsonDocument dupe : dupesBuffer) {
+    			String collName = String.format("%s_%s", base, i++);
+    			insert(dupe, collName);
+    		}
+    	} else if (dupesBuffer.size() == 1) {
+    		BsonValue id = dupesBuffer.get(0).get("_id");
+    		logger.warn("duplicate from manifest not found as duplicate for _id: {}", id);
+    	}
 		dupesBuffer.clear();
 	}
 

@@ -12,7 +12,8 @@ public class BsonUtils {
     
     public static BsonValue getValueFromString(String bsonTypeStr, String val) {
     	if (bsonTypeStr.equals("BsonString")) {
-    		return new BsonString(val);
+    		String val2 = val.replaceAll("'", "");
+    		return new BsonString(val2);
     	} else if (bsonTypeStr.equals("BsonInt64")) {
     		return new BsonInt64(Long.parseLong(val));
     	}

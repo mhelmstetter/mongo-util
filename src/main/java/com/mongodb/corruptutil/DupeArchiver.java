@@ -61,7 +61,7 @@ public class DupeArchiver {
 	private final static int BATCH_SIZE = 10000;
 	List<BsonValue> dupesBatch = new ArrayList<>(BATCH_SIZE);
 	
-	private final static Pattern valuePattern = Pattern.compile("^(.*?)\\{value='(.*)'}$");
+	private final static Pattern valuePattern = Pattern.compile("^(.*?)\\{value=(.*)}$");
 	
     public DupeArchiver(String sourceFileStr, String sourceUriStr, String destUriStr, String archiveDbName) throws IOException {
     	
@@ -128,7 +128,7 @@ public class DupeArchiver {
 		            dupesBatch.add(idVal);
 		            
 		        } else {
-		        	continue;
+		        	logger.warn("Invalid line, did not find bson type + value: {}", line);
 		        }
 		    	
 		    	if (dupesBatch.size() >= BATCH_SIZE) {
