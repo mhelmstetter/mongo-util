@@ -11,6 +11,8 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -18,6 +20,7 @@ import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
+import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonInt64;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
@@ -31,6 +34,7 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.model.Namespace;
+import com.mongodb.util.BsonUtils;
 import com.mongodb.util.CallerBlocksPolicy;
 
 public class DupeArchiver {
@@ -55,6 +59,9 @@ public class DupeArchiver {
 	private File sourceFile;
 	
 	private final static int BATCH_SIZE = 10000;
+	List<BsonValue> dupesBatch = new ArrayList<>(BATCH_SIZE);
+	
+	private final static Pattern valuePattern = Pattern.compile("^(.*?)\\{value='(.*)'}$");
 	
     public DupeArchiver(String sourceFileStr, String sourceUriStr, String destUriStr, String archiveDbName) throws IOException {
     	
@@ -97,40 +104,61 @@ public class DupeArchiver {
 	    	
 	    	String line = reader.readLine();
 	    	
-	    	List<BsonValue> dupesBatch = new ArrayList<>(BATCH_SIZE);
+	    	
 	    	Namespace ns = null;
+	    	Namespace lastNs = null;
 	    	
 			while (line != null) {
 				String[] splits = line.split(",");
 		    	ns = new Namespace(splits[0]);
-		    	String id = splits[1];
-		    	BsonValue idVal = new BsonInt64(Long.parseLong(id));
-		    	dupesBatch.add(idVal);
+		    	
+		    	logger.debug("ns: {}", ns);
+		    	
+		    	if (lastNs != null && !lastNs.equals(ns)) {
+		    		submitBatch(lastNs);
+		    	}
+		    	
+		    	String typeAndValue = splits[1];
+		    	
+		    	Matcher m = valuePattern.matcher(typeAndValue);
+		        if (m.find()) {
+		            String bsonType = m.group(1);
+		            String valStr = m.group(2);
+		            BsonValue idVal = BsonUtils.getValueFromString(bsonType, valStr);
+		            dupesBatch.add(idVal);
+		            
+		        } else {
+		        	continue;
+		        }
 		    	
 		    	if (dupesBatch.size() >= BATCH_SIZE) {
-		    		MongoDatabase db = sourceClient.getDatabase(ns.getDatabaseName());
-		    		MongoCollection<RawBsonDocument> coll = db.getCollection(ns.getCollectionName(), RawBsonDocument.class);
-		    		DupeArchiverTask task = new DupeArchiverTask(coll, archiveDb, Collections.unmodifiableList(dupesBatch));
-		    		executor.submit(task);
-		    		dupesBatch = new ArrayList<>(BATCH_SIZE);
+		    		submitBatch(ns);
 		    	}
 		    	
 				line = reader.readLine();
+				lastNs = ns;
 			}
-			MongoDatabase db = sourceClient.getDatabase(ns.getDatabaseName());
-    		MongoCollection<RawBsonDocument> coll = db.getCollection(ns.getCollectionName(), RawBsonDocument.class);
-    		DupeArchiverTask task = new DupeArchiverTask(coll, archiveDb, Collections.unmodifiableList(dupesBatch));
-    		executor.submit(task);
+			submitBatch(ns);
 	    	
 		} finally {
 			reader.close();
 		}
+    }
+    
+    private void submitBatch(Namespace ns) {
+    	MongoDatabase db = sourceClient.getDatabase(ns.getDatabaseName());
+		MongoCollection<RawBsonDocument> coll = db.getCollection(ns.getCollectionName(), RawBsonDocument.class);
+		DupeArchiverTask task = new DupeArchiverTask(coll, archiveDb, Collections.unmodifiableList(dupesBatch));
+		logger.debug("submitting batch for ns: {}, size: {}", ns, dupesBatch.size());
+		executor.submit(task);
+		dupesBatch = new ArrayList<>(BATCH_SIZE);
     }
 	
 	public void shutdown() {
 		logger.debug("DupeArchiver starting shutdown");
 		executor.shutdown();
 		try {
+			Thread.sleep(10000);
 			executor.awaitTermination(999, TimeUnit.DAYS);
 		} catch (InterruptedException e) {
 			logger.warn("DupeArchiver interrupted");
