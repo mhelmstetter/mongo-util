@@ -1186,22 +1186,24 @@ public class ShardConfigSync implements Callable<Integer> {
 				logger.debug("Ignore " + dbName + " for compare, filtered");
 				continue;
 			}
+			
+			String sourcePrimary = sourceInfo.getString("primary");
+			String mappedPrimary = chunkManager.getShardMapping(sourcePrimary);
 
 			Document destInfo = destDbInfoMap.get(dbName);
 			if (destInfo == null) {
 				logger.warn("Destination db not found, name: {}, collCount: {}", dbName, collNames.size());
+				logger.debug("enableSharding on {}, in order to create on dest", dbName);
+				enableSharding(dbName, mappedPrimary);
 			} else {
-				String sourcePrimary = sourceInfo.getString("primary");
+				
 				String destPrimary = destInfo.getString("primary");
-				String mappedPrimary = chunkManager.getShardMapping(sourcePrimary);
 				
 				if (mappedPrimary.equals(destPrimary)) {
 					logger.debug("{} exists on source and dest", dbName);
 				} else {
 					logger.warn("{} exists on source and dest, primary shard mismatch, collCount: {}, currentPrimary: {}, mappedPrimary: {}", 
 							dbName, collNames.size(), destPrimary, mappedPrimary);
-					logger.debug("enableSharding on {}, in order to fix primary shard mismatch", dbName);
-					enableSharding(dbName, mappedPrimary);
 				}
 				
 				
