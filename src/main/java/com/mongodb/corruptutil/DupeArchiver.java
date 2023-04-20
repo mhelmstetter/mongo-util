@@ -103,16 +103,12 @@ public class DupeArchiver {
 			reader = new BufferedReader(new FileReader(sourceFile));
 	    	
 	    	String line = reader.readLine();
-	    	
-	    	
 	    	Namespace ns = null;
 	    	Namespace lastNs = null;
 	    	
 			while (line != null) {
 				String[] splits = line.split(",");
 		    	ns = new Namespace(splits[0]);
-		    	
-		    	logger.debug("ns: {}", ns);
 		    	
 		    	if (lastNs != null && !lastNs.equals(ns)) {
 		    		submitBatch(lastNs);
