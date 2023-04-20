@@ -356,10 +356,12 @@ public class DiffUtil {
 	public DiffSummary compare2() {
 		
 		DiffSummary ds = new DiffSummary();
-		logger.debug("Starting compare2 mode");
+		
 		Document sort = new Document("_id", 1);
 		boolean filtered = !includedCollections.isEmpty();
 
+		logger.debug("Starting compare2 mode, filtered: {}");
+		
 		for (String dbName : sourceDbInfoMap.keySet()) {
 			Document destInfo = destDbInfoMap.get(dbName);
 			
@@ -367,6 +369,10 @@ public class DiffUtil {
 				continue;
 			}
 			
+			if (includedDatabases.size() > 0 && !includedDatabases.contains(dbName)) {
+				continue;
+			}
+ 			
 			if (destInfo != null) {
 
 				ds.totalDbs++;
