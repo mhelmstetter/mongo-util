@@ -1200,8 +1200,8 @@ public class ShardConfigSync implements Callable<Integer> {
 				} else {
 					logger.warn("{} exists on source and dest, primary shard mismatch, collCount: {}, currentPrimary: {}, mappedPrimary: {}", 
 							dbName, collNames.size(), destPrimary, mappedPrimary);
-					//logger.debug("enableSharding on {}, in order to fix primary shard mismatch", dbName);
-					//enableSharding(dbName, mappedPrimary);
+					logger.debug("enableSharding on {}, in order to fix primary shard mismatch", dbName);
+					enableSharding(dbName, mappedPrimary);
 				}
 				
 				
