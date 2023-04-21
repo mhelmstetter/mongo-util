@@ -108,6 +108,8 @@ public class RecheckUtil {
 		
 		BsonArray failures = failed.getArray(failedKey);
 		
+		logger.debug("recheck {}, failureCount: {}", failedKey, failures.size());
+		
 		List<BsonValue> passedKeys = new ArrayList<>();
 		
 		for (BsonValue m : failures) {
