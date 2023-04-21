@@ -39,8 +39,6 @@ public class ShardDiffTaskExecutor {
 	private final int numThreads;
 	private final DiffSummary summary;
 	
-	private Queue<RetryTask> retryQueue;
-
 	private ExecutorCompletionService<DiffResult> completionService;
 	private ThreadPoolExecutor threadPoolExecutor;
 	
@@ -61,7 +59,6 @@ public class ShardDiffTaskExecutor {
 	}
 
 	public void initializeTasks() {
-		retryQueue = new DelayQueue<>();
 		BlockingQueue<Runnable> workQueue = new ArrayBlockingQueue<>(chunkMap.size());
 		ThreadFactory initialTaskPoolThreadFactory = new ThreadFactoryBuilder()
 				.setNameFormat("WorkerPool-" + sourceShardName + "-%d").build();
@@ -79,8 +76,7 @@ public class ShardDiffTaskExecutor {
 			if (complete) {
 				logger.debug("Skipping chunk, already complete");
 			} else {
-				ShardDiffTask task = new ShardDiffTask(config, chunk, ns, sourceShardName, destShardName, retryQueue,
-						summary);
+				ShardDiffTask task = new ShardDiffTask(config, chunk, ns, sourceShardName, destShardName, summary);
 				// List<Future<DiffResult>> initialTaskPoolFutures =
 				// initialTaskPoolFutureMap.get(srcShard);
 				// ThreadPoolExecutor initialTaskPool = initialTaskPoolMap.get(srcShard);

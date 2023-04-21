@@ -20,12 +20,12 @@ public class PartitionDiffTask extends DiffTask {
     protected final MongoClient sourceClient;
     protected final MongoClient destClient;
     public static final PartitionDiffTask END_TOKEN = new PartitionDiffTask(
-            null, null, null, null, null, null);
+            null, null, null, null, null);
 
 
     public PartitionDiffTask(Partition partition, MongoClient sourceClient, MongoClient destClient,
-                             Queue<RetryTask> retryQueue, DiffSummary summary, DiffConfiguration config) {
-        super(config, (partition == null) ? null : partition.getNamespace(), retryQueue, summary);
+    		DiffSummary summary, DiffConfiguration config) {
+        super(config, (partition == null) ? null : partition.getNamespace(), summary);
         this.partition = partition;
         this.sourceClient = sourceClient;
         this.destClient = destClient;
@@ -49,10 +49,10 @@ public class PartitionDiffTask extends DiffTask {
         return partition.toString();
     }
 
-    @Override
-    protected PartitionRetryTask endToken() {
-        return PartitionRetryTask.END_TOKEN;
-    }
+//    @Override
+//    protected PartitionRetryTask endToken() {
+//        return PartitionRetryTask.END_TOKEN;
+//    }
 
     @Override
     protected MongoClient getLoadClient(Target target) {
@@ -64,12 +64,6 @@ public class PartitionDiffTask extends DiffTask {
             default:
                 throw new RuntimeException("Unknown target: " + target);
         }
-    }
-
-    @Override
-    protected PartitionRetryTask createRetryTask(RetryStatus retryStatus, DiffResult result) {
-        return new PartitionRetryTask(partition, sourceClient, destClient, retryQueue,
-                summary, config, retryStatus, result.getFailedKeys());
     }
 
     public Partition getPartition() {

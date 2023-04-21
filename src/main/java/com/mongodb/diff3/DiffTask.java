@@ -68,13 +68,10 @@ public abstract class DiffTask implements Callable<DiffResult> {
 
     protected Map<BsonValue, String> sourceDocs = null;
     protected Map<BsonValue, String> destDocs = null;
-    protected Queue<RetryTask> retryQueue;
 
-    public DiffTask(DiffConfiguration config, Namespace namespace,
-                    Queue<RetryTask> retryQueue, DiffSummary summary) {
+    public DiffTask(DiffConfiguration config, Namespace namespace, DiffSummary summary) {
         this.config = config;
         this.namespace = namespace;
-        this.retryQueue = retryQueue;
         this.summary = summary;
     }
 
@@ -83,9 +80,8 @@ public abstract class DiffTask implements Callable<DiffResult> {
 
     protected abstract String unitString();
 
-    protected abstract RetryTask createRetryTask(RetryStatus retryStatus, DiffResult result);
 
-    protected abstract RetryTask endToken();
+    //protected abstract RetryTask endToken();
 
 
     @Override
@@ -99,18 +95,6 @@ public abstract class DiffTask implements Callable<DiffResult> {
             logger.error("[{}] fatal error diffing ({})",
                     Thread.currentThread().getName(), unitString(), e);
             throw new RuntimeException(e);
-        }
-
-        if (result.getFailedKeys().size() > 0) {
-            RetryStatus retryStatus = new RetryStatus(0, System.currentTimeMillis(), config.getMaxRetries());
-            RetryTask retryTask = createRetryTask(retryStatus, result);
-            retryQueue.add(retryTask);
-            logger.debug("[{}] detected {} failures and added a retry task ({})",
-                    Thread.currentThread().getName(), result.getFailedKeys().size(), unitString());
-        } else {
-            logger.trace("[{}] sending end token for ({})", Thread.currentThread().getName(),
-                    result.getChunkDef().unitString());
-            retryQueue.add(endToken());
         }
 
         long timeSpent = System.currentTimeMillis() - start;

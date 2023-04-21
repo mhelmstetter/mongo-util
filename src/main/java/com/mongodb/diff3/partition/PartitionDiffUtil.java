@@ -60,7 +60,6 @@ public class PartitionDiffUtil {
     private final long estimatedTotalDocs;
     private final long totalSize;
     private Queue<PartitionDiffTask> partitionerTaskPoolQueue;
-    private Queue<RetryTask> retryQueue;
 
     public PartitionDiffUtil(DiffConfiguration config) {
         this.config = config;
@@ -107,7 +106,6 @@ public class PartitionDiffUtil {
         DiffSummaryClient diffSummaryClient = config.getDiffSummaryClient();
         DiffSummary summary = new DiffSummary(estimatedTotalDocs, totalSize, diffSummaryClient);
 
-        retryQueue = new DelayQueue<>();
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
         statusReporter.scheduleAtFixedRate(() ->
                 logger.info(summary.getSummary(false)), 0, 5, TimeUnit.SECONDS);
@@ -124,7 +122,7 @@ public class PartitionDiffUtil {
 
         for (Collection coll : colls) {
             PartitionTask pt = new PartitionTask(coll.getNamespace(), sourceClient,
-                    destClient, partitionManager, partitionerTaskPoolQueue, retryQueue, summary, config);
+                    destClient, partitionManager, partitionerTaskPoolQueue, summary, config);
             partitionerTaskPoolResults.add(partitionerTaskPool.submit(pt));
         }
         partitionerTaskPoolListener.scheduleWithFixedDelay(new Runnable() {
@@ -157,46 +155,6 @@ public class PartitionDiffUtil {
                 }
             }
         }, 0, 100, TimeUnit.MILLISECONDS);
-
-        ThreadFactory retryTaskPoolThreadFactory = new ThreadFactoryBuilder().setNameFormat("RetryPool-%d").build();
-        retryTaskPool = Executors.newFixedThreadPool(4, retryTaskPoolThreadFactory);
-        List<Future<DiffResult>> retryTaskPoolResults = new CopyOnWriteArrayList<>();
-
-        /* Once the Retryer thread has seen all the END_TOKENs this value is set.
-         *  It is used as a barrier to determine when to stop the retryPool */
-        AtomicInteger finalSizeRetryTaskPoolResults = new AtomicInteger(-1);
-
-        ScheduledExecutorService retryTaskPoolListener = Executors.newSingleThreadScheduledExecutor();
-        retryTaskPoolListener.scheduleWithFixedDelay(new Runnable() {
-            int endTokensSeen = 0;
-
-            @Override
-            public void run() {
-                PartitionRetryTask rt;
-                while ((rt = (PartitionRetryTask) retryQueue.poll()) != null) {
-                    try {
-                        if (rt == PartitionRetryTask.END_TOKEN) {
-                            logger.trace("[RetryTaskPoolListener] saw an end token ({}/{})",
-                                    endTokensSeen + 1, totalPartitions.get());
-                            int tp = totalPartitions.get();
-                            if (++endTokensSeen == tp) {
-                                logger.debug("[RetryTaskPoolListener] has seen all end tokens ({})", endTokensSeen);
-                                finalSizeRetryTaskPoolResults.set(retryTaskPoolResults.size());
-                                retryTaskPoolListenerDone.set(true);
-                            }
-                        } else {
-                            logger.debug("[RetryTaskPoolListener] submitting retry {} for ({})",
-                                    rt.getRetryStatus().getAttempt() + 1, rt.getChunkDef().unitString());
-                            retryTaskPoolResults.add(retryTaskPool.submit(rt));
-                        }
-                    } catch (Exception e) {
-                        logger.error("[RetryTaskPoolListener] Exception occurred while running retry task", e);
-                        throw new RuntimeException(e);
-                    }
-
-                }
-            }
-        }, 0, 1, TimeUnit.SECONDS);
 
         ThreadFactory initialTaskPoolThreadFactory = new ThreadFactoryBuilder().setNameFormat("WorkerPool-%d").build();
         initialTaskPool.setThreadFactory(initialTaskPoolThreadFactory);
@@ -238,61 +196,6 @@ public class PartitionDiffUtil {
                         }
                     }
                 }, 0, 1000, TimeUnit.MILLISECONDS);
-
-        // Check for futures coming off the retryPool
-        Set<Future<DiffResult>> retryTaskPoolFuturesSeen = ConcurrentHashMap.newKeySet();
-        ScheduledExecutorService retryTaskPoolCollector = Executors.newSingleThreadScheduledExecutor();
-        Future<?> retryTaskPoolFuture = retryTaskPoolCollector.scheduleWithFixedDelay(new Runnable() {
-            int runs = 0;
-
-            @Override
-            public void run() {
-                int expectedRetryResults = finalSizeRetryTaskPoolResults.get();
-                logger.trace("[RetryTaskPoolCollector] loop: {} :: {} expected retryResults, {} seen",
-                        ++runs, expectedRetryResults, retryTaskPoolFuturesSeen.size());
-//                if (expectedRetryResults >= 0) {
-                if (expectedRetryResults < 0 || (expectedRetryResults >= 0 && retryTaskPoolFuturesSeen.size() < expectedRetryResults)) {
-                        for (Future<DiffResult> future : retryTaskPoolResults) {
-                            try {
-                                if (!retryTaskPoolFuturesSeen.contains(future) && future.isDone()) {
-                                    retryTaskPoolFuturesSeen.add(future);
-                                    DiffResult result = future.get();
-                                    if (result == null) {
-                                        continue;
-                                    }
-                                    int failures = result.getFailedKeys().size();
-
-                                    if (failures > 0 && result.isRetryable()) {
-                                        // There's failures but will retry
-                                        logger.trace("[RetryTaskPoolCollector] ignoring retried result for ({}): " +
-                                                        "{} matches, {} failures, {} bytes",
-                                                result.getChunkDef().unitString(), result.getMatches(),
-                                                result.getFailedKeys().size(), result.getBytesProcessed());
-                                        continue;
-                                    }
-
-                                    logger.debug("[RetryTaskPoolCollector] got final result for ({}): " +
-                                                    "{} matches, {} failures, {} bytes",
-                                            result.getChunkDef().unitString(), result.getMatches(),
-                                            result.getFailedKeys().size(), result.getBytesProcessed());
-
-                                    summary.updateRetryTask(result);
-                                }
-
-                            } catch (InterruptedException e) {
-                                logger.error("[ResultRetryCollector] Diff task was interrupted", e);
-                                throw new RuntimeException(e);
-                            } catch (ExecutionException e) {
-                                logger.error("[ResultRetryCollector] Diff task threw an exception", e);
-                                throw new RuntimeException(e);
-                            }
-                        }
-                    } else {
-                        retryTaskPoolCollectorDone.set(true);
-                    }
-//                }
-            }
-        }, 0, 1, TimeUnit.SECONDS);
 
         ScheduledExecutorService initialTaskPoolCollector = Executors.newSingleThreadScheduledExecutor();
         Set<Future<DiffResult>> initialTaskPoolFuturesSeen = new HashSet<>();
@@ -338,7 +241,6 @@ public class PartitionDiffUtil {
 
         boolean partitionerTaskPoolResult = false;
         boolean initialTaskPoolResult = false;
-        boolean retryTaskPoolResult = false;
         while (!(partitionerTaskPoolDone.get() && initialTaskPoolDone.get() && retryTaskPoolDone.get())) {
             try {
                 Thread.sleep(1000);
@@ -385,31 +287,6 @@ public class PartitionDiffUtil {
                     logger.trace("[Main] Initial task pool still runnign");
                 }
 
-                if (!retryTaskPoolDone.get()) {
-                    if (retryTaskPoolListenerDone.get() && !retryTaskPoolListener.isShutdown()) {
-                        logger.info("[Main] shutting down retry task pool listener");
-                        retryTaskPoolListener.shutdown();
-                    } else {
-                        logger.trace("[Main] Retry pool listener still running");
-                    }
-                    if (retryTaskPoolCollectorDone.get() && !retryTaskPoolCollector.isShutdown()) {
-                        logger.info("[Main] shutting down retry task pool collector");
-                        retryTaskPoolResult = retryTaskPoolFuture.cancel(false);
-                        retryTaskPoolCollector.shutdown();
-                    } else {
-                        logger.trace("[Main] retry pool collector still running");
-                    }
-                    if (retryTaskPoolResult) {
-                        retryTaskPoolDone.set(true);
-                        logger.info("[Main] shutting down retry task pool");
-                        retryTaskPool.shutdown();
-                        if (!retryTaskPoolListener.isShutdown()) {
-                            retryTaskPoolListener.shutdown();
-                        }
-                    }
-                } else {
-                    logger.trace("[Main] Retry pool still running");
-                }
             } catch (Exception e) {
                 logger.error("[Main] Error collecting partition pool and/or worker pool", e);
                 throw new RuntimeException(e);

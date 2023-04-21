@@ -2,19 +2,14 @@ package com.mongodb.diff3.shard;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.DelayQueue;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -27,13 +22,11 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.mongodb.diff3.DiffConfiguration;
 import com.mongodb.diff3.DiffResult;
 import com.mongodb.diff3.DiffSummary;
 import com.mongodb.diff3.DiffSummary.DiffStatus;
 import com.mongodb.diff3.DiffSummaryClient;
-import com.mongodb.diff3.RetryTask;
 import com.mongodb.model.Collection;
 import com.mongodb.model.DatabaseCatalog;
 import com.mongodb.model.Namespace;
@@ -53,9 +46,7 @@ public class ShardDiffUtil {
 	private final DiffConfiguration config;
 
 	protected Map<String, ThreadPoolExecutor> initialTaskPoolMap = new HashMap<>();
-	private ExecutorService retryTaskPool;
-	// Map<String, List<Future<DiffResult>>> initialTaskPoolFutureMap = new
-	// HashMap<>();
+	 Map<String, List<Future<DiffResult>>> initialTaskPoolFutureMap = new HashMap<>();
 
 	private Map<String, ShardDiffTaskExecutor> shardDiffTaskExecutors = new HashMap<>();
 
@@ -63,7 +54,6 @@ public class ShardDiffUtil {
 	private final long estimatedTotalDocs;
 	private final long totalSize;
 	private final int numUnshardedCollections;
-	private Queue<RetryTask> retryQueue;
 	private int totalInitialTasks;
 
 	private int alreadyCompletedCount = 0;
@@ -209,60 +199,17 @@ public class ShardDiffUtil {
 
 		loadChunks();
 		initializeTasks();
-
-		AtomicBoolean retryTaskPoolListenerDone = new AtomicBoolean(false);
-		AtomicBoolean retryTaskPoolCollectorDone = new AtomicBoolean(false);
-		AtomicBoolean retryTaskPoolDone = new AtomicBoolean(false);
+		
+		AtomicBoolean initialTaskPoolCollectorDone = new AtomicBoolean(false);
+        AtomicBoolean initialTaskPoolDone = new AtomicBoolean(false);
 
 		int totalChunks = getTotalChunks() + alreadyCompletedCount;
 		int numShards = srcShardNames.size();
 
 		summary.setTotalChunks(totalChunks);
-		retryQueue = new DelayQueue<>();
 
 		ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
 		statusReporter.scheduleAtFixedRate(() -> logger.info(summary.getSummary(false)), 0, 5, TimeUnit.SECONDS);
-
-		ThreadFactory retryTaskPoolThreadFactory = new ThreadFactoryBuilder().setNameFormat("RetryPool-%d").build();
-		retryTaskPool = Executors.newFixedThreadPool(4, retryTaskPoolThreadFactory);
-		List<Future<DiffResult>> retryTaskPoolFutures = new CopyOnWriteArrayList<>();
-
-		/*
-		 * Once the Retryer thread has seen all the END_TOKENs this value is set. It is
-		 * used as a barrier to determine when to stop the retryPool
-		 */
-		AtomicInteger finalSizeRetryTaskPoolFutures = new AtomicInteger(-1);
-
-		ScheduledExecutorService retryTaskPoolListener = Executors.newSingleThreadScheduledExecutor();
-		retryTaskPoolListener.scheduleWithFixedDelay(new Runnable() {
-			int endTokensSeen = 0;
-
-			@Override
-			public void run() {
-				ShardRetryTask rt;
-				while ((rt = (ShardRetryTask) retryQueue.poll()) != null) {
-					try {
-						if (rt == ShardRetryTask.END_TOKEN) {
-							logger.trace("[RetryTaskPoolListener] saw an end token ({}/{})", endTokensSeen + 1,
-									totalInitialTasks);
-							if (++endTokensSeen == totalInitialTasks) {
-								logger.debug("[RetryTaskPoolListener] has seen all end tokens ({})", endTokensSeen);
-								finalSizeRetryTaskPoolFutures.set(retryTaskPoolFutures.size());
-								retryTaskPoolListenerDone.set(true);
-							}
-						} else {
-							logger.debug("[RetryTaskPoolListener] submitting retry {} for ({}-{})",
-									rt.getRetryStatus().getAttempt() + 1, rt.getChunkDef().unitString());
-							retryTaskPoolFutures.add(retryTaskPool.submit(rt));
-						}
-					} catch (Exception e) {
-						logger.error("[RetryTaskPoolListener] Exception occured while running retry task", e);
-						throw new RuntimeException(e);
-					}
-
-				}
-			}
-		}, 0, 1, TimeUnit.SECONDS);
 
 		List<Collection> unshardedCollections = new ArrayList<>(
 				sourceShardClient.getDatabaseCatalog().getUnshardedCollections());
@@ -273,131 +220,94 @@ public class ShardDiffUtil {
 			int shardIdx = i % numShards;
 			String srcShard = srcShardNames.get(shardIdx);
 			String destShard = destShardNames.get(shardIdx);
-			ShardDiffTask task = new ShardDiffTask(config, null, unshardedColl.getNamespace(), srcShard, destShard,
-					retryQueue, summary);
+			ShardDiffTask task = new ShardDiffTask(config, null, unshardedColl.getNamespace(), srcShard, destShard, summary);
 			logger.debug("[Main] Added an UnshardedDiffTask for {}", unshardedColl.getNamespace());
-			// List<Future<DiffResult>> initialTaskPoolFutures =
-			// initialTaskPoolFutureMap.get(srcShard);
+			 List<Future<DiffResult>> initialTaskPoolFutures = initialTaskPoolFutureMap.get(srcShard);
 			ThreadPoolExecutor initialTaskPool = initialTaskPoolMap.get(srcShard);
-			// initialTaskPoolFutures.add(initialTaskPool.submit(task));
+			initialTaskPoolFutures.add(initialTaskPool.submit(task));
 		}
 
-		// Set<String> finishedShards = new HashSet<>();
-		// Map<String, Set<Future<DiffResult>>> initialTaskPoolFuturesSeen = new
-		// HashMap<>();
-		// Set<Future<DiffResult>> initialTaskPoolFuturesSeen =
-		// ConcurrentHashMap.newKeySet();
-		Set<Future<DiffResult>> retryTaskPoolFuturesSeen = ConcurrentHashMap.newKeySet();
+		Set<String> finishedShards = new HashSet<>();
+        Map<String, Set<Future<DiffResult>>> initialTaskPoolFuturesSeen = new HashMap<>();
 
-		// Check for futures coming off the retryPool
+		ScheduledExecutorService initialTaskPoolCollector = Executors.newSingleThreadScheduledExecutor();
+        Future<?> initialTaskPoolFuture = initialTaskPoolCollector.scheduleAtFixedRate(new Runnable() {
+            int runs = 0;
 
-		ScheduledExecutorService retryTaskPoolCollector = Executors.newSingleThreadScheduledExecutor();
-		Future<?> retryTaskPoolFuture = retryTaskPoolCollector.scheduleWithFixedDelay(new Runnable() {
-			int runs = 0;
+            @Override
+            public void run() {
+                // Poll for completed futures every second
+                if (finishedShards.size() < numShards) {
+                    logger.trace("[InitialTaskPoolCollector] loop: {}", ++runs);
+                    for (String shard : srcShardNames) {
+                        if (!initialTaskPoolFuturesSeen.containsKey(shard)) {
+                            initialTaskPoolFuturesSeen.put(shard, new HashSet<>());
+                        }
+                        Set<Future<DiffResult>> futuresSeen = initialTaskPoolFuturesSeen.get(shard);
+                        List<Future<DiffResult>> diffResults = initialTaskPoolFutureMap.get(shard);
 
-			@Override
-			public void run() {
-				int expectedRetryResults = finalSizeRetryTaskPoolFutures.get();
-				logger.debug("[RetryTaskPoolCollector] loop: {} :: {} expected retryResults, {} seen", ++runs,
-						expectedRetryResults, retryTaskPoolFuturesSeen.size());
-				if (expectedRetryResults >= 0 && retryTaskPoolFuturesSeen.size() < expectedRetryResults) {
-					for (Future<DiffResult> future : retryTaskPoolFutures) {
-						try {
-							if (!retryTaskPoolFuturesSeen.contains(future) && future.isDone()) {
-								retryTaskPoolFuturesSeen.add(future);
-								DiffResult result = future.get();
-								if (result == null) {
-									continue;
-								}
-								int failures = result.getFailedKeys().size();
+                        if (futuresSeen.size() >= diffResults.size()) {
+                            finishedShards.add(shard);
+                        } else {
+                            for (Future<DiffResult> future : diffResults) {
+                                try {
+                                    if (!futuresSeen.contains(future) && future.isDone()) {
+                                        futuresSeen.add(future);
 
-								if (failures > 0 && result.isRetryable()) {
-									// There's failures but will retry
-									logger.trace(
-											"[RetryTaskPoolCollector] ignoring retried result for ({}): "
-													+ "{} matches, {} failures, {} bytes",
-											result.getChunkDef().unitString(), result.getMatches(),
-											result.getFailedKeys().size(), result.getBytesProcessed());
-									continue;
-								}
+                                        DiffResult result = future.get();
+                                        int failures = result.getFailedKeys().size();
+                                        if (failures > 0) {
+                                            logger.debug("[InitialTaskPoolCollector] will retry {} failed ids for ({})",
+                                                    result.getFailedKeys().size(), result.getChunkDef().unitString());
+                                        } else {
+                                            logger.debug("[InitialTaskPoolCollector] got result for ({}): " +
+                                                            "{} matches, {} failures, {} bytes",
+                                                    result.getChunkDef().unitString(), result.getMatches(),
+                                                    result.getFailedKeys().size(), result.getBytesProcessed());
+                                        }
+                                        summary.updateInitTask(result);
+                                    }
+                                } catch (InterruptedException e) {
+                                    logger.error("[InitialTaskPoolCollector] Diff task was interrupted", e);
+                                } catch (ExecutionException e) {
+                                    logger.error("[InitialTaskPoolCollector] Diff task threw an exception", e);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    initialTaskPoolCollectorDone.set(true);
+                }
+            }
+        }, 0, 1, TimeUnit.SECONDS);
 
-								logger.debug(
-										"[RetryTaskPoolCollector] got final result for ({}): "
-												+ "{} matches, {} failures, {} bytes",
-										result.getChunkDef().unitString(), result.getMatches(),
-										result.getFailedKeys().size(), result.getBytesProcessed());
+        boolean initialTaskPoolResult = false;
 
-								summary.updateRetryTask(result);
-							}
-
-						} catch (InterruptedException e) {
-							logger.error("[RetryTaskPoolCollector] Diff task was interrupted", e);
-							throw new RuntimeException(e);
-						} catch (ExecutionException e) {
-							logger.error("[RetryTaskPoolCollector] Diff task threw an exception", e);
-							throw new RuntimeException(e);
-						}
-					}
-				} else {
-					retryTaskPoolCollectorDone.set(true);
-				}
-//                }
-			}
-
-		}, 0, 1, TimeUnit.SECONDS);
-
-		boolean retryTaskPoolResult = false;
-
-		while (!(retryTaskPoolDone.get() && shardDiffTaskExecutorsComplete())) {
+		while (shardDiffTaskExecutorsComplete()) {
 			try {
 				Thread.sleep(1000);
-				logger.debug(
-						"[Main] check completion status: shardDiffTaskExecutorsComplete: {}, retryTaskPoolDone: {}",
-						shardDiffTaskExecutorsComplete(), retryTaskPoolDone.get());
+				logger.debug("[Main] check completion status: shardDiffTaskExecutorsComplete: {}",
+						shardDiffTaskExecutorsComplete());
 
-				if (!retryTaskPoolDone.get()) {
-					if (retryTaskPoolListenerDone.get() && !retryTaskPoolListener.isShutdown()) {
-						logger.info("[Main] shutting down retry task pool listener");
-						retryTaskPoolListener.shutdown();
-					} else {
-						logger.trace("[Main] retry pool listener still running");
-					}
-					if (retryTaskPoolCollectorDone.get() && !retryTaskPoolCollector.isShutdown()) {
-						logger.info("[Main] shutting down retry task pool collector");
-						retryTaskPoolResult = retryTaskPoolFuture.cancel(false);
-						retryTaskPoolCollector.shutdown();
-					} else {
-						logger.trace("[Main] retry pool collector still running");
-					}
-					if (retryTaskPoolResult) {
-						retryTaskPoolDone.set(true);
-						logger.info("[Main] shutting down retry task pool");
-						retryTaskPool.shutdown();
-						if (!retryTaskPoolListener.isShutdown()) {
-							retryTaskPoolListener.shutdown();
-						}
-					}
-				} else {
-					logger.trace("[Main] retry pool still running");
-				}
-//                if (!initialTaskPoolDone.get()) {
-//                    if (initialTaskPoolCollectorDone.get() && !initialTaskPoolCollector.isShutdown()) {
-//                        logger.info("[Main] shutting down initial task pool collector");
-//                        initialTaskPoolResult = initialTaskPoolFuture.cancel(false);
-//                        initialTaskPoolCollector.shutdown();
-//                    } else {
-//                        logger.trace("[Main] Initial task pool collector still running");
-//                    }
-//                    if (initialTaskPoolResult) {
-//                        initialTaskPoolDone.set(true);
-//                        logger.info("[Main] shutting down {} initial task pools", initialTaskPoolMap.size());
-//                        for (ThreadPoolExecutor e : initialTaskPoolMap.values()) {
-//                            e.shutdown();
-//                        }
-//                    }
-//                } else {
-//                    logger.trace("[Main] Initial task pool still running");
-//                }
+				
+                if (!initialTaskPoolDone.get()) {
+                    if (initialTaskPoolCollectorDone.get() && !initialTaskPoolCollector.isShutdown()) {
+                        logger.info("[Main] shutting down initial task pool collector");
+                        initialTaskPoolResult = initialTaskPoolFuture.cancel(false);
+                        initialTaskPoolCollector.shutdown();
+                    } else {
+                        logger.trace("[Main] Initial task pool collector still running");
+                    }
+                    if (initialTaskPoolResult) {
+                        initialTaskPoolDone.set(true);
+                        logger.info("[Main] shutting down {} initial task pools", initialTaskPoolMap.size());
+                        for (ThreadPoolExecutor e : initialTaskPoolMap.values()) {
+                            e.shutdown();
+                        }
+                    }
+                } else {
+                    logger.trace("[Main] Initial task pool still running");
+                }
 			} catch (Exception e) {
 				logger.error("[Main] Error collector worker and/or retry pool", e);
 				throw new RuntimeException(e);

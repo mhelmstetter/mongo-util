@@ -20,7 +20,6 @@ public class PartitionTask implements Callable<Pair<String, Integer>> {
     private final MongoClient destClient;
     private final PartitionManager partitionManager;
     private final Queue<PartitionDiffTask> partitionQueue;
-    private final Queue<RetryTask> retryQueue;
     private final DiffSummary summary;
     private final DiffConfiguration config;
 
@@ -28,13 +27,12 @@ public class PartitionTask implements Callable<Pair<String, Integer>> {
 
     public PartitionTask(Namespace namespace, MongoClient sourceClient, MongoClient destClient,
                          PartitionManager partitionManager, Queue<PartitionDiffTask> partitionQueue,
-                         Queue<RetryTask> retryQueue, DiffSummary summary, DiffConfiguration config) {
+                         DiffSummary summary, DiffConfiguration config) {
         this.namespace = namespace;
         this.sourceClient = sourceClient;
         this.destClient = destClient;
         this.partitionManager = partitionManager;
         this.partitionQueue = partitionQueue;
-        this.retryQueue = retryQueue;
         this.summary = summary;
         this.config = config;
     }
@@ -50,7 +48,7 @@ public class PartitionTask implements Callable<Pair<String, Integer>> {
 
         for (Partition p : partitions) {
             logger.debug("[{}] added {} to the partition queue", Thread.currentThread().getName(), p.toString());
-            partitionQueue.add(new PartitionDiffTask(p, sourceClient, destClient, retryQueue, summary, config));
+            partitionQueue.add(new PartitionDiffTask(p, sourceClient, destClient, summary, config));
         }
         partitionQueue.add(PartitionDiffTask.END_TOKEN);
         logger.debug("[{}] Partition task completed in {} ms",

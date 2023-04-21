@@ -28,8 +28,8 @@ public class ShardDiffTask extends DiffTask {
 
     public ShardDiffTask(DiffConfiguration config,
                          RawBsonDocument chunk, Namespace namespace, String srcShardName,
-                         String destShardName, Queue<RetryTask> retryQueue, DiffSummary summary) {
-        super(config, namespace, retryQueue, summary);
+                         String destShardName, DiffSummary summary) {
+        super(config, namespace, summary);
         if (config != null) {
         	 this.sourceShardClient = config.getSourceShardClient();
              this.destShardClient = config.getDestShardClient();
@@ -76,14 +76,9 @@ public class ShardDiffTask extends DiffTask {
         return chunkDef.unitString();
     }
 
-    @Override
-    protected RetryTask endToken() {
-        return ShardRetryTask.END_TOKEN;
-    }
+//    @Override
+//    protected RetryTask endToken() {
+//        return ShardRetryTask.END_TOKEN;
+//    }
 
-    @Override
-    protected ShardRetryTask createRetryTask(RetryStatus retryStatus, DiffResult result) {
-        return new ShardRetryTask(retryStatus, sourceShardClient, destShardClient, srcShardName, destShardName,
-                namespace, chunk, config, result.getFailedKeys(), retryQueue, summary);
-    }
 }
