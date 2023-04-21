@@ -76,13 +76,15 @@ public class RecheckUtil {
 	
 	public void recheck() {
 		
-		FindIterable<BsonDocument> failedChunks = null;
+		List<BsonDocument> failedChunks = new ArrayList<>();
 		
 		if (chunkQuery != null) {
-			failedChunks = coll.find(chunkQuery);
+			coll.find(chunkQuery).into(failedChunks);
 		} else {
-			failedChunks = coll.find();
+			failedChunks = coll.find().into(failedChunks);
 		}
+		
+		logger.debug("{} failed chunks found, chunkQuery: {}", failedChunks.size(), chunkQuery);
 		
 		
 		for (BsonDocument failed : failedChunks) {
