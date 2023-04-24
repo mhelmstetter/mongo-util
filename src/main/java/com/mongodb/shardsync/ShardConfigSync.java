@@ -557,7 +557,11 @@ public class ShardConfigSync implements Callable<Integer> {
 		boolean destIsAtlas = this.destShardClient.isAtlas();
 		logger.debug("sourceIsAtlas: {}, destIsAtlas: {}", sourceIsAtlas, destIsAtlas);
 		
-		//List<AtlasUser> existingUsers = atlasUtil.getDatabaseUsers(config.atlasProjectId);
+		List<AtlasUser> existingUsers = null;
+		if (destIsAtlas) {
+			existingUsers = atlasUtil.getDatabaseUsers(config.atlasProjectId);
+		}
+		
 		
 		
 		Map<String, String> usersMap = readUsersInputCsv();

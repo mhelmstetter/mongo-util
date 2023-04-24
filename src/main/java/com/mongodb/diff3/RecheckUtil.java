@@ -1,6 +1,7 @@
 package com.mongodb.diff3;
 
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Updates.pullAll;
 
 import java.util.ArrayList;
@@ -53,7 +54,10 @@ public class RecheckUtil {
         
         if (config.isFiltered()) {
         	chunkManager = new ChunkManager(config);
-    		this.chunkQuery = chunkManager.initializeChunkQuery();
+    		Bson query = chunkManager.initializeChunkQuery();
+    		this.chunkQuery = and(query, eq("status", "RETRYING"));
+        } else {
+        	this.chunkQuery = eq("status", "RETRYING");
         }
         
         sourceShardClient = new ShardClient("source", config.getSourceClusterUri());
