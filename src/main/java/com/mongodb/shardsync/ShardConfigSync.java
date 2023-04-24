@@ -483,6 +483,8 @@ public class ShardConfigSync implements Callable<Integer> {
 				logger.debug("{} auth pass", username);
 			} catch (MongoSecurityException mse) {
 				logger.warn("{} auth fail", username);
+			}  catch (Exception e) {
+				logger.error("{} auth fail - Invalid password? - {}", username, e.getMessage());
 			}
 			
 		}
