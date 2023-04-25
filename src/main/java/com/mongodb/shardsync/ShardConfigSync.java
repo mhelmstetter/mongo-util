@@ -559,15 +559,13 @@ public class ShardConfigSync implements Callable<Integer> {
 		boolean destIsAtlas = this.destShardClient.isAtlas();
 		logger.debug("sourceIsAtlas: {}, destIsAtlas: {}", sourceIsAtlas, destIsAtlas);
 		
-		List<AtlasUser> existingUsers = null;
+		Set<AtlasUser> existingUsers = new HashSet<>();
 		if (destIsAtlas) {
-			existingUsers = atlasUtil.getDatabaseUsers(config.atlasProjectId);
+			List<AtlasUser> users = atlasUtil.getDatabaseUsers(config.atlasProjectId);
+			existingUsers.addAll(users);
 		}
 		
-		
-		
 		Map<String, String> usersMap = readUsersInputCsv();
-		
 		
 		CSVWriter writer = new CSVWriter(new FileWriter(config.getUsersOutputCsv()));
 		String[] header = { "user", "password"};
@@ -596,11 +594,26 @@ public class ShardConfigSync implements Callable<Integer> {
 				}
 				atlasUser.setPassword(password);
 				
-				try {
-					atlasUtil.createUser(config.atlasProjectId, atlasUser);
-				} catch (KeyManagementException | NoSuchAlgorithmException | IOException e) {
-					logger.error("syncUsers() error: {}", atlasUser, e);
+				if (existingUsers.contains(atlasUser)) {
+					if (usersMap.containsKey(atlasUser.getUsername())) {
+						logger.debug("*** updating password for user {}", atlasUser.getUsername());
+						try {
+							atlasUtil.updateUser(config.atlasProjectId, atlasUser);
+						} catch (KeyManagementException | NoSuchAlgorithmException | IOException e) {
+							logger.error("syncUsers() error: {}", atlasUser, e);
+						}
+					} else {
+						logger.debug("Atlas user {} already exists", atlasUser.getUsername());
+					}
+					
+				} else {
+					try {
+						atlasUtil.createUser(config.atlasProjectId, atlasUser);
+					} catch (KeyManagementException | NoSuchAlgorithmException | IOException e) {
+						logger.error("syncUsers() error: {}", atlasUser, e);
+					}
 				}
+				
 			} else {
 				if (destUserExists(u)) {
 					

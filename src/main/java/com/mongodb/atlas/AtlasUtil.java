@@ -1,6 +1,7 @@
 package com.mongodb.atlas;
 
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static com.mongodb.util.spring.DigestAuthFilterFunction.setDigestAuth;
 
 import java.io.IOException;
 import java.security.KeyManagementException;
@@ -20,6 +21,7 @@ import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
 import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJsonProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import com.mongodb.atlas.model.AtlasRole;
 import com.mongodb.atlas.model.AtlasRoleReference;
@@ -36,6 +38,7 @@ import jakarta.ws.rs.client.WebTarget;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import me.vzhilin.auth.DigestAuthenticator;
 
 public class AtlasUtil {
 
@@ -62,6 +65,8 @@ public class AtlasUtil {
 	private HttpAuthenticationFeature feature;
 	
 	private Client client;
+	
+	private DigestAuthenticator digestAuthenticator;
 
 	public AtlasUtil(String username, String apiKey) throws KeyManagementException, NoSuchAlgorithmException {
 		service = AtlasServiceGenerator.createService(AtlasApi.class, username, apiKey);
@@ -99,6 +104,8 @@ public class AtlasUtil {
 
 		ClientConfig clientConfig = new ClientConfig().register(new JacksonJsonProvider());
 		client = ClientBuilder.newBuilder().sslContext(sslContext).withConfig(clientConfig).build();
+		
+		digestAuthenticator = new DigestAuthenticator(apiPublicKey, apiPrivateKey);
 	}
 
 //    public List<Project> getProjects() throws IOException {
@@ -176,7 +183,8 @@ public class AtlasUtil {
 	
 	public List<AtlasRole> getCustomDbRoles(String groupId) {
 		
-		WebTarget webTarget = client.target(BASE_URL).path("groups").path(groupId).path("customDBRoles").path("roles");
+		WebTarget webTarget = client.target(BASE_URL).path("groups").path(groupId)
+				.path("customDBRoles").path("roles");
 		webTarget.register(feature);
 		Invocation.Builder invocationBuilder = webTarget.request(MediaType.APPLICATION_JSON);
 		Response response = invocationBuilder.get();
@@ -195,7 +203,8 @@ public class AtlasUtil {
 	
 	public List<AtlasUser> getDatabaseUsers(String groupId) {
 		
-		WebTarget webTarget = client.target(BASE_URL).path("groups").path(groupId).path("databaseUsers");
+		WebTarget webTarget = client.target(BASE_URL).path("groups").path(groupId)
+				.path("databaseUsers").queryParam("itemsPerPage", "500");
 
 		webTarget.register(feature);
 		Invocation.Builder invocationBuilder = webTarget.request(MediaType.APPLICATION_JSON);
@@ -316,6 +325,27 @@ public class AtlasUtil {
 		}
 	}
 
+	public void updateUser(String groupId, AtlasUser user)
+			throws IOException, NoSuchAlgorithmException, KeyManagementException {
+		
+		WebClient webClient = WebClient.builder()
+		        .baseUrl(BASE_URL)
+		        .filters(setDigestAuth(digestAuthenticator))
+		        .defaultHeaders(header -> header.setBasicAuth(apiPublicKey, apiPrivateKey))
+		        .build();
+		
+		String response = webClient
+        .patch()
+        .uri(uriBuilder -> uriBuilder
+        	    .path("/groups/{groupId}/databaseUsers/admin/{username}")
+        	    .build(groupId, user.getUsername()))
+        .bodyValue(user)
+        .retrieve()
+        .bodyToMono(String.class).block();
+
+		logger.debug("#### {}", response);
+	}
+	
 //    public void getLogs(String groupId, String hostId, long startDate) throws IOException {
 //    	LogCollectionJobRequest req = new LogCollectionJobRequest();
 //    	req.setResourceType("REPLICASET");

@@ -2,6 +2,7 @@ package com.mongodb.atlas.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.mongodb.model.Role;
@@ -73,6 +74,32 @@ public class AtlasUser {
 		ref.setRoleName(roleName);
 		ref.setDatabaseName(databaseName);
 		return roles.contains(ref);
+	}
+
+	@Override
+	public String toString() {
+		StringBuilder builder = new StringBuilder();
+		builder.append("AtlasUser [username=");
+		builder.append(username);
+		builder.append("]");
+		return builder.toString();
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hash(username);
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj)
+			return true;
+		if (obj == null)
+			return false;
+		if (getClass() != obj.getClass())
+			return false;
+		AtlasUser other = (AtlasUser) obj;
+		return Objects.equals(username, other.username);
 	}
 
 }

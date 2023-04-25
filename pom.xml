@@ -304,11 +304,17 @@
 			<artifactId>javax.ws.rs-api</artifactId>
 			<version>${jaxrs.version}</version>
 		</dependency>
+		<dependency>
+			<groupId>io.github.vzhn</groupId>
+			<artifactId>netty-http-authenticator</artifactId>
+			<version>1.5</version>
+		</dependency>
+
 
 		<dependency>
-			<groupId>com.squareup.okhttp3</groupId>
-			<artifactId>okhttp</artifactId>
-			<version>4.9.3</version>
+			<groupId>org.springframework</groupId>
+			<artifactId>spring-webflux</artifactId>
+			<version>6.0.8</version>
 		</dependency>
 
 		<dependency>
