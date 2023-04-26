@@ -97,18 +97,22 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 					continue;
 				}
 				
-//				RawBsonDocument os = (RawBsonDocument)clientMeta.get("os");
-//				String type = getStringValue(os, "type");
-//				if (type.equals("Darwin")) {
-//					continue;
-//				}
-				
 			}
+			
+			String appName = getStringValue(result, "appName");
+			if (appName != null && (appName.startsWith("MongoDB Automation Agent")
+					|| appName.startsWith("MongoDB Monitoring Module")
+					|| appName.equals("mongomirror"))) {
+				continue;
+			}
+			
+			System.out.print(".");
 			
 			String client = getStringValue(result, "client");
 			
 			String op = getStringValue(result, "op");
-			String appName = getStringValue(result, "appName");
+			
+			
 			RawBsonDocument cmd = (RawBsonDocument)result.get("command");
 			String cmdStr = null;
 			String cmdFull = null;
@@ -125,7 +129,11 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 					continue;
 				}
 				
+				System.out.println(cmdStr);
+				
 			}
+			
+			System.out.println("#");
 			
 			Long secs = null;
 			if (result.containsKey("secs_running")) {
@@ -135,11 +143,7 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 				}
 			}
 			
-			if (appName != null && (appName.startsWith("MongoDB Automation Agent")
-					|| appName.startsWith("MongoDB Monitoring Module")
-					|| appName.equals("mongomirror"))) {
-				continue;
-			}
+			
 			
 			
 			
@@ -149,13 +153,8 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 			}
 			
 			System.out.println(result);
+		
 			
-//				if (skipCount % 1000 == 0) {
-//					System.out.print(".");
-//				}
-//				if (skipCount % 100000 == 0) {
-//					System.out.println();
-//				}
 		}
 	}
 	
