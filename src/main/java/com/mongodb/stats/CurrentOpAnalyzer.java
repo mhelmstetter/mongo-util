@@ -54,8 +54,19 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 		options.append("idleSessions", true);
 		options.append("localOps", true);
 		//Document currentOpPipeline = new Document("$currentOp", options);
+		List<String> nins = new ArrayList<>();
+		// "admin.$cmd","","local.oplog.rs"
+		nins.add("");
+		nins.add("admin.$cmd");
+		nins.add("local.oplog.rs");
+		
+		Document nin  = new Document("$nin", nins);
+		Document match = new Document("ns", nin);
 		Document currentOpPipeline = new Document("$currentOp", new Document());
+		
+		Document dollarMatch = new Document("$match", match);
 		pipeline.add(currentOpPipeline);
+		pipeline.add(dollarMatch);
 	}
 	
 	private ShardClient shardClient;
@@ -164,7 +175,7 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 	
 		if (shardClient.isMongos()) {
 			
-			Collection<MongoClient> mongoClients = shardClient.getShardMongoClients().values();
+			Collection<MongoClient> mongoClients = shardClient.getMongosMongoClients();
 			while (true) {
 				for (MongoClient mc : mongoClients) {
 					analyze(mc);
