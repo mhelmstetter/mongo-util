@@ -30,6 +30,7 @@ import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.apache.commons.collections4.SetUtils;
 import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -289,23 +290,29 @@ public class ShardConfigSync implements Callable<Integer> {
 					continue;
 				}
 				
-				Set<IndexSpec> indexSpecs = new HashSet<>();
-				sourceIndexSpecs.put(ns, indexSpecs);
 				MongoCollection<RawBsonDocument> collection = sourceDb.getCollection(collectionName, RawBsonDocument.class);
-				for (RawBsonDocument sourceSpec : collection.listIndexes(RawBsonDocument.class)) {
-					IndexSpec spec = null;
-					try {
-						spec = IndexSpec.fromDocument(sourceSpec, ns);
-						indexSpecs.add(spec);
-					} catch (BSONException be) {
-						logger.error("Error getting index spec: {}", sourceSpec);
-						logger.error("error", be);
-					}
-					
-				}
+				Set<IndexSpec> indexSpecs = getCollectionIndexSpecs(collection);
+				sourceIndexSpecs.put(ns, indexSpecs);
+				
 			}
 		}
 		return sourceIndexSpecs;
+	}
+	
+	private Set<IndexSpec> getCollectionIndexSpecs(MongoCollection<RawBsonDocument> collection) {
+		Set<IndexSpec> indexSpecs = new HashSet<>();
+		Namespace ns = new Namespace(collection.getNamespace());
+		for (RawBsonDocument sourceSpec : collection.listIndexes(RawBsonDocument.class)) {
+			IndexSpec spec = null;
+			try {
+				spec = IndexSpec.fromDocument(sourceSpec, ns);
+				indexSpecs.add(spec);
+			} catch (BSONException be) {
+				logger.error("Error getting index spec: {}", sourceSpec);
+				logger.error("error", be);
+			}
+		}
+		return indexSpecs;
 	}
 	
 	public void syncIndexesShards(boolean createMissing, boolean extendTtl, String collationStr) {
@@ -366,7 +373,6 @@ public class ShardConfigSync implements Callable<Integer> {
 			} else if (config.extendTtl) {
 				logger.debug("collModTtl with extendTtl");
 				modifiedCount += collModTtl(sourceIndexSpecs, sourceSpecs);
-				
 			}
 		}
 		if (collModTtl) {
@@ -375,6 +381,46 @@ public class ShardConfigSync implements Callable<Integer> {
 			logger.debug("Checked {} indexes, {} indexes failed", indexCount, diffCount);
 		}
 		
+	}
+	
+	public void checkShardedIndexes() {
+		logger.debug("Starting checkShardedIndexes");
+		destShardClient.populateShardMongoClients();
+		destShardClient.populateCollectionsMap();
+		Map<String, Document> collectionsMap = destShardClient.getCollectionsMap();
+		destShardClient.getShardMongoClients();
+		
+		for (Map.Entry<String, Document> entry : collectionsMap.entrySet()) {
+			String collName = entry.getKey();
+			Document collSpec = entry.getValue();
+			String nsStr = (String)collSpec.get("_id");
+            Namespace ns = new Namespace(nsStr);
+			
+			
+			Set<IndexSpec> lastShardIndexSpecs = null;
+			String lastShard = null;
+			for (Map.Entry<String, MongoClient> mce : destShardClient.getShardMongoClients().entrySet()) {
+				MongoClient mc = mce.getValue();
+				String shard = mce.getKey();
+				
+				
+				Set<IndexSpec> indexSpecs = getCollectionIndexSpecs(mc.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName(), RawBsonDocument.class));
+				
+				//System.out.println(mce.getKey() + " " + ns + " " + indexSpecs.size());
+				
+				if (lastShardIndexSpecs != null) {
+					
+					Set<IndexSpec> diff1 = SetUtils.disjunction(lastShardIndexSpecs, indexSpecs);
+					if (!diff1.isEmpty()) {
+						logger.debug("Indexes differ for ({} / {}) ns: {}, diff: {}", lastShard, shard, ns, diff1);
+					}
+				}
+				
+				lastShard = shard;
+				lastShardIndexSpecs = indexSpecs;
+			}
+			
+		}
 	}
 	
 	private int collModTtl(Map<Namespace, Set<IndexSpec>> sourceIndexSpecsMap, Set<IndexSpec> diff) {

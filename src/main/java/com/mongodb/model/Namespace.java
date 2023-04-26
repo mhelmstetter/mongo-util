@@ -3,6 +3,8 @@ package com.mongodb.model;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.mongodb.MongoNamespace;
+
 public class Namespace implements Comparable<Namespace> {
 
     private String databaseName;
@@ -23,7 +25,11 @@ public class Namespace implements Comparable<Namespace> {
         this.collectionName = collectionName;
     }
     
-    public boolean hasDatabase(String dbName) {
+    public Namespace(MongoNamespace namespace) {
+		this(namespace.getDatabaseName(), namespace.getCollectionName());
+	}
+
+	public boolean hasDatabase(String dbName) {
     	return databaseName != null && databaseName.equals(dbName);
     }
 

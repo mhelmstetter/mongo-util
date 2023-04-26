@@ -91,6 +91,7 @@ public class ShardConfigSyncApp {
     private final static String SYNC_INDEXES = "syncIndexes";
     private final static String COLL_MOD_TTL = "collModTtl";
     private final static String COMPARE_INDEXES = "compareIndexes";
+    private final static String CHECK_SHARDED_INDEXES = "checkShardedIndexes";
     private final static String EXTEND_TTL = "extendTtl";
     private final static String CLEANUP_PREVIOUS_ALL = "cleanupPreviousAll";
     private final static String CLEANUP_PREVIOUS_SHARDS = "cleanupPreviousShards";
@@ -207,6 +208,8 @@ public class ShardConfigSyncApp {
                 .withLongOpt(COLL_MOD_TTL).create(COLL_MOD_TTL));
         options.addOption(OptionBuilder.withArgName("Compare indexes from source to dest")
                 .withLongOpt(COMPARE_INDEXES).create(COMPARE_INDEXES));
+        options.addOption(OptionBuilder.withArgName("Check sharded indexes")
+                .withLongOpt(CHECK_SHARDED_INDEXES).create(CHECK_SHARDED_INDEXES));
         options.addOption(OptionBuilder.withArgName("Extend TTL expiration (use with syncIndexes)")
                 .withLongOpt(EXTEND_TTL).create(EXTEND_TTL));
         options.addOption(OptionBuilder.withArgName("Skip the flushRouterConfig step")
@@ -543,6 +546,9 @@ public class ShardConfigSyncApp {
             //boolean extendTtl = line.hasOption(EXTEND_TTL);
             //sync.syncIndexesShards(false, extendTtl);
             sync.compareIndexes(false);
+        } else if (line.hasOption(CHECK_SHARDED_INDEXES)) {
+            actionFound = true;
+            sync.checkShardedIndexes();
         } else if (line.hasOption(COLL_MOD_TTL)) {
             actionFound = true;
             sync.compareIndexes(true);
