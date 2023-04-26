@@ -595,7 +595,7 @@ public class ShardConfigSync implements Callable<Integer> {
 				atlasUser.setPassword(password);
 				
 				if (existingUsers.contains(atlasUser)) {
-					if (usersMap.containsKey(atlasUser.getUsername())) {
+					if (usersMap != null && usersMap.containsKey(atlasUser.getUsername())) {
 						logger.debug("*** updating password for user {}", atlasUser.getUsername());
 						try {
 							atlasUtil.updateUser(config.atlasProjectId, atlasUser);
