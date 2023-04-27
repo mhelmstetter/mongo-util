@@ -391,17 +391,21 @@ public class ShardConfigSync implements Callable<Integer> {
 		destShardClient.getShardMongoClients();
 		
 		for (Map.Entry<String, Document> entry : collectionsMap.entrySet()) {
-			String collName = entry.getKey();
 			Document collSpec = entry.getValue();
 			String nsStr = (String)collSpec.get("_id");
             Namespace ns = new Namespace(nsStr);
 			
+           Set<String> shards = destShardClient.getShardCollections(ns);
 			
 			Set<IndexSpec> lastShardIndexSpecs = null;
 			String lastShard = null;
 			for (Map.Entry<String, MongoClient> mce : destShardClient.getShardMongoClients().entrySet()) {
 				MongoClient mc = mce.getValue();
 				String shard = mce.getKey();
+				
+				if (!shards.contains(shard)) {
+					continue;
+				}
 				
 				
 				Set<IndexSpec> indexSpecs = getCollectionIndexSpecs(mc.getDatabase(ns.getDatabaseName()).getCollection(ns.getCollectionName(), RawBsonDocument.class));

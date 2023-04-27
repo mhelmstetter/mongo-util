@@ -1,5 +1,7 @@
 package com.mongodb.shardsync;
 
+import static com.mongodb.client.model.Aggregates.*;
+import static com.mongodb.client.model.Accumulators.*;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.gt;
@@ -10,6 +12,7 @@ import static com.mongodb.client.model.Projections.include;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+import static java.util.Arrays.asList;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -26,6 +29,7 @@ import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
+import org.bson.BsonNull;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
@@ -1007,6 +1011,13 @@ public class ShardClient {
 
 	public Map<String, MongoClient> getShardMongoClients() {
 		return shardMongoClients;
+	}
+	
+	public Set<String> getShardCollections(Namespace ns) {
+		 Bson matchStage = match(eq("ns", ns.getNamespace()));
+		 Bson groupStage = group(null, addToSet("shards", "$shard"));
+		 Document result = configDb.getCollection("chunks").aggregate(asList(matchStage, groupStage)).first();
+		 return new HashSet<>(result.getList("shards", String.class));
 	}
 
 	public void checkAutosplit() {
