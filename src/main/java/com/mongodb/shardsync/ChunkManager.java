@@ -1,7 +1,6 @@
 package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.regex;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -205,7 +204,7 @@ public class ChunkManager {
 		boolean doMove = true;
 
 		logger.debug("createAndMoveChunks (optimized) started");
-		logger.debug("chunkQuery: {}", chunkQuery);
+		//logger.debug("chunkQuery: {}", chunkQuery);
 
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
 		Set<String> destMins = getChunkMins();
@@ -495,18 +494,17 @@ public class ChunkManager {
 		return minsSet;
 	}
 	
-	@SuppressWarnings({ "rawtypes", "unchecked" })
 	public BsonDocument initializeChunkQuery() {
 		
 		chunkQuery = new BsonDocument();
 		if (config.getIncludeNamespaces().size() > 0 || config.getIncludeDatabases().size() > 0) {
-			List<BsonValue> inList = new ArrayList();
-			List orList = new ArrayList();
+			List<BsonValue> inList = new ArrayList<>();
+			List<BsonDocument> orList = new ArrayList<>();
 			for (Namespace includeNs : config.getIncludeNamespaces()) {
 				inList.add(new BsonString(includeNs.getNamespace()));
 			}
 			for (String dbName : config.getIncludeDatabases()) {
-				orList.add(regex("ns", "^" + dbName + "\\."));
+				orList.add(new BsonDocument("ns", new BsonDocument("$regex", new BsonString("^" + dbName + "\\."))));
 			}
 			
 			BsonDocument inDoc = new BsonDocument("ns", new BsonDocument("$in", new BsonArray(inList)));
