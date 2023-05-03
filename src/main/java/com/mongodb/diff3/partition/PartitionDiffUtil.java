@@ -109,7 +109,7 @@ public class PartitionDiffUtil {
             diffSummaryClient = new DiffSummaryClient(config.getStatusDbUri(), config.getStatusDbName(),
                     config.getStatusDbCollName());
         }
-        DiffSummary summary = new DiffSummary(estimatedTotalDocs, totalSize, diffSummaryClient);
+        DiffSummary summary = new DiffSummary(config, estimatedTotalDocs, totalSize, diffSummaryClient);
 
         retryQueue = new DelayQueue<>();
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();

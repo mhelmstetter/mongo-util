@@ -82,6 +82,7 @@ public class DiffUtilApp {
         options.addOption(withArgName("Default size (bytes) for partitions").hasArg()
                 .withLongOpt(DEFAULT_PARTITION_SIZE).create());
         options.addOption(withArgName("Max retries").hasArg().withLongOpt(MAX_RETRIES).create());
+        options.addOption(withArgName("Retries Enabled").hasArg().withLongOpt(RETRIES_ENABLED).create());
         options.addOption(withArgName("Use Status DB").hasArg().withLongOpt(USE_STATUS_DB).create());
         options.addOption(withArgName("Status DB URI").hasArg().withLongOpt(STATUS_DB_URI).create());
         options.addOption(withArgName("Status DB Name").hasArg().withLongOpt(STATUS_DB_NAME).create());

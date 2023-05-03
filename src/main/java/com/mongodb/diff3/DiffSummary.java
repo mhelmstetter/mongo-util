@@ -178,6 +178,7 @@ public class DiffSummary {
     private final Map<Namespace, Map<String, ChunkResult>> m;
 
     private int totalChunks = -1;
+    private DiffConfiguration config;
     private final long totalDocs;
     private final long totalSize;
     private final long startTime;
@@ -187,7 +188,8 @@ public class DiffSummary {
     private static final long M = 1024 * 1024;
     private static final long G = 1024 * 1024 * 1024;
 
-    public DiffSummary(long totalDocs, long totalSize, DiffSummaryClient dbClient) {
+    public DiffSummary(DiffConfiguration config, long totalDocs, long totalSize, DiffSummaryClient dbClient) {
+        this.config = config;
         this.totalDocs = totalDocs;
         this.totalSize = totalSize;
         this.dbClient = dbClient;
@@ -221,17 +223,32 @@ public class DiffSummary {
 
         String firstLine = done ? String.format("[Status] Completed in %s seconds.  ", secondsElapsed) :
                 String.format("[Status] %s seconds have elapsed.  ", secondsElapsed);
+//        String summary = String.format("%s" +
+//                        "%.2f %% of chunks processed  (%s/%s chunks).  " +
+//                        "%.2f %% of docs processed  (%s/%s docs (est.)).  " +
+//                        "%.2f %% of size processed (%s/%s (est.)).  " +
+//                        "%d chunks failed.  " +
+//                        "%d documents mismatched.  " +
+//                        "%d chunks are retrying.  " +
+//                        "%s docs found on source only.  %s docs found on target only", firstLine, chunkProcPct,
+//                totalProcessedChunks, totalChunks >= 0 ? totalChunks : "Unknown", docProcPct, totalProcessedDocs,
+//                totalDocs, sizeProcessedPct, ppSize(totalProcessedSize), ppTotalSize, totalFailedChunks,
+//                totalFailedDocs, totalRetryChunks, totalSourceOnly, totalDestOnly);
+
         String summary = String.format("%s" +
                         "%.2f %% of chunks processed  (%s/%s chunks).  " +
                         "%.2f %% of docs processed  (%s/%s docs (est.)).  " +
                         "%.2f %% of size processed (%s/%s (est.)).  " +
                         "%d chunks failed.  " +
-                        "%d documents mismatched.  " +
-                        "%d chunks are retrying.  " +
-                        "%s docs found on source only.  %s docs found on target only", firstLine, chunkProcPct,
+                        "%d documents mismatched.  ", firstLine, chunkProcPct,
                 totalProcessedChunks, totalChunks >= 0 ? totalChunks : "Unknown", docProcPct, totalProcessedDocs,
                 totalDocs, sizeProcessedPct, ppSize(totalProcessedSize), ppTotalSize, totalFailedChunks,
-                totalFailedDocs, totalRetryChunks, totalSourceOnly, totalDestOnly);
+                totalFailedDocs);
+        if (config.doRetries()) {
+            summary += String.format("%d chunks are retrying.  ", totalRetryChunks);
+        }
+        summary += String.format("%s docs found on source only.  %s docs found on target only",
+                totalSourceOnly, totalDestOnly);
         return summary;
     }
 
@@ -306,8 +323,12 @@ public class DiffSummary {
         boolean hasFailures = result.getFailedKeys().size() > 0;
         ChunkResult cr = new ChunkResult();
         if (hasFailures) {
-            cr.setStatus(DiffStatus.RETRYING);
-            cr.getRetryNum().incrementAndGet();
+            if (config.doRetries()) {
+                cr.setStatus(DiffStatus.RETRYING);
+                cr.getRetryNum().incrementAndGet();
+            } else {
+                cr.setStatus(DiffStatus.FAILED);
+            }
         } else {
             cr.setStatus(DiffStatus.SUCCEEDED);
         }
@@ -360,7 +381,7 @@ public class DiffSummary {
             }
             // Currently these won't have been set yet
             cr.addMatches(result.getMatches());
-            cr.addBytesProcessed(result.getBytesProcessed());
+//            cr.addBytesProcessed(result.getBytesProcessed());
 
             if (dbClient != null) {
                 dbClient.update(result.getChunkDef(), cr);

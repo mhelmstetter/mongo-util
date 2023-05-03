@@ -143,7 +143,7 @@ public class ShardDiffUtil {
             diffSummaryClient = new DiffSummaryClient(config.getStatusDbUri(), config.getStatusDbName(),
                     config.getStatusDbCollName());
         }
-        DiffSummary summary = new DiffSummary(estimatedTotalDocs, totalSize, diffSummaryClient);
+        DiffSummary summary = new DiffSummary(config, estimatedTotalDocs, totalSize, diffSummaryClient);
         summary.setTotalChunks(totalChunks);
 //        retryQueue = new LinkedBlockingQueue<>();
         retryQueue = new DelayQueue<>();
