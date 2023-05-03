@@ -11,28 +11,31 @@ import org.bson.BsonValue;
 import com.mongodb.model.Namespace;
 
 public class BsonUtils {
-	
-	//{value='1'}
+
+	// {value='1'}
 	private final static Pattern valuePattern = Pattern.compile("^\\{value='(.*)'\\}$");
-    
-    public static long getEpochFromBsonTimestamp(long bsonTimestampLong) {
-        return bsonTimestampLong >> 32;
-    }
-    
-    public static BsonValue getValueFromString(String bsonTypeStr, String val) {
-    	if (bsonTypeStr.equals("BsonString")) {
-    		Matcher m = valuePattern.matcher(val);
-	        if (m.find()) {
-	        	String s1 = m.group(1);
-	        	return new BsonString(s1);
-	        }
-    	} else if (bsonTypeStr.equals("BsonInt64")) {
-    		return new BsonInt64(Long.parseLong(val));
-    	} else if (bsonTypeStr.equals("BsonObject")) {
-    		return BsonDocument.parse(val);
-    	} else if (val.startsWith("{")) {
-    		return BsonDocument.parse(val);
-    	}
+
+	public static long getEpochFromBsonTimestamp(long bsonTimestampLong) {
+		return bsonTimestampLong >> 32;
+	}
+
+	public static BsonValue getValueFromString(String bsonTypeStr, String val) {
+    	
+    	Matcher m = valuePattern.matcher(val);
+        if (m.find()) {
+        	String s1 = m.group(1);
+        	if (bsonTypeStr.equals("BsonString")) {
+        		return new BsonString(s1);
+        	} else if (bsonTypeStr.equals("BsonInt64")) {
+        		return new BsonInt64(Long.parseLong(val));
+        	} else if (val.startsWith("{")) {
+        		return BsonDocument.parse(val);
+        	}
+        } else {
+        	if (bsonTypeStr.equals("BsonObject")) {
+        		return BsonDocument.parse(val);
+        	}
+        }
     	return null;
     }
 
