@@ -39,6 +39,8 @@ public class DiffUtilApp {
     private final static String MODE = "mode";
     private final static String DEFAULT_MODE = "shard";
     private final static String MAX_RETRIES = "maxRetries";
+    private final static String RETRIES_ENABLED = "retriesEnabled";
+    private final static String DEFAULT_RETRIES_ENABLED = "false";
     private final static String USE_STATUS_DB = "useStatusDb";
     private final static String STATUS_DB_URI = "statusDbUri";
     private final static String STATUS_DB_NAME = "statusDbName";
@@ -48,7 +50,7 @@ public class DiffUtilApp {
     private final static String DEFAULT_SAMPLE_RATE = "0.04";
     private final static String DEFAULT_SAMPLE_MIN_DOCS = "101";
     private final static String DEFAULT_MAX_DOCS_TO_SAMPLE_PER_PARTITION = "10";
-    private final static String DEFAULT_DEFAULT_PARTITION_SIZE = String.valueOf(400  * 1024 * 1024);
+    private final static String DEFAULT_DEFAULT_PARTITION_SIZE = String.valueOf(400 * 1024 * 1024);
     private final static String DEFAULT_MAX_RETRIES = "5";
     private final static String DEFAULT_USE_STATUS_DB = "true";
     private final static String DEFAULT_STATUS_DB_NAME = "Diff3";
@@ -168,6 +170,8 @@ public class DiffUtilApp {
         config.setDefaultPartitionSize(Long.parseLong(
                 getConfigValue(line, properties, DEFAULT_PARTITION_SIZE, DEFAULT_DEFAULT_PARTITION_SIZE)));
         config.setMaxRetries(Integer.parseInt(getConfigValue(line, properties, MAX_RETRIES, DEFAULT_MAX_RETRIES)));
+        config.setRetriesEnabled(Boolean.parseBoolean(getConfigValue(line, properties, RETRIES_ENABLED, DEFAULT_RETRIES_ENABLED)));
+
         config.setUseStatusDb(Boolean.parseBoolean(getConfigValue(
                 line, properties, USE_STATUS_DB, DEFAULT_USE_STATUS_DB)));
         if (config.isUseStatusDb()) {
@@ -177,6 +181,7 @@ public class DiffUtilApp {
                     STATUS_DB_COLL_NAME, DEFAULT_STATUS_DB_COLL_NAME));
         }
 
+
         config.setNamespaceFilters(line.getOptionValues("f"));
         if (config.getMode().equals(PARTITION_MODE)) {
             PartitionDiffUtil diffUtil = new PartitionDiffUtil(config);
@@ -184,11 +189,11 @@ public class DiffUtilApp {
         } else if (config.getMode().equals(SHARD_MODE)) {
             ShardDiffUtil shardDiffUtil = new ShardDiffUtil(config);
             shardDiffUtil.run();
-            
+
         } else if (config.getMode().equals(RECHECK_MODE)) {
-        	RecheckUtil rechecker = new RecheckUtil(config);
-        	rechecker.recheck();
-        	
+            RecheckUtil rechecker = new RecheckUtil(config);
+            rechecker.recheck();
+
         } else {
             System.out.println("Unknown mode: " + config.getMode() + ". Exiting.");
             System.exit(1);

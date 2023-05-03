@@ -23,6 +23,7 @@ public class DiffConfiguration {
 	private long defaultPartitionSize;
 	private String mode;
 	private int maxRetries;
+	private boolean retriesEnabled;
 	private boolean useStatusDb;
 	private String statusDbUri;
 	private String statusDbName;
@@ -41,6 +42,14 @@ public class DiffConfiguration {
 			throw new RuntimeException("Unknown mode: " + mode);
 		}
 		this.mode = mode;
+	}
+
+	public void setRetriesEnabled(boolean retriesEnabled) {
+		this.retriesEnabled = retriesEnabled;
+	}
+
+	public boolean doRetries() {
+		return retriesEnabled;
 	}
 
 	public String getSourceClusterUri() {

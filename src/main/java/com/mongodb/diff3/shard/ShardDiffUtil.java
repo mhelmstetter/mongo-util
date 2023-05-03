@@ -128,10 +128,10 @@ public class ShardDiffUtil {
     }
 
     public void run() {
-        AtomicBoolean retryTaskPoolListenerDone = new AtomicBoolean(false);
-        AtomicBoolean retryTaskPoolCollectorDone = new AtomicBoolean(false);
+        AtomicBoolean retryTaskPoolListenerDone = new AtomicBoolean(!config.doRetries());
+        AtomicBoolean retryTaskPoolCollectorDone = new AtomicBoolean(!config.doRetries());
         AtomicBoolean initialTaskPoolCollectorDone = new AtomicBoolean(false);
-        AtomicBoolean retryTaskPoolDone = new AtomicBoolean(false);
+        AtomicBoolean retryTaskPoolDone = new AtomicBoolean(!config.doRetries());
         AtomicBoolean initialTaskPoolDone = new AtomicBoolean(false);
 
         int totalChunks = getTotalChunks();
@@ -150,45 +150,50 @@ public class ShardDiffUtil {
 
         ScheduledExecutorService statusReporter = Executors.newSingleThreadScheduledExecutor();
         statusReporter.scheduleAtFixedRate(() -> logger.info(summary.getSummary(false)), 0, 5, TimeUnit.SECONDS);
-
-        ThreadFactory retryTaskPoolThreadFactory = new ThreadFactoryBuilder().setNameFormat("RetryPool-%d").build();
-        retryTaskPool = Executors.newFixedThreadPool(4, retryTaskPoolThreadFactory);
-        List<Future<DiffResult>> retryTaskPoolFutures = new CopyOnWriteArrayList<>();
-
-        /* Once the Retryer thread has seen all the END_TOKENs this value is set.
-         *  It is used as a barrier to determine when to stop the retryPool */
         AtomicInteger finalSizeRetryTaskPoolFutures = new AtomicInteger(-1);
+        List<Future<DiffResult>> retryTaskPoolFutures = new CopyOnWriteArrayList<>();
+        ScheduledExecutorService retryTaskPoolListener = null;
 
-        ScheduledExecutorService retryTaskPoolListener = Executors.newSingleThreadScheduledExecutor();
-        retryTaskPoolListener.scheduleWithFixedDelay(new Runnable() {
-            int endTokensSeen = 0;
+        if (config.doRetries()) {
+            ThreadFactory retryTaskPoolThreadFactory = new ThreadFactoryBuilder().setNameFormat("RetryPool-%d").build();
+            retryTaskPool = Executors.newFixedThreadPool(4, retryTaskPoolThreadFactory);
 
-            @Override
-            public void run() {
-                ShardRetryTask rt;
-                while ((rt = (ShardRetryTask) retryQueue.poll()) != null) {
-                    try {
-                        if (rt == ShardRetryTask.END_TOKEN) {
-                            logger.debug("[RetryTaskPoolListener] saw an end token ({}/{})",
-                                    endTokensSeen + 1, totalInitialTasks);
-                            if (++endTokensSeen == totalInitialTasks) {
-                                logger.debug("[RetryTaskPoolListener] has seen all end tokens ({})", endTokensSeen);
-                                finalSizeRetryTaskPoolFutures.set(retryTaskPoolFutures.size());
-                                retryTaskPoolListenerDone.set(true);
+            /* Once the Retryer thread has seen all the END_TOKENs this value is set.
+             *  It is used as a barrier to determine when to stop the retryPool */
+
+            retryTaskPoolListener = Executors.newSingleThreadScheduledExecutor();
+            retryTaskPoolListener.scheduleWithFixedDelay(new Runnable() {
+                int endTokensSeen = 0;
+
+                @Override
+                public void run() {
+                    ShardRetryTask rt;
+                    while ((rt = (ShardRetryTask) retryQueue.poll()) != null) {
+                        try {
+                            if (rt == ShardRetryTask.END_TOKEN) {
+                                logger.debug("[RetryTaskPoolListener] saw an end token ({}/{})",
+                                        endTokensSeen + 1, totalInitialTasks);
+                                if (++endTokensSeen == totalInitialTasks) {
+                                    logger.debug("[RetryTaskPoolListener] has seen all end tokens ({})", endTokensSeen);
+                                    finalSizeRetryTaskPoolFutures.set(retryTaskPoolFutures.size());
+                                    retryTaskPoolListenerDone.set(true);
+                                }
+                            } else {
+                                if (config.doRetries()) {
+                                    logger.debug("[RetryTaskPoolListener] submitting retry {} for ({}-{})",
+                                            rt.getRetryStatus().getAttempt() + 1, rt.getChunkDef().unitString());
+                                    retryTaskPoolFutures.add(retryTaskPool.submit(rt));
+                                }
                             }
-                        } else {
-                            logger.debug("[RetryTaskPoolListener] submitting retry {} for ({}-{})",
-                                    rt.getRetryStatus().getAttempt() + 1, rt.getChunkDef().unitString());
-                            retryTaskPoolFutures.add(retryTaskPool.submit(rt));
+                        } catch (Exception e) {
+                            logger.error("[RetryTaskPoolListener] Exception occured while running retry task", e);
+                            throw new RuntimeException(e);
                         }
-                    } catch (Exception e) {
-                        logger.error("[RetryTaskPoolListener] Exception occured while running retry task", e);
-                        throw new RuntimeException(e);
-                    }
 
+                    }
                 }
-            }
-        }, 0, 1, TimeUnit.SECONDS);
+            }, 0, 1, TimeUnit.SECONDS);
+        }
 
         for (int i = 0; i < srcShardNames.size(); i++) {
             String srcShard = srcShardNames.get(i);
@@ -227,15 +232,18 @@ public class ShardDiffUtil {
 
         // Check for futures coming off the retryPool
 
-        ScheduledExecutorService retryTaskPoolCollector = Executors.newSingleThreadScheduledExecutor();
-        Future<?> retryTaskPoolFuture = retryTaskPoolCollector.scheduleWithFixedDelay(new Runnable() {
-            int runs = 0;
+        ScheduledExecutorService retryTaskPoolCollector = null;
+        Future<?> retryTaskPoolFuture = null;
+        if (config.doRetries()) {
+            retryTaskPoolCollector = Executors.newSingleThreadScheduledExecutor();
+            retryTaskPoolFuture = retryTaskPoolCollector.scheduleWithFixedDelay(new Runnable() {
+                int runs = 0;
 
-            @Override
-            public void run() {
-                int expectedRetryResults = finalSizeRetryTaskPoolFutures.get();
-                logger.trace("[RetryTaskPoolCollector] loop: {} :: {} expected retryResults, {} seen",
-                        ++runs, expectedRetryResults, retryTaskPoolFuturesSeen.size());
+                @Override
+                public void run() {
+                    int expectedRetryResults = finalSizeRetryTaskPoolFutures.get();
+                    logger.trace("[RetryTaskPoolCollector] loop: {} :: {} expected retryResults, {} seen",
+                            ++runs, expectedRetryResults, retryTaskPoolFuturesSeen.size());
 //                if (expectedRetryResults >= 0) {
                     if (expectedRetryResults < 0 || (expectedRetryResults >= 0 && retryTaskPoolFuturesSeen.size() < expectedRetryResults)) {
                         for (Future<DiffResult> future : retryTaskPoolFutures) {
@@ -277,9 +285,10 @@ public class ShardDiffUtil {
                         retryTaskPoolCollectorDone.set(true);
                     }
 //                }
-            }
+                }
 
-        }, 0, 1, TimeUnit.SECONDS);
+            }, 0, 1, TimeUnit.SECONDS);
+        }
 
         ScheduledExecutorService initialTaskPoolCollector = Executors.newSingleThreadScheduledExecutor();
         Future<?> initialTaskPoolFuture = initialTaskPoolCollector.scheduleAtFixedRate(new Runnable() {
@@ -340,30 +349,32 @@ public class ShardDiffUtil {
                 Thread.sleep(1000);
                 logger.trace("[Main] check completion status");
 
-                if (!retryTaskPoolDone.get()) {
-                    if (retryTaskPoolListenerDone.get() && !retryTaskPoolListener.isShutdown()) {
-                        logger.info("[Main] shutting down retry task pool listener");
-                        retryTaskPoolListener.shutdown();
-                    } else {
-                        logger.trace("[Main] retry pool listener still running");
-                    }
-                    if (retryTaskPoolCollectorDone.get() && !retryTaskPoolCollector.isShutdown()) {
-                        logger.info("[Main] shutting down retry task pool collector");
-                        retryTaskPoolResult = retryTaskPoolFuture.cancel(false);
-                        retryTaskPoolCollector.shutdown();
-                    } else {
-                        logger.trace("[Main] retry pool collector still running");
-                    }
-                    if (retryTaskPoolResult) {
-                        retryTaskPoolDone.set(true);
-                        logger.info("[Main] shutting down retry task pool");
-                        retryTaskPool.shutdown();
-                        if (!retryTaskPoolListener.isShutdown()) {
+                if (config.doRetries()) {
+                    if (!retryTaskPoolDone.get()) {
+                        if (retryTaskPoolListenerDone.get() && !retryTaskPoolListener.isShutdown()) {
+                            logger.info("[Main] shutting down retry task pool listener");
                             retryTaskPoolListener.shutdown();
+                        } else {
+                            logger.trace("[Main] retry pool listener still running");
                         }
+                        if (retryTaskPoolCollectorDone.get() && !retryTaskPoolCollector.isShutdown()) {
+                            logger.info("[Main] shutting down retry task pool collector");
+                            retryTaskPoolResult = retryTaskPoolFuture.cancel(false);
+                            retryTaskPoolCollector.shutdown();
+                        } else {
+                            logger.trace("[Main] retry pool collector still running");
+                        }
+                        if (retryTaskPoolResult) {
+                            retryTaskPoolDone.set(true);
+                            logger.info("[Main] shutting down retry task pool");
+                            retryTaskPool.shutdown();
+                            if (!retryTaskPoolListener.isShutdown()) {
+                                retryTaskPoolListener.shutdown();
+                            }
+                        }
+                    } else {
+                        logger.trace("[Main] retry pool still running");
                     }
-                } else {
-                    logger.trace("[Main] retry pool still running");
                 }
                 if (!initialTaskPoolDone.get()) {
                     if (initialTaskPoolCollectorDone.get() && !initialTaskPoolCollector.isShutdown()) {
