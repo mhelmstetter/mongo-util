@@ -13,7 +13,7 @@ import com.mongodb.model.Namespace;
 public class BsonUtils {
 
 	// {value='1'}
-	private final static Pattern valuePattern = Pattern.compile("^\\{value='(.*)'\\}$");
+	private final static Pattern valuePattern = Pattern.compile("^\\{value='?(.*)'?\\}$");
 
 	public static long getEpochFromBsonTimestamp(long bsonTimestampLong) {
 		return bsonTimestampLong >> 32;
@@ -27,14 +27,12 @@ public class BsonUtils {
         	if (bsonTypeStr.equals("BsonString")) {
         		return new BsonString(s1);
         	} else if (bsonTypeStr.equals("BsonInt64")) {
-        		return new BsonInt64(Long.parseLong(val));
+        		return new BsonInt64(Long.parseLong(s1));
         	} else if (val.startsWith("{")) {
         		return BsonDocument.parse(val);
         	}
-        } else {
-        	if (bsonTypeStr.equals("BsonObject")) {
-        		return BsonDocument.parse(val);
-        	}
+        } else if (val.startsWith("{")) {
+        	return BsonDocument.parse(val);
         }
     	return null;
     }

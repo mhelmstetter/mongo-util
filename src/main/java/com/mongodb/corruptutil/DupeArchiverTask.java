@@ -59,7 +59,7 @@ public class DupeArchiverTask implements Callable<Integer> {
     		int d = 1;
     		MongoCursor<RawBsonDocument> cursor = collection.find(query).sort(sort).iterator();
     		
-    		logger.debug("query: {}", query);
+    		logger.debug("{} - query: {}", ns, query);
     		
     		BsonValue lastId = null;
     		
