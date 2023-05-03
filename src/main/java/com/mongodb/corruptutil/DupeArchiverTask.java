@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.MongoBulkWriteException;
+import com.mongodb.MongoNamespace;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
@@ -35,6 +36,7 @@ public class DupeArchiverTask implements Callable<Integer> {
 	List<BsonValue> dupesBatch;
 
 	private MongoCollection<RawBsonDocument> collection;
+	private MongoNamespace ns; 
 
 	private MongoDatabase archiveDb;
 	
@@ -44,6 +46,7 @@ public class DupeArchiverTask implements Callable<Integer> {
 
 	public DupeArchiverTask(MongoCollection<RawBsonDocument> collection, MongoDatabase archiveDb, List<BsonValue> dupesBatch) {
         this.collection = collection;
+        this.ns = collection.getNamespace();
         this.archiveDb = archiveDb;
         this.base = collection.getNamespace().getFullName();
         this.dupesBatch = dupesBatch;
@@ -56,10 +59,13 @@ public class DupeArchiverTask implements Callable<Integer> {
     		int d = 1;
     		MongoCursor<RawBsonDocument> cursor = collection.find(query).sort(sort).iterator();
     		
+    		logger.debug("query: {}", query);
+    		
     		BsonValue lastId = null;
     		
     		List<RawBsonDocument> dupesBuffer = new ArrayList<>(2);
     		
+    		int i = 0;
     		while (cursor.hasNext()) {
                 RawBsonDocument fullDoc = cursor.next();
                 BsonValue id = null;
@@ -71,9 +77,11 @@ public class DupeArchiverTask implements Callable<Integer> {
                     continue;
                 }
                 
+                logger.debug("{} - id: {}", ns, id);
+                
                 if (lastId != null && id.equals(lastId)) {
                 	dupesBuffer.add(fullDoc);
-                	logger.warn("{} - duplicate _id found for _id: {}", collection.getNamespace(), id);
+                	logger.warn("{} - duplicate _id found for _id: {}", ns, id);
                 } else if (lastId != null) {
                 	flushDupes(dupesBuffer);
                 	dupesBuffer.add(fullDoc);
