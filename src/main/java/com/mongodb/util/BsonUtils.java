@@ -1,5 +1,6 @@
 package com.mongodb.util;
 
+import org.bson.BsonDocument;
 import org.bson.BsonInt64;
 import org.bson.BsonString;
 import org.bson.BsonValue;
@@ -16,6 +17,8 @@ public class BsonUtils {
     		return new BsonString(val2);
     	} else if (bsonTypeStr.equals("BsonInt64")) {
     		return new BsonInt64(Long.parseLong(val));
+    	} else if (bsonTypeStr.equals("BsonObject")) {
+    		return BsonDocument.parse("{" + val + "}");
     	}
     	return null;
     }

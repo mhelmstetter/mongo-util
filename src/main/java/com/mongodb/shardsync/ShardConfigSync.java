@@ -285,7 +285,7 @@ public class ShardConfigSync implements Callable<Integer> {
 					continue;
 				}
 				
-				if (collectionName.equals("system.views") || type.equals("view")) {
+				if (collectionName.equals("system.views") || (type != null && type.equals("view"))) {
 					logger.debug("Skipping view: {}", ns);	
 					continue;
 				}
