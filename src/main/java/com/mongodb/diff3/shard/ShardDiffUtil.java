@@ -337,6 +337,14 @@ public class ShardDiffUtil {
 				throw new RuntimeException(e);
 			}
 		}
+		
+		while (! shardDiffTaskExecutorsComplete()) {
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+				logger.debug("interrupted waiting for shardDiffTaskExecutorsComplete");
+			}
+		}
 
 		logger.info("[Main] shutting down statusReporter thread");
 		statusReporter.shutdown();
