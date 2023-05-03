@@ -18,7 +18,9 @@ public class BsonUtils {
     	} else if (bsonTypeStr.equals("BsonInt64")) {
     		return new BsonInt64(Long.parseLong(val));
     	} else if (bsonTypeStr.equals("BsonObject")) {
-    		return BsonDocument.parse("{" + val + "}");
+    		return BsonDocument.parse(val);
+    	} else if (val.startsWith("{")) {
+    		return BsonDocument.parse(val);
     	}
     	return null;
     }
