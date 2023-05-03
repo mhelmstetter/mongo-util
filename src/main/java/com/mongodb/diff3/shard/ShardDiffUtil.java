@@ -6,10 +6,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -22,6 +25,7 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.mongodb.diff3.DiffConfiguration;
 import com.mongodb.diff3.DiffResult;
 import com.mongodb.diff3.DiffSummary;
@@ -32,6 +36,7 @@ import com.mongodb.model.DatabaseCatalog;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
+import com.mongodb.util.BlockWhenQueueFull;
 
 public class ShardDiffUtil {
 
@@ -93,12 +98,32 @@ public class ShardDiffUtil {
 		logger.info("[Main] unshardedColls:[" + String.join(", ", unshardedColls) + "]");
 
 		summary = new DiffSummary(estimatedTotalDocs, totalSize, diffSummaryClient);
+		
+		loadChunks();
 
 		sourceShardClient.populateShardMongoClients();
 		destShardClient.populateShardMongoClients();
 
 		srcShardNames = new ArrayList<>(sourceShardClient.getShardsMap().keySet());
 		destShardNames = new ArrayList<>(destShardClient.getShardsMap().keySet());
+		
+		for (String shard : srcShardNames) {
+            int numThreads = config.getThreads() / srcShardNames.size();
+            Map<String, RawBsonDocument> chunkMap = sourceChunksCacheMap.get(shard);
+//            int qSize = chunkMap.size() + unshardedColls.size();
+            int qSize = chunkMap.size();
+            totalInitialTasks += qSize;
+            logger.debug("[Main] Setting workQueue size to {}", qSize);
+            BlockingQueue<Runnable> workQueue = new ArrayBlockingQueue<>(qSize);
+            initialTaskPoolFutureMap.put(shard, new ArrayList<>(chunkMap.size()));
+            ThreadFactory initialTaskPoolThreadFactory =
+                    new ThreadFactoryBuilder().setNameFormat("WorkerPool-" + shard + "-%d").build();
+            ThreadPoolExecutor initialTaskPool = new ThreadPoolExecutor(numThreads, numThreads, 30, TimeUnit.SECONDS,
+                    workQueue, new BlockWhenQueueFull());
+            initialTaskPool.setThreadFactory(initialTaskPoolThreadFactory);
+            initialTaskPoolMap.put(shard, initialTaskPool);
+        }
+        totalInitialTasks += unshardedColls.size();
 
 	}
 
@@ -197,7 +222,6 @@ public class ShardDiffUtil {
 
 	public void run() {
 
-		loadChunks();
 		initializeTasks();
 		
 		AtomicBoolean initialTaskPoolCollectorDone = new AtomicBoolean(false);
@@ -283,7 +307,7 @@ public class ShardDiffUtil {
 
         boolean initialTaskPoolResult = false;
 
-		while (shardDiffTaskExecutorsComplete()) {
+		while (!initialTaskPoolDone.get()) {
 			try {
 				Thread.sleep(1000);
 				logger.debug("[Main] check completion status: shardDiffTaskExecutorsComplete: {}",

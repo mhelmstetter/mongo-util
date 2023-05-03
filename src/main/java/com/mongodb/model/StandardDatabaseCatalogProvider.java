@@ -75,7 +75,7 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider 
                 }
 
                 String collType = coll.getString("type");
-                if (collType.equals("view")) {
+                if (collType != null && collType.equals("view")) {
                     logger.info("Excluding view: {}", collName);
                     db.excludeCollection(collName);
                     continue;

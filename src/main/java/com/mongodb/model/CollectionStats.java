@@ -16,8 +16,11 @@ public class CollectionStats {
     public static CollectionStats fromDocument(Document doc) {
         CollectionStats stats = new CollectionStats();
         Document wt = (Document)doc.get("wiredTiger");
-        Document blockManager = (Document)wt.get("block-manager");
-        Number reuse = getNumber(blockManager, "file bytes available for reuse");
+        if (wt != null) {
+        	Document blockManager = (Document)wt.get("block-manager");
+            Number reuse = getNumber(blockManager, "file bytes available for reuse");
+        }
+        
         stats.numIndexes = getNumber(doc, "nindexes");
         stats.freeStorageSize = getNumber(doc, "freeStorageSize");
         stats.storageSize = getNumber(doc, "storageSize");
