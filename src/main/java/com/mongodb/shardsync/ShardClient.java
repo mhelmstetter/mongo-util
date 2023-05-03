@@ -1,7 +1,8 @@
 package com.mongodb.shardsync;
 
-import static com.mongodb.client.model.Aggregates.*;
-import static com.mongodb.client.model.Accumulators.*;
+import static com.mongodb.client.model.Accumulators.addToSet;
+import static com.mongodb.client.model.Aggregates.group;
+import static com.mongodb.client.model.Aggregates.match;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.gt;
@@ -9,10 +10,10 @@ import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.regex;
 import static com.mongodb.client.model.Projections.include;
+import static java.util.Arrays.asList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
-import static java.util.Arrays.asList;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,9 +30,9 @@ import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
-import org.bson.BsonNull;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.UuidRepresentation;
@@ -1230,7 +1231,13 @@ public class ShardClient {
 	}
 
 	public static String getIdFromChunk(RawBsonDocument sourceChunk) {
-		RawBsonDocument min = (RawBsonDocument) sourceChunk.get("min");
+		RawBsonDocument min = null;
+		BsonValue minVal = sourceChunk.get("min");
+		if (minVal instanceof BsonDocument) {
+			 min = (RawBsonDocument)minVal;
+		} else {
+			System.out.println();
+		}
 		RawBsonDocument max = (RawBsonDocument) sourceChunk.get("max");
 		String ns = sourceChunk.getString("ns").getValue();
 		return getIdFromChunk(ns, min, max);

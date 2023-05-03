@@ -110,12 +110,11 @@ public class ShardDiffUtil {
 		for (String shard : srcShardNames) {
             int numThreads = config.getThreads() / srcShardNames.size();
             Map<String, RawBsonDocument> chunkMap = sourceChunksCacheMap.get(shard);
-//            int qSize = chunkMap.size() + unshardedColls.size();
-            int qSize = chunkMap.size();
+            int qSize = chunkMap == null ? 1 : chunkMap.size();
             totalInitialTasks += qSize;
             logger.debug("[Main] Setting workQueue size to {}", qSize);
             BlockingQueue<Runnable> workQueue = new ArrayBlockingQueue<>(qSize);
-            initialTaskPoolFutureMap.put(shard, new ArrayList<>(chunkMap.size()));
+            initialTaskPoolFutureMap.put(shard, new ArrayList<>());
             ThreadFactory initialTaskPoolThreadFactory =
                     new ThreadFactoryBuilder().setNameFormat("WorkerPool-" + shard + "-%d").build();
             ThreadPoolExecutor initialTaskPool = new ThreadPoolExecutor(numThreads, numThreads, 30, TimeUnit.SECONDS,

@@ -16,6 +16,7 @@ import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.UuidRepresentation;
 import org.bson.conversions.Bson;
+import org.bson.types.MinKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,8 +75,8 @@ public class DiffSummaryClient {
         opts.upsert(true);
         opts.returnDocument(ReturnDocument.AFTER);
 
-        BsonValue min = cd.getMin() == null ? new BsonString("ALL") : cd.getMin();
-        BsonValue max = cd.getMax() == null ? new BsonString("ALL") : cd.getMax();
+        BsonValue min = cd.getMin() == null ? new BsonDocument() : cd.getMin();
+        BsonValue max = cd.getMax() == null ? new BsonDocument() : cd.getMax();
 
         Bson filter = Filters.and(
                 Filters.eq("ns", cd.getNs().getNamespace()),
