@@ -135,11 +135,13 @@ public class RecheckUtil {
 			} else {
 				key = m;
 			}
-				
+			
+			Bson query = eq("_id", key);
+			
 			RawBsonDocument sourceDoc = null;
 			RawBsonDocument destDoc = null;
 			
-			Iterator<RawBsonDocument> sourceDocs = sourceColl.find(eq("_id", key)).iterator();
+			Iterator<RawBsonDocument> sourceDocs = sourceColl.find(query).iterator();
 			if (sourceDocs.hasNext()) {
 				sourceDoc = sourceDocs.next();
 			} 
@@ -148,7 +150,7 @@ public class RecheckUtil {
 				logger.error("{}: duplicate source documents found with same key: {}", ns, key);
 			}
 			
-			Iterator<RawBsonDocument> destDocs = destColl.find(eq("_id", key)).iterator();
+			Iterator<RawBsonDocument> destDocs = destColl.find(query).iterator();
 			if (destDocs.hasNext()) {
 				destDoc = destDocs.next();
 			} 
@@ -172,7 +174,7 @@ public class RecheckUtil {
 			}
 			
 			if (destDoc == null) {
-				logger.error("{}: dest doc does not exist: {}", ns, key);
+				logger.error("{}: dest doc does not exist: {}, query: {}", ns, key, query);
 				if (config.isSyncMismatches()) {
 					try {
 						syncSourceOnly(sourceDoc, destColl);
