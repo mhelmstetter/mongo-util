@@ -45,6 +45,7 @@ public class DiffUtilApp {
     private final static String STATUS_DB_COLL_NAME = "statusDbCollName";
     private static final String SHARD_MAP = "shardMap";
     private final static String ARCHIVE_AND_DELETE_DEST_ONLY = "archiveAndDeleteDestOnly";
+    private final static String ARCHIVE = "archive";
     private final static String SYNC_MISMATCHES = "syncMismatches";
 
     private final static String DEFAULT_THREADS = "8";
@@ -175,6 +176,7 @@ public class DiffUtilApp {
                 line, properties, USE_STATUS_DB, DEFAULT_USE_STATUS_DB)));
         config.setArchiveAndDeleteDestOnly(Boolean.parseBoolean(getConfigValue(
                 line, properties, ARCHIVE_AND_DELETE_DEST_ONLY, "false")));
+        config.setArchive(Boolean.parseBoolean(getConfigValue(line, properties, ARCHIVE, "false")));
         config.setSyncMismatches(Boolean.parseBoolean(getConfigValue(
                 line, properties, SYNC_MISMATCHES, "false")));
         

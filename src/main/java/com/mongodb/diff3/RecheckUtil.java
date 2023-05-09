@@ -3,6 +3,7 @@ package com.mongodb.diff3;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Updates.pullAll;
+import static com.mongodb.ErrorCategory.DUPLICATE_KEY;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -100,7 +101,7 @@ public class RecheckUtil {
 			MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
 			MongoCollection<RawBsonDocument> destColl = destDb.getCollection(ns.getCollectionName(), RawBsonDocument.class);
 			
-			recheck(failed, "mismatches", ns, sourceColl, destColl);
+			recheck(failed, "mismatch", ns, sourceColl, destColl);
 			recheck(failed, "srcOnly", ns, sourceColl, destColl);
 			recheck(failed, "destOnly", ns, sourceColl, destColl);
 			
@@ -167,6 +168,9 @@ public class RecheckUtil {
 			
 			if (sourceDoc == null && destDoc != null) {
 				logger.error("{}: source doc does not exist: {}", ns, key);
+				if (config.isArchive()) {
+					archive(ns, "diffDestOnly", destDoc);
+				}
 				if (config.isArchiveAndDeleteDestOnly()) {
 					archiveAndDeleteDestOnly(ns, destDoc, destColl, key);
 				}
@@ -175,6 +179,9 @@ public class RecheckUtil {
 			
 			if (destDoc == null) {
 				logger.error("{}: dest doc does not exist: {}, query: {}", ns, key, query);
+				if (config.isArchive()) {
+					archive(ns, "diffSourceOnly", sourceDoc);
+				}
 				if (config.isSyncMismatches()) {
 					try {
 						syncSourceOnly(sourceDoc, destColl);
@@ -195,6 +202,10 @@ public class RecheckUtil {
 				passedKeys.add(m);
 			} else {
 				logger.debug("{}: doc mismatch, key: {}", ns, key);
+				if (config.isArchive()) {
+					archive(ns, "diffSourceMismatch", sourceDoc);
+					archive(ns, "diffDestMismatch", destDoc);
+				}
 				if (config.isSyncMismatches()) {
 					syncMismatch(sourceDoc, destColl, key);
 				}
@@ -222,6 +233,21 @@ public class RecheckUtil {
 		MongoCollection<RawBsonDocument> coll = db.getCollection(ns.getNamespace(), RawBsonDocument.class);
 		coll.insertOne(destDoc);
 		destColl.deleteOne(eq("_id", key));
+	}
+	
+	private void archive(Namespace ns, String archiveDb, RawBsonDocument doc) {
+		MongoDatabase db = destShardClient.getMongoClient().getDatabase(archiveDb);
+		MongoCollection<RawBsonDocument> coll = db.getCollection(ns.getNamespace(), RawBsonDocument.class);
+		// 
+        
+		try {
+			coll.insertOne(doc);
+		} catch (MongoWriteException mwe) {
+			if (mwe.getError().getCategory() != DUPLICATE_KEY) {
+				logger.error("archive error", mwe);
+			}
+		}
+		
 	}
 	
 	private boolean compareDocuments(Namespace ns, RawBsonDocument sourceDoc, RawBsonDocument destDoc) {
