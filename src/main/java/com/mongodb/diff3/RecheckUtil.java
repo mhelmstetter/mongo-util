@@ -101,7 +101,7 @@ public class RecheckUtil {
 			MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
 			MongoCollection<RawBsonDocument> destColl = destDb.getCollection(ns.getCollectionName(), RawBsonDocument.class);
 			
-			recheck(failed, "mismatch", ns, sourceColl, destColl);
+			recheck(failed, "mismatches", ns, sourceColl, destColl);
 			recheck(failed, "srcOnly", ns, sourceColl, destColl);
 			recheck(failed, "destOnly", ns, sourceColl, destColl);
 			
