@@ -148,7 +148,10 @@ public class ShardConfigSync implements Callable<Integer> {
 		if (chunkManager == null) {
 			chunkManager = new ChunkManager(config);
 			chunkManager.initalize();
+			this.sourceShardClient = config.getSourceShardClient();
+			this.destShardClient = config.getDestShardClient();
 		}
+		
 	}
 	
 	public void initAtlasUtil() {
@@ -1494,7 +1497,21 @@ public class ShardConfigSync implements Callable<Integer> {
 			String shardId = chunkManager.getDestToSourceShardMapping(mappedPrimary);
 			MongoClient primaryClient = sourceShardClient.getShardMongoClient(shardId);
 			List<String> primaryDatabasesList = new ArrayList<String>();
-			primaryClient.listDatabaseNames().into(primaryDatabasesList);
+			try {
+				primaryClient.listDatabaseNames().into(primaryDatabasesList);
+			} catch (MongoCommandException mce) {
+				if (mce.getCode() == 13) {
+					String coll = primaryClient.getDatabase(databaseName).listCollectionNames().first();
+					logger.debug("{} first collection {}", databaseName, coll);
+					if (coll == null) {
+						logger.debug("Database: " + databaseName + " does not exist on source shard, skipping");
+						continue;
+					}
+				} else {
+					throw mce;
+				}
+			}
+			
 			if (!primaryDatabasesList.contains(databaseName)) {
 				logger.debug("Database: " + databaseName + " does not exist on source shard, skipping");
 				continue;
@@ -1776,7 +1793,10 @@ public class ShardConfigSync implements Callable<Integer> {
 				mongomirror.setSourcePassword(new String(sourceCredentials.getPassword()));
 				mongomirror.setSourceAuthenticationDatabase(sourceCredentials.getSource());
 			}
-			if (sourceShardClient.getConnectionString().getSslEnabled() != null) {
+			
+			if (config.sourceRsSsl != null) {
+				mongomirror.setSourceSsl(config.sourceRsSsl);
+			} else if (sourceShardClient.getConnectionString().getSslEnabled() != null) {
 				mongomirror.setSourceSsl(sourceShardClient.getConnectionString().getSslEnabled());
 			}
 

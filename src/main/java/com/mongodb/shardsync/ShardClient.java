@@ -50,6 +50,7 @@ import com.mongodb.MongoException;
 import com.mongodb.MongoSocketException;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
+import com.mongodb.WriteConcern;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.ListCollectionsIterable;
 import com.mongodb.client.MongoClient;
@@ -150,6 +151,7 @@ public class ShardClient {
 
 	private Collection<String> shardIdFilter;
 
+	private Boolean rsSsl;
 	private boolean patternedUri;
 	private boolean manualShardHosts;
 	private boolean mongos;
@@ -552,8 +554,7 @@ public class ShardClient {
 					serverAddressList.add(new ServerAddress(host, port));
 				}
 			} else {
-				String rs = StringUtils.substringBefore(shardHost, ":");
-				String host = StringUtils.substringAfter(rs, "/");
+				String host = StringUtils.substringBefore(shardHost, ":");
 				Integer port = Integer.parseInt(StringUtils.substringAfter(shardHost, ":"));
 				serverAddressList.add(new ServerAddress(host, port));
 			}
@@ -561,7 +562,11 @@ public class ShardClient {
 			settingsBuilder.applyToClusterSettings(builder -> builder.hosts(serverAddressList));
 			
 			
-			if (connectionString.getSslEnabled() != null) {
+			if (rsSsl != null) {
+				logger.debug("manual rs ssl config: {}", rsSsl);
+				settingsBuilder.applyToSslSettings(builder -> builder.enabled(rsSsl));
+			} else if (connectionString.getSslEnabled() != null) {
+				logger.debug("***** {} - SSL config set from connection string", name, rsSsl);
 				settingsBuilder.applyToSslSettings(builder -> builder.enabled(connectionString.getSslEnabled()));
 			}
 			if (connectionString.getCredential() != null) {
@@ -1360,18 +1365,32 @@ public class ShardClient {
 			}
 		}
 	}
-
-	public boolean moveChunk(RawBsonDocument chunk, String moveToShard, boolean ignoreMissing) {
+	
+	public boolean moveChunk(RawBsonDocument chunk, String moveToShard, 
+			boolean ignoreMissing, boolean secondaryThrottle, boolean waitForDelete) {
 		RawBsonDocument min = (RawBsonDocument) chunk.get("min");
 		RawBsonDocument max = (RawBsonDocument) chunk.get("max");
 		String ns = chunk.getString("ns").getValue();
-		return moveChunk(ns, min, max, moveToShard, ignoreMissing);
+		return moveChunk(ns, min, max, moveToShard, ignoreMissing, secondaryThrottle, waitForDelete);
 	}
 
-	public boolean moveChunk(String namespace, RawBsonDocument min, RawBsonDocument max, String moveToShard, boolean ignoreMissing) {
+	public boolean moveChunk(RawBsonDocument chunk, String moveToShard, boolean ignoreMissing) {
+		return moveChunk(chunk, moveToShard, ignoreMissing, false, false);
+	}
+
+	public boolean moveChunk(String namespace, RawBsonDocument min, RawBsonDocument max, String moveToShard, 
+			boolean ignoreMissing, boolean secondaryThrottle, boolean waitForDelete) {
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
 		moveChunkCmd.append("to", moveToShard);
+		if (secondaryThrottle) {
+			moveChunkCmd.append("_secondaryThrottle", secondaryThrottle);
+			moveChunkCmd.append("writeConcern", WriteConcern.MAJORITY.asDocument());
+		}
+		if (waitForDelete) {
+			moveChunkCmd.append("_waitForDelete", waitForDelete);
+		}
+		
 		try {
 			adminCommand(moveChunkCmd);
 		} catch (MongoCommandException mce) {
@@ -1543,6 +1562,10 @@ public class ShardClient {
 
 	public void setRsRegex(String rsRegex) {
 		this.rsRegex = rsRegex;
+	}
+
+	public void setRsSsl(Boolean rsSsl) {
+		this.rsSsl = rsSsl;
 	}
 
 }

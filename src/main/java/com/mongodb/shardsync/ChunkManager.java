@@ -75,6 +75,7 @@ public class ChunkManager {
 			destShardClient = new ShardClient("dest", dest, sourceToDestShardMap.values(), shardClientType);
 			config.setDestShardClient(destShardClient);
 			
+			sourceShardClient.setRsSsl(config.getSourceRsSsl());
 			sourceShardClient.setRsPattern(config.getSourceRsPattern());
 			destShardClient.setRsPattern(config.getDestRsPattern());
 			sourceShardClient.setRsStringsManual(config.getSourceRsManual());
@@ -93,6 +94,7 @@ public class ChunkManager {
 			config.setSourceShardClient(sourceShardClient);
 			destShardClient = new ShardClient("dest", dest, null, shardClientType);
 			config.setDestShardClient(destShardClient);
+			sourceShardClient.setRsSsl(config.getSourceRsSsl());
 			sourceShardClient.setRsPattern(config.getSourceRsPattern());
 			destShardClient.setRsPattern(config.getDestRsPattern());
 			sourceShardClient.setRsStringsManual(config.getSourceRsManual());
@@ -263,7 +265,7 @@ public class ChunkManager {
 			String destShard = destChunkToShardMap.get(mega2.getId());
 
 			if (doMove && destShard != null && !mappedShard.equals(destShard)) {
-				boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), (RawBsonDocument)mega2.getMax(), mappedShard, false);
+				boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), (RawBsonDocument)mega2.getMax(), mappedShard, false, false, false);
 				if (! moveSuccess) {
 					errorCount++;
 				}
@@ -401,7 +403,7 @@ public class ChunkManager {
 			} else if (doMove && !mappedShard.equals(destShard)) {
 				//logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
 				if (doMove) {
-					boolean moveSuccess = destShardClient.moveChunk(sourceNs, sourceMin, sourceMax, mappedShard, ignoreMissing);
+					boolean moveSuccess = destShardClient.moveChunk(sourceNs, sourceMin, sourceMax, mappedShard, ignoreMissing, false, false);
 					if (! moveSuccess) {
 						errorCount++;
 					}

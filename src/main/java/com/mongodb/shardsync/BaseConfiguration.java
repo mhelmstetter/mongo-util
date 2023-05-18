@@ -39,6 +39,8 @@ public class BaseConfiguration {
 	public String[] destRsManual;
 	public String sourceRsRegex;
 	public String destRsRegex;
+	
+	public Boolean sourceRsSsl;
 
 	public BaseConfiguration() {
 		super();
@@ -238,6 +240,14 @@ public class BaseConfiguration {
 
 	public void setShardToRs(boolean shardToRs) {
 		this.shardToRs = shardToRs;
+	}
+
+	public Boolean getSourceRsSsl() {
+		return sourceRsSsl;
+	}
+
+	public void setSourceRsSsl(Boolean sourceRsSsl) {
+		this.sourceRsSsl = sourceRsSsl;
 	}
 
 }

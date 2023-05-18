@@ -41,6 +41,9 @@ public class ShardConfigSyncApp {
     private final static String SOURCE_RS_MANUAL = "sourceRsManual";
     private final static String DEST_RS_MANUAL = "destRsManual";
     
+    // for the case where mongos uses ssl but shards to not
+    private final static String SOURCE_RS_SSL = "sourceRsSsl";
+    
     private final static String SOURCE_RS_REGEX = "sourceRsRegex";
     private final static String DEST_RS_REGEX = "destRsRegex";
 
@@ -416,6 +419,10 @@ public class ShardConfigSyncApp {
         config.setSourceClusterPattern(properties.getString(SOURCE_URI_PATTERN));
         config.setDestClusterPattern(properties.getString(DEST_URI_PATTERN));
 
+        Boolean xxx = properties.getBoolean(SOURCE_RS_SSL, null);
+        logger.debug("***** SOURCE_RS_SSL {}", xxx);
+        config.setSourceRsSsl(xxx);
+        
         config.setSourceRsManual(properties.getStringArray(SOURCE_RS_MANUAL));
         config.setDestRsManual(properties.getStringArray(DEST_RS_MANUAL));
         
