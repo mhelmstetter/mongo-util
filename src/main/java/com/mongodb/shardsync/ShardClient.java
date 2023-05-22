@@ -1151,22 +1151,26 @@ public class ShardClient {
 
 		for (IndexSpec indexSpec : sourceSpecs) {
 			logger.debug("ix: " + indexSpec);
-			Document indexInfo = indexSpec.getSourceSpec().decode(codec);
-			// BsonDocument indexInfo = indexSpec.getSourceSpec().clone();
+			Document origIndexInfo = indexSpec.getSourceSpec().decode(codec);
+			Document indexInfo = new Document();
+			
+			for (String key : origIndexInfo.keySet()) {
+				if (IndexSpec.validIndexOptions.contains(key)) {
+					indexInfo.append(key, origIndexInfo.get(key));
+				} else {
+					logger.warn("Ignoring invalid index option: {}", key);
+				}
+			}
+			
 			indexInfo.remove("v");
 			indexInfo.remove("background");
+			
 			Number expireAfterSeconds = (Number) indexInfo.get("expireAfterSeconds");
 			if (expireAfterSeconds != null && extendTtl) {
 
-				if (expireAfterSeconds.equals(0)) {
-					logger.warn(
-							String.format("Skip extending TTL for %s %s - expireAfterSeconds is 0 (wall clock exp.)",
-									ns, indexInfo.get("name")));
-				} else {
-					indexInfo.put("expireAfterSeconds", 50 * ShardConfigSync.SECONDS_IN_YEAR);
-					logger.debug(String.format("Extending TTL for %s %s from %s to %s", ns, indexInfo.get("name"),
-							expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
-				}
+				indexInfo.put("expireAfterSeconds", 50 * ShardConfigSync.SECONDS_IN_YEAR);
+				logger.debug(String.format("Extending TTL for %s %s from %s to %s", ns, indexInfo.get("name"),
+						expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
 
 			}
 			if (collation != null) {

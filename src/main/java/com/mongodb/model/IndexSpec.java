@@ -1,12 +1,21 @@
 package com.mongodb.model;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 
 import org.bson.BsonType;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 
 public class IndexSpec {
+	
+	public final static Set<String> validIndexOptions = new HashSet<>(
+			Arrays.asList("2dsphereIndexVersion", "background", "bits", "bucketSize", "coarsestIndexedLevel", "collation", 
+					"default_language", "expireAfterSeconds", "finestIndexedLevel", "hidden", "key", "language_override", 
+					"max", "min", "name", "ns", "partialFilterExpression", "sparse", "storageEngine", "textIndexVersion", 
+					"unique", "v", "weights", "wildcardProjection"));
 	
 	private RawBsonDocument sourceSpec;
 	

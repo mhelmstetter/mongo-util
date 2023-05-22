@@ -327,7 +327,7 @@ public class ShardConfigSync implements Callable<Integer> {
 		}
 		
 		
-		sourceShardClient.populateShardMongoClients();
+		//sourceShardClient.populateShardMongoClients();
 		Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
 		
 		//Map<Namespace, Set<IndexSpec>> destShardIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);

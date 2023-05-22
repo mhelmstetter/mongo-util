@@ -419,9 +419,7 @@ public class ShardConfigSyncApp {
         config.setSourceClusterPattern(properties.getString(SOURCE_URI_PATTERN));
         config.setDestClusterPattern(properties.getString(DEST_URI_PATTERN));
 
-        Boolean xxx = properties.getBoolean(SOURCE_RS_SSL, null);
-        logger.debug("***** SOURCE_RS_SSL {}", xxx);
-        config.setSourceRsSsl(xxx);
+        config.setSourceRsSsl(properties.getBoolean(SOURCE_RS_SSL, null));
         
         config.setSourceRsManual(properties.getStringArray(SOURCE_RS_MANUAL));
         config.setDestRsManual(properties.getStringArray(DEST_RS_MANUAL));
