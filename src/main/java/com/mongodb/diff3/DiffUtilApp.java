@@ -3,10 +3,15 @@ package com.mongodb.diff3;
 import static com.mongodb.diff3.DiffConfiguration.PARTITION_MODE;
 import static com.mongodb.diff3.DiffConfiguration.SHARD_MODE;
 import static com.mongodb.diff3.DiffConfiguration.RECHECK_MODE;
+import static com.mongodb.shardsync.ShardConfigSyncApp.DEST_RS_MANUAL;
+import static com.mongodb.shardsync.ShardConfigSyncApp.SOURCE_RS_MANUAL;
 import static org.apache.commons.cli.OptionBuilder.withArgName;
 
 import java.io.File;
+import java.util.HashSet;
+import java.util.Set;
 
+import com.mongodb.model.Namespace;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
@@ -47,6 +52,7 @@ public class DiffUtilApp {
     private final static String ARCHIVE_AND_DELETE_DEST_ONLY = "archiveAndDeleteDestOnly";
     private final static String ARCHIVE = "archive";
     private final static String SYNC_MISMATCHES = "syncMismatches";
+    private final static String INCLUDE_NAMESPACES = "includeNamespace";
 
     private final static String DEFAULT_THREADS = "8";
     private final static String DEFAULT_SAMPLE_RATE = "0.04";
@@ -179,6 +185,12 @@ public class DiffUtilApp {
         config.setArchive(Boolean.parseBoolean(getConfigValue(line, properties, ARCHIVE, "false")));
         config.setSyncMismatches(Boolean.parseBoolean(getConfigValue(
                 line, properties, SYNC_MISMATCHES, "false")));
+        config.setSourceRsManual(properties.getStringArray(SOURCE_RS_MANUAL));
+        config.setDestRsManual(properties.getStringArray(DEST_RS_MANUAL));
+
+        Set<Namespace> inclNamespaces = new HashSet<>();
+        inclNamespaces.add(new Namespace(getConfigValue(line, properties, INCLUDE_NAMESPACES)));
+        config.setIncludeNamespaces(inclNamespaces);
         
         if (config.isUseStatusDb()) {
             config.setStatusDbUri(getConfigValue(line, properties, STATUS_DB_URI));
