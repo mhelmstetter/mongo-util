@@ -37,7 +37,7 @@ public class DiffUtilApp {
     private final static String MAX_DOCS_TO_SAMPLE_PER_PARTITION = "maxDocsToSamplePerPartition";
     private final static String DEFAULT_PARTITION_SIZE = "defaultPartitionSize";
     private final static String MODE = "mode";
-    private final static String DEFAULT_MODE = "partition";
+    private final static String DEFAULT_MODE = "shard";
     private final static String MAX_RETRIES = "maxRetries";
     private final static String USE_STATUS_DB = "useStatusDb";
     private final static String STATUS_DB_URI = "statusDbUri";
