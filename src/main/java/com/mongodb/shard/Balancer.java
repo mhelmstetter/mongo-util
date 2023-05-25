@@ -1,28 +1,16 @@
 package com.mongodb.shard;
 
-import static com.mongodb.client.model.Aggregates.group;
-import static com.mongodb.client.model.Aggregates.match;
-import static com.mongodb.client.model.Aggregates.sort;
-
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Callable;
 
-import org.bson.Document;
-import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
-import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.Accumulators;
-import com.mongodb.client.model.Filters;
-import com.mongodb.client.model.Sorts;
-import com.mongodb.shardsync.ShardClient;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -35,75 +23,66 @@ public class Balancer implements Callable<Integer> {
 
 	@Option(names = { "--uri" }, description = "mongodb uri connection string", required = true)
 	private String uri;
+	
+	@Option(names = { "--sourceShards" }, required = false)
+	private String[] sourceShards;
+	
+	@Option(names = { "--mode" }, required = false)
+	private String mode;
+	
+	@Option(names = { "--ns" }, required = false)
+	private String[] namespaces;
+	
+	@Option(names = { "--nsFile" }, required = false)
+	private String namespaceFile;
+	
+	@Option(names="--dryRun", arity="0") 
+	boolean dryRun;
 
-	private MongoClient mongoClient;
 
 	@Override
 	public Integer call() throws Exception {
-
-		ShardClient shardClient = new ShardClient("source", uri);
-		shardClient.init();
-		shardClient.stopBalancer();
-		mongoClient = shardClient.getMongoClient();
-
-		MongoDatabase db = mongoClient.getDatabase("config");
-		MongoCollection<Document> chunks = db.getCollection("chunks");
-
-		MongoCursor<Document> chunkCountIt = chunks
-				.aggregate(Arrays.asList(match(Filters.ne("ns", "config.system.sessions")),
-						group("$ns", Accumulators.sum("count", 1)), sort(Sorts.descending("count"))))
-				.iterator();
-
-		int totalMoved = 0;
 		
-		while (chunkCountIt.hasNext()) {
-			Document chunksCount = chunkCountIt.next();
-
-			logger.debug("chunk aggregate: {}", chunksCount);
-
-			String ns = chunksCount.getString("_id");
-
-			List<Document> chunksCountResults = new ArrayList<>();
-			chunks.aggregate(Arrays.asList(match(Filters.eq("ns", ns)), group("$shard", Accumulators.sum("count", 1)),
-					sort(Sorts.descending("count")))).into(chunksCountResults);
-
-			if (chunksCountResults.size() >= 2) {
-
-				Document highestCount = chunksCountResults.get(0);
-				Document lowestCount = chunksCountResults.get(chunksCountResults.size() - 1);
-				
-				String sourceShard = highestCount.getString("_id");
-				String destShard = lowestCount.getString("_id");
-				
-				logger.debug("{} - preparing to move ({}->{}), highestCount: {}, lowestCount: {}", ns, sourceShard, destShard, highestCount, lowestCount);
-				
-				List<RawBsonDocument> sourceChunks = new ArrayList<>();
-				chunks.find(Filters.and(Filters.eq("ns", ns), Filters.eq("shard", sourceShard)), RawBsonDocument.class)
-						.into(sourceChunks);
-				Collections.shuffle(sourceChunks);
-				
-				int sourceCount = highestCount.getInteger("count");
-				int destCount = lowestCount.getInteger("count");
-				int totalCount = sourceCount + destCount;
-				int targetChunks = totalCount / 2;
-				int chunksToMove = sourceCount - targetChunks;
-				
-				logger.debug("{} - preparing to move ({}->{}), highestCount: {}, lowestCount: {}", ns, sourceShard, destShard, highestCount, lowestCount);
-				logger.debug("chunksToMove: {}, targetCount: {}", chunksToMove, targetChunks);
-
-				for (int i = 0; i < chunksToMove; i++) {
-					RawBsonDocument chunk = sourceChunks.get(i);
-					shardClient.moveChunk(chunk, destShard, false, true, true);
-					totalMoved++;
-					logger.debug("Moved chunk: {}, totalMoved: {}", chunk.get("_id"), totalMoved);
-				}
-			}
-
+		if (namespaceFile != null) {
+			readNamespaceFile();
 		}
+
+		if (mode != null && mode.equals("manual")) {
+			ManualBalancingStrategy balancer = new ManualBalancingStrategy(uri);
+			balancer.setNamespaces(namespaces);
+			if (sourceShards != null) {
+				balancer.setSourceShards(sourceShards);
+			}
+			balancer.balance();
+			
+		} else if (mode != null && mode.equals("v3")) {
+			V3BalancingStrategy balancer = new V3BalancingStrategy(uri);
+			balancer.setNamespaces(namespaces);
+			if (sourceShards != null) {
+				balancer.setSourceShards(sourceShards);
+			}
+			balancer.setDryRun(dryRun);
+			balancer.balance();
+		} else {
+			HighLowBalancingStrategy balancer = new HighLowBalancingStrategy(uri);
+			balancer.balance();
+		}
+		
 
 		return 0;
 	}
 
+	private void readNamespaceFile() throws IOException {
+		Path path = Paths.get(namespaceFile);
+		List<String> ns = new ArrayList<>();
+		try (BufferedReader reader = Files.newBufferedReader(path)) {
+			String line;
+			while ((line = reader.readLine()) != null) {
+				ns.add(line.trim());
+			}
+		}
+		this.namespaces = ns.stream().toArray(String[]::new);
+	}
 	
 
 	public static void main(String... args) {
