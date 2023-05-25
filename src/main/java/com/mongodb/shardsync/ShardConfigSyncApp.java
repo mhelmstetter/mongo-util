@@ -38,8 +38,8 @@ public class ShardConfigSyncApp {
     private final static String DEST_RS_PATTERN = "destRsPattern";
 
     // Advanced option for manaually overriding the hostnames / bypassing discovery
-    private final static String SOURCE_RS_MANUAL = "sourceRsManual";
-    private final static String DEST_RS_MANUAL = "destRsManual";
+    public final static String SOURCE_RS_MANUAL = "sourceRsManual";
+    public final static String DEST_RS_MANUAL = "destRsManual";
     
     // for the case where mongos uses ssl but shards to not
     private final static String SOURCE_RS_SSL = "sourceRsSsl";

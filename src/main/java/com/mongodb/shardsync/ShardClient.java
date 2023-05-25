@@ -565,7 +565,8 @@ public class ShardClient {
 			if (rsSsl != null) {
 				logger.debug("manual rs ssl config: {}", rsSsl);
 				settingsBuilder.applyToSslSettings(builder -> builder.enabled(rsSsl));
-			} else if (connectionString.getSslEnabled() != null) {
+			} else if (connectionString.getSslEnabled() != null && getRsStringsManual() != null
+					&& getRsStringsManual().length <= 0) {
 				logger.debug("***** {} - SSL config set from connection string", name, rsSsl);
 				settingsBuilder.applyToSslSettings(builder -> builder.enabled(connectionString.getSslEnabled()));
 			}
