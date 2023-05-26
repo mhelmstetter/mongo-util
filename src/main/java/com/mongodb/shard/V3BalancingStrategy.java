@@ -26,6 +26,8 @@ public class V3BalancingStrategy extends BalancingStrategy {
 	
 	private Set<String> sourceShards = new HashSet<>();
 	
+	private Set<String> destShards = new HashSet<>();
+	
 	private Set<String> namespaces = new HashSet<>();
 
 	public V3BalancingStrategy(String uri) {
@@ -66,7 +68,10 @@ public class V3BalancingStrategy extends BalancingStrategy {
 			}
 			int totalShardCount = shardClient.getShardsMap().size();
 			
-			Set<String> destShards = Sets.difference(shardClient.getShardsMap().keySet(), sourceShards);
+			if (destShards == null) {
+				destShards = Sets.difference(shardClient.getShardsMap().keySet(), sourceShards);
+			}
+			
 			
 			int destShardCount = totalShardCount - sourceShards.size();
 			
