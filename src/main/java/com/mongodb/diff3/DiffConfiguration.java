@@ -17,7 +17,6 @@ public class DiffConfiguration extends BaseConfiguration {
 	private long defaultPartitionSize;
 	private String mode;
 	private int maxRetries;
-	private boolean useStatusDb;
 	private boolean archive;
 	private boolean archiveAndDeleteDestOnly;
 	private boolean syncMismatches;
@@ -28,7 +27,7 @@ public class DiffConfiguration extends BaseConfiguration {
 	private DiffSummaryClient diffSummaryClient;
 	
 	public DiffSummaryClient getDiffSummaryClient() {
-		if (useStatusDb && diffSummaryClient == null) {
+		if (diffSummaryClient == null) {
 			diffSummaryClient = new DiffSummaryClient(getStatusDbUri(), getStatusDbName(),
 	                getStatusDbCollName());
 		}
@@ -95,13 +94,6 @@ public class DiffConfiguration extends BaseConfiguration {
 		this.defaultPartitionSize = defaultPartitionSize;
 	}
 
-	public boolean isUseStatusDb() {
-		return useStatusDb;
-	}
-
-	public void setUseStatusDb(boolean useStatusDb) {
-		this.useStatusDb = useStatusDb;
-	}
 
 	public String getStatusDbUri() {
 		return statusDbUri;
