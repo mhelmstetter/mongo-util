@@ -41,6 +41,7 @@ public class BaseConfiguration {
 	public String destRsRegex;
 	
 	public Boolean sourceRsSsl;
+	public Boolean destRsSsl;
 
 	public BaseConfiguration() {
 		super();
@@ -250,4 +251,11 @@ public class BaseConfiguration {
 		this.sourceRsSsl = sourceRsSsl;
 	}
 
+	public Boolean getDestRsSsl() {
+		return destRsSsl;
+	}
+
+	public void setDestRsSsl(Boolean destRsSsl) {
+		this.destRsSsl = destRsSsl;
+	}
 }
