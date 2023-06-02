@@ -77,7 +77,6 @@ public class ChunkManager {
 			
 			sourceShardClient.setRsSsl(config.getSourceRsSsl());
 			sourceShardClient.setRsPattern(config.getSourceRsPattern());
-			destShardClient.setRsSsl(config.getDestRsSsl());
 			destShardClient.setRsPattern(config.getDestRsPattern());
 			sourceShardClient.setRsStringsManual(config.getSourceRsManual());
 			destShardClient.setRsStringsManual(config.getDestRsManual());
@@ -95,7 +94,6 @@ public class ChunkManager {
 			config.setSourceShardClient(sourceShardClient);
 			destShardClient = new ShardClient("dest", dest, null, shardClientType);
 			config.setDestShardClient(destShardClient);
-			destShardClient.setRsSsl(config.getDestRsSsl());
 			sourceShardClient.setRsSsl(config.getSourceRsSsl());
 			sourceShardClient.setRsPattern(config.getSourceRsPattern());
 			destShardClient.setRsPattern(config.getDestRsPattern());

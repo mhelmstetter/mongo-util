@@ -1576,7 +1576,4 @@ public class ShardClient {
 		this.rsSsl = rsSsl;
 	}
 
-	public Boolean getRsSsl() {
-		return rsSsl;
-	}
 }

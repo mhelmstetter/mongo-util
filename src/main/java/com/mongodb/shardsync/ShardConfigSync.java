@@ -1711,7 +1711,6 @@ public class ShardConfigSync implements Callable<Integer> {
 	
 	public void mongomirrorTailFromLatestOplogTs(String startingTs)  throws IOException {
 		logger.debug("Starting mongomirrorTailFromTs, startingTs: {}", startingTs);
-		initChunkManager();
 		sourceShardClient.populateShardMongoClients();
 		Collection<Shard> shards = sourceShardClient.getShardsMap().values();
 		
@@ -1821,8 +1820,7 @@ public class ShardConfigSync implements Callable<Integer> {
 			}
 
 			if (destShardClient.getConnectionString().getSslEnabled() == null
-					|| destShardClient.getConnectionString().getSslEnabled().equals(Boolean.FALSE)
-					|| (destShardClient.getRsSsl() != null && destShardClient.getRsSsl().equals(Boolean.FALSE))) {
+					|| destShardClient.getConnectionString().getSslEnabled().equals(Boolean.FALSE)) {
 				// TODO - this is only in "hacked" mongomirror
 				mongomirror.setDestinationNoSSL(true);
 			}

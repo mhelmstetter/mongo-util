@@ -44,6 +44,7 @@ public class DiffUtilApp {
     private final static String MODE = "mode";
     private final static String DEFAULT_MODE = "shard";
     private final static String MAX_RETRIES = "maxRetries";
+    private final static String USE_STATUS_DB = "useStatusDb";
     private final static String STATUS_DB_URI = "statusDbUri";
     private final static String STATUS_DB_NAME = "statusDbName";
     private final static String STATUS_DB_COLL_NAME = "statusDbCollName";
@@ -57,8 +58,9 @@ public class DiffUtilApp {
     private final static String DEFAULT_SAMPLE_RATE = "0.04";
     private final static String DEFAULT_SAMPLE_MIN_DOCS = "101";
     private final static String DEFAULT_MAX_DOCS_TO_SAMPLE_PER_PARTITION = "10";
-    private final static String DEFAULT_DEFAULT_PARTITION_SIZE = String.valueOf(400 * 1024 * 1024);
+    private final static String DEFAULT_DEFAULT_PARTITION_SIZE = String.valueOf(400  * 1024 * 1024);
     private final static String DEFAULT_MAX_RETRIES = "5";
+    private final static String DEFAULT_USE_STATUS_DB = "true";
     private final static String DEFAULT_STATUS_DB_NAME = "Diff3";
     private final static String DEFAULT_STATUS_DB_COLL_NAME = "Status";
 
@@ -88,6 +90,7 @@ public class DiffUtilApp {
         options.addOption(withArgName("Default size (bytes) for partitions").hasArg()
                 .withLongOpt(DEFAULT_PARTITION_SIZE).create());
         options.addOption(withArgName("Max retries").hasArg().withLongOpt(MAX_RETRIES).create());
+        options.addOption(withArgName("Use Status DB").hasArg().withLongOpt(USE_STATUS_DB).create());
         options.addOption(withArgName("Status DB URI").hasArg().withLongOpt(STATUS_DB_URI).create());
         options.addOption(withArgName("Status DB Name").hasArg().withLongOpt(STATUS_DB_NAME).create());
         options.addOption(withArgName("Status DB Collection Name").hasArg().withLongOpt(STATUS_DB_COLL_NAME).create());
@@ -175,6 +178,8 @@ public class DiffUtilApp {
         config.setDefaultPartitionSize(Long.parseLong(
                 getConfigValue(line, properties, DEFAULT_PARTITION_SIZE, DEFAULT_DEFAULT_PARTITION_SIZE)));
         config.setMaxRetries(Integer.parseInt(getConfigValue(line, properties, MAX_RETRIES, DEFAULT_MAX_RETRIES)));
+        config.setUseStatusDb(Boolean.parseBoolean(getConfigValue(
+                line, properties, USE_STATUS_DB, DEFAULT_USE_STATUS_DB)));
         config.setArchiveAndDeleteDestOnly(Boolean.parseBoolean(getConfigValue(
                 line, properties, ARCHIVE_AND_DELETE_DEST_ONLY, "false")));
         config.setArchive(Boolean.parseBoolean(getConfigValue(line, properties, ARCHIVE, "false")));
@@ -186,12 +191,14 @@ public class DiffUtilApp {
         Set<Namespace> inclNamespaces = new HashSet<>();
         inclNamespaces.add(new Namespace(getConfigValue(line, properties, INCLUDE_NAMESPACES)));
         config.setIncludeNamespaces(inclNamespaces);
-
-        config.setStatusDbUri(getConfigValue(line, properties, STATUS_DB_URI, config.getDestClusterUri()));
-        config.setStatusDbName(getConfigValue(line, properties, STATUS_DB_NAME, DEFAULT_STATUS_DB_NAME));
-        config.setStatusDbCollName(getConfigValue(line, properties,
-                STATUS_DB_COLL_NAME, DEFAULT_STATUS_DB_COLL_NAME));
-
+        
+        if (config.isUseStatusDb()) {
+            config.setStatusDbUri(getConfigValue(line, properties, STATUS_DB_URI));
+            config.setStatusDbName(getConfigValue(line, properties, STATUS_DB_NAME, DEFAULT_STATUS_DB_NAME));
+            config.setStatusDbCollName(getConfigValue(line, properties,
+                    STATUS_DB_COLL_NAME, DEFAULT_STATUS_DB_COLL_NAME));
+        }
+        
         String shardMaps = properties.getString(SHARD_MAP);
         if (shardMaps != null) {
             config.setShardMap(shardMaps.split(","));
@@ -206,11 +213,11 @@ public class DiffUtilApp {
         } else if (config.getMode().equals(SHARD_MODE)) {
             ShardDiffUtil shardDiffUtil = new ShardDiffUtil(config);
             shardDiffUtil.run();
-
+            
         } else if (config.getMode().equals(RECHECK_MODE)) {
-            RecheckUtil rechecker = new RecheckUtil(config);
-            rechecker.recheck();
-
+        	RecheckUtil rechecker = new RecheckUtil(config);
+        	rechecker.recheck();
+        	
         } else {
             System.out.println("Unknown mode: " + config.getMode() + ". Exiting.");
             System.exit(1);
