@@ -1,6 +1,7 @@
 package com.mongodb.shardsync;
 
 import static com.mongodb.shardsync.BaseConfiguration.Constants.*;
+import static com.mongodb.util.ConfigUtils.*;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -339,16 +340,6 @@ public class ShardConfigSyncApp {
             logger.error("Error loading properties file: " + propsFile, e);
         }
         return defaultConfig;
-    }
-
-    private static String getConfigValue(CommandLine line, Configuration props, String key) {
-        return getConfigValue(line, props, key, null);
-    }
-
-    private static String getConfigValue(CommandLine line, Configuration props, String key, String defaultValue) {
-    	return defaultValue != null && defaultValue.length() > 0 ?
-                line.getOptionValue(key, props.getString(key, defaultValue)) :
-                line.getOptionValue(key, props.getString(key));
     }
 
     private static void initMongoMirrorEmailReportConfig(CommandLine line, SyncConfiguration config, Configuration props) {

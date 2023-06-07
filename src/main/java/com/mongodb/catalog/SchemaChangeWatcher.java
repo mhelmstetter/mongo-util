@@ -2,6 +2,8 @@ package com.mongodb.catalog;
 
 import static com.mongodb.shardsync.BaseConfiguration.Constants.DEST_URI;
 import static com.mongodb.shardsync.BaseConfiguration.Constants.SOURCE_URI;
+import static com.mongodb.util.ConfigUtils.getConfigValue;
+import static com.mongodb.util.ConfigUtils.getConfigValues;
 
 import java.io.File;
 import java.util.Timer;
@@ -171,24 +173,6 @@ public class SchemaChangeWatcher {
         emailSender.init();
     }
 	
-	private static String[] getConfigValues(CommandLine line, Configuration props, String key) {
-		if (line.hasOption(key)) {
-			return line.getOptionValues(key);
-		} else {
-			return props.getStringArray(key);
-		}
-	}
-	
-	private static String getConfigValue(CommandLine line, Configuration props, String key, String defaultValue) {
-        return defaultValue != null && defaultValue.length() > 0 ?
-                line.getOptionValue(key, props.getString(key, defaultValue)) :
-                line.getOptionValue(key, props.getString(key));
-    }
-    
-    private static String getConfigValue(CommandLine line, Configuration props, String key) {
-        return getConfigValue(line, props, key, null);
-    }
-
     private static void printHelpAndExit(Options options) {
         HelpFormatter formatter = new HelpFormatter();
         formatter.printHelp("logParser", options);

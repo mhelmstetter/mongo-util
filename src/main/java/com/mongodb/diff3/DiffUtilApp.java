@@ -5,6 +5,9 @@ import static com.mongodb.diff3.DiffConfiguration.SHARD_MODE;
 import static com.mongodb.diff3.DiffConfiguration.RECHECK_MODE;
 import static com.mongodb.shardsync.ShardConfigSyncApp.DEST_RS_MANUAL;
 import static com.mongodb.shardsync.ShardConfigSyncApp.SOURCE_RS_MANUAL;
+import static com.mongodb.util.ConfigUtils.getConfigValue;
+import static com.mongodb.util.ConfigUtils.getConfigValues;
+
 import static org.apache.commons.cli.OptionBuilder.withArgName;
 
 import java.io.File;
@@ -51,7 +54,7 @@ public class DiffUtilApp {
     private final static String ARCHIVE_AND_DELETE_DEST_ONLY = "archiveAndDeleteDestOnly";
     private final static String ARCHIVE = "archive";
     private final static String SYNC_MISMATCHES = "syncMismatches";
-    private final static String INCLUDE_NAMESPACES = "includeNamespace";
+    private final static String FILTER = "filter";
 
     private final static String DEFAULT_THREADS = "8";
     private final static String DEFAULT_SAMPLE_RATE = "0.04";
@@ -142,16 +145,6 @@ public class DiffUtilApp {
         return defaultConfig;
     }
 
-    private static String getConfigValue(CommandLine line, Configuration props, String key, String defaultValue) {
-        return defaultValue != null && defaultValue.length() > 0 ?
-                line.getOptionValue(key, props.getString(key, defaultValue)) :
-                line.getOptionValue(key, props.getString(key));
-    }
-
-    private static String getConfigValue(CommandLine line, Configuration props, String key) {
-        return getConfigValue(line, props, key, null);
-    }
-
     public static void main(String[] args) throws Exception {
         CommandLine line = initializeAndParseCommandLineOptions(args);
 
@@ -184,7 +177,10 @@ public class DiffUtilApp {
         config.setDestRsManual(properties.getStringArray(DEST_RS_MANUAL));
 
         Set<Namespace> inclNamespaces = new HashSet<>();
-        inclNamespaces.add(new Namespace(getConfigValue(line, properties, INCLUDE_NAMESPACES)));
+        String[] filters = getConfigValues(line, properties, FILTER);
+        for (String ns : filters) {
+        	inclNamespaces.add(new Namespace(ns));
+        }
         config.setIncludeNamespaces(inclNamespaces);
         
         config.setStatusDbUri(getConfigValue(line, properties, STATUS_DB_URI, config.getDestClusterUri()));
