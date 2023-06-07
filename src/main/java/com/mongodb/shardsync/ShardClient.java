@@ -587,6 +587,8 @@ public class ShardClient {
 			MongoClient mongoClient = MongoClients.create(settings);
 
 			shardMongoClients.put(shard.getId(), mongoClient);
+			
+			logger.debug("{} - clusterSettings: {}, sslSettings: {}", name, settings.getClusterSettings(), settings.getSslSettings());
 
 			// logger.debug(String.format("%s isMaster started: %s", name, shardHost));
 			Document isMasterResult = mongoClient.getDatabase("admin").runCommand(new Document("isMaster", 1));
