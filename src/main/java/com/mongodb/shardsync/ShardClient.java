@@ -556,7 +556,8 @@ public class ShardClient {
 			} else {
 				String host = StringUtils.substringBefore(shardHost, ":");
 				if (host.contains("/")) {
-					host = StringUtils.substringAfter(shardHost, "/");
+					String host1 = StringUtils.substringAfter(shardHost, "/");
+					host = StringUtils.substringBefore(host1, ":");
 				}
 				logger.debug("{} - no seedlist seen, host: {}", name, host);
 				Integer port = Integer.parseInt(StringUtils.substringAfter(shardHost, ":"));
