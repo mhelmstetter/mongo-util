@@ -11,6 +11,9 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
+import com.mongodb.model.Database;
+import com.mongodb.model.DatabaseCatalog;
+import com.mongodb.model.IndexSpec;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.bson.ByteBuf;
@@ -55,7 +58,7 @@ public abstract class DiffTask implements Callable<DiffResult> {
     protected DiffConfiguration config;
 
     protected Namespace namespace;
-//    protected Pair<Bson, Bson> bounds;
+    //    protected Pair<Bson, Bson> bounds;
     protected ChunkDef chunkDef;
     protected long start;
     protected DiffSummary summary;
@@ -109,16 +112,16 @@ public abstract class DiffTask implements Callable<DiffResult> {
     }
 
     protected DiffResult computeDiff(Collection<BsonValue> ids) {
-    	
-    	for (int i = 1; i <= 3; i++) {
-    		try {
-    			sourceDocs = load(ids, SOURCE);
-    	        destDocs = load(ids, DEST);
-    			break;
-    		} catch (MongoException me) {
-    			logger.warn("computeDiff caught mongo exception on attempt " + i, me);
-    		}
-    	}
+
+        for (int i = 1; i <= 3; i++) {
+            try {
+                sourceDocs = load(ids, SOURCE);
+                destDocs = load(ids, DEST);
+                break;
+            } catch (MongoException me) {
+                logger.warn("computeDiff caught mongo exception on attempt " + i, me);
+            }
+        }
         return doComparison();
     }
 
@@ -142,14 +145,14 @@ public abstract class DiffTask implements Callable<DiffResult> {
             }
             Set<BsonValue> onlyOnSource = diff.entriesOnlyOnLeft().keySet();
             if (!onlyOnSource.isEmpty()) {
-            	//logger.debug("[{}] {} - diff failure, onlyOnSource: {}", Thread.currentThread().getName(), namespace, onlyOnSource);
-            	srcOnly.addAll(onlyOnSource);
+                //logger.debug("[{}] {} - diff failure, onlyOnSource: {}", Thread.currentThread().getName(), namespace, onlyOnSource);
+                srcOnly.addAll(onlyOnSource);
             }
 
             Set<BsonValue> onlyOnDest = diff.entriesOnlyOnRight().keySet();
             if (!onlyOnDest.isEmpty()) {
-            	//logger.warn("[{}] {} - diff failure, onlyOnDest: {}", Thread.currentThread().getName(), namespace, onlyOnDest);
-            	destOnly.addAll(onlyOnDest);
+                //logger.warn("[{}] {} - diff failure, onlyOnDest: {}", Thread.currentThread().getName(), namespace, onlyOnDest);
+                destOnly.addAll(onlyOnDest);
             }
 
             numMatches = (int) (sourceDocs.size() - valueDiff.size()
@@ -164,6 +167,39 @@ public abstract class DiffTask implements Callable<DiffResult> {
     }
 
     protected abstract MongoClient getLoadClient(Target target);
+
+    private BsonDocument findHintDoc(BsonDocument ref) {
+        Set<String> shardKeys = ref.keySet();
+
+        DatabaseCatalog dbCatalog = config.getSourceShardClient().getDatabaseCatalog();
+
+        Database database = dbCatalog.getDatabase(namespace.getDatabaseName());
+        com.mongodb.model.Collection coll = database.getCollection(namespace.getNamespace());
+        Set<IndexSpec> collIndexes = coll.getIndexes();
+
+        Set<IndexSpec> candidates = new HashSet<>();
+        for (IndexSpec is : collIndexes) {
+            boolean hasAllShardKeys = true;
+            for (String sk : shardKeys) {
+                if (!(is.getKey().containsKey(sk))) {
+                    hasAllShardKeys = false;
+                    break;
+                }
+            }
+            if (hasAllShardKeys) {
+                candidates.add(is);
+            }
+        }
+        if (candidates.size() <= 0) {
+            logger.error("Could not find an index that contains all the shard keys");
+            throw new RuntimeException("Error creating hint doc for loading shard chunks");
+        }
+        return candidates.stream().min((i, j) -> {
+            int iNumKeys = i.getKey().keySet().size();
+            int jNumKeys = j.getKey().keySet().size();
+            return iNumKeys - jNumKeys;
+        }).get().getSourceSpec().toBsonDocument();
+    }
 
     protected Map<BsonValue, String> load(Collection<BsonValue> ids, Target target) {
         MongoClient loadClient = getLoadClient(target);
@@ -190,11 +226,10 @@ public abstract class DiffTask implements Callable<DiffResult> {
                 BsonDocument min = chunkDef.getMin();
                 BsonDocument max = chunkDef.getMax();
                 Set<String> shardKeys = min.keySet();
-                Document hintDoc = new Document();
-                for (String sk : shardKeys) {
-                    hintDoc.put(sk, 1);
-                }
-                finder = coll.find().min(min).max(max).hint(hintDoc).batchSize(10000);
+//                }
+                BsonDocument hintDoc = findHintDoc(min);
+
+                finder = coll.find().min(min).max(max).hint(hintDoc.getDocument("key")).batchSize(10000);
             }
         }
 
@@ -218,12 +253,12 @@ public abstract class DiffTask implements Callable<DiffResult> {
                 throw new RuntimeException("Unknown target");
         }
         if (logger.isTraceEnabled()) {
-        	long loadTime = System.currentTimeMillis() - loadStart;
+            long loadTime = System.currentTimeMillis() - loadStart;
             logger.trace("[{}] loaded {} {} docs for {} in {} ms ({})",
                     Thread.currentThread().getName(), output.size(), target.getName(),
                     namespace.getNamespace(), loadTime, unitString());
         }
-        
+
         return output;
     }
 

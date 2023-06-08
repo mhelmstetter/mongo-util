@@ -1,17 +1,20 @@
 package com.mongodb.model;
 
 import java.util.Objects;
+import java.util.Set;
 
 public class Collection {
 	
 	private Namespace namespace;
 	private boolean sharded;
 	private CollectionStats collectionStats;
+	private Set<IndexSpec> indexes;
 
-	public Collection(Namespace namespace, boolean sharded, CollectionStats collectionStats) {
+	public Collection(Namespace namespace, boolean sharded, CollectionStats collectionStats, Set<IndexSpec> indexes) {
 		this.namespace = namespace;
 		this.sharded = sharded;
 		this.collectionStats = collectionStats;
+		this.indexes = indexes;
 	}
 
 	public Namespace getNamespace() {
@@ -24,6 +27,10 @@ public class Collection {
 
 	public CollectionStats getCollectionStats() {
 		return collectionStats;
+	}
+
+	public Set<IndexSpec> getIndexes() {
+		return indexes;
 	}
 
 	@Override
