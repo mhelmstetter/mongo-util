@@ -10,13 +10,11 @@ import java.util.List;
 import java.util.Map;
 
 import org.bson.BsonDocument;
-import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.UuidRepresentation;
 import org.bson.conversions.Bson;
-import org.bson.types.MinKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,6 +39,7 @@ public class DiffSummaryClient {
     private final MongoClient client;
     private final MongoDatabase db;
     private final MongoCollection<RawBsonDocument> coll;
+    private final MongoCollection<BsonDocument> simpleColl;
     private static final Logger logger = LoggerFactory.getLogger(DiffSummaryClient.class);
 
 
@@ -52,23 +51,60 @@ public class DiffSummaryClient {
         this.client = MongoClients.create(mcs);
         this.db = this.client.getDatabase(dbName);
         this.coll = this.db.getCollection(collName, RawBsonDocument.class);
+        this.simpleColl = this.db.getCollection(collName, BsonDocument.class);
         coll.createIndex(Indexes.compoundIndex(Indexes.ascending("ns"), Indexes.ascending("min"), Indexes.ascending("max")));
     }
-    
-    public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery) {
-    	
-    	Map<String, RawBsonDocument> chunksCache = new LinkedHashMap<>();
-    	//Bson projection = include("min", "max", "ns", "status");
-    	Bson projection = exclude("history");
-		FindIterable<RawBsonDocument> sourceChunks = coll.find(chunkQuery).projection(projection).sort(Sorts.ascending("ns", "min"));
 
-		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
-			RawBsonDocument chunk = sourceChunksIterator.next();
-			String chunkId = ShardClient.getIdFromChunk(chunk);
-			chunksCache.put(chunkId, chunk);
-		}
-		return chunksCache;
-	}
+    public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery) {
+
+        Map<String, RawBsonDocument> chunksCache = new LinkedHashMap<>();
+        //Bson projection = include("min", "max", "ns", "status");
+        Bson projection = exclude("history");
+        FindIterable<RawBsonDocument> sourceChunks = coll.find(chunkQuery).projection(projection).sort(Sorts.ascending("ns", "min"));
+
+        for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext(); ) {
+            RawBsonDocument chunk = sourceChunksIterator.next();
+            String chunkId = ShardClient.getIdFromChunk(chunk);
+            chunksCache.put(chunkId, chunk);
+        }
+        return chunksCache;
+    }
+
+    public void simpleUpdate(ChunkDef cd, ChunkResult cr) {
+        BsonValue min = cd.getMin() == null ? new BsonDocument() : cd.getMin();
+        BsonValue max = cd.getMax() == null ? new BsonDocument() : cd.getMax();
+
+
+        Bson filter = Filters.and(
+                Filters.eq("ns", cd.getNs().getNamespace()),
+                Filters.eq("min", min),
+                Filters.eq("max", max)
+        );
+
+        BsonDocument res = coll.find(filter).first();
+
+        Document newDoc = new Document();
+        newDoc.put("ns", cd.getNs().getNamespace());
+        newDoc.put("min", min);
+        newDoc.put("max", max);
+        newDoc.put("status", cr.getStatus().toString());
+        newDoc.put("retryNum", cr.getRetryNum().intValue());
+        newDoc.put("matches", cr.getMatches().longValue());
+        newDoc.put("mismatches", cr.getMismatchDocs());
+        newDoc.put("srcOnly", cr.getSourceOnly());
+        newDoc.put("scrOnlyCount", cr.getSourceOnly().size());
+        newDoc.put("destOnly", cr.getDestOnly());
+        newDoc.put("destOnlyCount", cr.getDestOnly().size());
+        newDoc.put("bytesProcessed", cr.getBytesProcessed().longValue());
+        newDoc.put("timestamp", new Date());
+
+        BsonDocument newBsonDoc = newDoc.toBsonDocument();
+        if (res == null) {
+            simpleColl.insertOne(newBsonDoc);
+        } else {
+            simpleColl.replaceOne(filter, newBsonDoc);
+        }
+    }
 
     public void update(ChunkDef cd, ChunkResult cr) {
         FindOneAndUpdateOptions opts = new FindOneAndUpdateOptions();
@@ -124,25 +160,27 @@ public class DiffSummaryClient {
         logger.trace("Fire Status update Query");
         try {
             BsonDocument res = coll.findOneAndUpdate(filter, updates, opts);
+
             logger.trace("Status Update Result:: {}", res.toString());
         } catch (Exception e) {
-            logger.error("Update status query failed", e);
+//            logger.error("Update status query failed", e);
+            logger.info("Update failed; trying simple update");
             throw new RuntimeException(e);
         }
     }
 
-	public boolean updateChunkCompletion(Namespace ns, RawBsonDocument chunk, DiffSummary summary) {
+    public boolean updateChunkCompletion(Namespace ns, RawBsonDocument chunk, DiffSummary summary) {
 
         Bson filter = Filters.and(
-            Filters.eq("ns", ns.getNamespace()),
-            Filters.eq("min", chunk.get("min")),
-            Filters.eq("max", chunk.get("max")),
-            Filters.eq("status", DiffStatus.SUCCEEDED.toString())
+                Filters.eq("ns", ns.getNamespace()),
+                Filters.eq("min", chunk.get("min")),
+                Filters.eq("max", chunk.get("max")),
+                Filters.eq("status", DiffStatus.SUCCEEDED.toString())
         );
-        
-        
+
+
         long count = coll.countDocuments(filter);
-        
+
 //        RawBsonDocument aggResult = coll.aggregate(Arrays.asList(
 //            Aggregates.match(filter),
 //            Aggregates.project(Projections.fields(
@@ -156,9 +194,9 @@ public class DiffSummaryClient {
 //        	return true;
 //        }
 //        return false;
-        
+
         return count > 0;
-        
-		
-	}
+
+
+    }
 }

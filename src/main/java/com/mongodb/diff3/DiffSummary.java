@@ -205,7 +205,11 @@ public class DiffSummary {
 		incrementCountersFromChunkResult(cr);
 
 		if (dbClient != null) {
-			dbClient.update(result.getChunkDef(), cr);
+			try {
+				dbClient.update(result.getChunkDef(), cr);
+			} catch (RuntimeException e) {
+				dbClient.simpleUpdate(result.getChunkDef(), cr);
+			}
 		}
 
 		synchronized (chunkResultMap) {
@@ -251,7 +255,11 @@ public class DiffSummary {
 			cr.addBytesProcessed(result.getBytesProcessed());
 
 			if (dbClient != null) {
-				dbClient.update(result.getChunkDef(), cr);
+				try {
+					dbClient.update(result.getChunkDef(), cr);
+				} catch (RuntimeException e) {
+					dbClient.simpleUpdate(result.getChunkDef(), cr);
+				}
 			}
 		}
 		incrementCountersFromChunkResult(cr);
