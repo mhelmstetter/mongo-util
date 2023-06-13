@@ -226,7 +226,6 @@ public abstract class DiffTask implements Callable<DiffResult> {
                 BsonDocument min = chunkDef.getMin();
                 BsonDocument max = chunkDef.getMax();
                 Set<String> shardKeys = min.keySet();
-//                }
                 BsonDocument hintDoc = findHintDoc(min);
 
                 finder = coll.find().min(min).max(max).hint(hintDoc.getDocument("key")).batchSize(10000);
