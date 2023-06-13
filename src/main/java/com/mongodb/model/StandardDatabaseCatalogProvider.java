@@ -2,8 +2,13 @@ package com.mongodb.model;
 
 import com.mongodb.client.ListCollectionsIterable;
 import com.mongodb.client.MongoClient;
+//import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoIterable;
+import org.bson.BSONException;
 import org.bson.Document;
+import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +25,7 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider 
     private static final Pattern excludeCollRegex = Pattern.compile("system\\..*");
     private static final Logger logger = LoggerFactory.getLogger(StandardDatabaseCatalogProvider.class);
 
-    public StandardDatabaseCatalogProvider(MongoClient client){
+    public StandardDatabaseCatalogProvider(MongoClient client) {
         this.client = client;
     }
 
@@ -37,14 +42,14 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider 
         }
         return databaseCatalog;
     }
-    
+
     @Override
     public void populateDatabaseCatalog() {
-    	populateDatabaseCatalog(null);
+        populateDatabaseCatalog(null);
     }
 
     private void populateDatabaseCatalog(Collection<Namespace> namespaces) {
-    	databaseCatalog = new DatabaseCatalog();
+        databaseCatalog = new DatabaseCatalog();
         MongoIterable<String> dbNames = client.listDatabaseNames();
         Map<String, Set<String>> includeMap = new HashMap<>();
         boolean includeAll = true;
@@ -89,7 +94,13 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider 
                 Namespace collNs = new Namespace(dbName, collName);
                 CollectionStats collStats = CollectionStats.fromDocument(collStats(collNs));
                 boolean sharded = collectionsMap != null && collectionsMap.containsKey(collNs.getNamespace());
-                com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(collNs, sharded, collStats);
+
+                Set<IndexSpec> indexes = getCollectionIndexSpecs(
+                        client.getDatabase(collNs.getDatabaseName()).getCollection(
+                                collNs.getCollectionName(), RawBsonDocument.class));
+
+                com.mongodb.model.Collection mcoll = new com.mongodb.model.Collection(
+                        collNs, sharded, collStats, indexes);
 
                 String shardedStatus = sharded ? "sharded" : "unsharded";
                 db.addCollection(mcoll);
@@ -97,6 +108,26 @@ public class StandardDatabaseCatalogProvider implements DatabaseCatalogProvider 
             }
             logger.debug("Add database {} to catalog with {} docs", dbName, db.getTotalDocumentCount());
             databaseCatalog.addDatabase(db);
+        }
+    }
+
+
+    private Set<IndexSpec> getCollectionIndexSpecs(MongoCollection<RawBsonDocument> collection) {
+        Set<IndexSpec> indexSpecs = new HashSet<>();
+        Namespace ns = new Namespace(collection.getNamespace());
+        var collIter = collection.listIndexes(RawBsonDocument.class);
+        try (MongoCursor<RawBsonDocument> cursor = collIter.cursor()) {
+            while (cursor.hasNext()) {
+                RawBsonDocument sourceSpec = cursor.next();
+                try {
+                    IndexSpec spec = IndexSpec.fromDocument(sourceSpec, ns);
+                    indexSpecs.add(spec);
+                } catch (BSONException be) {
+                    logger.error("Error getting index spec: {}", sourceSpec);
+                    logger.error("error", be);
+                }
+            }
+            return indexSpecs;
         }
     }
 
