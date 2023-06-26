@@ -228,6 +228,7 @@ public abstract class DiffTask implements Callable<DiffResult> {
                 Set<String> shardKeys = min.keySet();
                 BsonDocument hintDoc = findHintDoc(min);
 
+                logger.debug("hint: {}", hintDoc);
                 finder = coll.find().min(min).max(max).hint(hintDoc.getDocument("key")).batchSize(10000);
             }
         }

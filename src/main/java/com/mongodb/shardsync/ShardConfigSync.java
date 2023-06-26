@@ -347,8 +347,6 @@ public class ShardConfigSync implements Callable<Integer> {
 
     public void compareIndexes(boolean collModTtl) {
         logger.debug("Starting compareIndexes");
-        sourceShardClient.populateShardMongoClients();
-        destShardClient.populateShardMongoClients();
         Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
         Map<Namespace, Set<IndexSpec>> destIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
         int diffCount = 0;

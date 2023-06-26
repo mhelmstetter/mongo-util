@@ -77,7 +77,7 @@ public class IndexSpec {
 
 	@Override
 	public int hashCode() {
-		return Objects.hash(key, namespace, sparse, unique);
+		return Objects.hash(key, namespace, expireAfterSeconds, sparse, unique);
 	}
 
 	@Override
@@ -91,6 +91,7 @@ public class IndexSpec {
 		IndexSpec other = (IndexSpec) obj;
 		return  Objects.equals(namespace, other.namespace)
 				&& Objects.equals(key, other.key)
+				&& Objects.equals(expireAfterSeconds, other.expireAfterSeconds)
 				&& sparse == other.sparse && unique == other.unique;
 	}
 
