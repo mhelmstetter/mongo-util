@@ -97,7 +97,7 @@ public class DiffUtilApp {
         options.addOption(withArgName("Status DB Name").hasArg().withLongOpt(STATUS_DB_NAME).create());
         options.addOption(withArgName("Status DB Collection Name").hasArg().withLongOpt(STATUS_DB_COLL_NAME).create());
         options.addOption(OptionBuilder.withArgName("Bypass mongos (requires exact chunk alignment between source and target")
-                .withLongOpt(BYPASS_MONGOS).create(BYPASS_MONGOS));
+                .hasArg().withLongOpt(BYPASS_MONGOS).create(BYPASS_MONGOS));
         CommandLineParser parser = new GnuParser();
 
         try {
