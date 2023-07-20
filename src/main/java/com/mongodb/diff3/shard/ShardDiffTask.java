@@ -64,7 +64,12 @@ public class ShardDiffTask extends DiffTask {
             default:
                 throw new RuntimeException("Unexpected target type: " + target.getName());
         }
-        return shardClient.getShardMongoClient(shardName);
+        if (config.isBypassMongos()) {
+        	return shardClient.getShardMongoClient(shardName);
+        } else {
+        	return shardClient.getMongoClient();
+        }
+        
     }
 
 //    protected Pair<Bson, Bson> getChunkBounds() {

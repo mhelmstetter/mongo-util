@@ -585,7 +585,7 @@ public class ShardConfigSyncApp {
         if (line.hasOption(MONGO_MIRROR) && !line.hasOption("r")) {
             actionFound = true;
             String mongoMirrorPath = line.getOptionValue("p", properties.getString(MONGOMIRROR_BINARY));
-            boolean preserveUUIDs = line.hasOption(PRESERVE_UUIDS);
+            boolean preserveUUIDs = Boolean.parseBoolean(getConfigValue(line, properties, PRESERVE_UUIDS, "false"));
 
 
             if (line.hasOption(COLL_STATS_THRESHOLD)) {

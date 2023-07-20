@@ -1832,6 +1832,7 @@ public class ShardConfigSync implements Callable<Integer> {
             mongomirror.setMongomirrorBinary(config.mongomirrorBinary);
             mongomirror.setBookmarkFile(source.getId() + ".timestamp");
 
+            mongomirror.setPreserveUUIDs(config.preserveUUIDs);
             mongomirror.setNumParallelCollections(config.numParallelCollections);
             mongomirror.setWriteConcern(config.writeConcern);
             mongomirror.setHttpStatusPort(httpStatusPort++);

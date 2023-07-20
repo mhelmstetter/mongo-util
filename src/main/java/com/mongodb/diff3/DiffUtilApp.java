@@ -20,6 +20,7 @@ import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
+import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.configuration2.PropertiesConfiguration;
@@ -55,6 +56,7 @@ public class DiffUtilApp {
     private final static String ARCHIVE = "archive";
     private final static String SYNC_MISMATCHES = "syncMismatches";
     private final static String FILTER = "filter";
+    private static final String BYPASS_MONGOS = "bypassMongos";
 
     private final static String DEFAULT_THREADS = "8";
     private final static String DEFAULT_SAMPLE_RATE = "0.04";
@@ -81,7 +83,7 @@ public class DiffUtilApp {
         options.addOption(withArgName("Number of worker threads").hasArg()
                 .withLongOpt(THREADS).create("t"));
         options.addOption(withArgName("Mode (one of: [shard, partition {default}])").hasArg()
-                .withLongOpt("mode").create("m"));
+                .withLongOpt("mode").create());
         options.addOption(withArgName("Sample rate for partitions").hasArg()
                 .withLongOpt(SAMPLE_RATE).create());
         options.addOption(withArgName("Min docs to sample for partitions").hasArg()
@@ -94,7 +96,8 @@ public class DiffUtilApp {
         options.addOption(withArgName("Status DB URI").hasArg().withLongOpt(STATUS_DB_URI).create());
         options.addOption(withArgName("Status DB Name").hasArg().withLongOpt(STATUS_DB_NAME).create());
         options.addOption(withArgName("Status DB Collection Name").hasArg().withLongOpt(STATUS_DB_COLL_NAME).create());
-
+        options.addOption(OptionBuilder.withArgName("Bypass mongos (requires exact chunk alignment between source and target")
+                .withLongOpt(BYPASS_MONGOS).create(BYPASS_MONGOS));
         CommandLineParser parser = new GnuParser();
 
         try {
@@ -175,6 +178,8 @@ public class DiffUtilApp {
                 line, properties, SYNC_MISMATCHES, "false")));
         config.setSourceRsManual(properties.getStringArray(SOURCE_RS_MANUAL));
         config.setDestRsManual(properties.getStringArray(DEST_RS_MANUAL));
+        config.setBypassMongos(Boolean.parseBoolean(getConfigValue(
+                line, properties, BYPASS_MONGOS, "true")));
 
         Set<Namespace> inclNamespaces = new HashSet<>();
         String[] filters = getConfigValues(line, properties, FILTER);

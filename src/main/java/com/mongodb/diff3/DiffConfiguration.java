@@ -25,6 +25,7 @@ public class DiffConfiguration extends BaseConfiguration {
 	private String statusDbCollName;
 	private final String[] knownModes = new String[]{PARTITION_MODE, RECHECK_MODE, SHARD_MODE};
 	private DiffSummaryClient diffSummaryClient;
+	private boolean bypassMongos;
 	
 	public DiffSummaryClient getDiffSummaryClient() {
 		if (diffSummaryClient == null) {
@@ -141,5 +142,13 @@ public class DiffConfiguration extends BaseConfiguration {
 
 	public void setArchive(boolean archive) {
 		this.archive = archive;
+	}
+
+	public boolean isBypassMongos() {
+		return bypassMongos;
+	}
+
+	public void setBypassMongos(boolean bypassMongos) {
+		this.bypassMongos = bypassMongos;
 	}
 }

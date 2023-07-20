@@ -124,6 +124,7 @@ public class ShardClient {
 	private Map<String, RawBsonDocument> chunksCache = new LinkedHashMap<>();
 
 	private Map<String, Shard> tertiaryShardsMap = new LinkedHashMap<String, Shard>();
+	Map<String, String> rsNameToShardIdMap = new HashMap<>();
 
 	private ConnectionString connectionString;
 	private MongoClientSettings mongoClientSettings;
@@ -335,7 +336,6 @@ public class ShardClient {
 			} else if (manualShardHosts) {
 
 				// in some cases the rs name doesn't match the shard name
-				Map<String, String> rsNameToShardIdMap = new HashMap<>();
 				for (Shard shard : shardsMap.values()) {
 					rsNameToShardIdMap.put(shard.getRsName(), shard.getId());
 				}
