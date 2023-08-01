@@ -74,6 +74,7 @@ import com.mongodb.client.model.CollationStrength;
 import com.mongodb.client.model.CreateCollectionOptions;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
+import com.mongodb.client.model.ValidationOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
@@ -129,7 +130,9 @@ public class ShardConfigSync implements Callable<Integer> {
     DocumentCodec documentCodec = new DocumentCodec(registry);
 
     public ShardConfigSync(SyncConfiguration config) {
-        logger.debug("ShardConfigSync starting");
+        Package pkg = ShardConfigSync.class.getPackage();
+        String version = pkg.getImplementationVersion();
+        logger.debug("ShardConfigSync starting - mongo-util version {}", version);
         this.config = config;
     }
 
@@ -230,12 +233,24 @@ public class ShardConfigSync implements Callable<Integer> {
         if (options.isEmpty()) {
             return opts;
         }
-        logger.warn("non default collection options: {}", collectionInfo);
+        logger.info("non default collection options: {}", collectionInfo);
 
         Document collationDoc = options.get("collation", Document.class);
         if (collationDoc != null) {
             Collation collation = getCollation(collationDoc);
             opts.collation(collation);
+        }
+        
+        Document storageEngine = options.get("storageEngine", Document.class);
+        if (storageEngine != null) {
+        	opts.storageEngineOptions(storageEngine);
+        }
+        
+        Document validator = options.get("validator", Document.class);
+        if (validator != null) {
+        	System.out.println();
+        	ValidationOptions validationOpts = new ValidationOptions().validator(validator);
+        	opts.validationOptions(validationOpts);
         }
 
         Boolean capped = options.getBoolean("capped");
