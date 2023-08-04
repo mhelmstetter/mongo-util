@@ -103,3 +103,8 @@ wget -O mongo-util.jar https://github.com/mhelmstetter/mongo-util/blob/master/bi
 Run:
 ```
 java -cp mongo-util.jar com.mongodb.mongoexport.MongoExport --uri mongodb://localhost:27017 -d mydb -c myCollection -o myCollection.json
+```
+
+Disclaimer
+----------
+This software is not supported by MongoDB, Inc. under any of their commercial support subscriptions or otherwise. Any usage of this software is at your own risk. Bug reports, feature requests and questions can be posted in the Issues section on GitHub.
