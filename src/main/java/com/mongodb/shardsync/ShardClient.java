@@ -10,6 +10,8 @@ import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.regex;
 import static com.mongodb.client.model.Projections.include;
+import static com.mongodb.client.model.Projections.exclude;
+import static com.mongodb.client.model.Projections.*;
 import static java.util.Arrays.asList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
@@ -26,9 +28,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
+import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
@@ -66,6 +70,7 @@ import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.model.DatabaseCatalog;
 import com.mongodb.model.DatabaseCatalogProvider;
 import com.mongodb.model.IndexSpec;
+import com.mongodb.model.Megachunk;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Privilege;
@@ -77,6 +82,7 @@ import com.mongodb.model.ShardTimestamp;
 import com.mongodb.model.StandardDatabaseCatalogProvider;
 import com.mongodb.model.User;
 import com.mongodb.util.MaskUtil;
+import com.mongodb.util.bson.BsonUuidUtil;
 
 /**
  * This class encapsulates the client related objects needed for each source and
@@ -143,6 +149,7 @@ public class ShardClient {
 	private Map<String, MongoClient> mongosMongoClients = new TreeMap<String, MongoClient>();
 
 	private Map<String, Document> collectionsMap = new TreeMap<String, Document>();
+	private Map<UUID, String> collectionsUuidMap = new TreeMap<>();
 	private DatabaseCatalog databaseCatalog;
 	private DatabaseCatalogProvider databaseCatalogProvider;
 
@@ -233,6 +240,10 @@ public class ShardClient {
 		logger.info(String.format("%s : MongoDB version: %s, mongos: %s", name, version, mongos));
 
 		populateMongosList();
+		
+		if (this.isVersion5OrLater()) {
+			populateCollectionsMap();
+		}
 	}
 
 	/**
@@ -493,14 +504,30 @@ public class ShardClient {
 		MongoCollection<Document> shardsColl = configDb.getCollection("collections");
 		Bson filter = null;
 		if (namespaces == null || namespaces.isEmpty()) {
-			filter = eq("dropped", false);
+			if (! isVersion5OrLater()) {
+				filter = eq("dropped", false);
+			}
 		} else {
-			filter = and(eq("dropped", false), in("_id", namespaces));
+			if (! isVersion5OrLater()) {
+				filter = in("_id", namespaces);
+			} else {
+				filter = and(eq("dropped", false), in("_id", namespaces));
+			}
 		}
-		FindIterable<Document> colls = shardsColl.find(filter).sort(Sorts.ascending("_id"));
+		FindIterable<Document> colls; 
+		if (filter != null) {
+			colls = shardsColl.find(filter).sort(Sorts.ascending("_id"));
+		} else {
+			colls = shardsColl.find().sort(Sorts.ascending("_id"));
+		}
+		
 		for (Document c : colls) {
 			String id = (String) c.get("_id");
 			collectionsMap.put(id, c);
+			if (c.containsKey("uuid") && isVersion5OrLater()) {
+				UUID uuid = (UUID)c.get("uuid");
+				collectionsUuidMap.put(uuid, id);
+			}
 		}
 		logger.debug(String.format("%s Finished populateCollectionsMap(), %s collections loaded from config server",
 				name, collectionsMap.size()));
@@ -952,6 +979,13 @@ public class ShardClient {
 		return false;
 	}
 	
+	public boolean isVersion5OrLater() {
+		if (versionArray.get(0) >= 5) {
+			return true;
+		}
+		return false;
+	}
+	
 	public boolean isAtlas() {
 		if (connectionString != null) {
 			List<String> hosts = connectionString.getHosts();
@@ -1246,6 +1280,28 @@ public class ShardClient {
 		return bs.getValue();
 	}
 
+//	public String getIdFromChunk(RawBsonDocument sourceChunk) {
+//		RawBsonDocument min = null;
+//		BsonValue minVal = sourceChunk.get("min");
+//		if (minVal instanceof BsonDocument) {
+//			 min = (RawBsonDocument)minVal;
+//		} else {
+//			//TODO log this?
+//		}
+//		RawBsonDocument max = (RawBsonDocument) sourceChunk.get("max");
+//		String ns = null;
+//		if (sourceChunk.containsKey("ns")) {
+//			ns = sourceChunk.getString("ns").getValue();
+//		} else {
+//			BsonBinary uuid = (BsonBinary)sourceChunk.get("uuid");
+//			
+//			UUID u = BsonUuidUtil.convertBsonBinaryToUuid(uuid);
+//			ns = collectionsUuidMap.get(u);
+//		}
+//		
+//		return getIdFromChunk(ns, min, max);
+//	}
+	
 	public static String getIdFromChunk(RawBsonDocument sourceChunk) {
 		RawBsonDocument min = null;
 		BsonValue minVal = sourceChunk.get("min");
@@ -1268,27 +1324,48 @@ public class ShardClient {
 	public static String getShardFromChunk(BsonDocument chunk) {
 		return chunk.getString("shard").getValue();
 	}
-
-	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery) {
+	
+	public Map<String, RawBsonDocument> getChunksCache(BsonDocument chunkQuery) {
+		Map<String, RawBsonDocument> cache = new LinkedHashMap<>(); 
+		return loadChunksCache(chunkQuery, cache);
+	}
+	
+	private Bson getChunkSort() {
+		if (this.isVersion5OrLater()) {
+			return Sorts.ascending("uuid", "min");
+		} else {
+			return Sorts.ascending("ns", "min");
+		}
+		
+	}
+	
+	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery, Map<String, RawBsonDocument> cache) {
 		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
 
-		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery).sort(Sorts.ascending("ns", "min"));
+		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery)
+				.projection(exclude("_id", "history", "lastmodEpoch", "lastmod"))
+				.sort(getChunkSort());
 
 		int count = 0;
 		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
 			RawBsonDocument chunk = sourceChunksIterator.next();
 			String chunkId = getIdFromChunk(chunk);
-			chunksCache.put(chunkId, chunk);
+			cache.put(chunkId, chunk);
 			count++;
 		}
 		logger.debug("{}: loaded {} chunks into chunksCache", name, count);
-		return chunksCache;
+		return cache;
+	}
+
+	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery) {
+		return loadChunksCache(chunkQuery, chunksCache);
 	}
 
 	public Map<String, Map<String, RawBsonDocument>> loadChunksCacheMap(Document chunkQuery) {
 		Map<String, Map<String, RawBsonDocument>> output = new HashMap<>();
 		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
-		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery).
+		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery)
+				.projection(fields(exclude("lastmod"), exclude("lastmodEpoch"), exclude("history"), excludeId())).
 				sort(Sorts.ascending("ns", "min"));
 
 		int count = 0;
@@ -1382,15 +1459,15 @@ public class ShardClient {
 		RawBsonDocument min = (RawBsonDocument) chunk.get("min");
 		RawBsonDocument max = (RawBsonDocument) chunk.get("max");
 		String ns = chunk.getString("ns").getValue();
-		return moveChunk(ns, min, max, moveToShard, ignoreMissing, secondaryThrottle, waitForDelete);
+		return moveChunk(ns, min, max, moveToShard, ignoreMissing, secondaryThrottle, waitForDelete, false);
 	}
 
 	public boolean moveChunk(RawBsonDocument chunk, String moveToShard, boolean ignoreMissing) {
 		return moveChunk(chunk, moveToShard, ignoreMissing, false, false);
 	}
 
-	public boolean moveChunk(String namespace, RawBsonDocument min, RawBsonDocument max, String moveToShard, 
-			boolean ignoreMissing, boolean secondaryThrottle, boolean waitForDelete) {
+	public boolean moveChunk(String namespace, BsonDocument min, BsonDocument max, String moveToShard, 
+			boolean ignoreMissing, boolean secondaryThrottle, boolean waitForDelete, boolean majorityWrite) {
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
 		moveChunkCmd.append("to", moveToShard);

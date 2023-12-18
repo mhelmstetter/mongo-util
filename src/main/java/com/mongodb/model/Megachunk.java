@@ -117,5 +117,9 @@ public class Megachunk {
 		builder.append("]");
 		return builder.toString();
 	}
+
+	public void setMax(BsonDocument max) {
+		this.max = max;
+	}
 	
 }

@@ -156,7 +156,7 @@ public class ChunkManager {
 		}
 	}
 	
-	private List<Megachunk> getMegaChunks(Map<String, RawBsonDocument> chunksCache) {
+	public List<Megachunk> getMegaChunks(Map<String, RawBsonDocument> chunksCache) {
 		List<Megachunk> optimizedChunks = new ArrayList<>();
 		
 		Megachunk mega = null;
@@ -265,7 +265,8 @@ public class ChunkManager {
 			String destShard = destChunkToShardMap.get(mega2.getId());
 
 			if (doMove && destShard != null && !mappedShard.equals(destShard)) {
-				boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), (RawBsonDocument)mega2.getMax(), mappedShard, false, false, false);
+				boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), 
+						(RawBsonDocument)mega2.getMax(), mappedShard, false, false, false, false);
 				if (! moveSuccess) {
 					errorCount++;
 				}
@@ -403,7 +404,7 @@ public class ChunkManager {
 			} else if (doMove && !mappedShard.equals(destShard)) {
 				//logger.debug(String.format("%s: moving chunk from %s to %s", sourceNs, destShard, mappedShard));
 				if (doMove) {
-					boolean moveSuccess = destShardClient.moveChunk(sourceNs, sourceMin, sourceMax, mappedShard, ignoreMissing, false, false);
+					boolean moveSuccess = destShardClient.moveChunk(sourceNs, sourceMin, sourceMax, mappedShard, ignoreMissing, false, false, false);
 					if (! moveSuccess) {
 						errorCount++;
 					}

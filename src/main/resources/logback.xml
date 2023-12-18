@@ -21,6 +21,7 @@
   <logger name="com.mongodb.schema" level="DEBUG"/>
   <logger name="com.mongodb.shard" level="DEBUG"/>
   <logger name="com.mongodb.shardsync" level="DEBUG" additivity="true"/>
+  <logger name="com.mongodb.shardbalancer" level="DEBUG"/>
   <logger name="com.mongodb.shardsync.ShardClient" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.mongosync" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.corruptutil" level="DEBUG" additivity="true"/>
