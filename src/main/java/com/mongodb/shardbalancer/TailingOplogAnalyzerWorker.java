@@ -50,7 +50,6 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 	
 	private int checkpointIntervalMillis;
 	
-	private boolean shutdown = false;
 	ShardClient sourceShardClient;
 	MongoClient mongoClient;
 	String shardId;
@@ -68,8 +67,6 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 	
 	private Map<String, Document> collectionsMap;
 	
-	private boolean stop;
-	
 	int round = 0;
 	
 
@@ -79,7 +76,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		this.shardId = sourceShardId;
 		this.config = config;
 		this.chunkMap = config.getChunkMap();
-		this.chunkUpdateBuffer = new ChunkUpdateBuffer(shardId);
+		this.chunkUpdateBuffer = new ChunkUpdateBuffer(shardId, config);
 		this.collectionsMap = sourceShardClient.getCollectionsMap();
 		this.checkpointIntervalMillis = config.getCheckpointIntervalMinutes() * 60 * 1000;
 		timer = new Timer();
@@ -90,21 +87,21 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 
 	@Override
 	public void run() {
-		
 		startCheckpointTimer();
-		
-		
-		while (!stop) {
-			oplogTail();
+		while (true) {
+			if (config.runAnalyzer()) {
+				oplogTail();
+			}
 			try {
-				Thread.sleep(config.getAnalyzerSleepIntervalMillis());
+				Thread.sleep(30000);
 			} catch (InterruptedException e) {
 			}
 		}
 		
-		logger.debug("{}: oplog analyzer worker exiting", shardId);
-		
+		//logger.debug("{}: oplog analyzer worker exiting", shardId);
 	}
+	
+	
 	
 	private void oplogTail() {
 		BsonTimestamp shardTimestamp = getLatestOplogTimestamp();
@@ -125,7 +122,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		try {
 			cursor = oplog.find(query).sort(new Document("$natural", 1)).noCursorTimeout(true)
 					.cursorType(CursorType.TailableAwait).iterator();
-			while (cursor.hasNext() && !checkpointDue.get()) {
+			while (cursor.hasNext() && config.runAnalyzer() && !checkpointDue.get()) {
 				
 				RawBsonDocument doc = cursor.next();
 				
@@ -153,13 +150,13 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 	            }
 	            
 	            NavigableMap<String, CountingMegachunk> innerMap = chunkMap.get(ns);
-	            Map.Entry<String, CountingMegachunk> entry = innerMap.lowerEntry(id.getValue());
+	            Map.Entry<String, CountingMegachunk> entry = innerMap.floorEntry(id.getValue());
 	            
 	            if (entry != null) {
 	            	CountingMegachunk m = entry.getValue();
 		            
 		            if (! m.getShard().equals(shardId)) {
-		            	logger.error("shard for this chunk does not match: {}", m);
+		            	logger.error("shard for this chunk does not match, id: {}, chunk: {}", id, m);
 		            	continue;
 		            }
 		            

@@ -6,15 +6,21 @@ import static com.mongodb.client.model.Aggregates.match;
 import static com.mongodb.client.model.Aggregates.project;
 import static com.mongodb.client.model.Aggregates.sort;
 import static com.mongodb.client.model.Aggregates.unwind;
+import static com.mongodb.client.model.Filters.*;
+import static com.mongodb.client.model.mql.MqlValues.*;
+
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Projections.computed;
 import static com.mongodb.client.model.Projections.excludeId;
 import static com.mongodb.client.model.Projections.fields;
+import static com.mongodb.client.model.Projections.include;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Sorts.descending;
 import static com.mongodb.client.model.Sorts.orderBy;
+import com.mongodb.client.model.Updates;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -25,8 +31,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.configuration2.PropertiesConfiguration;
@@ -41,6 +50,7 @@ import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
+import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,7 +87,9 @@ public class Balancer implements Callable<Integer> {
 
 	private TailingOplogAnalyzer oplogAnalyzer;
 
-	private boolean stopped;
+	private Timer timer;
+
+	private AtomicBoolean stopped = new AtomicBoolean(false);
 
 	private ChunkStats chunkStats;
 
@@ -102,14 +114,18 @@ public class Balancer implements Callable<Integer> {
 		}
 
 		balancerConfig.setStatsCollection(sourceShardClient.getCollection(balancerConfig.getStatsNamespace()));
+		balancerConfig.setBalancerRoundCollection(
+				sourceShardClient.getCollection(balancerConfig.getBalancerRoundNamespace()));
+		balancerConfig.setBalancerStateCollection(
+				sourceShardClient.getCollection(balancerConfig.getBalancerStateNamespace()));
 
 		ChunkManager chunkManager = new ChunkManager(balancerConfig);
 		chunkManager.initializeChunkQuery();
 		BsonDocument chunkQuery = chunkManager.getChunkQuery();
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
 
-		//List<Megachunk> megaChunks = chunkManager.getMegaChunks(sourceChunksCache);
-		//logger.debug("{} mega chunks", megaChunks.size());
+		// List<Megachunk> megaChunks = chunkManager.getMegaChunks(sourceChunksCache);
+		// logger.debug("{} mega chunks", megaChunks.size());
 
 		int uberThreshold = (sourceChunksCache.size() >= 1000) ? 300 : 100;
 
@@ -129,28 +145,27 @@ public class Balancer implements Callable<Integer> {
 			String ns = m.getString("ns").getValue();
 			mega.setNs(ns);
 			mega.setShard(m.getString("shard").getValue());
-			
+
 			NavigableMap<String, CountingMegachunk> innerMap = chunkMap.get(ns);
 			if (innerMap == null) {
 				innerMap = new TreeMap<>();
 				chunkMap.put(ns, innerMap);
 			}
-			
+
 			// Document collDoc = this.sourceShardClient.getCollectionsMap().get(ns);
 
 			BsonDocument min = m.getDocument("min");
 			mega.setMin(min);
-			
+
 			BsonValue max = m.get("max");
 			if (max instanceof BsonMaxKey) {
-				System.out.println();
+				logger.warn("*** BsonMaxKey not handled");
 			} else if (max instanceof BsonDocument) {
-				mega.setMax((BsonDocument)max);
+				mega.setMax((BsonDocument) max);
 			} else {
 				logger.error("unexpected max type: {}", max);
 			}
-			//;
-			
+
 			BsonValue val = min.get("_id");
 			if (val == null) {
 				logger.error("could not get _id shard key from chunk: {}", mega);
@@ -163,57 +178,94 @@ public class Balancer implements Callable<Integer> {
 			}
 		}
 		balancerConfig.setChunkMap(chunkMap);
+
+		timer = new Timer();
+		timer.scheduleAtFixedRate(new TimerTask() {
+			@Override
+			public void run() {
+				updateBalancerState();
+			}
+		}, 0, balancerConfig.getBalancerPollIntervalMillis());
+	}
+
+	private void waitForChunkStats() throws InterruptedException {
+		updateChunkStats();
+		while (chunkStats.isEmpty()) {
+			logger.debug("chunkStats empty, sleeping");
+			Thread.sleep(30000);
+			updateChunkStats();
+		}
 	}
 
 	public Integer call() throws ConfigurationException, InterruptedException {
 
 		parseArgs();
 		init();
+
 		oplogAnalyzer = new TailingOplogAnalyzer(balancerConfig);
 		oplogAnalyzer.start();
 
-		// Thread.sleep(300000);
-		updateChunkStats();
+		//Thread.sleep(balancerConfig.getAnalyzerSleepIntervalMillis());
 
-		while (!stopped) {
+		waitForChunkStats();
 
-			if (chunkStats.isEmpty()) {
-				logger.debug("chunkStats empty, sleeping");
-				Thread.sleep(30000);
-				continue;
+		int iteration = 1;
+		
+		while (!stopped.get()) {
+			
+			//String ns = chunkStats.getHighestPriorityNamespace();
+			
+			logger.debug("Balancer call() iteration {}", iteration++);
+			
+			List<Document> nsStats = this.getNamespaceStats();
+			for (Document d : nsStats) {
+				logger.debug(d.toString());
 			}
-
-			String ns = chunkStats.getHighestPriorityNamespace();
+			
+			String ns = nsStats.get(0).getString("ns");
+			
 			String hottest = chunkStats.getHottestShard(ns);
 			String coldest = chunkStats.getColdestShard(ns);
-			logger.debug("{} - hottest shard: {}, coldest shard: {}", ns, hottest, coldest);
-			
-			List<String> shardPairs = chunkStats.getHottestColdestPairs(ns);
 
-			// Print or process the shard pairs as needed
-			for (int i = 0; i < shardPairs.size(); i += 2) {
-			    String hottestShard = shardPairs.get(i);
-			    String coldestShard = shardPairs.get(i + 1);
-			    System.out.println("Pair " + (i / 2 + 1) + ": Hottest Shard = " + hottestShard + ", Coldest Shard = " + coldestShard);
-			}
+			chunkStats.getTargetOpsPerShard(ns);
+
+			logger.debug("{} - hottest shard: {}, coldest shard: {}", ns, hottest, coldest);
 
 			List<Document> hotChunks = getHotChunks(hottest, ns);
 			logger.debug("fetched the hottest {} chunks on {}", hotChunks.size(), hottest);
-			
 
 			int i = 1;
 			for (Document chunkDoc : hotChunks) {
-				String id = chunkDoc.getString("id");
-				
+
+				String id = null;
+				Object v = chunkDoc.get("id");
+				if (v instanceof String) {
+					id = (String) v;
+				} else {
+					System.out.println();
+				}
+
 				NavigableMap<String, CountingMegachunk> innerMap = chunkMap.get(ns);
-				
+
 				CountingMegachunk mega = innerMap.get(id);
 
-				logger.debug("move chunk [ {} / {} ]: {}", i++, hotChunks.size(), mega);
-				
-				boolean success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), coldest, false, false, false, false);
+				logger.debug("move chunk [ {} / {} ]: {}, _id: {}", i++, hotChunks.size(), mega, chunkDoc.get("_id"));
+
+				boolean success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), coldest, false, false,
+						false, false);
 				if (success) {
 					mega.setShard(coldest);
+					balancerConfig.getStatsCollection().updateOne(
+							and(eq("_id", chunkDoc.get("_id")), eq("chunks.id", id)),
+							Updates.combine(
+								Updates.set("chunks.$.balanced", true),
+								Updates.inc("balancedChunks", 1)
+							));
+				}
+
+				if (stopped.get()) {
+					logger.debug("Balancer stop requested, terminating current balancing batch");
+					break;
 				}
 			}
 
@@ -225,7 +277,6 @@ public class Balancer implements Callable<Integer> {
 
 	}
 
-
 	private Date nowMinus24Hours() {
 		Date currentDate = new Date();
 		Calendar calendar = Calendar.getInstance();
@@ -233,6 +284,23 @@ public class Balancer implements Callable<Integer> {
 		calendar.add(Calendar.HOUR_OF_DAY, -24);
 		Date twentyFourHoursAgo = calendar.getTime();
 		return twentyFourHoursAgo;
+	}
+
+	private void updateBalancerState() {
+		// BalancerState bs = new BalancerState();
+		Document bsDoc = balancerConfig.getBalancerStateCollection().find().first();
+		if (bsDoc == null) {
+			bsDoc = new Document("runAnalyzer", false);
+			balancerConfig.getBalancerStateCollection().insertOne(bsDoc);
+		}
+		Boolean runAnalyzer = bsDoc.getBoolean("runAnalyzer");
+		logger.debug("updateBalancerState: runAnalyzer: {}", runAnalyzer);
+		if (runAnalyzer) {
+			ObjectId aid = new ObjectId();
+			balancerConfig.setAnalysisId(aid);
+			balancerConfig.getBalancerStateCollection().updateOne(empty(), Updates.set("analysisId", aid));
+		}
+		balancerConfig.setRunAnalyzer(runAnalyzer);
 	}
 
 	private void updateChunkStats() {
@@ -243,15 +311,51 @@ public class Balancer implements Callable<Integer> {
 				.aggregate(Arrays.asList(match(gte("startTime", nowMinus24)),
 						group(fields(eq("ns", "$ns"), eq("shard", "$shard")), Accumulators.sum("totalOps", "$total"),
 								Accumulators.sum("activeChunks", "$activeChunks")),
-						sort(orderBy(ascending("_id.ns"), descending("totalOps")))));
+						sort(orderBy(ascending("_id.ns"), descending("totalOps"))),
+						project(fields(computed("ns", "$_id.ns"), computed("shard", "$_id.shard"), include("totalOps"),
+								include("activeChunks")))));
 
+		int resultNum = 0;
 		for (Document result : results) {
-			Document id = result.get("_id", Document.class);
-			ChunkStatsEntry chunkStatsEntry = new ChunkStatsEntry(id.getString("ns"), id.getString("shard"),
+			String ns = result.getString("ns");
+			if (ns == null) {
+				logger.warn("updateChunkStats(), ns from aggregate was null!");
+			}
+			ChunkStatsEntry chunkStatsEntry = new ChunkStatsEntry(ns, result.getString("shard"),
 					result.getLong("totalOps"), result.getInteger("activeChunks"));
 			chunkStats.addEntry(chunkStatsEntry);
+			resultNum++;
 		}
+		logger.debug("updateChunkStats(), got {} results from chunkStats collection", resultNum);
 	}
+	
+	private List<Document> getNamespaceStats() {
+
+		List<Document> results = new ArrayList<>();
+		
+		balancerConfig.getStatsCollection()
+			.aggregate(Arrays.asList(
+				//match(gte("startTime", nowMinus24)),
+				group(fields(eq("ns", "$ns"), eq("shard", "$shard")), Accumulators.sum("totalOps", "$total"),
+						Accumulators.sum("activeChunks", "$activeChunks")),
+				
+				project(fields(computed("ns", "$_id.ns"), computed("shard", "$_id.shard"), include("totalOps"),
+						include("activeChunks"))),
+				
+				group(fields(eq("ns", "$ns")), Accumulators.sum("totalOps", "$totalOps"),
+						Accumulators.sum("activeChunks", "$activeChunks"), 
+						Accumulators.min("minTotalOps", "$totalOps"), Accumulators.max("maxTotalOps", "$totalOps")),
+				
+				project(fields(computed("ns", "$_id"), include("totalOps"), include("activeChunks"),
+						computed("deltaOps", current().getNumber("$maxTotalOps").subtract(current().getNumber("$minTotalOps")))
+				)),
+				
+				sort(orderBy(descending("deltaOps")))
+		)).into(results);
+
+		return results;
+	}
+	
 
 	private List<Document> getHotChunks(String shard, String ns) {
 
@@ -261,9 +365,12 @@ public class Balancer implements Callable<Integer> {
 		List<Document> results = new ArrayList<>();
 		balancerConfig.getStatsCollection()
 				.aggregate(Arrays.asList(match(and(gte("startTime", nowMinus24), eq("ns", ns), eq("shard", shard))),
-						project(fields(excludeId())),
-						unwind("$chunks"), project(fields(computed("id", "$chunks.id"), computed("count", "$chunks.cnt"))),
-						sort(orderBy(descending("count"))), limit(balancerConfig.getBalancerChunkBatchSize())))
+						// project(fields(excludeId())),
+						unwind("$chunks"),
+						project(fields(computed("id", "$chunks.id"), computed("count", "$chunks.cnt"),
+								computed("balanced", "$chunks.balanced"))),
+						match(in("balanced", null, false)), sort(orderBy(descending("count"))),
+						limit(balancerConfig.getBalancerChunkBatchSize())))
 				.into(results);
 
 		return results;

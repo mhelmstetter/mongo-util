@@ -26,10 +26,12 @@ public class ChunkUpdateBuffer {
 	Date endTime;
 	
 	private String shardId;
+	private BalancerConfig config;
 	
 	
-	public ChunkUpdateBuffer(String shardId) {
+	public ChunkUpdateBuffer(String shardId, BalancerConfig config) {
 		this.shardId = shardId;
+		this.config = config;
 	}
 	
 	public void start() {
@@ -75,11 +77,13 @@ public class ChunkUpdateBuffer {
 					checkpoint.append("uberId", uberId);
 				}
 				
+				checkpoint.append("analysisId", config.getAnalysisId());
 				checkpoint.append("ns", ns);
 				checkpoint.append("shard", shardId);
 				checkpoint.append("startTime", startTime);
 				endTime = new Date();
 				checkpoint.append("endTime", endTime);
+				
 				
 				List<Document> chunks = new ArrayList<>();
 				//Map<String, Long> chunks = new LinkedHashMap<>();

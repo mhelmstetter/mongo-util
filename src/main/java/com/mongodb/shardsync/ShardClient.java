@@ -426,7 +426,7 @@ public class ShardClient {
 		if (connectionString.isSrvProtocol()) {
 
 			DefaultDnsResolver resolver = new DefaultDnsResolver();
-			srvHosts = resolver.resolveHostFromSrvRecords(connectionString.getHosts().get(0));
+			srvHosts = resolver.resolveHostFromSrvRecords(connectionString.getHosts().get(0), "mongodb");
 
 			for (String hostPort : srvHosts) {
 				logger.debug("populateMongosList() mongos srvHost: " + hostPort);

@@ -3,6 +3,7 @@ package com.mongodb.shardbalancer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,16 +17,10 @@ public class TailingOplogAnalyzer {
 
 	private BalancerConfig balancerConfig;
 	private ShardClient sourceShardClient;
-
+	
 	public TailingOplogAnalyzer(BalancerConfig balancerConfig) {
 		this.balancerConfig = balancerConfig;
 		this.sourceShardClient = balancerConfig.getSourceShardClient();
-	}
-
-	
-
-	public void start() {
-        
 		int poolSize = sourceShardClient.getShardsMap().size();
 		executor = Executors.newFixedThreadPool(poolSize);
 		for (String sourceShardId : sourceShardClient.getShardsMap().keySet()) {
@@ -33,9 +28,14 @@ public class TailingOplogAnalyzer {
         	executor.execute(worker);
 		}
 	}
+
+	public void start() {
+		balancerConfig.setAnalysisId(new ObjectId());
+	}
+
 	
 
-	protected void stop() throws InterruptedException {
+	protected void shutdown() throws InterruptedException {
 		executor.shutdown();
         while (!executor.isTerminated()) {
             Thread.sleep(10000);

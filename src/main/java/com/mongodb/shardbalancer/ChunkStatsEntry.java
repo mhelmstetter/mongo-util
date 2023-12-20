@@ -6,12 +6,14 @@ public class ChunkStatsEntry  implements Comparable<ChunkStatsEntry> {
 	private String shard;
 	private long totalOps;
 	private int activeChunks;
+	private double opsPerChunk;
 
 	public ChunkStatsEntry(String ns, String shard, Long totalOps, Integer activeChunks) {
 		this.namespace = ns;
 		this.shard = shard;
 		this.totalOps = totalOps;
 		this.activeChunks = activeChunks;
+		this.opsPerChunk = totalOps / (double)activeChunks;
 	}
 	
     @Override
@@ -50,6 +52,14 @@ public class ChunkStatsEntry  implements Comparable<ChunkStatsEntry> {
 
 	public void setActiveChunks(int activeChunks) {
 		this.activeChunks = activeChunks;
+	}
+
+	public double getOpsPerChunk() {
+		return opsPerChunk;
+	}
+
+	public void setOpsPerChunk(double opsPerChunk) {
+		this.opsPerChunk = opsPerChunk;
 	}
 
 }
