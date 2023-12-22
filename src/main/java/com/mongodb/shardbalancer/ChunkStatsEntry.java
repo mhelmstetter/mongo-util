@@ -7,6 +7,7 @@ public class ChunkStatsEntry  implements Comparable<ChunkStatsEntry> {
 	private long totalOps;
 	private int activeChunks;
 	private double opsPerChunk;
+	private int chunksToMove;
 
 	public ChunkStatsEntry(String ns, String shard, Long totalOps, Integer activeChunks) {
 		this.namespace = ns;
@@ -60,6 +61,33 @@ public class ChunkStatsEntry  implements Comparable<ChunkStatsEntry> {
 
 	public void setOpsPerChunk(double opsPerChunk) {
 		this.opsPerChunk = opsPerChunk;
+	}
+
+	public int getChunksToMove() {
+		return chunksToMove;
+	}
+
+	public void setChunksToMove(int chunksToMove) {
+		this.chunksToMove = chunksToMove;
+	}
+
+	@Override
+	public String toString() {
+		StringBuilder builder = new StringBuilder();
+		builder.append("ChunkStatsEntry [namespace=");
+		builder.append(namespace);
+		builder.append(", shard=");
+		builder.append(shard);
+		builder.append(", totalOps=");
+		builder.append(totalOps);
+		builder.append(", activeChunks=");
+		builder.append(activeChunks);
+		builder.append(", opsPerChunk=");
+		builder.append(opsPerChunk);
+		builder.append(", chunksToMove=");
+		builder.append(chunksToMove);
+		builder.append("]");
+		return builder.toString();
 	}
 
 }

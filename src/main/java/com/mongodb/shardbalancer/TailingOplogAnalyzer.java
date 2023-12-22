@@ -1,5 +1,7 @@
 package com.mongodb.shardbalancer;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -18,6 +20,8 @@ public class TailingOplogAnalyzer {
 	private BalancerConfig balancerConfig;
 	private ShardClient sourceShardClient;
 	
+	private List<TailingOplogAnalyzerWorker> workers = new ArrayList<>();
+	
 	public TailingOplogAnalyzer(BalancerConfig balancerConfig) {
 		this.balancerConfig = balancerConfig;
 		this.sourceShardClient = balancerConfig.getSourceShardClient();
@@ -25,17 +29,31 @@ public class TailingOplogAnalyzer {
 		executor = Executors.newFixedThreadPool(poolSize);
 		for (String sourceShardId : sourceShardClient.getShardsMap().keySet()) {
 			TailingOplogAnalyzerWorker worker = new TailingOplogAnalyzerWorker(sourceShardId, balancerConfig); 
+			workers.add(worker);
         	executor.execute(worker);
 		}
 	}
 
 	public void start() {
-		balancerConfig.setAnalysisId(new ObjectId());
+		ObjectId aid = new ObjectId();
+		logger.debug("analyzer starting, analysisId: {}", aid);
+		balancerConfig.setAnalysisId(aid);
+		for (TailingOplogAnalyzerWorker worker : workers) {
+			worker.start();
+		}
+	}
+	
+	public void stop() {
+		for (TailingOplogAnalyzerWorker worker : workers) {
+			worker.stop();
+		}
+		logger.debug("analyzer workers complete");
 	}
 
 	
 
 	protected void shutdown() throws InterruptedException {
+		stop();
 		executor.shutdown();
         while (!executor.isTerminated()) {
             Thread.sleep(10000);

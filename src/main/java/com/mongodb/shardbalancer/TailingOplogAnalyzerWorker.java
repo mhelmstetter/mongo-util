@@ -61,9 +61,10 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 	private MongoCursor<RawBsonDocument> cursor = null;
 	private MongoCollection<RawBsonDocument> oplog;
 	
-	private Timer timer;
 
-	AtomicBoolean checkpointDue = new AtomicBoolean();
+	AtomicBoolean running = new AtomicBoolean();
+	
+	AtomicBoolean complete = new AtomicBoolean();
 	
 	private Map<String, Document> collectionsMap;
 	
@@ -79,7 +80,6 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		this.chunkUpdateBuffer = new ChunkUpdateBuffer(shardId, config);
 		this.collectionsMap = sourceShardClient.getCollectionsMap();
 		this.checkpointIntervalMillis = config.getCheckpointIntervalMinutes() * 60 * 1000;
-		timer = new Timer();
 		
 		MongoDatabase local = mongoClient.getDatabase("local");
 		oplog = local.getCollection("oplog.rs", RawBsonDocument.class);
@@ -87,23 +87,37 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 
 	@Override
 	public void run() {
-		startCheckpointTimer();
 		while (true) {
-			if (config.runAnalyzer()) {
+			
+			if(running.get()) {
 				oplogTail();
 			}
+			
 			try {
 				Thread.sleep(30000);
 			} catch (InterruptedException e) {
 			}
 		}
-		
-		//logger.debug("{}: oplog analyzer worker exiting", shardId);
+	}
+	
+	public void start() {
+		running.set(true);
+	}
+	
+	public void stop() {
+		running.set(false);
+		while (!complete.get()) {
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+			}
+		}
 	}
 	
 	
 	
 	private void oplogTail() {
+		complete.set(false);
 		BsonTimestamp shardTimestamp = getLatestOplogTimestamp();
 		ZonedDateTime zonedDateTime = Instant.ofEpochSecond(shardTimestamp.getTime()).atZone(ZoneOffset.UTC);
 		
@@ -122,7 +136,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		try {
 			cursor = oplog.find(query).sort(new Document("$natural", 1)).noCursorTimeout(true)
 					.cursorType(CursorType.TailableAwait).iterator();
-			while (cursor.hasNext() && config.runAnalyzer() && !checkpointDue.get()) {
+			while (cursor.hasNext() && running.get()) {
 				
 				RawBsonDocument doc = cursor.next();
 				
@@ -169,10 +183,9 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 	            }
 			}
 			executeCheckpoint();
-			checkpointDue.set(false);
 
 		} catch (MongoInterruptedException e) {
-			// ignore
+			logger.warn("interrupted", e);
 		} catch (Exception e) {
 			logger.error("tail error", e);
 		} finally {
@@ -181,6 +194,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 			} catch (Exception e) {
 			}
 		}
+		complete.set(true);
 	}
  	
 	private void executeCheckpoint() {
@@ -208,16 +222,6 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		logger.debug("{}: checkpoint complete, insertedCount: {}", shardId, bulkWriteResult.getInsertedCount());
 		writeModels.clear();
 		chunkUpdateBuffer.clear();
-	}
-	
-	private void startCheckpointTimer() {
-        timer.scheduleAtFixedRate(new TimerTask() {
-            @Override
-            public void run() {
-            	checkpointDue.set(true);
-            }
-        }, checkpointIntervalMillis, checkpointIntervalMillis);
-
 	}
 	
     private BsonTimestamp getLatestOplogTimestamp() {

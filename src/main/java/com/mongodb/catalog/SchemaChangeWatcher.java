@@ -64,7 +64,12 @@ public class SchemaChangeWatcher {
     public SchemaChangeWatcher(Configuration properties) {
     	SyncConfiguration config = new SyncConfiguration();
         config.setSourceClusterUri(line.getOptionValue("s", properties.getString(SOURCE_URI)));
-        config.setDestClusterUri(line.getOptionValue("d", properties.getString(DEST_URI)));
+        
+        String destUri = line.getOptionValue("d", properties.getString(DEST_URI));
+        if (destUri != null) {
+        	config.setDestClusterUri(destUri);
+        }
+        
         
         sync = new ShardConfigSync(config);
         sync.initialize();

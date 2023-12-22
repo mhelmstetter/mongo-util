@@ -38,6 +38,8 @@ public class BalancerConfig extends BaseConfiguration {
 	
 	protected Set<String> sourceShards;
 	
+	private boolean dryRun;
+	
 	Map<String, NavigableMap<String, CountingMegachunk>> chunkMap;
 	
 	AtomicBoolean runAnalyzer = new AtomicBoolean(false);
@@ -165,6 +167,14 @@ public class BalancerConfig extends BaseConfiguration {
 
 	public void setBalancerPollIntervalMillis(int balancerPollIntervalMillis) {
 		this.balancerPollIntervalMillis = balancerPollIntervalMillis;
+	}
+
+	public boolean isDryRun() {
+		return dryRun;
+	}
+
+	public void setDryRun(boolean dryRun) {
+		this.dryRun = dryRun;
 	}
 	
 	
