@@ -131,7 +131,7 @@ public class BaseConfiguration {
 	}
 
 	public ShardClient getDestShardClient() {
-		if (destShardClient == null) {
+		if (destShardClient == null && destClusterUri != null) {
 			destShardClient = new ShardClient("dest", destClusterUri);
 			destShardClient.init();
 		}
