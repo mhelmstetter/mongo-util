@@ -96,9 +96,11 @@ public class SchemaChangeWatcher {
             Timer timer = new Timer("SchemaChangeWatcher timer");
             timer.scheduleAtFixedRate(sourceTask, 0, checkIntervalSeconds*1000L);
             
-            CollectionUuidWatcherTask uuidTask = new CollectionUuidWatcherTask(name, sync, emailSender);
-            Timer t2 = new Timer("CollectionUuidWatcher timer");
-            t2.scheduleAtFixedRate(uuidTask, 0, checkIntervalSeconds*1000L);
+            if (watchCollectionUuids) {
+            	CollectionUuidWatcherTask uuidTask = new CollectionUuidWatcherTask(name, sync, emailSender);
+                Timer t2 = new Timer("CollectionUuidWatcher timer");
+                t2.scheduleAtFixedRate(uuidTask, 0, checkIntervalSeconds*1000L);
+            }
     	}
     }
     
