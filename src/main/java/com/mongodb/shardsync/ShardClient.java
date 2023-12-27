@@ -233,17 +233,19 @@ public class ShardClient {
 		configDb = mongoClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
 
 		populateShardList();
-
-		Document destBuildInfo = adminCommand(new Document("buildinfo", 1));
-		version = destBuildInfo.getString("version");
-		versionArray = (List<Integer>) destBuildInfo.get("versionArray");
-		logger.info(String.format("%s : MongoDB version: %s, mongos: %s", name, version, mongos));
-
+		initVersionArray();
 		populateMongosList();
 		
 		if (this.isVersion5OrLater()) {
 			populateCollectionsMap();
 		}
+	}
+	
+	public void initVersionArray() {
+		Document destBuildInfo = adminCommand(new Document("buildinfo", 1));
+		version = destBuildInfo.getString("version");
+		versionArray = (List<Integer>) destBuildInfo.get("versionArray");
+		logger.info(String.format("%s : MongoDB version: %s, mongos: %s", name, version, mongos));
 	}
 
 	/**
@@ -1094,12 +1096,19 @@ public class ShardClient {
 	}
 
 	public void disableAutosplit() {
-		MongoDatabase configDb = mongoClient.getDatabase("config");
-		MongoCollection<RawBsonDocument> settings = configDb.getCollection("settings", RawBsonDocument.class);
-		Document update = new Document("$set", new Document("enabled", false));
-		settings.updateOne(eq("_id", "autosplit"), update);
+		enableAutosplit(false);
 	}
 
+	public void enableAutosplit() {
+		enableAutosplit(true);
+	}
+	
+	private void enableAutosplit(boolean enabled) {
+		MongoDatabase configDb = mongoClient.getDatabase("config");
+		MongoCollection<RawBsonDocument> settings = configDb.getCollection("settings", RawBsonDocument.class);
+		Document update = new Document("$set", new Document("enabled", enabled));
+		settings.updateOne(eq("_id", "autosplit"), update);
+	}
 
 
 	public void extendTtls(String shardName, Namespace ns, Set<IndexSpec> sourceSpecs) {
@@ -1302,16 +1311,26 @@ public class ShardClient {
 //		return getIdFromChunk(ns, min, max);
 //	}
 	
-	public static String getIdFromChunk(RawBsonDocument sourceChunk) {
+	public String getIdFromChunk(RawBsonDocument sourceChunk) {
 		RawBsonDocument min = null;
 		BsonValue minVal = sourceChunk.get("min");
 		if (minVal instanceof BsonDocument) {
 			 min = (RawBsonDocument)minVal;
 		} else {
-			System.out.println();
+			throw new IllegalArgumentException("getIdFromChunk expected 'min' to be BsonDocument");
 		}
 		RawBsonDocument max = (RawBsonDocument) sourceChunk.get("max");
-		String ns = sourceChunk.getString("ns").getValue();
+		
+		String ns = null;
+		if (sourceChunk.containsKey("ns")) {
+			ns = sourceChunk.getString("ns").getValue();
+		} else {
+			BsonBinary bsonUuid = sourceChunk.getBinary("uuid");
+			UUID uuid = BsonUuidUtil.convertBsonBinaryToUuid(bsonUuid);
+			this.collectionsUuidMap.get(uuid);
+		}
+		
+		
 		return getIdFromChunk(ns, min, max);
 	}
 	
@@ -1657,6 +1676,10 @@ public class ShardClient {
 
 	public void setRsSsl(Boolean rsSsl) {
 		this.rsSsl = rsSsl;
+	}
+
+	public Map<UUID, String> getCollectionsUuidMap() {
+		return collectionsUuidMap;
 	}
 
 }

@@ -10,17 +10,15 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
-import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.BsonValue;
 import org.bson.Document;
@@ -41,6 +39,8 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.WriteModel;
 import com.mongodb.shardsync.ShardClient;
+import com.mongodb.util.bson.BsonUuidUtil;
+import com.mongodb.util.bson.BsonValueWrapper;
 
 public class TailingOplogAnalyzerWorker implements Runnable {
 	
@@ -55,7 +55,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 	String shardId;
 	BalancerConfig config;
 	
-	Map<String, NavigableMap<String, CountingMegachunk>> chunkMap;
+	Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
 	
 	private ChunkUpdateBuffer chunkUpdateBuffer;
 	private MongoCursor<RawBsonDocument> cursor = null;
@@ -147,30 +147,68 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 
 				String ns = doc.getString("ns").getValue();
 				
-				if (! collectionsMap.containsKey(ns)) {
-					continue;
-				}
-				
 				boolean fromMigrate = doc.getBoolean("fromMigrate", BsonBoolean.FALSE).getValue();
-			
 	            if (fromMigrate || ns.startsWith("config.") || ns.startsWith("admin.")) {
 	            	continue;
 	            }
+				
+				
+				Document collMeta = collectionsMap.get(ns);
+				if (collMeta == null) {
+					logger.debug("no collMeta for ns: {}", ns);
+					continue;
+				}
+				
+				String hashedKey = null;
+				Document shardKeysDoc = (Document) collMeta.get("key");
+				Set<String> shardKeys = shardKeysDoc.keySet();
+				if (shardKeysDoc.containsValue("hashed")) {
+					for (String shardKey : shardKeys) {
+						Object val = shardKeysDoc.get(shardKey);
+						if (val instanceof String && val.equals("hashed")) {
+							hashedKey = shardKey;
+							break;
+						}
+					}
+					
+					if (hashedKey != null && hashedKey.equals("_id")) {
+						
+						BsonValueWrapper id = getIdForOperation(doc);
+						String s2 = id.getValue().asString().getValue();
+						long hash = BsonUuidUtil.hashString(s2);
+						logger.debug("value: {}, hash: {}", s2, hash);
+					}
+					
+				}
+				
+				
+				
 	            
-	            BsonString id = (BsonString)getIdForOperation(doc);
+	            //BsonString id = (BsonString)getIdForOperation(doc);
+				BsonValueWrapper id = getIdForOperation(doc);
 	            
 	            if (id == null) {
+	            	logger.debug("id for operation was null: {}", doc);
 	            	continue;
 	            }
 	            
-	            NavigableMap<String, CountingMegachunk> innerMap = chunkMap.get(ns);
-	            Map.Entry<String, CountingMegachunk> entry = innerMap.floorEntry(id.getValue());
+	            NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
+	            //Map.Entry<String, CountingMegachunk> entry = innerMap.floorEntry(id.getValue());
+	            Map.Entry<BsonValueWrapper, CountingMegachunk> entry = innerMap.floorEntry(id);
 	            
 	            if (entry != null) {
 	            	CountingMegachunk m = entry.getValue();
 		            
 		            if (! m.getShard().equals(shardId)) {
-		            	logger.error("shard for this chunk does not match, id: {}, chunk: {}", id, m);
+		            	logger.error("shard for this chunk does not match, id: {}, chunk: {}, seen on shard: {}, opType: {}", id, m, shardId, opType);
+		            	
+		            	logger.debug("inner map size: {}, ns: {}, lastKey: {}", innerMap.size(), ns, innerMap.lastKey());
+		            	
+		            	//BsonValue m2 = m.getMax().get("_id");
+//		            	entry = innerMap.higherEntry(id.getValue());
+//		            	m = entry.getValue();
+//		            	logger.debug("higher entry: {}", m);
+		            	
 		            	continue;
 		            }
 		            
@@ -232,7 +270,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		return ts;
 	}
 	
-	private BsonValue getIdForOperation(BsonDocument operation) throws MongoException {
+	private BsonValueWrapper getIdForOperation(BsonDocument operation) throws MongoException {
 		String opType = operation.getString("op").getValue();
 		switch (opType) {
 		case "u":
@@ -240,7 +278,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 			if (o2 != null) {
 				BsonValue id = o2.get("_id");
 				if (id != null) {
-					return id;
+					return new BsonValueWrapper(id);
 				} else {
 					logger.warn("{}: did not find o2._id field for update oplog entry: {}", shardId, operation);
 				}
@@ -255,7 +293,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 			if (oDoc != null) {
 				BsonValue id = oDoc.get("_id");
 				if (id != null) {
-					return id;
+					return new BsonValueWrapper(id);
 				} else {
 					logger.warn("{}: did not find o._id field for insert/delete oplog entry: {}", shardId, operation);
 				}

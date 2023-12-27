@@ -6,35 +6,27 @@ import static com.mongodb.client.model.Aggregates.match;
 import static com.mongodb.client.model.Aggregates.project;
 import static com.mongodb.client.model.Aggregates.sort;
 import static com.mongodb.client.model.Aggregates.unwind;
-import static com.mongodb.client.model.Filters.*;
-import static com.mongodb.client.model.mql.MqlValues.*;
-
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.in;
-import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Projections.computed;
-import static com.mongodb.client.model.Projections.excludeId;
 import static com.mongodb.client.model.Projections.fields;
 import static com.mongodb.client.model.Projections.include;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Sorts.descending;
 import static com.mongodb.client.model.Sorts.orderBy;
-import com.mongodb.client.model.Updates;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Calendar;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.commons.configuration2.Configuration;
@@ -43,6 +35,7 @@ import org.apache.commons.configuration2.builder.FileBasedConfigurationBuilder;
 import org.apache.commons.configuration2.builder.fluent.Parameters;
 import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
 import org.apache.commons.configuration2.ex.ConfigurationException;
+import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonMaxKey;
 import org.bson.BsonMinKey;
@@ -50,16 +43,19 @@ import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
-import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.model.Accumulators;
 import com.mongodb.client.model.Aggregates;
+import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Projections;
+import com.mongodb.client.model.Updates;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
+import com.mongodb.util.bson.BsonUuidUtil;
+import com.mongodb.util.bson.BsonValueWrapper;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -83,6 +79,7 @@ public class Balancer implements Callable<Integer> {
 	private final static String ANALYZER_SLEEP_INTERVAL = "analyzerSleepIntervalMinutes";
 	private final static String BALANCER_CHUNK_BATCH_SIZE = "balancerChunkBatchSize";
 	private final static String DRY_RUN = "dryRun";
+	private final static String DELTA_THRESHOLD_RATIO = "deltaThresholdRatio";
 
 	private BalancerConfig balancerConfig;
 
@@ -96,7 +93,7 @@ public class Balancer implements Callable<Integer> {
 
 	private ChunkStats chunkStats;
 
-	Map<String, NavigableMap<String, CountingMegachunk>> chunkMap;
+	Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
 
 	public void init() {
 		Set<String> sourceShards = balancerConfig.getSourceShards();
@@ -106,9 +103,13 @@ public class Balancer implements Callable<Integer> {
 		} else {
 			sourceShardClient = new ShardClient("source", balancerConfig.getSourceClusterUri(), sourceShards, null);
 		}
-
+		
 		balancerConfig.setSourceShardClient(sourceShardClient);
 		sourceShardClient.init();
+		
+		sourceShardClient.stopBalancer();
+		sourceShardClient.enableAutosplit();
+		
 		sourceShardClient.populateShardMongoClients();
 		sourceShardClient.populateCollectionsMap();
 
@@ -122,10 +123,11 @@ public class Balancer implements Callable<Integer> {
 		balancerConfig.setBalancerStateCollection(
 				sourceShardClient.getCollection(balancerConfig.getBalancerStateNamespace()));
 		
-		
 		balancerConfig.getStatsCollection().createIndex(new Document("analysisId", 1));
+		balancerConfig.getStatsCollection().createIndex(new Document("endTime", 1), new IndexOptions().expireAfter(43200L, TimeUnit.SECONDS));
 
 		ChunkManager chunkManager = new ChunkManager(balancerConfig);
+		chunkManager.setSourceShardClient(sourceShardClient);
 		chunkManager.initializeChunkQuery();
 		BsonDocument chunkQuery = chunkManager.getChunkQuery();
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
@@ -139,7 +141,7 @@ public class Balancer implements Callable<Integer> {
 
 		int uberId = 0;
 		int i = 0;
-		for (RawBsonDocument m : sourceChunksCache.values()) {
+		for (RawBsonDocument chunkDoc : sourceChunksCache.values()) {
 
 			if (i++ % uberThreshold == 0) {
 				uberId++;
@@ -147,12 +149,24 @@ public class Balancer implements Callable<Integer> {
 
 			CountingMegachunk mega = new CountingMegachunk();
 			mega.setUberId(uberId);
-
-			String ns = m.getString("ns").getValue();
+			
+			String ns = null;
+			if (chunkDoc.containsKey("ns")) {
+				ns = chunkDoc.getString("ns").getValue();
+			} else {
+				BsonBinary buuid = chunkDoc.getBinary("uuid");
+				UUID uuid = BsonUuidUtil.convertBsonBinaryToUuid(buuid);
+				ns = sourceShardClient.getCollectionsUuidMap().get(uuid);
+			}
+			
+			Document collMeta = this.sourceShardClient.getCollectionsMap().get(ns);
+			Document shardKeysDoc = (Document) collMeta.get("key");
+			Set<String> shardKeys = shardKeysDoc.keySet();
+			
 			mega.setNs(ns);
-			mega.setShard(m.getString("shard").getValue());
+			mega.setShard(chunkDoc.getString("shard").getValue());
 
-			NavigableMap<String, CountingMegachunk> innerMap = chunkMap.get(ns);
+			NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
 			if (innerMap == null) {
 				innerMap = new TreeMap<>();
 				chunkMap.put(ns, innerMap);
@@ -160,10 +174,10 @@ public class Balancer implements Callable<Integer> {
 
 			// Document collDoc = this.sourceShardClient.getCollectionsMap().get(ns);
 
-			BsonDocument min = m.getDocument("min");
+			BsonDocument min = chunkDoc.getDocument("min");
 			mega.setMin(min);
 
-			BsonValue max = m.get("max");
+			BsonValue max = chunkDoc.get("max");
 			if (max instanceof BsonMaxKey) {
 				logger.warn("*** BsonMaxKey not handled");
 			} else if (max instanceof BsonDocument) {
@@ -172,15 +186,27 @@ public class Balancer implements Callable<Integer> {
 				logger.error("unexpected max type: {}", max);
 			}
 
-			BsonValue val = min.get("_id");
+			BsonValue val = null;
+			if (shardKeys.size() == 1) {
+				val = min.get(min.getFirstKey());
+			} else {
+				logger.warn("compound not implemented");
+			}
+			 
 			if (val == null) {
-				logger.error("could not get _id shard key from chunk: {}", mega);
+				logger.error("could not get shard key from chunk: {}", mega);
 				continue;
 			}
+			
 			if (val instanceof BsonMinKey) {
-				innerMap.put("\u0000", mega);
+				//innerMap.put("\u0000", mega);
+				innerMap.put(new BsonValueWrapper(val), mega);
+			} else if (val instanceof BsonString) {
+				//innerMap.put(((BsonString) val).getValue(), mega);
+				innerMap.put(new BsonValueWrapper(val), mega);
 			} else {
-				innerMap.put(((BsonString) val).getValue(), mega);
+				//logger.debug("chunkDoc min._id was unexepected type: {}, chunk: {}", val.getClass().getName(), mega);
+				innerMap.put(new BsonValueWrapper(val), mega);
 			}
 		}
 		balancerConfig.setChunkMap(chunkMap);
@@ -212,7 +238,7 @@ public class Balancer implements Callable<Integer> {
 				
 				String ns = d.getString("ns");
 				
-				chunkStats.updateTargetOpsPerShard(ns);
+				chunkStats.updateTargetOpsPerShard(ns, balancerConfig.getDeltaThresholdRatio());
 				List<ChunkStatsEntry> entries = chunkStats.getEntries(ns);
 				if (entries == null || entries.isEmpty()) {
 					logger.debug("no ChunkStatsEntry for ns: {}, exiting loop for this ns", ns);
@@ -221,7 +247,7 @@ public class Balancer implements Callable<Integer> {
 				
 				int negativeChunksToMoveCount = 0;
 				for (ChunkStatsEntry e : entries) {
-					if (e.getChunksToMove() < 0) {
+					if (e.getChunksToMove() < 0 && e.isAboveThreshold()) {
 						negativeChunksToMoveCount++;
 					}
 				}
@@ -258,7 +284,7 @@ public class Balancer implements Callable<Integer> {
 							System.out.println();
 						}
 	
-						NavigableMap<String, CountingMegachunk> innerMap = chunkMap.get(ns);
+						NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
 	
 						CountingMegachunk mega = innerMap.get(id);
 	
@@ -293,23 +319,6 @@ public class Balancer implements Callable<Integer> {
 		return 0;
 
 	}
-
-//	private void updateBalancerState() {
-//		// BalancerState bs = new BalancerState();
-//		Document bsDoc = balancerConfig.getBalancerStateCollection().find().first();
-//		if (bsDoc == null) {
-//			bsDoc = new Document("runAnalyzer", false);
-//			balancerConfig.getBalancerStateCollection().insertOne(bsDoc);
-//		}
-//		Boolean runAnalyzer = bsDoc.getBoolean("runAnalyzer");
-//		logger.debug("updateBalancerState: runAnalyzer: {}", runAnalyzer);
-//		if (runAnalyzer) {
-//			ObjectId aid = new ObjectId();
-//			balancerConfig.setAnalysisId(aid);
-//			balancerConfig.getBalancerStateCollection().updateOne(empty(), Updates.set("analysisId", aid));
-//		}
-//		balancerConfig.setRunAnalyzer(runAnalyzer);
-//	}
 
 	private void updateChunkStats() {
 
@@ -402,6 +411,8 @@ public class Balancer implements Callable<Integer> {
 		balancerConfig.setBalancerChunkBatchSize(config.getInt(BALANCER_CHUNK_BATCH_SIZE, 1000));
 		
 		balancerConfig.setDryRun(config.getBoolean(DRY_RUN, false));
+		
+		balancerConfig.setDeltaThresholdRatio(config.getDouble(DELTA_THRESHOLD_RATIO, 0.045));
 	}
 
 	private Configuration readProperties() throws ConfigurationException {

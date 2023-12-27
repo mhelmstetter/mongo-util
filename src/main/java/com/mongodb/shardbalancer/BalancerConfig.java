@@ -7,12 +7,14 @@ import java.util.NavigableMap;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.types.ObjectId;
 
 import com.mongodb.client.MongoCollection;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.BaseConfiguration;
+import com.mongodb.util.bson.BsonValueWrapper;
 
 public class BalancerConfig extends BaseConfiguration {
 	
@@ -40,7 +42,9 @@ public class BalancerConfig extends BaseConfiguration {
 	
 	private boolean dryRun;
 	
-	Map<String, NavigableMap<String, CountingMegachunk>> chunkMap;
+	private double deltaThresholdRatio;
+	
+	Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
 	
 	AtomicBoolean runAnalyzer = new AtomicBoolean(false);
 	
@@ -105,11 +109,11 @@ public class BalancerConfig extends BaseConfiguration {
 		this.balancerChunkBatchSize = balancerChunkBatchSize;
 	}
 
-	public Map<String, NavigableMap<String, CountingMegachunk>> getChunkMap() {
+	public Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> getChunkMap() {
 		return chunkMap;
 	}
 
-	public void setChunkMap(Map<String, NavigableMap<String, CountingMegachunk>> chunkMap) {
+	public void setChunkMap(Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
 		this.chunkMap = chunkMap;
 	}
 	
@@ -175,6 +179,14 @@ public class BalancerConfig extends BaseConfiguration {
 
 	public void setDryRun(boolean dryRun) {
 		this.dryRun = dryRun;
+	}
+
+	public double getDeltaThresholdRatio() {
+		return deltaThresholdRatio;
+	}
+
+	public void setDeltaThresholdRatio(double deltaThresholdRatio) {
+		this.deltaThresholdRatio = deltaThresholdRatio;
 	}
 	
 	

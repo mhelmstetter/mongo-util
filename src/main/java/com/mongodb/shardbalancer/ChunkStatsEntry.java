@@ -8,6 +8,7 @@ public class ChunkStatsEntry  implements Comparable<ChunkStatsEntry> {
 	private int activeChunks;
 	private double opsPerChunk;
 	private int chunksToMove;
+	private boolean aboveThreshold;
 
 	public ChunkStatsEntry(String ns, String shard, Long totalOps, Integer activeChunks) {
 		this.namespace = ns;
@@ -88,6 +89,14 @@ public class ChunkStatsEntry  implements Comparable<ChunkStatsEntry> {
 		builder.append(chunksToMove);
 		builder.append("]");
 		return builder.toString();
+	}
+
+	public boolean isAboveThreshold() {
+		return aboveThreshold;
+	}
+
+	public void setAboveThreshold(boolean aboveThreshold) {
+		this.aboveThreshold = aboveThreshold;
 	}
 
 }

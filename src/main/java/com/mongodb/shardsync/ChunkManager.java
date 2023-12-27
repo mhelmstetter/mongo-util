@@ -10,9 +10,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import org.apache.commons.collections.MapUtils;
 import org.bson.BsonArray;
+import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.BsonValue;
@@ -30,6 +32,7 @@ import com.mongodb.model.Megachunk;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.shardsync.ShardClient.ShardClientType;
+import com.mongodb.util.bson.BsonUuidUtil;
 
 public class ChunkManager {
 
@@ -156,7 +159,7 @@ public class ChunkManager {
 		}
 	}
 	
-	public List<Megachunk> getMegaChunks(Map<String, RawBsonDocument> chunksCache) {
+	public List<Megachunk> getMegaChunks(Map<String, RawBsonDocument> chunksCache, ShardClient shardClient) {
 		List<Megachunk> optimizedChunks = new ArrayList<>();
 		
 		Megachunk mega = null;
@@ -169,7 +172,7 @@ public class ChunkManager {
 			}
 			
 			String shard = chunk.getString("shard").getValue();
-			String chunkId = ShardClient.getIdFromChunk(chunk);
+			String chunkId = shardClient.getIdFromChunk(chunk);
 			
 			if (mega == null || !ns.equals(mega.getNs()) || !shard.equals(mega.getShard())) {
 				if (mega != null) {
@@ -215,7 +218,7 @@ public class ChunkManager {
 
 		// step 1: build a list of "megachunks", each representing a range of consecutive chunks
 		// that reside on the same shard. See Megachunk inner class.
-		List<Megachunk> optimizedChunks = getMegaChunks(sourceChunksCache);
+		List<Megachunk> optimizedChunks = getMegaChunks(sourceChunksCache, sourceShardClient);
 		logger.debug(String.format("optimized chunk count: %s", optimizedChunks.size()));
 		
 		int chunkCount = optimizedChunks.size() / 2;
@@ -363,7 +366,7 @@ public class ChunkManager {
 
 		for (RawBsonDocument sourceChunk : sourceChunksCache.values()) {
 			sourceTotalCount++;
-			String sourceId = ShardClient.getIdFromChunk(sourceChunk);
+			String sourceId = sourceShardClient.getIdFromChunk(sourceChunk);
 			//logger.debug("source id: " + sourceId);
 			
 			String sourceNs = sourceChunk.getString("ns").getValue();
@@ -441,9 +444,9 @@ public class ChunkManager {
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
 		Map<String, RawBsonDocument> destChunksCache = destShardClient.loadChunksCache(chunkQuery);
 		
-		List<Megachunk> sourceMega = getMegaChunks(sourceChunksCache);
+		List<Megachunk> sourceMega = getMegaChunks(sourceChunksCache, sourceShardClient);
 		
-		List<Megachunk> destMega = getMegaChunks(destChunksCache);
+		List<Megachunk> destMega = getMegaChunks(destChunksCache, destShardClient);
 		
 		for (Megachunk m : sourceMega) {
 			String sourceShard = m.getShard();
@@ -469,7 +472,7 @@ public class ChunkManager {
 		FindIterable<RawBsonDocument> destChunks = destChunksColl.find(chunkQuery).sort(Sorts.ascending("ns", "min"));
 
 		for (RawBsonDocument destChunk : destChunks) {
-			String id = ShardClient.getIdFromChunk(destChunk);
+			String id = destShardClient.getIdFromChunk(destChunk);
 			//logger.debug("dest id: " + id);
 			String shard = destChunk.getString("shard").getValue();
 			destChunkMap.put(id, shard);
@@ -514,7 +517,16 @@ public class ChunkManager {
 			orList.add(inDoc);
 			chunkQuery.append("$or", new BsonArray(orList));
 		} else {
-			chunkQuery.append("ns", new BsonDocument("$ne", new BsonString("config.system.sessions")));
+			if (sourceShardClient.isVersion5OrLater()) {
+				Document coll = sourceShardClient.getCollectionsMap().get("config.system.sessions");
+				if (coll != null) {
+					UUID uuid = (UUID)coll.get("uuid");
+					BsonBinary uuidBinary = BsonUuidUtil.uuidToBsonBinary(uuid);
+					chunkQuery.append("uuid", new BsonDocument("$ne", uuidBinary));
+				}
+			} else {
+				chunkQuery.append("ns", new BsonDocument("$ne", new BsonString("config.system.sessions")));
+			}
 		}
 		return chunkQuery;
 	}
@@ -547,5 +559,9 @@ public class ChunkManager {
 
 	public BsonDocument getChunkQuery() {
 		return chunkQuery;
+	}
+
+	public void setSourceShardClient(ShardClient sourceShardClient) {
+		this.sourceShardClient = sourceShardClient;
 	}
 }

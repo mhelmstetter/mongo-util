@@ -23,7 +23,7 @@ public class ChunkStats {
 		entries.add(entry);
 	}
 	
-	public void updateTargetOpsPerShard(String ns) {
+	public void updateTargetOpsPerShard(String ns, double deltaThresholdRatio) {
 		List<ChunkStatsEntry> entries = chunkStatsMap.get(ns);
 		if (entries == null || entries.isEmpty()) {
 			logger.debug("no ChunkStatsEntry for ns: {}", ns);
@@ -42,11 +42,13 @@ public class ChunkStats {
 		
 		for (ChunkStatsEntry entry : entries) {
 			 long delta = targetOpsPerShard - entry.getTotalOps();
+			 double deltaRatio = delta / targetOpsPerShard;
+			 entry.setAboveThreshold((deltaRatio > deltaThresholdRatio));
 			 int chunks = (int)(delta / entry.getOpsPerChunk());
 			 entry.setChunksToMove(chunks);
-			 logger.debug("shard: {}, activeChunks: {}, totalOps: {}, opsPerChunk: {}, delta: {}, chunksToMove: {}", 
+			 logger.debug("shard: {}, activeChunks: {}, totalOps: {}, opsPerChunk: {}, delta: {}, chunksToMove: {}, aboveThreshold: {}", 
 					 entry.getShard(), entry.getActiveChunks(), entry.getTotalOps(), 
-					 entry.getOpsPerChunk(), delta, chunks);
+					 entry.getOpsPerChunk(), delta, chunks, entry.isAboveThreshold());
 		}
 	}
 	
