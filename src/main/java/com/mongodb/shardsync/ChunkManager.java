@@ -501,9 +501,29 @@ public class ChunkManager {
 	}
 	
 	public BsonDocument initializeChunkQuery() {
-		
-		chunkQuery = new BsonDocument();
-		if (config.getIncludeNamespaces().size() > 0 || config.getIncludeDatabases().size() > 0) {
+		this.chunkQuery = newChunkQuery();
+		return chunkQuery;
+	}
+	
+	public BsonDocument newChunkQuery() {
+		return newChunkQuery(null);
+	}
+	
+	public BsonDocument newChunkQuery(String namespace) {
+		BsonDocument chunkQuery = new BsonDocument();
+		if (namespace != null) {
+			if (sourceShardClient.isVersion5OrLater()) {
+				Document coll = sourceShardClient.getCollectionsMap().get(namespace);
+				if (coll != null) {
+					UUID uuid = (UUID)coll.get("uuid");
+					BsonBinary uuidBinary = BsonUuidUtil.uuidToBsonBinary(uuid);
+					chunkQuery.append("uuid", new BsonDocument("$eq", uuidBinary));
+				}
+			} else {
+				chunkQuery.append("ns", new BsonDocument("$eq", new BsonString(namespace)));
+			}
+			
+		} else if (config.getIncludeNamespaces().size() > 0 || config.getIncludeDatabases().size() > 0) {
 			List<BsonValue> inList = new ArrayList<>();
 			List<BsonDocument> orList = new ArrayList<>();
 			for (Namespace includeNs : config.getIncludeNamespaces()) {

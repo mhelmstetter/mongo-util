@@ -1,7 +1,6 @@
 package com.mongodb.shardbalancer;
 
 import static com.mongodb.client.model.Aggregates.group;
-import static com.mongodb.client.model.Aggregates.limit;
 import static com.mongodb.client.model.Aggregates.match;
 import static com.mongodb.client.model.Aggregates.project;
 import static com.mongodb.client.model.Aggregates.sort;
@@ -19,6 +18,7 @@ import static com.mongodb.client.model.Sorts.orderBy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -46,6 +46,7 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.MongoCommandException;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.model.Accumulators;
 import com.mongodb.client.model.Aggregates;
@@ -57,6 +58,7 @@ import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.bson.BsonUuidUtil;
 import com.mongodb.util.bson.BsonValueWrapper;
 
+import ch.qos.logback.classic.ClassicConstants;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -70,20 +72,22 @@ public class Balancer implements Callable<Integer> {
 	// @Option(names = { "-h", "--help", "-?", "-help"})
 	// private boolean help;
 
-	protected static final Logger logger = LoggerFactory.getLogger(Balancer.class);
+	protected final Logger logger;
 
 	private final static String SOURCE_URI = "source";
 	private final static String SOURCE_SHARDS = "sourceShards";
 	private final static String INCLUDE_NAMESPACES = "includeNamespaces";
-	private final static String CHECKPOINT_INTERVAL = "checkpointIntervalMinutes";
 	private final static String ANALYZER_SLEEP_INTERVAL = "analyzerSleepIntervalMinutes";
-	private final static String BALANCER_CHUNK_BATCH_SIZE = "balancerChunkBatchSize";
 	private final static String DRY_RUN = "dryRun";
-	private final static String DELTA_THRESHOLD_RATIO = "deltaThresholdRatio";
+	private final static String DELTA_THRESHOLD_PERCENT = "deltaThresholdPercent";
+	private final static String MOVE_COUNT_BACKOFF_THRESHOLD = "moveCountBackoffThreshold";
+	private final static String ACTIVE_CHUNK_THRESHOLD = "activeChunkThreshold";
 
 	private BalancerConfig balancerConfig;
 
 	private ShardClient sourceShardClient;
+	
+	private ChunkManager chunkManager;
 
 	private TailingOplogAnalyzer oplogAnalyzer;
 
@@ -93,7 +97,15 @@ public class Balancer implements Callable<Integer> {
 
 	private ChunkStats chunkStats;
 
+	Map<String, RawBsonDocument> sourceChunksCache;
 	Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
+	
+	private int backoffSleepMinutes = 0;
+	
+	public Balancer() {
+		// setup logger here so system property can be set first
+		logger = LoggerFactory.getLogger(Balancer.class);
+	}
 
 	public void init() {
 		Set<String> sourceShards = balancerConfig.getSourceShards();
@@ -108,7 +120,7 @@ public class Balancer implements Callable<Integer> {
 		sourceShardClient.init();
 		
 		sourceShardClient.stopBalancer();
-		sourceShardClient.enableAutosplit();
+		//sourceShardClient.enableAutosplit();
 		
 		sourceShardClient.populateShardMongoClients();
 		sourceShardClient.populateCollectionsMap();
@@ -117,7 +129,7 @@ public class Balancer implements Callable<Integer> {
 			throw new IllegalArgumentException("Expected 'source' property to be a mongos");
 		}
 
-		balancerConfig.setStatsCollection(sourceShardClient.getCollection(balancerConfig.getStatsNamespace()));
+		balancerConfig.setStatsCollection(sourceShardClient.getCollectionBson(balancerConfig.getStatsNamespace()));
 		balancerConfig.setBalancerRoundCollection(
 				sourceShardClient.getCollection(balancerConfig.getBalancerRoundNamespace()));
 		balancerConfig.setBalancerStateCollection(
@@ -126,18 +138,27 @@ public class Balancer implements Callable<Integer> {
 		balancerConfig.getStatsCollection().createIndex(new Document("analysisId", 1));
 		balancerConfig.getStatsCollection().createIndex(new Document("endTime", 1), new IndexOptions().expireAfter(43200L, TimeUnit.SECONDS));
 
-		ChunkManager chunkManager = new ChunkManager(balancerConfig);
+		chunkManager = new ChunkManager(balancerConfig);
 		chunkManager.setSourceShardClient(sourceShardClient);
 		chunkManager.initializeChunkQuery();
-		BsonDocument chunkQuery = chunkManager.getChunkQuery();
-		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
-
-		// List<Megachunk> megaChunks = chunkManager.getMegaChunks(sourceChunksCache);
-		// logger.debug("{} mega chunks", megaChunks.size());
-
-		int uberThreshold = (sourceChunksCache.size() >= 1000) ? 300 : 100;
-
 		chunkMap = new HashMap<>();
+		sourceChunksCache = new LinkedHashMap<>();
+		loadChunkMap(null);
+	}
+	
+	private void loadChunkMap(String namespace) {
+		
+		logger.debug("Starting loadChunkMap, size: {}");
+		BsonDocument chunkQuery = null;
+		
+		if (namespace == null) {
+			chunkQuery = chunkManager.getChunkQuery();
+		} else {
+			chunkQuery = chunkManager.newChunkQuery(namespace);
+		}
+		sourceShardClient.loadChunksCache(chunkQuery, sourceChunksCache);
+		
+		int uberThreshold = (sourceChunksCache.size() >= 1000) ? 300 : 100;
 
 		int uberId = 0;
 		int i = 0;
@@ -210,10 +231,25 @@ public class Balancer implements Callable<Integer> {
 			}
 		}
 		balancerConfig.setChunkMap(chunkMap);
-		
 	}
 
 
+	private void backoffSleep() {
+		if (backoffSleepMinutes == 0) {
+			backoffSleepMinutes = 5;
+		} else {
+			if (backoffSleepMinutes > 180) {
+				backoffSleepMinutes = 5;
+			} else {
+				backoffSleepMinutes = backoffSleepMinutes * 2;
+			}
+		}
+		logger.debug("chunksMoved last round was <= threshold, backoff sleep for {} minutes", backoffSleepMinutes);
+		try {
+			Thread.sleep(backoffSleepMinutes * 1000 * 60);
+		} catch (InterruptedException e) {
+		}
+	}
 
 	public Integer call() throws ConfigurationException, InterruptedException {
 
@@ -223,22 +259,35 @@ public class Balancer implements Callable<Integer> {
 		oplogAnalyzer = new TailingOplogAnalyzer(balancerConfig);
 
 		int iteration = 1;
+		int moveCount = 0;
+		
 		
 		while (!stopped.get()) {
 			
-			logger.debug("Balancer call() iteration {}", iteration++);
+			logger.debug("Balancer call() iteration {}, last round move count: {}", iteration++, moveCount);
+			
+			
+			if (moveCount <= balancerConfig.getMoveCountBackoffThreshold() && iteration > 2) {
+				backoffSleep();
+			} else {
+				backoffSleepMinutes = 5;
+			}
+				
+			moveCount = 0;
 			
 			oplogAnalyzer.start();
 			Thread.sleep(balancerConfig.getAnalyzerSleepIntervalMillis());
 			oplogAnalyzer.stop();
 			updateChunkStats();
 			
-			List<Document> nsStats = this.getNamespaceStats();
-			for (Document d : nsStats) {
+			Set<String> shardsSet = this.sourceShardClient.getShardsMap().keySet();
+			
+			List<BsonDocument> nsStats = this.getNamespaceStats();
+			for (BsonDocument d : nsStats) {
 				
-				String ns = d.getString("ns");
+				String ns = d.getString("ns").getValue();
 				
-				chunkStats.updateTargetOpsPerShard(ns, balancerConfig.getDeltaThresholdRatio());
+				chunkStats.updateTargetOpsPerShard(ns, balancerConfig.getDeltaThresholdPercent(), shardsSet, balancerConfig.getActiveChunkThreshold());
 				List<ChunkStatsEntry> entries = chunkStats.getEntries(ns);
 				if (entries == null || entries.isEmpty()) {
 					logger.debug("no ChunkStatsEntry for ns: {}, exiting loop for this ns", ns);
@@ -247,8 +296,13 @@ public class Balancer implements Callable<Integer> {
 				
 				int negativeChunksToMoveCount = 0;
 				for (ChunkStatsEntry e : entries) {
-					if (e.getChunksToMove() < 0 && e.isAboveThreshold()) {
+					if (e.isAboveThreshold()) {
 						negativeChunksToMoveCount++;
+					}
+					
+					// max out to 2 iterations
+					if (negativeChunksToMoveCount >= 2) {
+						break;
 					}
 				}
 				
@@ -258,43 +312,49 @@ public class Balancer implements Callable<Integer> {
 					continue;
 				}
 				
+				NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
+				
 				for (int entryNum = 0; entryNum < negativeChunksToMoveCount; entryNum++) {
 					
 					ChunkStatsEntry from = entries.get(entryNum);
 					ChunkStatsEntry to = entries.get(entries.size() - 1 - entryNum);
 					
-					int numChunks = (int)(from.getChunksToMove() * -0.1);
-					
-					if (numChunks <= 0) {
-						logger.debug("{}: no chunks to move this round, below threshold", ns);
+					if (!from.isAboveThreshold() || (!to.isAboveThreshold() && to.getTotalOps() > 0)) {
+						logger.debug("source and/or target shard is not above threshold, skipping. source: {}, target: {}", from.getShard(), to.getShard());
 						continue;
 					}
-					logger.debug("{}: will move {} chunks from {} to {}", ns, numChunks, from.getShard(), to.getShard());
 					
-					List<Document> hotChunks = getHotChunks(ns, from.getShard(), to.getShard(), numChunks);
+					List<BsonDocument> hotChunks = getHotChunks(ns, from, to);
+					
+					if (from.getActiveChunks() == 1 && hotChunks.size() == 1) {
+						BsonDocument chunkDoc = hotChunks.get(0);
+						BsonValue id = chunkDoc.get("id");
+						CountingMegachunk mega = innerMap.get(new BsonValueWrapper(id));
+						logger.debug("splitting chunk: {}", mega);
+						sourceShardClient.splitFind(ns, mega.getMin(), true);
+						continue;
+					}
 					
 					int i = 1;
-					for (Document chunkDoc : hotChunks) {
+					for (BsonDocument chunkDoc : hotChunks) {
 	
-						String id = null;
-						Object v = chunkDoc.get("id");
-						if (v instanceof String) {
-							id = (String) v;
-						} else {
-							System.out.println();
-						}
-	
-						NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
-	
-						CountingMegachunk mega = innerMap.get(id);
-	
+						BsonValue id = chunkDoc.get("id");
+						CountingMegachunk mega = innerMap.get(new BsonValueWrapper(id));
 						logger.debug("move chunk [ {} / {} ]: {}, _id: {}", i++, hotChunks.size(), mega, chunkDoc.get("_id"));
 	
-						boolean success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), to.getShard(), false, false,
-								false, false);
+						boolean success = false;
+						try {
+							success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), to.getShard(), false, false, false, false, true);
+						} catch (MongoCommandException mce) {
+							if (mce.getMessage().contains("no chunk found")) {
+								this.loadChunkMap(ns);
+							}
+						}
 						
 						if (success) {
+							moveCount++;
 							mega.setShard(to.getShard());
+							mega.updateLastMovedTime();
 							balancerConfig.getStatsCollection().updateOne(
 									and(eq("_id", chunkDoc.get("_id")), eq("chunks.id", id)),
 									Updates.combine(
@@ -323,7 +383,7 @@ public class Balancer implements Callable<Integer> {
 	private void updateChunkStats() {
 
 		chunkStats = new ChunkStats();
-		AggregateIterable<Document> results = balancerConfig.getStatsCollection()
+		AggregateIterable<BsonDocument> results = balancerConfig.getStatsCollection()
 				.aggregate(Arrays.asList(
 						match(eq("analysisId", balancerConfig.getAnalysisId())),
 						group(fields(eq("ns", "$ns"), eq("shard", "$shard")), Accumulators.sum("totalOps", "$total"),
@@ -333,22 +393,19 @@ public class Balancer implements Callable<Integer> {
 								include("activeChunks")))));
 
 		int resultNum = 0;
-		for (Document result : results) {
-			String ns = result.getString("ns");
-			if (ns == null) {
-				logger.warn("updateChunkStats(), ns from aggregate was null!");
-			}
-			ChunkStatsEntry chunkStatsEntry = new ChunkStatsEntry(ns, result.getString("shard"),
-					result.getLong("totalOps"), result.getInteger("activeChunks"));
+		for (BsonDocument result : results) {
+			String ns = result.getString("ns").getValue();
+			ChunkStatsEntry chunkStatsEntry = new ChunkStatsEntry(ns, result.getString("shard").getValue(),
+					result.getNumber("totalOps").longValue(), result.getNumber("activeChunks").intValue());
 			chunkStats.addEntry(chunkStatsEntry);
 			resultNum++;
 		}
 		logger.debug("updateChunkStats(), got {} results from chunkStats collection, ns count: {}", resultNum, chunkStats.size());
 	}
 	
-	private List<Document> getNamespaceStats() {
+	private List<BsonDocument> getNamespaceStats() {
 
-		List<Document> results = new ArrayList<>();
+		List<BsonDocument> results = new ArrayList<>();
 		
 		balancerConfig.getStatsCollection()
 			.aggregate(Arrays.asList(
@@ -377,21 +434,56 @@ public class Balancer implements Callable<Integer> {
 		return results;
 	}
 	
+	private long minimumAbsoluteValue(Long a, Long b) {
+		return (Math.abs(a) < Math.abs(b)) ? a : b;
+	}
 
-	private List<Document> getHotChunks(String ns, String fromShard, String toShard, int limit) {
-
-		chunkStats = new ChunkStats();
-		List<Document> results = new ArrayList<>();
-		balancerConfig.getStatsCollection()
+	private List<BsonDocument> getHotChunks(String ns, ChunkStatsEntry from, ChunkStatsEntry to) {
+		
+		List<BsonDocument> results = new ArrayList<>();
+		
+		long lowestDelta = minimumAbsoluteValue(from.getDeltaOps(), to.getDeltaOps());
+		long target = Math.round(lowestDelta * 0.33);
+		
+		AggregateIterable<BsonDocument> resultsIterable = balancerConfig.getStatsCollection()
 				.aggregate(Arrays.asList(
-						match(and(eq("analysisId", balancerConfig.getAnalysisId()), eq("ns", ns), eq("shard", fromShard))),
+						match(and(eq("analysisId", balancerConfig.getAnalysisId()), eq("ns", ns), eq("shard", from.getShard()))),
 						// project(fields(excludeId())),
 						unwind("$chunks"),
 						project(fields(computed("id", "$chunks.id"), computed("count", "$chunks.cnt"),
 								computed("balanced", "$chunks.balanced"))),
-						match(in("balanced", null, false)), sort(orderBy(descending("count"))),
-						limit(limit)))
-				.into(results);
+						match(in("balanced", null, false)), sort(orderBy(descending("count")))
+						));
+		
+		NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
+		
+		long totalOps = 0;
+		for (BsonDocument result : resultsIterable) {
+			
+			BsonValue id = result.get("id");
+			CountingMegachunk mega = innerMap.get(new BsonValueWrapper(id));
+			
+			Long elapsedSinceLastMove = mega.elapsedSinceLastMoved();
+			if (elapsedSinceLastMove != null && elapsedSinceLastMove <= 60) {
+				//logger.debug("skipping chunk from hot list, chunk was just moved {} minutes ago: {}", elapsedSinceLastMove, mega);
+				continue;
+			}
+			
+			int count = result.getInt64("count").intValue();
+			
+			if ((totalOps + count) >= target) {
+				totalOps += count;
+				results.add(result);
+				break;
+			} else {
+				totalOps += count;
+				results.add(result);
+			}
+			
+		}
+		
+		logger.debug("{}: will move {} chunks from {} to {}", ns, results.size(), 
+				from.getShard(), to.getShard());
 
 		return results;
 	}
@@ -407,12 +499,10 @@ public class Balancer implements Callable<Integer> {
 		String[] sourceShards = config.getStringArray(SOURCE_SHARDS);
 		balancerConfig.setSourceShards(sourceShards);
 		balancerConfig.setAnalyzerSleepIntervalMinutes(config.getInt(ANALYZER_SLEEP_INTERVAL, 15));
-		balancerConfig.setCheckpointIntervalMinutes(config.getInt(CHECKPOINT_INTERVAL, 15));
-		balancerConfig.setBalancerChunkBatchSize(config.getInt(BALANCER_CHUNK_BATCH_SIZE, 1000));
-		
 		balancerConfig.setDryRun(config.getBoolean(DRY_RUN, false));
-		
-		balancerConfig.setDeltaThresholdRatio(config.getDouble(DELTA_THRESHOLD_RATIO, 0.045));
+		balancerConfig.setDeltaThresholdPercent(config.getDouble(DELTA_THRESHOLD_PERCENT, 3.0));
+		balancerConfig.setMoveCountBackoffThreshold(config.getInt(MOVE_COUNT_BACKOFF_THRESHOLD, 10));
+		balancerConfig.setActiveChunkThreshold(config.getInt(ACTIVE_CHUNK_THRESHOLD, 10));
 	}
 
 	private Configuration readProperties() throws ConfigurationException {
@@ -427,6 +517,7 @@ public class Balancer implements Callable<Integer> {
 	}
 
 	public static void main(String[] args) {
+		System.setProperty(ClassicConstants.CONFIG_FILE_PROPERTY, "shardbalancer_logback.xml");
 		Balancer balancer = new Balancer();
 		Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
 			public void run() {
@@ -441,7 +532,7 @@ public class Balancer implements Callable<Integer> {
 	}
 
 	protected void stop() {
-		// shutdown = true;
+		logger.debug("**** SHUTDOWN *****");
 	}
 
 }

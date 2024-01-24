@@ -39,8 +39,8 @@
 		<jpa.version>2.0.0</jpa.version>
 		<jersey2.version>3.0.8</jersey2.version>
 		<hibernate.version>4.1.9.Final</hibernate.version>
-		<slf4j.version>1.7.30</slf4j.version>
-		<logback.version>1.2.11</logback.version>
+		<slf4j.version>2.0.11</slf4j.version>
+		<logback.version>1.4.14</logback.version>
 		<aspectj.version>1.6.12</aspectj.version>
 		<jodatime.version>2.3</jodatime.version>
 		<resteasy.version>4.7.2.Final</resteasy.version>
@@ -141,7 +141,9 @@
 						<configuration>
 							<outputDirectory>${basedir}/bin</outputDirectory>
 							<finalName>mongo-util</finalName>
-							<!-- <shadedArtifactAttached>true</shadedArtifactAttached> <shadedClassifierName>jackofall</shadedClassifierName> -->
+							<!--
+							<shadedArtifactAttached>true</shadedArtifactAttached>
+							<shadedClassifierName>jackofall</shadedClassifierName> -->
 
 							<transformers>
 								<transformer
@@ -151,7 +153,8 @@
 								<transformer
 									implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
 									<manifestEntries>
-										<Implementation-Version>${project.version}</Implementation-Version>
+										<Implementation-Version>
+											${project.version}</Implementation-Version>
 									</manifestEntries>
 								</transformer>
 							</transformers>
@@ -220,12 +223,12 @@
 			<artifactId>guava</artifactId>
 			<version>32.0.0-jre</version>
 		</dependency>
+
 		<dependency>
 			<groupId>org.slf4j</groupId>
 			<artifactId>slf4j-api</artifactId>
 			<version>${slf4j.version}</version>
 		</dependency>
-
 
 		<dependency>
 			<groupId>ch.qos.logback</groupId>
@@ -304,10 +307,13 @@
 			<version>3.0.1</version>
 		</dependency>
 
-		<!-- API, java.xml.bind module <dependency> <groupId>jakarta.xml.bind</groupId> 
-			<artifactId>jakarta.xml.bind-api</artifactId> <version>2.3.2</version> </dependency> -->
+		<!-- API, java.xml.bind module <dependency>
+		<groupId>jakarta.xml.bind</groupId> 
+			<artifactId>jakarta.xml.bind-api</artifactId> <version>2.3.2</version>
+		</dependency> -->
 
-		<!-- Runtime, com.sun.xml.bind module <dependency> <groupId>org.glassfish.jaxb</groupId> 
+		<!-- Runtime, com.sun.xml.bind module <dependency>
+		<groupId>org.glassfish.jaxb</groupId> 
 			<artifactId>jaxb-runtime</artifactId> <version>2.3.2</version> </dependency> -->
 
 		<dependency>

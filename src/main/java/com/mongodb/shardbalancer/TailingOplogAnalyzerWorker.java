@@ -10,7 +10,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -39,7 +38,6 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.WriteModel;
 import com.mongodb.shardsync.ShardClient;
-import com.mongodb.util.bson.BsonUuidUtil;
 import com.mongodb.util.bson.BsonValueWrapper;
 
 public class TailingOplogAnalyzerWorker implements Runnable {
@@ -47,8 +45,6 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 	protected static final Logger logger = LoggerFactory.getLogger(TailingOplogAnalyzerWorker.class);
 	
 	private final static BulkWriteOptions unorderedBulkWriteOptions = new BulkWriteOptions().ordered(false);
-	
-	private int checkpointIntervalMillis;
 	
 	ShardClient sourceShardClient;
 	MongoClient mongoClient;
@@ -79,7 +75,6 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		this.chunkMap = config.getChunkMap();
 		this.chunkUpdateBuffer = new ChunkUpdateBuffer(shardId, config);
 		this.collectionsMap = sourceShardClient.getCollectionsMap();
-		this.checkpointIntervalMillis = config.getCheckpointIntervalMinutes() * 60 * 1000;
 		
 		MongoDatabase local = mongoClient.getDatabase("local");
 		oplog = local.getCollection("oplog.rs", RawBsonDocument.class);
@@ -94,7 +89,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 			}
 			
 			try {
-				Thread.sleep(30000);
+				Thread.sleep(5000);
 			} catch (InterruptedException e) {
 			}
 		}
@@ -141,7 +136,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 				RawBsonDocument doc = cursor.next();
 				
 				String opType = doc.getString("op").getValue();
-				if ( opType.equals("n")) {
+				if ( opType.equals("n") || opType.equals("d")) {
 					continue;
 				}
 
@@ -152,37 +147,12 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 	            	continue;
 	            }
 				
-				
 				Document collMeta = collectionsMap.get(ns);
+				
+				// if there's no collection metadata, it's most likely unsharded
 				if (collMeta == null) {
-					logger.debug("no collMeta for ns: {}", ns);
 					continue;
 				}
-				
-				String hashedKey = null;
-				Document shardKeysDoc = (Document) collMeta.get("key");
-				Set<String> shardKeys = shardKeysDoc.keySet();
-				if (shardKeysDoc.containsValue("hashed")) {
-					for (String shardKey : shardKeys) {
-						Object val = shardKeysDoc.get(shardKey);
-						if (val instanceof String && val.equals("hashed")) {
-							hashedKey = shardKey;
-							break;
-						}
-					}
-					
-					if (hashedKey != null && hashedKey.equals("_id")) {
-						
-						BsonValueWrapper id = getIdForOperation(doc);
-						String s2 = id.getValue().asString().getValue();
-						long hash = BsonUuidUtil.hashString(s2);
-						logger.debug("value: {}, hash: {}", s2, hash);
-					}
-					
-				}
-				
-				
-				
 	            
 	            //BsonString id = (BsonString)getIdForOperation(doc);
 				BsonValueWrapper id = getIdForOperation(doc);
@@ -201,14 +171,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		            
 		            if (! m.getShard().equals(shardId)) {
 		            	logger.error("shard for this chunk does not match, id: {}, chunk: {}, seen on shard: {}, opType: {}", id, m, shardId, opType);
-		            	
 		            	logger.debug("inner map size: {}, ns: {}, lastKey: {}", innerMap.size(), ns, innerMap.lastKey());
-		            	
-		            	//BsonValue m2 = m.getMax().get("_id");
-//		            	entry = innerMap.higherEntry(id.getValue());
-//		            	m = entry.getValue();
-//		            	logger.debug("higher entry: {}", m);
-		            	
 		            	continue;
 		            }
 		            
@@ -225,7 +188,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		} catch (MongoInterruptedException e) {
 			logger.warn("interrupted", e);
 		} catch (Exception e) {
-			logger.error("tail error", e);
+			logger.error("tail error for shard {}, error: {}", shardId, e.getMessage());
 		} finally {
 			try {
 				cursor.close();
@@ -237,9 +200,9 @@ public class TailingOplogAnalyzerWorker implements Runnable {
  	
 	private void executeCheckpoint() {
 		
-		MongoCollection<Document> collection = config.getStatsCollection();
+		MongoCollection<BsonDocument> collection = config.getStatsCollection();
 		
-		List<WriteModel<Document>> writeModels = chunkUpdateBuffer.getWriteModels();
+		List<WriteModel<BsonDocument>> writeModels = chunkUpdateBuffer.getWriteModels();
 		
 		if (writeModels.isEmpty()) {
 			logger.debug("{}: checkpoint has nothing to write", shardId);

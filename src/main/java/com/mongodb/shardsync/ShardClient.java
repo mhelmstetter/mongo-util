@@ -1459,6 +1459,19 @@ public class ShardClient {
 			}
 		}
 	}
+	
+	public void splitFind(String ns, BsonDocument find, boolean logErrors) {
+		Document splitCommand = new Document("split", ns);
+		splitCommand.put("find", find);
+
+		try {
+			adminCommand(splitCommand);
+		} catch (MongoCommandException mce) {
+			if (logErrors) {
+				logger.error("command splitAt error for namespace {}, message: {}", ns, mce.getMessage());
+			}
+		}
+	}
 
 	public void splitAt(String ns, BsonDocument middle, boolean logErrors) {
 		Document splitCommand = new Document("split", ns);
@@ -1484,9 +1497,14 @@ public class ShardClient {
 	public boolean moveChunk(RawBsonDocument chunk, String moveToShard, boolean ignoreMissing) {
 		return moveChunk(chunk, moveToShard, ignoreMissing, false, false);
 	}
-
+	
 	public boolean moveChunk(String namespace, BsonDocument min, BsonDocument max, String moveToShard, 
 			boolean ignoreMissing, boolean secondaryThrottle, boolean waitForDelete, boolean majorityWrite) {
+		return moveChunk(namespace, min, max, moveToShard, ignoreMissing, secondaryThrottle, waitForDelete, majorityWrite, false);
+	}
+
+	public boolean moveChunk(String namespace, BsonDocument min, BsonDocument max, String moveToShard, 
+			boolean ignoreMissing, boolean secondaryThrottle, boolean waitForDelete, boolean majorityWrite, boolean throwCommandExceptions) {
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
 		moveChunkCmd.append("to", moveToShard);
@@ -1506,6 +1524,9 @@ public class ShardClient {
 		} catch (MongoCommandException mce) {
 			if (!ignoreMissing) {
 				logger.warn(String.format("moveChunk error ns: %s, message: %s", namespace, mce.getMessage()));
+			}
+			if (throwCommandExceptions) {
+				throw mce;
 			}
 			return false;
 		}

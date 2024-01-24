@@ -1,13 +1,17 @@
 package com.mongodb.shardbalancer;
 
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.bson.BsonArray;
+import org.bson.BsonDateTime;
+import org.bson.BsonDocument;
+import org.bson.BsonInt64;
+import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.bson.Document;
 import org.slf4j.Logger;
@@ -22,8 +26,8 @@ public class ChunkUpdateBuffer {
 	
 	Map<String, Map<Integer, Set<CountingMegachunk>>> chunkMap = new HashMap<>();
 	
-	Date startTime;
-	Date endTime;
+	BsonDateTime startTime;
+	BsonDateTime endTime;
 	
 	private String shardId;
 	private BalancerConfig config;
@@ -35,7 +39,7 @@ public class ChunkUpdateBuffer {
 	}
 	
 	public void start() {
-		startTime = new Date();
+		startTime = new BsonDateTime(System.currentTimeMillis());
 	}
 	
 	
@@ -55,9 +59,9 @@ public class ChunkUpdateBuffer {
 		chunks.add(m);
 	}
 	
-	public List<WriteModel<Document>> getWriteModels() {
+	public List<WriteModel<BsonDocument>> getWriteModels() {
 		
-		List<WriteModel<Document>> writeModels = new ArrayList<>();
+		List<WriteModel<BsonDocument>> writeModels = new ArrayList<>();
 		
 		for (Map.Entry<String, Map<Integer, Set<CountingMegachunk>>> entry : chunkMap.entrySet()) {
 			
@@ -66,7 +70,7 @@ public class ChunkUpdateBuffer {
 			
 			for (Set<CountingMegachunk> chunkList : innerMap.values()) {
 				
-				Document checkpoint = new Document();
+				BsonDocument checkpoint = new BsonDocument();
 				
 				int uberId = -1;
 				long total = 0;
@@ -74,18 +78,18 @@ public class ChunkUpdateBuffer {
 				
 				if (chunkList.size() > 0) {
 					uberId = chunkList.iterator().next().getUberId();
-					checkpoint.append("uberId", uberId);
+					checkpoint.append("uberId", new BsonInt64(uberId));
 				}
 				
 				checkpoint.append("analysisId", config.getAnalysisId());
-				checkpoint.append("ns", ns);
-				checkpoint.append("shard", shardId);
+				checkpoint.append("ns", new BsonString(ns));
+				checkpoint.append("shard", new BsonString(shardId));
 				checkpoint.append("startTime", startTime);
-				endTime = new Date();
+				endTime = new BsonDateTime(System.currentTimeMillis());
 				checkpoint.append("endTime", endTime);
 				
 				
-				List<Document> chunks = new ArrayList<>();
+				BsonArray chunks = new BsonArray();
 				//Map<String, Long> chunks = new LinkedHashMap<>();
 				checkpoint.append("chunks", chunks);
 				
@@ -97,20 +101,20 @@ public class ChunkUpdateBuffer {
 					
 					
 					BsonValue v = chunk.getMin().get("_id");
-					//Object val = null;
 					
-//					if (v instanceof BsonString) {
-//						val = ((BsonString)v).getValue();
-//					}
+					if (v == null) {
+						logger.warn("chunk min does not have _id: {}", chunk);
+						continue;
+					}
 					
-					chunks.add(new Document("id", v).append("cnt", chunk.getSeenCount()));
+					chunks.add(new BsonDocument("id", v).append("cnt", new BsonInt64(chunk.getSeenCount())));
 					total += chunk.getSeenCount();
 					activeChunks++;
 				}
-				checkpoint.append("total", total);
-				checkpoint.append("activeChunks", activeChunks);
+				checkpoint.append("total", new BsonInt64(total));
+				checkpoint.append("activeChunks", new BsonInt64(activeChunks));
 				
-				WriteModel<Document> model = new InsertOneModel<Document>(checkpoint);
+				WriteModel<BsonDocument> model = new InsertOneModel<BsonDocument>(checkpoint);
 				writeModels.add(model);
 			}
 		}

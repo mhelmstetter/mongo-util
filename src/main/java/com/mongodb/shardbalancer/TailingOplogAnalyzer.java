@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import org.bson.types.ObjectId;
+import org.bson.BsonObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,7 +35,7 @@ public class TailingOplogAnalyzer {
 	}
 
 	public void start() {
-		ObjectId aid = new ObjectId();
+		BsonObjectId aid = new BsonObjectId();
 		logger.debug("analyzer starting, analysisId: {}", aid);
 		balancerConfig.setAnalysisId(aid);
 		for (TailingOplogAnalyzerWorker worker : workers) {

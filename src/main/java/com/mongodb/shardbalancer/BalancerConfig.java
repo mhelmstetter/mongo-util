@@ -7,9 +7,9 @@ import java.util.NavigableMap;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.bson.BsonValue;
+import org.bson.BsonDocument;
+import org.bson.BsonObjectId;
 import org.bson.Document;
-import org.bson.types.ObjectId;
 
 import com.mongodb.client.MongoCollection;
 import com.mongodb.model.Namespace;
@@ -18,13 +18,11 @@ import com.mongodb.util.bson.BsonValueWrapper;
 
 public class BalancerConfig extends BaseConfiguration {
 	
-	private int checkpointIntervalMinutes;
-	
 	private int analyzerSleepIntervalMinutes;
 	
-	private int balancerPollIntervalMillis = 30000;
+	private int moveCountBackoffThreshold;
 	
-	private int balancerChunkBatchSize;
+	private int activeChunkThreshold;
 	
 	private Namespace balancerStateNamespace = new Namespace("mongoCustomBalancerStats", "balancerState");
 	
@@ -32,7 +30,7 @@ public class BalancerConfig extends BaseConfiguration {
 	
 	private Namespace balancerRoundNamespace = new Namespace("mongoCustomBalancerStats", "balancerRound");
 	
-	private MongoCollection<Document> statsCollection;
+	private MongoCollection<BsonDocument> statsCollection;
 	
 	private MongoCollection<Document> balancerRoundCollection;
 	
@@ -42,26 +40,13 @@ public class BalancerConfig extends BaseConfiguration {
 	
 	private boolean dryRun;
 	
-	private double deltaThresholdRatio;
+	private double deltaThresholdPercent;
 	
 	Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
 	
 	AtomicBoolean runAnalyzer = new AtomicBoolean(false);
 	
-	private ObjectId analysisId;
-
-	public int getCheckpointIntervalMinutes() {
-		return checkpointIntervalMinutes;
-	}
-	
-	public int getCheckpointIntervalMillis() {
-		return checkpointIntervalMinutes * 60 * 1000;
-	}
-	
-
-	public void setCheckpointIntervalMinutes(int checkpointIntervalMinutes) {
-		this.checkpointIntervalMinutes = checkpointIntervalMinutes;
-	}
+	private BsonObjectId analysisId;
 
 	public Namespace getStatsNamespace() {
 		return statsNamespace;
@@ -71,11 +56,11 @@ public class BalancerConfig extends BaseConfiguration {
 		this.statsNamespace = statsNamespace;
 	}
 
-	public MongoCollection<Document> getStatsCollection() {
+	public MongoCollection<BsonDocument> getStatsCollection() {
 		return statsCollection;
 	}
 
-	public void setStatsCollection(MongoCollection<Document> statsCollection) {
+	public void setStatsCollection(MongoCollection<BsonDocument> statsCollection) {
 		this.statsCollection = statsCollection;
 	}
 	
@@ -101,14 +86,6 @@ public class BalancerConfig extends BaseConfiguration {
 		this.analyzerSleepIntervalMinutes = analyzerSleepIntervalMinutes;
 	}
 
-	public int getBalancerChunkBatchSize() {
-		return balancerChunkBatchSize;
-	}
-
-	public void setBalancerChunkBatchSize(int balancerChunkBatchSize) {
-		this.balancerChunkBatchSize = balancerChunkBatchSize;
-	}
-
 	public Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> getChunkMap() {
 		return chunkMap;
 	}
@@ -125,11 +102,11 @@ public class BalancerConfig extends BaseConfiguration {
 		return runAnalyzer.get();
 	}
 
-	public ObjectId getAnalysisId() {
+	public BsonObjectId getAnalysisId() {
 		return analysisId;
 	}
 
-	public void setAnalysisId(ObjectId analysisId) {
+	public void setAnalysisId(BsonObjectId analysisId) {
 		this.analysisId = analysisId;
 	}
 
@@ -165,14 +142,6 @@ public class BalancerConfig extends BaseConfiguration {
 		this.balancerStateNamespace = balancerStateNamespace;
 	}
 
-	public int getBalancerPollIntervalMillis() {
-		return balancerPollIntervalMillis;
-	}
-
-	public void setBalancerPollIntervalMillis(int balancerPollIntervalMillis) {
-		this.balancerPollIntervalMillis = balancerPollIntervalMillis;
-	}
-
 	public boolean isDryRun() {
 		return dryRun;
 	}
@@ -181,12 +150,28 @@ public class BalancerConfig extends BaseConfiguration {
 		this.dryRun = dryRun;
 	}
 
-	public double getDeltaThresholdRatio() {
-		return deltaThresholdRatio;
+	public double getDeltaThresholdPercent() {
+		return deltaThresholdPercent;
 	}
 
-	public void setDeltaThresholdRatio(double deltaThresholdRatio) {
-		this.deltaThresholdRatio = deltaThresholdRatio;
+	public void setDeltaThresholdPercent(double deltaThresholdPercent) {
+		this.deltaThresholdPercent = deltaThresholdPercent;
+	}
+
+	public int getMoveCountBackoffThreshold() {
+		return moveCountBackoffThreshold;
+	}
+
+	public void setMoveCountBackoffThreshold(int moveCountBackoffThreshold) {
+		this.moveCountBackoffThreshold = moveCountBackoffThreshold;
+	}
+
+	public int getActiveChunkThreshold() {
+		return activeChunkThreshold;
+	}
+
+	public void setActiveChunkThreshold(int activeChunkThreshold) {
+		this.activeChunkThreshold = activeChunkThreshold;
 	}
 	
 	

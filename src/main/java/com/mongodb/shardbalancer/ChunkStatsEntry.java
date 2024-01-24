@@ -7,8 +7,12 @@ public class ChunkStatsEntry  implements Comparable<ChunkStatsEntry> {
 	private long totalOps;
 	private int activeChunks;
 	private double opsPerChunk;
-	private int chunksToMove;
 	private boolean aboveThreshold;
+	
+	/**
+	 * The number of operations needed to reach the average
+	 */
+	private long deltaOps;
 
 	public ChunkStatsEntry(String ns, String shard, Long totalOps, Integer activeChunks) {
 		this.namespace = ns;
@@ -64,14 +68,6 @@ public class ChunkStatsEntry  implements Comparable<ChunkStatsEntry> {
 		this.opsPerChunk = opsPerChunk;
 	}
 
-	public int getChunksToMove() {
-		return chunksToMove;
-	}
-
-	public void setChunksToMove(int chunksToMove) {
-		this.chunksToMove = chunksToMove;
-	}
-
 	@Override
 	public String toString() {
 		StringBuilder builder = new StringBuilder();
@@ -85,8 +81,6 @@ public class ChunkStatsEntry  implements Comparable<ChunkStatsEntry> {
 		builder.append(activeChunks);
 		builder.append(", opsPerChunk=");
 		builder.append(opsPerChunk);
-		builder.append(", chunksToMove=");
-		builder.append(chunksToMove);
 		builder.append("]");
 		return builder.toString();
 	}
@@ -97,6 +91,14 @@ public class ChunkStatsEntry  implements Comparable<ChunkStatsEntry> {
 
 	public void setAboveThreshold(boolean aboveThreshold) {
 		this.aboveThreshold = aboveThreshold;
+	}
+
+	public long getDeltaOps() {
+		return deltaOps;
+	}
+
+	public void setDeltaOps(long deltaOps) {
+		this.deltaOps = deltaOps;
 	}
 
 }

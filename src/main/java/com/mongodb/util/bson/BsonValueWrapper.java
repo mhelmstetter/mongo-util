@@ -44,7 +44,7 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
 		if (otherType.equals(BsonType.MIN_KEY)) {
 			return 1;
 		} else {
-			System.out.println("comparing " + thisType + " to " + otherType + " - " + this.getValue() + " to " + other.getValue());
+			//System.out.println("comparing " + thisType + " to " + otherType + " - " + this.getValue() + " to " + other.getValue());
 			return 0;
 		}
 	}
