@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE xml>
+<configuration>
+  <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <prudent>false</prudent>
+    <file>balancer.log</file>
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>balancer.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+      <maxHistory>30</maxHistory>
+      <totalSizeCap>10GB</totalSizeCap>
+    </rollingPolicy>
+
+    <encoder>
+      <pattern>%d %-5p - %m%n</pattern>
+    </encoder>
+  </appender>
+  
+  <logger name="com.mongodb.shardbalancer" level="DEBUG"/>
+  <logger name="com.mongodb.shardsync.ShardClient" level="DEBUG" additivity="true"/>
+  <logger name="org.mongodb" level="WARN"/>
+
+  <root level="INFO">
+    <appender-ref ref="FILE" />
+  </root>
+</configuration>

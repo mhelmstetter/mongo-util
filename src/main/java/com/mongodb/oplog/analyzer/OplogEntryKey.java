@@ -13,6 +13,10 @@ public class OplogEntryKey {
         this.op = op;
         this.date = date;
     }
+    
+    public OplogEntryKey(String ns, String op) {
+        this(ns, op, null);
+    }
 
 	@Override
 	public int hashCode() {

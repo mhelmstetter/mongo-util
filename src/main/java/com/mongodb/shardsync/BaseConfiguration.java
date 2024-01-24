@@ -25,6 +25,9 @@ public class BaseConfiguration {
 	public boolean shardToRs;
 	public boolean filtered;
 	protected Set<Namespace> includeNamespaces = new HashSet<Namespace>();
+	protected Set<String> includedNamespaceStrings = new HashSet<String>();
+	
+	
 	protected Set<String> includeDatabases = new HashSet<String>();
 	protected Set<String> includeDatabasesAll = new HashSet<String>();
 	public String[] shardMap;
@@ -66,12 +69,13 @@ public class BaseConfiguration {
 	}
 	
 	public void setNamespaceFilters(String[] namespaceFilterList) {
-		if (namespaceFilterList == null) {
+		if (namespaceFilterList == null || namespaceFilterList.length == 0) {
 			return;
 		}
 		filtered = true;
 		for (String nsStr : namespaceFilterList) {
 			if (nsStr.contains(".")) {
+				includedNamespaceStrings.add(nsStr);
 				Namespace ns = new Namespace(nsStr);
 				includeNamespaces.add(ns);
 				includeDatabasesAll.add(ns.getDatabaseName());
@@ -92,6 +96,10 @@ public class BaseConfiguration {
 
 	public Set<Namespace> getIncludeNamespaces() {
 		return includeNamespaces;
+	}
+	
+	public Set<String> getIncludedNamespaceStrings() {
+		return includedNamespaceStrings;
 	}
 
 	public void setIncludeNamespaces(Set<Namespace> includeNamespaces) {
@@ -123,7 +131,7 @@ public class BaseConfiguration {
 	}
 
 	public ShardClient getDestShardClient() {
-		if (destShardClient == null) {
+		if (destShardClient == null && destClusterUri != null) {
 			destShardClient = new ShardClient("dest", destClusterUri);
 			destShardClient.init();
 		}

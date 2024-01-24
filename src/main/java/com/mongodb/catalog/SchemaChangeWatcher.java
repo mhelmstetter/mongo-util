@@ -50,6 +50,8 @@ public class SchemaChangeWatcher {
     private static final String DEFAULT_EMAIL_SMTP_PORT = "587";
     private static final String DEFAULT_EMAIL_SMTP_TLS = "true";
     private static final String DEFAULT_EMAIL_SMTP_AUTH = "true";
+    
+    private static final String WATCH_COLLECTION_UUIDS = "watchCollectionUuids";
 	
 	private EmailSender emailSender;
     
@@ -59,12 +61,19 @@ public class SchemaChangeWatcher {
     
     private long checkIntervalSeconds;
     
+    private boolean watchCollectionUuids;
+    
     private ShardConfigSync sync;
     
     public SchemaChangeWatcher(Configuration properties) {
     	SyncConfiguration config = new SyncConfiguration();
         config.setSourceClusterUri(line.getOptionValue("s", properties.getString(SOURCE_URI)));
-        config.setDestClusterUri(line.getOptionValue("d", properties.getString(DEST_URI)));
+        
+        String destUri = line.getOptionValue("d", properties.getString(DEST_URI));
+        if (destUri != null) {
+        	config.setDestClusterUri(destUri);
+        }
+        
         
         sync = new ShardConfigSync(config);
         sync.initialize();
@@ -87,9 +96,11 @@ public class SchemaChangeWatcher {
             Timer timer = new Timer("SchemaChangeWatcher timer");
             timer.scheduleAtFixedRate(sourceTask, 0, checkIntervalSeconds*1000L);
             
-            CollectionUuidWatcherTask uuidTask = new CollectionUuidWatcherTask(name, sync, emailSender);
-            Timer t2 = new Timer("CollectionUuidWatcher timer");
-            t2.scheduleAtFixedRate(uuidTask, 0, checkIntervalSeconds*1000L);
+            if (watchCollectionUuids) {
+            	CollectionUuidWatcherTask uuidTask = new CollectionUuidWatcherTask(name, sync, emailSender);
+                Timer t2 = new Timer("CollectionUuidWatcher timer");
+                t2.scheduleAtFixedRate(uuidTask, 0, checkIntervalSeconds*1000L);
+            }
     	}
     }
     
@@ -204,6 +215,9 @@ public class SchemaChangeWatcher {
         String checkIntervalStr = getConfigValue(line, properties, CHECK_INTERVAL_SECONDS, "60");
         watcher.setCheckIntervalSeconds(Long.parseLong(checkIntervalStr));
         
+        boolean watchCollectionUuids = Boolean.parseBoolean(getConfigValue(line, properties, WATCH_COLLECTION_UUIDS, "false"));
+        watcher.setWatchCollectionUuids(watchCollectionUuids);
+        
         watcher.init();
         
     }
@@ -226,6 +240,10 @@ public class SchemaChangeWatcher {
 
 	public void setCheckIntervalSeconds(long checkIntervalSeconds) {
 		this.checkIntervalSeconds = checkIntervalSeconds;
+	}
+
+	public void setWatchCollectionUuids(boolean watchCollectionUuids) {
+		this.watchCollectionUuids = watchCollectionUuids;
 	}
 
 

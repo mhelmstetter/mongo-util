@@ -8,7 +8,9 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
+import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.bson.Document;
@@ -34,6 +36,7 @@ import com.mongodb.client.model.Updates;
 import com.mongodb.diff3.DiffSummary.DiffStatus;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
+import com.mongodb.util.bson.BsonUuidUtil;
 
 public class DiffSummaryClient {
     private final MongoClient client;
@@ -64,11 +67,32 @@ public class DiffSummaryClient {
 
         for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext(); ) {
             RawBsonDocument chunk = sourceChunksIterator.next();
-            String chunkId = ShardClient.getIdFromChunk(chunk);
+            String chunkId = getIdFromChunk(chunk);
             chunksCache.put(chunkId, chunk);
         }
         return chunksCache;
     }
+    
+    public String getIdFromChunk(RawBsonDocument sourceChunk) {
+		RawBsonDocument min = null;
+		BsonValue minVal = sourceChunk.get("min");
+		if (minVal instanceof BsonDocument) {
+			 min = (RawBsonDocument)minVal;
+		} else {
+			//TODO log this?
+		}
+		RawBsonDocument max = (RawBsonDocument) sourceChunk.get("max");
+		String ns = sourceChunk.getString("ns").getValue();
+		
+		
+		return getIdFromChunk(ns, min, max);
+	}
+	
+	public static String getIdFromChunk(String ns, RawBsonDocument min, RawBsonDocument max) {
+		String minHash = min.toJson();
+		String maxHash = max.toJson();
+		return String.format("%s_%s_%s", ns, minHash, maxHash);
+	}
 
     public void simpleUpdate(ChunkDef cd, ChunkResult cr) {
         BsonValue min = cd.getMin() == null ? new BsonDocument() : cd.getMin();

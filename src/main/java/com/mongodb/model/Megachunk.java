@@ -1,5 +1,7 @@
 package com.mongodb.model;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
@@ -16,6 +18,8 @@ public class Megachunk {
 	private List<BsonDocument> mids = new LinkedList<>();
 	private BsonDocument max = null;
 	private boolean isLast = false;
+	
+	private LocalDateTime lastMovedTime;
 
 	public boolean isLast() {
 		return isLast;
@@ -67,6 +71,18 @@ public class Megachunk {
 	public void setShard(String shard) {
 		this.shard = shard;
 	}
+	
+	public Long elapsedSinceLastMoved() {
+		if (lastMovedTime == null) {
+			return null;
+		}
+		LocalDateTime now = LocalDateTime.now();
+		return ChronoUnit.MINUTES.between(lastMovedTime, now);
+	}
+	
+	public void updateLastMovedTime() {
+		lastMovedTime = LocalDateTime.now();
+	}
 
 	public String getId() {
 		String minHash = ((RawBsonDocument) min).toJson();
@@ -104,9 +120,7 @@ public class Megachunk {
 	@Override
 	public String toString() {
 		StringBuilder builder = new StringBuilder();
-		builder.append("Megachunk [chunkId=");
-		builder.append(chunkId);
-		builder.append(", ns=");
+		builder.append("Megachunk [ns=");
 		builder.append(ns);
 		builder.append(", shard=");
 		builder.append(shard);
@@ -116,6 +130,10 @@ public class Megachunk {
 		builder.append(max);
 		builder.append("]");
 		return builder.toString();
+	}
+
+	public void setMax(BsonDocument max) {
+		this.max = max;
 	}
 	
 }
