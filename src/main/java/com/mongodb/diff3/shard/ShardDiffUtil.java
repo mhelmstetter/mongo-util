@@ -104,8 +104,13 @@ public class ShardDiffUtil {
 		sourceShardClient.populateShardMongoClients();
 		destShardClient.populateShardMongoClients();
 
-		srcShardNames = new ArrayList<>(sourceShardClient.getShardsMap().keySet());
-		destShardNames = new ArrayList<>(destShardClient.getShardsMap().keySet());
+		//if (sourceShardClient.isMongos()) {
+			srcShardNames = new ArrayList<>(sourceShardClient.getShardsMap().keySet());
+		//}
+		
+		//if (destShardClient.isMongos()) {
+			destShardNames = new ArrayList<>(destShardClient.getShardsMap().keySet());
+		
 		
 		for (String shard : srcShardNames) {
             int numThreads = config.getThreads() / srcShardNames.size();
@@ -227,7 +232,7 @@ public class ShardDiffUtil {
         AtomicBoolean initialTaskPoolDone = new AtomicBoolean(false);
 
 		int totalChunks = getTotalChunks() + alreadyCompletedCount;
-		int numShards = srcShardNames.size();
+		final int numShards = srcShardNames.size();
 
 		summary.setTotalChunks(totalChunks);
 

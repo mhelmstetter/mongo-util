@@ -231,8 +231,13 @@ public class ShardClient {
 		}
 
 		configDb = mongoClient.getDatabase("config").withCodecRegistry(pojoCodecRegistry);
-
-		populateShardList();
+		
+		if (mongos) {
+			populateShardList();
+		} else {
+			populateShardListNotSharded();
+		}
+		
 		initVersionArray();
 		populateMongosList();
 		
@@ -383,6 +388,19 @@ public class ShardClient {
 		}
 
 		logger.debug(name + ": populateShardList complete, " + shardsMap.size() + " shards added");
+	}
+	
+	private void populateShardListNotSharded() {
+		Document result = adminCommand(new Document("replSetGetConfig", 1));
+		if (result != null) {
+			Document config = (Document)result.get("config");
+			String id  = config.getString("_id");
+			Shard shard = new Shard();
+			shard.setId(id);
+			shard.setRsName(id);
+			shardsMap.put(id, shard);
+		}
+		
 	}
 
 	private ReplicaSetInfo getReplicaSetInfoFromHost(String host) {

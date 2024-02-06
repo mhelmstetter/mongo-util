@@ -360,7 +360,7 @@ public class DiffUtil {
 		Document sort = new Document("_id", 1);
 		boolean filtered = !includedCollections.isEmpty();
 
-		logger.debug("Starting compare2 mode, filtered: {}");
+		logger.debug("Starting compare2 mode, filtered: {}", filtered);
 		
 		for (String dbName : sourceDbInfoMap.keySet()) {
 			Document destInfo = destDbInfoMap.get(dbName);
@@ -477,11 +477,14 @@ public class DiffUtil {
 								if (!DiffUtils.compareHashes(sourceBytes, destBytes)) {
 									Object id = sourceDoc.get("_id");
 
+									
+									
 									if (sourceDoc.equals(destDoc)) {
 										logger.error(String.format("%s - docs equal, but hash mismatch, id: %s", currentNs, id));
 										ds.totalKeysMisordered++;
 									} else {
 										logger.error(String.format("%s - doc hash mismatch, id: %s", currentNs, id));
+										boolean xx = DiffUtils.compareDocuments(currentNs, sourceDoc, destDoc);
 										ds.totalHashMismatched++;
 									}
 

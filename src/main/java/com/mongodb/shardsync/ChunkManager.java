@@ -55,7 +55,7 @@ public class ChunkManager {
 	
 	@SuppressWarnings("unchecked")
 	public void initalize() {
-		initializeChunkQuery();
+		
 		String source = config.getSourceClusterUri() == null ? config.getSourceClusterPattern() : config.getSourceClusterUri();
 		String dest = config.getDestClusterUri() == null ? config.getDestClusterPattern() : config.getDestClusterUri();
 		
@@ -151,12 +151,14 @@ public class ChunkManager {
 			
 			
 		}
+		initializeChunkQuery();
+		
 		// reverse map
 		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
 		
-		if (config.getSourceClusterPattern() == null && ! sourceShardClient.isMongos()) {
-			throw new IllegalArgumentException("source connection must be to a mongos router");
-		}
+//		if (config.getSourceClusterPattern() == null && ! sourceShardClient.isMongos()) {
+//			throw new IllegalArgumentException("source connection must be to a mongos router");
+//		}
 	}
 	
 	public List<Megachunk> getMegaChunks(Map<String, RawBsonDocument> chunksCache, ShardClient shardClient) {
