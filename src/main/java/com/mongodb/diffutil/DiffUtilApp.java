@@ -36,6 +36,7 @@ public class DiffUtilApp {
     
     private final static String NO_REPORT_MISSING = "noReportMissing";
     private final static String REPORT_MATCHES = "reportMatches";
+    private final static String SAMPLE_RATE = "sampleRate";
 
     @SuppressWarnings("static-access")
     private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
@@ -60,6 +61,8 @@ public class DiffUtilApp {
                 .withLongOpt(NO_REPORT_MISSING).create(NO_REPORT_MISSING));
         options.addOption(OptionBuilder.withArgName("Report missing docs")
                 .withLongOpt(REPORT_MATCHES).create(REPORT_MATCHES));
+        options.addOption(OptionBuilder.withArgName("Sample rate")
+                .withLongOpt(SAMPLE_RATE).hasArg().create());
         
 
         CommandLineParser parser = new GnuParser();
@@ -114,7 +117,7 @@ public class DiffUtilApp {
     public static void main(String[] args) throws Exception {
         CommandLine line = initializeAndParseCommandLineOptions(args);
         Properties configFileProps = readProperties();
-        DiffUtil sync = new DiffUtil();
+        DiffUtil sync = new DiffUtil(configFileProps);
         sync.setSourceClusterUri(line.getOptionValue("s", configFileProps.getProperty(SOURCE_URI)));
         sync.setDestClusterUri(line.getOptionValue("d", configFileProps.getProperty(DEST_URI)));
         
@@ -123,6 +126,11 @@ public class DiffUtilApp {
         }
         if (line.hasOption(NO_REPORT_MISSING)) {
         	sync.setReportMissing(false);
+        }
+        
+        if (line.hasOption(SAMPLE_RATE)) {
+        	String sampleRateStr = line.getOptionValue(SAMPLE_RATE);
+        	sync.setGlobalSampleRate(Double.parseDouble(sampleRateStr));
         }
         
         

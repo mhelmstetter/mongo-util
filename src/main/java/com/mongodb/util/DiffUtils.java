@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Sets;
+import com.mongodb.diffutil.DiffSummary;
 
 public class DiffUtils {
 	
@@ -22,16 +23,42 @@ public class DiffUtils {
 		return sourceHash.equals(destHash);
 	}
 	
+	public static void compare(String collectionName, RawBsonDocument sourceDoc, BsonValue sourceId, RawBsonDocument destDoc, DiffSummary result) {
+		
+		byte[] sourceBytes = sourceDoc.getByteBuffer().array();
+		byte[] destBytes = destDoc.getByteBuffer().array();
+		if (sourceBytes.length == destBytes.length) {
+			if (!DiffUtils.compareHashes(sourceBytes, destBytes)) {
+				Object id = sourceDoc.get("_id");
+
+				if (sourceDoc.equals(destDoc)) {
+					logger.error(String.format("%s - docs equal, but hash mismatch, id: %s", collectionName, id));
+					result.totalKeysMisordered++;
+				} else {
+					logger.error(String.format("%s - doc hash mismatch, id: %s", collectionName, id));
+					result.totalHashMismatched++;
+				}
+
+			} else {
+				result.totalMatches++;
+			}
+		} else {
+			logger.debug("Doc sizes not equal, id: " + sourceId);
+			compareDocuments(collectionName, sourceDoc, destDoc);
+			result.totalHashMismatched++;
+		}
+	}
+	
 	/**
-	 * This comparison handles the (very) special case that we could have (usually
-	 * due to some client/driver bug) 2 documents that differ only by the order of
+	 * This comparison handles the special case that we could have (usually
+	 * due to some client/driver bug, or a rare pattern of updates) 2 documents that differ only by the order of
 	 * their fields.
 	 * 
 	 * @param sourceDoc
 	 * @param destDoc
 	 * @return
 	 */
-	public static boolean compareDocuments(String ns, RawBsonDocument sourceDoc, RawBsonDocument destDoc) {
+	public static boolean compareDocuments(String collectionName, RawBsonDocument sourceDoc, RawBsonDocument destDoc) {
 		Object id = sourceDoc.get("_id");
 		Set<String> sourceKeys = sourceDoc.keySet();
 		Set<String> destKeys = destDoc.keySet();
@@ -41,10 +68,10 @@ public class DiffUtils {
 		if (!setsEqual) {
 			diff = Sets.difference(sourceKeys, destKeys);
 			if (! diff.isEmpty()) {
-				logger.debug("{} - keys do not match, keys missing from source: {}, _id: {}", ns, diff, id);
+				logger.debug("{} - keys do not match, keys missing from source: {}, _id: {}", collectionName, diff, id);
 			} else {
 				diff = Sets.difference(destKeys, sourceKeys);
-				logger.debug("{} keys do not match, keys missing from dest: {}, _id: {}", ns, diff, id);
+				logger.debug("{} keys do not match, keys missing from dest: {}, _id: {}", collectionName, diff, id);
 			}
 			
 
@@ -61,7 +88,7 @@ public class DiffUtils {
 			BsonValue destVal = destDoc.get(key);
 			boolean valuesEqual = sourceVal != null && destVal != null && sourceVal.equals(destVal);
 			if (!valuesEqual) {
-				logger.debug("{} - values not equal for key: {}, sourceVal: {}, destVal: {}", ns, key,
+				logger.debug("{} - values not equal for key: {}, sourceVal: {}, destVal: {}", collectionName, key,
 						sourceVal, destVal);
 			}
 			if (sourceVal != null) {

@@ -5,12 +5,14 @@ import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Projections.include;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.TreeMap;
 
@@ -30,6 +32,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
+import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.ShardCollection;
@@ -69,7 +72,9 @@ public class DiffUtil {
 	private boolean reportMissing = true;
 	private boolean reportMatches = false;
 	
-	private int batchSize;
+	private int batchSize = 200;
+	
+	private Double globalSampleRate;
 	
 	long sourceTotal = 0;
 	long destTotal = 0;
@@ -78,6 +83,12 @@ public class DiffUtil {
 	long destCount;
 
 	private Map<Namespace, Namespace> mappedNamespaces;
+	
+	private Properties configProperties;
+
+	public DiffUtil(Properties configFileProps) {
+		this.configProperties = configFileProps;
+	}
 
 	@SuppressWarnings("unchecked")
 	public void init() {
@@ -139,202 +150,138 @@ public class DiffUtil {
 	private DiffSummary compareAllDocumentsInCollectionUsingQueryMode() {
 
 		DiffSummary ds = new DiffSummary();
-		long sourceCount = currentSourceDb.getCollection(currentCollectionName).countDocuments();
-		long destCount = currentDestDb.getCollection(currentCollectionName).countDocuments();
-		logger.debug(String.format("Starting collection: %s - %d documents", currentNs, sourceCount));
-		if (sourceCount != destCount) {
-			logger.error(String.format("%s - doc count mismatch - sourceCount: %s, destCount: %s", currentNs,
-					sourceCount, destCount));
-		}
-
-		MongoCollection<RawBsonDocument> sourceColl = currentSourceDb.getCollection(currentCollectionName,
-				RawBsonDocument.class);
-		MongoCollection<RawBsonDocument> destColl = currentDestDb.getCollection(currentCollectionName,
-				RawBsonDocument.class);
-
-		MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(SORT_ID).iterator();
-		//MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(SORT_ID).iterator();
-
-		RawBsonDocument sourceDoc = null;
-		RawBsonDocument destDoc = null;
-		byte[] sourceBytes = null;
-		byte[] destBytes = null;
-		long missing = 0;
-		long matches = 0;
-		long keysMisordered = 0;
-		long hashMismatched = 0;
-		long total = 0;
-		long lastReport = System.currentTimeMillis();
+		Document sort = new Document("_id", 1);
+		boolean filtered = !includedCollections.isEmpty();
 		
-		List<BsonDocument> sourceBuffer = new ArrayList<>(batchSize);
-		List<BsonValue> sourceIds = new ArrayList<>(batchSize);
-		
-		List<BsonDocument> destBuffer = new ArrayList<>(batchSize);
-		
-		while (sourceCursor.hasNext()) {
-			sourceDoc = sourceCursor.next();
-			BsonValue sourceId = sourceDoc.get("_id");
+		for (String dbName : sourceDbInfoMap.keySet()) {
+			Document destInfo = destDbInfoMap.get(dbName);
 			
-			sourceBuffer.add(sourceDoc);
-			sourceIds.add(sourceId);
-			
-			if (sourceBuffer.size() >= batchSize) {
-				destColl.find(in("_id", sourceIds)).sort(SORT_ID).into(destBuffer);
-				
-				//processDiffBatch(sourceBuffer, destBuffer);
+			if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config")) {
+				continue;
 			}
 			
+			if (includedDatabases.size() > 0 && !includedDatabases.contains(dbName)) {
+				continue;
+			}
 			
+			if (destInfo != null) {
 
+				ds.totalDbs++;
+
+				MongoDatabase sourceDb = sourceClient.getDatabase(dbName);
+				MongoDatabase destDb = destClient.getDatabase(dbName);
+				MongoIterable<String> sourceCollectionNames = sourceDb.listCollectionNames();
+				for (String collectionName : sourceCollectionNames) {
+					if (collectionName.equals("system.profile") || collectionName.equals("system.indexes")) {
+						continue;
+					}
+					
+					if (filtered) {
+						Set<String> colls = includedCollections.get(dbName);
+						if (! colls.contains(collectionName)) {
+							continue;
+						}
+					}
+					ds.totalCollections++;
+					
+					MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName,
+							RawBsonDocument.class);
+					MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName,
+							RawBsonDocument.class);
+
+					Double sampleRate = null;
+					MongoCursor<RawBsonDocument> sourceCursor;
+					
+					String namespace = dbName + "." + collectionName;
+					String sampleKey = namespace + "_sampleRate";
+					if (configProperties.containsKey(sampleKey) || globalSampleRate != null) {
+						String sampleRateStr = (String)configProperties.get(sampleKey);
+						sampleRate = (sampleRateStr != null) ? Double.parseDouble(sampleRateStr) : globalSampleRate;
+						long sCount = sourceDb.getCollection(collectionName).estimatedDocumentCount();
+						int sBatch = Math.toIntExact(Math.round(sCount * sampleRate));
+						logger.debug(String.format("Starting collection %s, namespace %s, sampleRate: %s, estDocCount: %,d, sampleBatchSize: %,d", 
+								ds.totalCollections, namespace, sampleRate, sCount, sBatch));
+						sourceCursor = sourceColl.aggregate(Arrays.asList(Aggregates.sample(sBatch))).iterator();
+					} else {
+						logger.debug(String.format("Starting collection %s, namespace %s", ds.totalCollections, namespace));
+						sourceCursor = sourceColl.find().sort(sort).iterator();
+					}
+					
+					RawBsonDocument sourceDoc = null;
+					Map<BsonValue, RawBsonDocument> sourceBuffer = new TreeMap<>();
+					Map<BsonValue, RawBsonDocument> destBuffer = new TreeMap<>();
+					
+					
+					while (sourceCursor.hasNext()) {
+						sourceDoc = sourceCursor.next();
+						BsonValue sourceId = sourceDoc.get("_id");
+						sourceBuffer.put(sourceId, sourceDoc);
+						
+						if (sourceBuffer.size() >= batchSize) {
+							loadQueryBatch(sourceBuffer, destBuffer, destColl);
+							compareDocBuffers(namespace, sourceBuffer, destBuffer, ds);
+							sourceBuffer.clear();
+							destBuffer.clear();
+						}
+					}
+					loadQueryBatch(sourceBuffer, destBuffer, destColl);
+					compareDocBuffers(namespace, sourceBuffer, destBuffer, ds);
+				}
+			}
 		}
-		ds.totalCollections++;
-		ds.totalMatches += matches;
-		ds.totalKeysMisordered += keysMisordered;
-		ds.totalHashMismatched += hashMismatched;
-		ds.totalMissingDocs += missing;
+		
 
-		logger.debug(String.format("%s.%s complete - matches: %d, missing: %d, outOfOrderKeys: %s, hashMismatched: %d",
-				currentSourceDb.getName(), currentCollectionName, matches, missing, keysMisordered, hashMismatched));
+		logger.debug(String.format("complete - matches: %d, missing: %d, outOfOrderKeys: %s, hashMismatched: %d", 
+				ds.totalMatches, ds.totalMissingDocs, ds.totalKeysMisordered, ds.totalHashMismatched));
 		
 		return ds;
 
 	}
-
-
-	private DiffSummary compareAllDocumentsInCollection() {
+	
+	private void loadQueryBatch(Map<BsonValue, RawBsonDocument> sourceBuffer, Map<BsonValue, RawBsonDocument> destBuffer,
+			MongoCollection<RawBsonDocument> destColl) {
+		MongoCursor<RawBsonDocument> dCursor = destColl.find(in("_id", sourceBuffer.keySet())).iterator();
 		
-		DiffSummary ds = new DiffSummary();
-		this.sourceTotal = 0;
-		this.destTotal = 0;
-		this.sourceCount = 0;
-		this.destCount = 0;
-		this.lastReport = System.currentTimeMillis();
-
-		sourceCount = currentSourceDb.getCollection(currentCollectionName).countDocuments();
-		long destCount = currentDestDb.getCollection(currentCollectionName).countDocuments();
-		logger.debug(String.format("Starting collection: %s - %d documents", currentNs, sourceCount));
-		if (sourceCount != destCount) {
-			logger.error(String.format("%s - doc count mismatch - sourceCount: %s, destCount: %s", currentNs,
-					sourceCount, destCount));
-		}
-
-		MongoCollection<RawBsonDocument> sourceColl = currentSourceDb.getCollection(currentCollectionName,
-				RawBsonDocument.class);
-		MongoCollection<RawBsonDocument> destColl = currentDestDb.getCollection(currentCollectionName,
-				RawBsonDocument.class);
-
-		MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(SORT_ID).iterator();
-		MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(SORT_ID).iterator();
-
-		RawBsonDocument sourceDoc = null;
 		RawBsonDocument destDoc = null;
-		byte[] sourceBytes = null;
-		byte[] destBytes = null;
-		long missing = 0;
-		long matches = 0;
-		long keysMisordered = 0;
-		long hashMismatched = 0;
-
-		while (sourceCursor.hasNext()) {
-			sourceDoc = sourceCursor.next();
-			sourceTotal++;
-			Object sourceId = sourceDoc.get("_id");
-			
-			Object destId = null;
-			
-			while (! sourceId.equals(destId)) {
-				if (destCursor.hasNext()) {
-					destDoc = destCursor.next();
-					destTotal++;
-					destId = destDoc.get("_id");
-				} else {
-					logger.error(String.format("%s - destCursor exhausted, doc %s missing", currentNs, sourceId));
-					missing++;
-					continue;
-				}
-				statusCheck();
-			}
-			
-			sourceBytes = sourceDoc.getByteBuffer().array();
-			destBytes = destDoc.getByteBuffer().array();
-			if (sourceBytes.length == destBytes.length) {
-				if (!DiffUtils.compareHashes(sourceBytes, destBytes)) {
-					Object id = sourceDoc.get("_id");
-
-					if (sourceDoc.equals(destDoc)) {
-						logger.error(String.format("%s - docs equal, but hash mismatch, id: %s", currentNs, id));
-						keysMisordered++;
-					} else {
-						BsonDateTime sourceDate = sourceDoc.getDateTime("date");
-						BsonDateTime destDate = null;
-						if (sourceDate != null) {
-							destDate = destDoc.getDateTime("date");
-							logger.error(String.format("%s - doc hash mismatch, id: %s, sourceDate: %s, destDate: %s", 
-									currentNs, id, new Date(sourceDate.getValue()), new Date(destDate.getValue())));
-						} else {
-							logger.error(String.format("%s - doc hash mismatch, id: %s", currentNs, id));
-						}
-						hashMismatched++;
-					}
-
-				} else {
-					matches++;
-				}
-			} else {
-				logger.debug("Doc sizes not equal, id: " + sourceId);
-				boolean xx = DiffUtils.compareDocuments(currentNs, sourceDoc, destDoc);
-				hashMismatched++;
-			}
-			
-			statusCheck();
-
+		while (dCursor.hasNext()) {
+			destDoc = dCursor.next();
+			BsonValue destId = destDoc.get("_id");
+			destBuffer.put(destId, destDoc);
 		}
-		ds.totalCollections++;
-		ds.totalMatches += matches;
-		ds.totalKeysMisordered += keysMisordered;
-		ds.totalHashMismatched += hashMismatched;
-		ds.totalMissingDocs += missing;
+	}
 
-		logger.debug(String.format("%s.%s complete - matches: %d, missing: %d, outOfOrderKeys: %s, hashMismatched: %d",
-				currentSourceDb.getName(), currentCollectionName, matches, missing, keysMisordered, hashMismatched));
-		return ds;
 
+	private void compareDocBuffers(String ns, Map<BsonValue, RawBsonDocument> sourceBuffer,
+			Map<BsonValue, RawBsonDocument> destBuffer, DiffSummary ds) {
+		
+		for (Map.Entry<BsonValue, RawBsonDocument> entry : sourceBuffer.entrySet()) {
+			
+			RawBsonDocument sourceDoc = entry.getValue();
+			BsonValue sourceKey = entry.getKey();
+			RawBsonDocument destDoc = destBuffer.get(sourceKey);
+			
+			if (destDoc == null) {
+				if (reportMissing) {
+					logger.error(String.format("%s - fail: %s missing on dest", ns, sourceKey));
+				}
+				ds.totalMissingDocs++;
+			} else {
+				DiffUtils.compare(ns, sourceDoc, sourceKey, destDoc, ds);
+			}
+			
+			
+		}
+		
 	}
 	
 	public void retry() {
 		
-	}
-	
-	private void statusCheck() {
-		long now = System.currentTimeMillis();
-		long elapsedSinceLastReport = now - lastReport;
-		if (elapsedSinceLastReport >= 30000) {
-			logger.debug("source: {}/{} - {} percent complete, destTotal: {}", sourceTotal, 
-					sourceCount, sourceTotal / sourceCount, destTotal);
-			lastReport = now;
-		}
 	}
 
 	private void populateDbMap(List<Document> dbInfoList, Map<String, Document> databaseMap) {
 		for (Document dbInfo : dbInfoList) {
 			databaseMap.put(dbInfo.getString("name"), dbInfo);
 		}
-	}
-
-	private List<Document> splitVector(String namespace) {
-		Document splitVectorCmd = new Document("splitVector", namespace);
-		Document keyPattern = new Document("_id", 1);
-		splitVectorCmd.append("keyPattern", keyPattern);
-		splitVectorCmd.append("maxChunkSizeBytes", 1000000);
-		Document splits = destClient.getDatabase("admin").runCommand(splitVectorCmd);
-		List<Document> splitKeys = (List<Document>) splits.get("splitKeys");
-		logger.debug("splits: " + splitKeys);
-		return splitKeys;
-	}
-
-	private void populateCollectionList(MongoDatabase db, List<ShardCollection> list) {
-		MongoCollection<ShardCollection> shardsColl = db.getCollection("collections", ShardCollection.class);
-		shardsColl.find(eq("dropped", false)).sort(Sorts.ascending("_id")).into(list);
 	}
 
 	public String getSourceClusterUri() {
@@ -392,7 +339,10 @@ public class DiffUtil {
 						}
 					}
 					ds.totalCollections++;
-					logger.debug(String.format("Starting collection %s, namespace %s.%s", ds.totalCollections, dbName, collectionName));
+					
+					
+					
+					
 					MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(collectionName,
 							RawBsonDocument.class);
 					MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName,
@@ -400,8 +350,7 @@ public class DiffUtil {
 					long sourceCount = 0;
 					long destCount = 0;
 
-					MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(sort)
-							.iterator();
+					MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(sort).iterator();
 					MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(sort).iterator();
 
 					RawBsonDocument sourceDoc = null;
@@ -444,9 +393,9 @@ public class DiffUtil {
 						if (sourceKey != null && destKey != null) {
 							compare = comparator.compare(sourceKey, destKey);
 						} else if (sourceKey == null) {
-//							if (reportMissing) {
-//								logger.error(String.format("%s - fail: %s missing on source", collectionName, destKey));
-//							}
+							if (reportMissing) {
+								logger.error(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							}
 							ds.totalMissingDocs++;
 							continue;
 						} else if (destKey == null) {
@@ -464,38 +413,13 @@ public class DiffUtil {
 							ds.totalMissingDocs++;
 							destNext = destDoc;
 						} else if (compare > 0) {
-//							if (reportMissing) {
-//								logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
-//							}
+							if (reportMissing) {
+								logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
+							}
 							ds.totalMissingDocs++;
 							sourceNext = sourceDoc;
 						} else {
-							byte[] sourceBytes = sourceDoc.getByteBuffer().array();
-							byte[] destBytes = destDoc.getByteBuffer().array();
-							
-							if (sourceBytes.length == destBytes.length) {
-								if (!DiffUtils.compareHashes(sourceBytes, destBytes)) {
-									Object id = sourceDoc.get("_id");
-
-									
-									
-									if (sourceDoc.equals(destDoc)) {
-										logger.error(String.format("%s - docs equal, but hash mismatch, id: %s", currentNs, id));
-										ds.totalKeysMisordered++;
-									} else {
-										logger.error(String.format("%s - doc hash mismatch, id: %s", currentNs, id));
-										boolean xx = DiffUtils.compareDocuments(currentNs, sourceDoc, destDoc);
-										ds.totalHashMismatched++;
-									}
-
-								} else {
-									ds.totalMatches++;
-								}
-							} else {
-								logger.debug("Doc sizes not equal, source id: {}, dest id: {}" + sourceKey, destKey);
-								boolean xx = DiffUtils.compareDocuments(currentNs, sourceDoc, destDoc);
-								ds.totalHashMismatched++;
-							}
+							DiffUtils.compare(collectionName, sourceDoc, sourceKey, destDoc, ds);
 							
 						}
 					}
@@ -781,6 +705,10 @@ public class DiffUtil {
 	
 	public void setMappedNamespaces(Map<Namespace, Namespace> mappedNamespaces) {
 		this.mappedNamespaces = mappedNamespaces;
+	}
+
+	public void setGlobalSampleRate(Double globalSampleRate) {
+		this.globalSampleRate = globalSampleRate;
 	}
 
 }

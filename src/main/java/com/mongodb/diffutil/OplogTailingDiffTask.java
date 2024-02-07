@@ -115,7 +115,7 @@ public class OplogTailingDiffTask implements Callable<OplogTailingDiffTaskResult
 					Object id = sourceDoc.get("_id");
 
 					if (sourceDoc.equals(destDoc)) {
-						logger.error(String.format("%s - docs equal, but hash mismatch, id: %s", ns, id));
+						logger.warn(String.format("%s - docs equal, but hash mismatch, id: %s", ns, id));
 						result.incrementKeysMisordered();
 					} else {
 						logger.error(String.format("%s - doc hash mismatch, id: %s", ns, id));
