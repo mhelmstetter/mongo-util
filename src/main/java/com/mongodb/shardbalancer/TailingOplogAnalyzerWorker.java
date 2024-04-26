@@ -153,9 +153,12 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 				if (collMeta == null) {
 					continue;
 				}
+				Document shardKeyDoc = (Document)collMeta.get("key");
+				Set<String> shardKey = shardKeyDoc.keySet();
+				
 	            
 	            //BsonString id = (BsonString)getIdForOperation(doc);
-				BsonValueWrapper id = getIdForOperation(doc);
+				BsonValueWrapper id = getIdForOperation(doc, shardKey);
 	            
 	            if (id == null) {
 	            	logger.debug("id for operation was null: {}", doc);
@@ -163,8 +166,11 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 	            }
 	            
 	            NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
+	            
 	            //Map.Entry<String, CountingMegachunk> entry = innerMap.floorEntry(id.getValue());
 	            Map.Entry<BsonValueWrapper, CountingMegachunk> entry = innerMap.floorEntry(id);
+	            
+	            logger.debug("chunk: {}", entry);
 	            
 	            if (entry != null) {
 	            	CountingMegachunk m = entry.getValue();
@@ -233,18 +239,25 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		return ts;
 	}
 	
-	private BsonValueWrapper getIdForOperation(BsonDocument operation) throws MongoException {
+	private BsonValueWrapper getIdForOperation(BsonDocument operation, Set<String> shardKey) throws MongoException {
 		String opType = operation.getString("op").getValue();
 		switch (opType) {
 		case "u":
 			BsonDocument o2 = operation.getDocument("o2");
 			if (o2 != null) {
-				BsonValue id = o2.get("_id");
-				if (id != null) {
-					return new BsonValueWrapper(id);
-				} else {
-					logger.warn("{}: did not find o2._id field for update oplog entry: {}", shardId, operation);
+				if (shardKey.size() == 1) {
+					String key = shardKey.iterator().next();
+					BsonValue id = o2.get(key);
+					if (id != null) {
+						return new BsonValueWrapper(id);
+					} else {
+						logger.warn("{}: did not find o2._id field for update oplog entry: {}", shardId, operation);
+					}
+				} else if (shardKey.size() == o2.size()) {
+					System.out.println();
+					return new BsonValueWrapper(o2);
 				}
+				
 			} else {
 				logger.error("{}: did not find o2 field for update oplog entry: {}", shardId, operation);
 				return null;

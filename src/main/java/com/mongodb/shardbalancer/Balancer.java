@@ -211,7 +211,8 @@ public class Balancer implements Callable<Integer> {
 			if (shardKeys.size() == 1) {
 				val = min.get(min.getFirstKey());
 			} else {
-				logger.warn("compound not implemented");
+				//logger.warn("compound - experimental support");
+				val = min;
 			}
 			 
 			if (val == null) {
@@ -229,6 +230,7 @@ public class Balancer implements Callable<Integer> {
 				//logger.debug("chunkDoc min._id was unexepected type: {}, chunk: {}", val.getClass().getName(), mega);
 				innerMap.put(new BsonValueWrapper(val), mega);
 			}
+			logger.debug("{}: innerMap size: {}, val: {}", ns, innerMap.size(), val);
 		}
 		balancerConfig.setChunkMap(chunkMap);
 	}

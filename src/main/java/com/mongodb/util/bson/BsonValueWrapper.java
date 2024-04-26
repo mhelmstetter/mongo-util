@@ -20,7 +20,7 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
 	@Override
 	@SuppressWarnings({ "unchecked", "rawtypes" })
 	public int compareTo(BsonValueWrapper other) {
-
+		
 		BsonType thisType = this.value.getBsonType();
 		BsonType otherType = other.value.getBsonType();
 
@@ -32,8 +32,7 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
 
 			switch (thisType) {
 			case DOCUMENT:
-				compareDocs((BsonDocument) this.value, (BsonDocument) other.value);
-				break;
+				return compareDocs((BsonDocument) this.value, (BsonDocument) other.value);
 			case MIN_KEY:
 				return 0;
 			default:
@@ -44,15 +43,23 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
 		if (otherType.equals(BsonType.MIN_KEY)) {
 			return 1;
 		} else {
-			//System.out.println("comparing " + thisType + " to " + otherType + " - " + this.getValue() + " to " + other.getValue());
+			//System.out.println("*** comparing " + thisType + " to " + otherType + " - " + this.getValue() + " to " + other.getValue());
 			return 0;
 		}
 	}
 
 	public int compareDocs(BsonDocument x, BsonDocument y) {
+		int result;
 		String s1 = x.toJson();
 		String s2 = y.toJson();
-		return s1.compareTo(s2);
+		if (s2.contains("{\"$minKey\": 1}")) {
+			result = 1;
+		} else {
+			result = s1.compareTo(s2);
+		}
+		
+		//System.out.println("compare: " + x + " --> " + y + " **result: " + result);
+		return result;
 	}
 
 	public BsonValue getValue() {
