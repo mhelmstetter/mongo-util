@@ -195,6 +195,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 			logger.warn("interrupted", e);
 		} catch (Exception e) {
 			logger.error("tail error for shard {}, error: {}", shardId, e.getMessage());
+			e.printStackTrace();
 		} finally {
 			try {
 				cursor.close();

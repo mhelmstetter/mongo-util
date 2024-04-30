@@ -2,64 +2,109 @@ package com.mongodb.util.bson;
 
 import java.util.Objects;
 
+import org.bson.BsonArray;
 import org.bson.BsonDocument;
-import org.bson.BsonType;
 import org.bson.BsonValue;
 
 public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
 
-	private BsonValue value;
+	private final BsonValue value;
 
 	public BsonValueWrapper(BsonValue value) {
-		if (value == null) {
-			throw new IllegalArgumentException("Value can not be null");
-		}
 		this.value = value;
 	}
 
 	@Override
-	@SuppressWarnings({ "unchecked", "rawtypes" })
 	public int compareTo(BsonValueWrapper other) {
-		
-		BsonType thisType = this.value.getBsonType();
-		BsonType otherType = other.value.getBsonType();
-
-		if (thisType.equals(otherType)) {
-
-			if (this.value instanceof Comparable) {
-				return ((Comparable) this.value).compareTo((Comparable) other.value);
-			}
-
-			switch (thisType) {
-			case DOCUMENT:
-				return compareDocs((BsonDocument) this.value, (BsonDocument) other.value);
-			case MIN_KEY:
-				return 0;
-			default:
-				throw new IllegalArgumentException("BsonValueWrapper not implemented for type " + thisType.toString());
-			}
+		if (value == null && other.value == null) {
+			return 0;
+		} else if (value == null) {
+			return -1;
+		} else if (other.value == null) {
+			return 1;
 		}
 		
-		if (otherType.equals(BsonType.MIN_KEY)) {
-			return 1;
+		if (value.getBsonType() != other.value.getBsonType()) {
+			return value.getBsonType().compareTo(other.value.getBsonType());
+		}
+
+		if (value instanceof Comparable<?> && other.value instanceof Comparable<?>) {
+			@SuppressWarnings("unchecked")
+			Comparable<Object> comparableValue = (Comparable<Object>) value;
+			@SuppressWarnings("unchecked")
+			Comparable<Object> otherComparableValue = (Comparable<Object>) other.value;
+			return comparableValue.compareTo(otherComparableValue);
 		} else {
-			//System.out.println("*** comparing " + thisType + " to " + otherType + " - " + this.getValue() + " to " + other.getValue());
-			return 0;
+			return compareNonComparableValues(value, other.value);
 		}
 	}
 
-	public int compareDocs(BsonDocument x, BsonDocument y) {
-		int result;
-		String s1 = x.toJson();
-		String s2 = y.toJson();
-		if (s2.contains("{\"$minKey\": 1}")) {
-			result = 1;
+	private int compareNonComparableValues(BsonValue value1, BsonValue value2) {
+		if (value1.isDocument() && value2.isDocument()) {
+			BsonDocument doc1 = value1.asDocument();
+			BsonDocument doc2 = value2.asDocument();
+			return new BsonValueWrapper(doc1).compareTo(new BsonValueWrapper(doc2));
+		} else if (value1.isArray() && value2.isArray()) {
+			return compareArrays(value1.asArray(), value2.asArray());
+		} else if (value1.getBsonType() != value2.getBsonType()) {
+			return value1.getBsonType().compareTo(value2.getBsonType());
 		} else {
-			result = s1.compareTo(s2);
+			switch (value1.getBsonType()) {
+			case STRING:
+				return value1.asString().getValue().compareTo(value2.asString().getValue());
+			case DOUBLE:
+				return Double.compare(value1.asDouble().getValue(), value2.asDouble().getValue());
+			case INT32:
+				return Integer.compare(value1.asInt32().getValue(), value2.asInt32().getValue());
+			case INT64:
+				return Long.compare(value1.asInt64().getValue(), value2.asInt64().getValue());
+			case BOOLEAN:
+				return Boolean.compare(value1.asBoolean().getValue(), value2.asBoolean().getValue());
+			case DATE_TIME:
+				return Long.compare(value1.asDateTime().getValue(), value2.asDateTime().getValue());
+			case MIN_KEY:
+				return -1; // MIN_KEY is always less than other values
+			case MAX_KEY:
+				return 1; // MAX_KEY is always greater than other values
+			case NULL:
+				return 0; // Null values are considered equal
+			case UNDEFINED:
+				throw new IllegalArgumentException("Unsupported BsonType: UNDEFINED");
+			case OBJECT_ID:
+				return value1.asObjectId().getValue().compareTo(value2.asObjectId().getValue());
+			case DECIMAL128:
+				return value1.asDecimal128().getValue().compareTo(value2.asDecimal128().getValue());
+			case JAVASCRIPT:
+			case JAVASCRIPT_WITH_SCOPE:
+			case REGULAR_EXPRESSION:
+			case BINARY:
+			case SYMBOL:
+			case DB_POINTER:
+			case TIMESTAMP:
+				// These types are not directly comparable, so we fall back to string comparison
+				return value1.asString().getValue().compareTo(value2.asString().getValue());
+			default:
+				throw new IllegalArgumentException("Unsupported BsonType: " + value1.getBsonType());
+			}
 		}
-		
-		//System.out.println("compare: " + x + " --> " + y + " **result: " + result);
-		return result;
+	}
+
+	private int compareArrays(BsonArray array1, BsonArray array2) {
+		int size1 = array1.size();
+		int size2 = array2.size();
+
+		int minSize = Math.min(size1, size2);
+		for (int i = 0; i < minSize; i++) {
+			BsonValue value1 = array1.get(i);
+			BsonValue value2 = array2.get(i);
+
+			int comparison = new BsonValueWrapper(value1).compareTo(new BsonValueWrapper(value2));
+			if (comparison != 0) {
+				return comparison;
+			}
+		}
+
+		return Integer.compare(size1, size2);
 	}
 
 	public BsonValue getValue() {
