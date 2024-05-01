@@ -170,14 +170,11 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 	            //Map.Entry<String, CountingMegachunk> entry = innerMap.floorEntry(id.getValue());
 	            Map.Entry<BsonValueWrapper, CountingMegachunk> entry = innerMap.floorEntry(id);
 	            
-	            logger.debug("chunk: {}", entry);
-	            
 	            if (entry != null) {
 	            	CountingMegachunk m = entry.getValue();
 		            
 		            if (! m.getShard().equals(shardId)) {
 		            	logger.error("shard for this chunk does not match, id: {}, chunk: {}, seen on shard: {}, opType: {}", id, m, shardId, opType);
-		            	logger.debug("inner map size: {}, ns: {}, lastKey: {}", innerMap.size(), ns, innerMap.lastKey());
 		            	continue;
 		            }
 		            
