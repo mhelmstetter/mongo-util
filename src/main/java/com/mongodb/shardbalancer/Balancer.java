@@ -230,7 +230,6 @@ public class Balancer implements Callable<Integer> {
 				//logger.debug("chunkDoc min._id was unexepected type: {}, chunk: {}", val.getClass().getName(), mega);
 				innerMap.put(new BsonValueWrapper(val), mega);
 			}
-			logger.debug("{}: innerMap size: {}, val: {}", ns, innerMap.size(), val);
 		}
 		balancerConfig.setChunkMap(chunkMap);
 	}
