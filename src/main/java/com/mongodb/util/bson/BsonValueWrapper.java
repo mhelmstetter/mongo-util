@@ -43,7 +43,7 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
 		if (value1.isDocument() && value2.isDocument()) {
 			BsonDocument doc1 = value1.asDocument();
 			BsonDocument doc2 = value2.asDocument();
-			return new BsonValueWrapper(doc1).compareTo(new BsonValueWrapper(doc2));
+			return new ComparableBsonDocument(doc1).compareTo(new ComparableBsonDocument(doc2));
 		} else if (value1.isArray() && value2.isArray()) {
 			return compareArrays(value1.asArray(), value2.asArray());
 		} else if (value1.getBsonType() != value2.getBsonType()) {
