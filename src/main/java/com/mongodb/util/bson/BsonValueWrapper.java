@@ -35,7 +35,7 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
             return 1; // Any value other than MIN_KEY is greater than MIN_KEY
         }
 
-        if (value instanceof Comparable<?> && other.value instanceof Comparable<?>) {
+        if (value.getClass() == other.value.getClass() && value instanceof Comparable<?> && other.value instanceof Comparable<?>) {
             @SuppressWarnings("unchecked")
             Comparable<Object> comparableValue = (Comparable<Object>) value;
             @SuppressWarnings("unchecked")
