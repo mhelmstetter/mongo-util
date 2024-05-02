@@ -243,20 +243,6 @@ public class Balancer implements Callable<Integer> {
 			}
 		}
 		balancerConfig.setChunkMap(chunkMap);
-		
-		NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.values().iterator().next();
-		
-		Namespace ns = balancerConfig.getIncludeNamespaces().iterator().next();
-		
-		Collection<RawBsonDocument> chunks = sourceChunksCache.values();
-		Iterator<RawBsonDocument> it = chunks.iterator();
-		
-		for (BsonValueWrapper w : innerMap.keySet()) {
-			BsonValue v = w.getValue();
-			
-			System.out.println("" + v);
-			
-		}
 	}
 
 

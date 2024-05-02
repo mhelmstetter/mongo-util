@@ -158,7 +158,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 				
 	            
 	            //BsonString id = (BsonString)getIdForOperation(doc);
-				BsonValueWrapper id = getIdForOperation(doc, shardKey);
+				BsonValueWrapper id = getShardKeyForOperation(doc, shardKey);
 	            
 	            if (id == null) {
 	            	logger.debug("id for operation was null: {}", doc);
@@ -236,50 +236,48 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		BsonTimestamp ts = (BsonTimestamp) doc.get("ts");
 		return ts;
 	}
+    
+    private BsonValueWrapper getShardKeyFromOplogEntry(BsonDocument o2, Set<String> shardKey) {
+    	if (shardKey.size() == 1) {
+			String key = shardKey.iterator().next();
+			BsonValue id = o2.get(key);
+			if (id != null) {
+				return new BsonValueWrapper(id);
+			} else {
+				logger.warn("{}: did not find shard key for update oplog entry: {}", shardId, o2);
+				return null;
+			}
+		} else if (shardKey.size() == o2.size()) {
+			return new BsonValueWrapper(o2);
+		} else {
+			BsonDocument newKey = new BsonDocument();
+			for (String key : shardKey) {
+				BsonValue val = o2.get(key);
+				if (val == null) {
+					logger.warn("{}: missing shard key values for shardKey: {}, o2: {}", shardId, shardKey, o2);
+				}
+				newKey.put(key, val);
+			}
+			return new BsonValueWrapper(newKey);
+		}
+    }
 	
-	private BsonValueWrapper getIdForOperation(BsonDocument operation, Set<String> shardKey) throws MongoException {
+	private BsonValueWrapper getShardKeyForOperation(BsonDocument operation, Set<String> shardKey) throws MongoException {
 		String opType = operation.getString("op").getValue();
 		switch (opType) {
 		case "u":
 			BsonDocument o2 = operation.getDocument("o2");
 			if (o2 != null) {
-				if (shardKey.size() == 1) {
-					String key = shardKey.iterator().next();
-					BsonValue id = o2.get(key);
-					if (id != null) {
-						return new BsonValueWrapper(id);
-					} else {
-						logger.warn("{}: did not find o2._id field for update oplog entry: {}", shardId, operation);
-					}
-				} else if (shardKey.size() == o2.size()) {
-					return new BsonValueWrapper(o2);
-				} else {
-					BsonDocument newKey = new BsonDocument();
-					for (String key : shardKey) {
-						BsonValue val = o2.get(key);
-						if (val == null) {
-							logger.warn("{}: missing shard key values for shardKey: {}, o2: {}", shardId, shardKey, o2);
-						}
-						newKey.put(key, val);
-						return new BsonValueWrapper(newKey);
-					}
-				}
-				
+				return getShardKeyFromOplogEntry(o2, shardKey);
 			} else {
 				logger.error("{}: did not find o2 field for update oplog entry: {}", shardId, operation);
 				return null;
 			}
-			break;
 		case "i":
 		case "d":
 			BsonDocument oDoc = operation.getDocument("o");
 			if (oDoc != null) {
-				BsonValue id = oDoc.get("_id");
-				if (id != null) {
-					return new BsonValueWrapper(id);
-				} else {
-					logger.warn("{}: did not find o._id field for insert/delete oplog entry: {}", shardId, operation);
-				}
+				return getShardKeyFromOplogEntry(oDoc, shardKey);
 			} else {
 				logger.error("{}: did not find o field for insert/delete oplog entry: {}", shardId, operation);
 			}
