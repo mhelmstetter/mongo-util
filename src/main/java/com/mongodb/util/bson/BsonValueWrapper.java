@@ -4,6 +4,7 @@ import java.util.Objects;
 
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
+import org.bson.BsonType;
 import org.bson.BsonValue;
 
 public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
@@ -24,8 +25,14 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
             return 1;
         }
 
-        if (value.getBsonType() != other.value.getBsonType()) {
-            return value.getBsonType().compareTo(other.value.getBsonType());
+        if (value.getBsonType() == BsonType.MIN_KEY) {
+            if (other.value.getBsonType() == BsonType.MIN_KEY) {
+                return 0; // MIN_KEY compared to MIN_KEY is equal
+            } else {
+                return -1; // MIN_KEY is less than any other value
+            }
+        } else if (other.value.getBsonType() == BsonType.MIN_KEY) {
+            return 1; // Any value other than MIN_KEY is greater than MIN_KEY
         }
 
         if (value instanceof Comparable<?> && other.value instanceof Comparable<?>) {
@@ -46,6 +53,22 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
             return new ComparableBsonDocument(doc1).compareTo(new ComparableBsonDocument(doc2));
         } else if (value1.isArray() && value2.isArray()) {
             return compareArrays(value1.asArray(), value2.asArray());
+        } else if (value1.getBsonType() == BsonType.MIN_KEY) {
+            if (value2.getBsonType() == BsonType.MIN_KEY) {
+                return 0; // MIN_KEY compared to MIN_KEY is equal
+            } else {
+                return -1; // MIN_KEY is less than any other value
+            }
+        } else if (value1.getBsonType() == BsonType.MAX_KEY) {
+            if (value2.getBsonType() == BsonType.MAX_KEY) {
+                return 0; // MAX_KEY compared to MAX_KEY is equal
+            } else {
+                return 1; // MAX_KEY is greater than any other value
+            }
+        } else if (value2.getBsonType() == BsonType.MIN_KEY) {
+            return 1; // Any value other than MIN_KEY is greater than MIN_KEY
+        } else if (value2.getBsonType() == BsonType.MAX_KEY) {
+            return -1; // Any value other than MAX_KEY is less than MAX_KEY
         } else if (value1.getBsonType() != value2.getBsonType()) {
             return value1.getBsonType().compareTo(value2.getBsonType());
         } else {

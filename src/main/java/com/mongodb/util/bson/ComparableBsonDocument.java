@@ -1,13 +1,19 @@
 package com.mongodb.util.bson;
 
-import org.bson.BsonDocument;
-import org.bson.BsonValue;
-
 import java.util.Map;
 import java.util.TreeMap;
 
+import org.bson.BsonDocument;
+import org.bson.BsonMaxKey;
+import org.bson.BsonMinKey;
+import org.bson.BsonValue;
+
 public class ComparableBsonDocument implements Comparable<ComparableBsonDocument> {
     private final BsonDocument document;
+    
+    private final static BsonMinKey min = new BsonMinKey();
+    private final static BsonMaxKey max = new BsonMaxKey();
+
 
     ComparableBsonDocument(BsonDocument document) {
         this.document = document;
@@ -23,11 +29,13 @@ public class ComparableBsonDocument implements Comparable<ComparableBsonDocument
             BsonValue value1 = entry1.getValue();
             BsonValue value2 = sortedMap2.get(key);
 
+            int comparison;
             if (value2 == null) {
-                return 1; // key exists in this document but not in the other
+                comparison = new BsonValueWrapper(value1).compareTo(new BsonValueWrapper(min));
+            } else {
+                comparison = new BsonValueWrapper(value1).compareTo(new BsonValueWrapper(value2));
             }
 
-            int comparison = new BsonValueWrapper(value1).compareTo(new BsonValueWrapper(value2));
             if (comparison != 0) {
                 return comparison;
             }
@@ -35,7 +43,11 @@ public class ComparableBsonDocument implements Comparable<ComparableBsonDocument
 
         for (String key : sortedMap2.keySet()) {
             if (!sortedMap1.containsKey(key)) {
-                return -1; // key exists in the other document but not in this
+                BsonValue value2 = sortedMap2.get(key);
+                int comparison = new BsonValueWrapper(max).compareTo(new BsonValueWrapper(value2));
+                if (comparison != 0) {
+                    return comparison;
+                }
             }
         }
 

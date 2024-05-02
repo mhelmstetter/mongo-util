@@ -17,7 +17,9 @@ import static com.mongodb.client.model.Sorts.orderBy;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +55,7 @@ import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Updates;
+import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.bson.BsonUuidUtil;
@@ -143,12 +146,20 @@ public class Balancer implements Callable<Integer> {
 		chunkManager.initializeChunkQuery();
 		chunkMap = new HashMap<>();
 		sourceChunksCache = new LinkedHashMap<>();
-		loadChunkMap(null);
+		
+		if (balancerConfig.getIncludeNamespaces().isEmpty()) {
+			loadChunkMap(null);
+		} else {
+			for (String ns : balancerConfig.getIncludedNamespaceStrings()) {
+				loadChunkMap(ns);
+			}
+		}
+		
 	}
 	
 	private void loadChunkMap(String namespace) {
 		
-		logger.debug("Starting loadChunkMap, size: {}");
+		logger.debug("Starting loadChunkMap");
 		BsonDocument chunkQuery = null;
 		
 		if (namespace == null) {
@@ -192,7 +203,7 @@ public class Balancer implements Callable<Integer> {
 				innerMap = new TreeMap<>();
 				chunkMap.put(ns, innerMap);
 			}
-
+			
 			// Document collDoc = this.sourceShardClient.getCollectionsMap().get(ns);
 
 			BsonDocument min = chunkDoc.getDocument("min");

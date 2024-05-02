@@ -252,8 +252,17 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 						logger.warn("{}: did not find o2._id field for update oplog entry: {}", shardId, operation);
 					}
 				} else if (shardKey.size() == o2.size()) {
-					System.out.println();
 					return new BsonValueWrapper(o2);
+				} else {
+					BsonDocument newKey = new BsonDocument();
+					for (String key : shardKey) {
+						BsonValue val = o2.get(key);
+						if (val == null) {
+							logger.warn("{}: missing shard key values for shardKey: {}, o2: {}", shardId, shardKey, o2);
+						}
+						newKey.put(key, val);
+						return new BsonValueWrapper(newKey);
+					}
 				}
 				
 			} else {
