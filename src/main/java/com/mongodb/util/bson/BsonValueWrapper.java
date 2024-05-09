@@ -63,11 +63,14 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
             return new ComparableBsonDocument(doc1).compareTo(new ComparableBsonDocument(doc2));
         } else if (value1.isArray() && value2.isArray()) {
             return compareArrays(value1.asArray(), value2.asArray());
+        } else if (value1.isNumber() && value2.isNumber()) {
+            return compareNumbers(value1, value2);
         } else {
-            if (value1.isNumber() && value2.isNumber()) {
-                return compareNumbers(value1, value2);
-            } else {
-                switch (value1.getBsonType()) {
+            BsonType type1 = value1.getBsonType();
+            BsonType type2 = value2.getBsonType();
+
+            if (type1 == type2) {
+                switch (type1) {
                     case STRING:
                         return value1.asString().getValue().compareTo(value2.asString().getValue());
                     case BOOLEAN:
@@ -87,8 +90,11 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
                     case TIMESTAMP:
                         return value1.asString().getValue().compareTo(value2.asString().getValue());
                     default:
-                        throw new IllegalArgumentException("Unsupported BsonType: " + value1.getBsonType());
+                        throw new IllegalArgumentException("Unsupported BsonType: " + type1);
                 }
+            } else {
+                // Types are different, compare based on their order
+                return type1.compareTo(type2);
             }
         }
     }
