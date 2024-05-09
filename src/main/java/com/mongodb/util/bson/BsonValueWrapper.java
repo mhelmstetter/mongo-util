@@ -63,62 +63,53 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
             return new ComparableBsonDocument(doc1).compareTo(new ComparableBsonDocument(doc2));
         } else if (value1.isArray() && value2.isArray()) {
             return compareArrays(value1.asArray(), value2.asArray());
-        } else if (value1.getBsonType() == BsonType.MIN_KEY) {
-            if (value2.getBsonType() == BsonType.MIN_KEY) {
-                return 0; // MIN_KEY compared to MIN_KEY is equal
-            } else {
-                return -1; // MIN_KEY is less than any other value
-            }
-        } else if (value1.getBsonType() == BsonType.MAX_KEY) {
-            if (value2.getBsonType() == BsonType.MAX_KEY) {
-                return 0; // MAX_KEY compared to MAX_KEY is equal
-            } else {
-                return 1; // MAX_KEY is greater than any other value
-            }
-        } else if (value2.getBsonType() == BsonType.MIN_KEY) {
-            return 1; // Any value other than MIN_KEY is greater than MIN_KEY
-        } else if (value2.getBsonType() == BsonType.MAX_KEY) {
-            return -1; // Any value other than MAX_KEY is less than MAX_KEY
-        } else if (value1.getBsonType() != value2.getBsonType()) {
-            return value1.getBsonType().compareTo(value2.getBsonType());
         } else {
-            switch (value1.getBsonType()) {
-                case STRING:
-                    return value1.asString().getValue().compareTo(value2.asString().getValue());
-                case DOUBLE:
-                    return Double.compare(value1.asDouble().getValue(), value2.asDouble().getValue());
-                case INT32:
-                    return Integer.compare(value1.asInt32().getValue(), value2.asInt32().getValue());
-                case INT64:
-                    return Long.compare(value1.asInt64().getValue(), value2.asInt64().getValue());
-                case BOOLEAN:
-                    return Boolean.compare(value1.asBoolean().getValue(), value2.asBoolean().getValue());
-                case DATE_TIME:
-                    return Long.compare(value1.asDateTime().getValue(), value2.asDateTime().getValue());
-                case MIN_KEY:
-                    return -1; // MIN_KEY is always less than other values
-                case MAX_KEY:
-                    return 1; // MAX_KEY is always greater than other values
-                case NULL:
-                    return 0; // Null values are considered equal
-                case UNDEFINED:
-                    throw new IllegalArgumentException("Unsupported BsonType: UNDEFINED");
-                case OBJECT_ID:
-                    return value1.asObjectId().getValue().compareTo(value2.asObjectId().getValue());
-                case DECIMAL128:
-                    return value1.asDecimal128().getValue().compareTo(value2.asDecimal128().getValue());
-                case JAVASCRIPT:
-                case JAVASCRIPT_WITH_SCOPE:
-                case REGULAR_EXPRESSION:
-                case BINARY:
-                case SYMBOL:
-                case DB_POINTER:
-                case TIMESTAMP:
-                    // These types are not directly comparable, so we fall back to string comparison
-                    return value1.asString().getValue().compareTo(value2.asString().getValue());
-                default:
-                    throw new IllegalArgumentException("Unsupported BsonType: " + value1.getBsonType());
+            if (value1.isNumber() && value2.isNumber()) {
+                return compareNumbers(value1, value2);
+            } else {
+                switch (value1.getBsonType()) {
+                    case STRING:
+                        return value1.asString().getValue().compareTo(value2.asString().getValue());
+                    case BOOLEAN:
+                        return Boolean.compare(value1.asBoolean().getValue(), value2.asBoolean().getValue());
+                    case DATE_TIME:
+                        return Long.compare(value1.asDateTime().getValue(), value2.asDateTime().getValue());
+                    case OBJECT_ID:
+                        return value1.asObjectId().getValue().compareTo(value2.asObjectId().getValue());
+                    case DECIMAL128:
+                        return value1.asDecimal128().getValue().compareTo(value2.asDecimal128().getValue());
+                    case JAVASCRIPT:
+                    case JAVASCRIPT_WITH_SCOPE:
+                    case REGULAR_EXPRESSION:
+                    case BINARY:
+                    case SYMBOL:
+                    case DB_POINTER:
+                    case TIMESTAMP:
+                        return value1.asString().getValue().compareTo(value2.asString().getValue());
+                    default:
+                        throw new IllegalArgumentException("Unsupported BsonType: " + value1.getBsonType());
+                }
             }
+        }
+    }
+    
+    private int compareNumbers(BsonValue value1, BsonValue value2) {
+        if (value1.isDouble() || value2.isDouble()) {
+            double double1 = value1.isDouble() ? value1.asDouble().getValue() : value1.asNumber().doubleValue();
+            double double2 = value2.isDouble() ? value2.asDouble().getValue() : value2.asNumber().doubleValue();
+            return Double.compare(double1, double2);
+        } else if (value1.isInt64() || value2.isInt64()) {
+            long long1 = value1.isInt64() ? value1.asInt64().getValue() : value1.asNumber().longValue();
+            long long2 = value2.isInt64() ? value2.asInt64().getValue() : value2.asNumber().longValue();
+            return Long.compare(long1, long2);
+        } else if (value1.isInt32() && value2.isInt32()) {
+            int int1 = value1.asInt32().getValue();
+            int int2 = value2.asInt32().getValue();
+            return Integer.compare(int1, int2);
+        } else {
+            Number number1 = value1.asNumber().intValue();
+            Number number2 = value2.asNumber().intValue();
+            return number1.intValue() - number2.intValue();
         }
     }
 

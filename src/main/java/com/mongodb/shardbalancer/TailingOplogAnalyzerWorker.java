@@ -167,6 +167,11 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 	            
 	            NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
 	            
+	            if (innerMap == null) {
+	            	logger.warn("inner chunk map was null for ns {}", ns);
+	            	continue;
+	            }
+	            
 	            //Map.Entry<String, CountingMegachunk> entry = innerMap.floorEntry(id.getValue());
 	            Map.Entry<BsonValueWrapper, CountingMegachunk> entry = innerMap.floorEntry(id);
 	            

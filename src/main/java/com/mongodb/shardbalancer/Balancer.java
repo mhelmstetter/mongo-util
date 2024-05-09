@@ -17,7 +17,6 @@ import static com.mongodb.client.model.Sorts.orderBy;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -39,6 +38,7 @@ import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.bson.BsonBinary;
 import org.bson.BsonDocument;
+import org.bson.BsonDouble;
 import org.bson.BsonMaxKey;
 import org.bson.BsonMinKey;
 import org.bson.BsonString;
@@ -55,7 +55,6 @@ import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Updates;
-import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.bson.BsonUuidUtil;
@@ -243,6 +242,50 @@ public class Balancer implements Callable<Integer> {
 			}
 		}
 		balancerConfig.setChunkMap(chunkMap);
+		
+//		NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get("WalgreensComProject.Projects");
+//		
+//		Iterator<BsonValueWrapper> it = innerMap.keySet().iterator();
+//		for (RawBsonDocument chunkDoc : sourceChunksCache.values()) {
+//			
+//			BsonDocument min = chunkDoc.getDocument("min");
+//			BsonDocument min2 = (BsonDocument)it.next().getValue();
+//			
+//			BsonValueWrapper thisDC = new BsonValueWrapper(min.get("dataCenter"));
+//			BsonValueWrapper otherDC = new BsonValueWrapper(min.get("dataCenter"));
+//			int r1 = thisDC.compareTo(otherDC);
+//			
+//			BsonValueWrapper thisX = new BsonValueWrapper(min.get("accountHash"));
+//			if (thisX.getValue() instanceof BsonDouble) {
+//				System.out.println();
+//			}
+//			BsonValueWrapper otherX = new BsonValueWrapper(min2.get("accountHash"));
+//			int r2 = thisX.compareTo(otherX);
+//			
+//			if (r1 == 0 && r2 == 0) {
+//				System.out.println(chunkDoc);
+//			} else {
+//				System.out.println("*********** " + chunkDoc);
+//				System.out.println(innerMap.size());
+//				System.out.println(sourceChunksCache.size());
+//			}
+//			
+//			
+//		}
+		
+//		Collection<RawBsonDocument> chunks = sourceChunksCache.values();
+//		Iterator<RawBsonDocument> it = chunks.iterator();
+//		
+//		for (BsonValueWrapper w : innerMap.keySet()) {
+//			BsonValue v = w.getValue();
+//			System.out.println("" + v);
+//		}
+//		
+//		
+//		BsonDocument d = new BsonDocument().append("dataCenter", new BsonString("AUS")).append("accountHash", new BsonInt32(139734917));
+//		BsonValueWrapper id = new BsonValueWrapper(d);
+//		Map.Entry<BsonValueWrapper, CountingMegachunk> entry = innerMap.floorEntry(id);
+//		System.out.println("done");
 	}
 
 
