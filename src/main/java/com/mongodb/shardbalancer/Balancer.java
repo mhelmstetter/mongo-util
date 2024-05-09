@@ -168,18 +168,9 @@ public class Balancer implements Callable<Integer> {
 		}
 		sourceShardClient.loadChunksCache(chunkQuery, sourceChunksCache);
 		
-		int uberThreshold = (sourceChunksCache.size() >= 1000) ? 300 : 100;
-
-		int uberId = 0;
-		int i = 0;
 		for (RawBsonDocument chunkDoc : sourceChunksCache.values()) {
 
-			if (i++ % uberThreshold == 0) {
-				uberId++;
-			}
-
 			CountingMegachunk mega = new CountingMegachunk();
-			mega.setUberId(uberId);
 			
 			String ns = null;
 			if (chunkDoc.containsKey("ns")) {
@@ -243,7 +234,17 @@ public class Balancer implements Callable<Integer> {
 		}
 		balancerConfig.setChunkMap(chunkMap);
 		
-//		NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get("WalgreensComProject.Projects");
+		for (String ns : chunkMap.keySet()) {
+			
+			NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
+			if (innerMap == null) {
+				logger.error("inner chunk map was null for ns: {}", ns);
+			} else {
+				logger.debug("{}: {} chunks", ns, innerMap.size());
+			}
+			
+		}
+		
 //		
 //		Iterator<BsonValueWrapper> it = innerMap.keySet().iterator();
 //		for (RawBsonDocument chunkDoc : sourceChunksCache.values()) {
