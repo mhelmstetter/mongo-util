@@ -1006,6 +1006,16 @@ public class ShardClient {
 		return false;
 	}
 	
+	public boolean isVersion44OrLater() {
+		if (versionArray.get(0) >= 5) {
+			return true;
+		}
+		if (versionArray.get(0) >= 4 && versionArray.get(1) >= 4) {
+			return true;
+		}
+		return false;
+	}
+	
 	public boolean isAtlas() {
 		if (connectionString != null) {
 			List<String> hosts = connectionString.getHosts();
@@ -1528,7 +1538,7 @@ public class ShardClient {
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
 		moveChunkCmd.append("to", moveToShard);
-		if (version.startsWith("4.4")) {
+		if (isVersion44OrLater()) {
 			moveChunkCmd.append("forceJumbo", true);
 		}
 		if (secondaryThrottle) {
