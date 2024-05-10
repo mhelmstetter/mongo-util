@@ -1545,6 +1545,10 @@ public class ShardClient {
 			if (!ignoreMissing) {
 				logger.warn(String.format("moveChunk error ns: %s, message: %s", namespace, mce.getMessage()));
 			}
+			if (mce.getMessage().contains("ChunkTooBig")) {
+				logger.debug("** splitting chunk");
+				splitFind(namespace, min, true);
+			}
 			if (throwCommandExceptions) {
 				throw mce;
 			}
