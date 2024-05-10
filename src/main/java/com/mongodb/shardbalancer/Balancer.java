@@ -18,8 +18,8 @@ import static com.mongodb.client.model.Sorts.orderBy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -38,7 +38,6 @@ import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.bson.BsonBinary;
 import org.bson.BsonDocument;
-import org.bson.BsonDouble;
 import org.bson.BsonMaxKey;
 import org.bson.BsonMinKey;
 import org.bson.BsonString;
@@ -168,6 +167,8 @@ public class Balancer implements Callable<Integer> {
 		}
 		sourceShardClient.loadChunksCache(chunkQuery, sourceChunksCache);
 		
+		Set<String> nsSeen = new LinkedHashSet<>();
+		
 		for (RawBsonDocument chunkDoc : sourceChunksCache.values()) {
 
 			CountingMegachunk mega = new CountingMegachunk();
@@ -180,6 +181,7 @@ public class Balancer implements Callable<Integer> {
 				UUID uuid = BsonUuidUtil.convertBsonBinaryToUuid(buuid);
 				ns = sourceShardClient.getCollectionsUuidMap().get(uuid);
 			}
+			nsSeen.add(ns);
 			
 			Document collMeta = this.sourceShardClient.getCollectionsMap().get(ns);
 			Document shardKeysDoc = (Document) collMeta.get("key");
@@ -233,6 +235,9 @@ public class Balancer implements Callable<Integer> {
 			}
 		}
 		balancerConfig.setChunkMap(chunkMap);
+		
+		logger.debug("nsSeen size: {}", nsSeen.size());
+		logger.debug("nsSeen: {}", nsSeen);
 		
 		for (String ns : chunkMap.keySet()) {
 			

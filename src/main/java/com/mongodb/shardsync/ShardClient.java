@@ -1380,13 +1380,15 @@ public class ShardClient {
 		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
 
 		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery)
-				.projection(exclude("_id", "history", "lastmodEpoch", "lastmod"))
-				.sort(getChunkSort());
+				.projection(exclude("history", "lastmodEpoch", "lastmod"))
+				.sort(getChunkSort()
+						);
 
 		int count = 0;
 		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
 			RawBsonDocument chunk = sourceChunksIterator.next();
-			String chunkId = getIdFromChunk(chunk);
+			//String chunkId = getIdFromChunk(chunk);
+			String chunkId = chunk.getObjectId("_id").toString();
 			cache.put(chunkId, chunk);
 			count++;
 		}
