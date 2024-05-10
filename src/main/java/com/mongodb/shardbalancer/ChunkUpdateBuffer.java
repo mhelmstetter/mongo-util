@@ -100,14 +100,14 @@ public class ChunkUpdateBuffer {
 					//chunks.put(chunk.getMin().getString("_id").getValue(), chunk.getSeenCount());
 					
 					
-					BsonValue v = chunk.getMin().get("_id");
+//					BsonValue v = chunk.getMin().get("_id");
+//					
+//					if (v == null) {
+//						logger.warn("chunk min does not have _id: {}", chunk);
+//						continue;
+//					}
 					
-					if (v == null) {
-						logger.warn("chunk min does not have _id: {}", chunk);
-						continue;
-					}
-					
-					chunks.add(new BsonDocument("id", v).append("cnt", new BsonInt64(chunk.getSeenCount())));
+					chunks.add(new BsonDocument("id", chunk.getMin()).append("cnt", new BsonInt64(chunk.getSeenCount())));
 					total += chunk.getSeenCount();
 					activeChunks++;
 				}
