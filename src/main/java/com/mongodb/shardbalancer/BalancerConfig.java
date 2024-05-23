@@ -24,6 +24,9 @@ public class BalancerConfig extends BaseConfiguration {
 	
 	private int activeChunkThreshold;
 	
+	// used for forcing a certain number of chunks to move per namespace
+	private int chunksToMove = 0;
+	
 	private Namespace balancerStateNamespace = new Namespace("mongoCustomBalancerStats", "balancerState");
 	
 	private Namespace statsNamespace = new Namespace("mongoCustomBalancerStats", "chunkStats");
@@ -172,6 +175,14 @@ public class BalancerConfig extends BaseConfiguration {
 
 	public void setActiveChunkThreshold(int activeChunkThreshold) {
 		this.activeChunkThreshold = activeChunkThreshold;
+	}
+
+	public int getChunksToMove() {
+		return chunksToMove;
+	}
+
+	public void setChunksToMove(int chunksToMove) {
+		this.chunksToMove = chunksToMove;
 	}
 	
 	

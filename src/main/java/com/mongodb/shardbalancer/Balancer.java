@@ -245,7 +245,7 @@ public class Balancer implements Callable<Integer> {
 			if (innerMap == null) {
 				logger.error("inner chunk map was null for ns: {}", ns);
 			} else {
-				logger.debug("{}: {} chunks", ns, innerMap.size());
+				//logger.debug("{}: {} chunks", ns, innerMap.size());
 			}
 			
 		}
@@ -400,7 +400,7 @@ public class Balancer implements Callable<Integer> {
 						CountingMegachunk mega = innerMap.get(new BsonValueWrapper(id));
 	
 						boolean success = false;
-						if (balancerConfig.isDryRun()) {
+						if (!balancerConfig.isDryRun()) {
 							logger.debug("about to move chunk [ {} / {} ]: {}, _id: {}", i++, hotChunks.size(), mega, chunkDoc.get("_id"));
 							try {
 								success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), to.getShard(), false, false, true, true, true);
@@ -427,7 +427,7 @@ public class Balancer implements Callable<Integer> {
 							Document moveChunkCmd = new Document("moveChunk", ns);
 							moveChunkCmd.append("bounds", Arrays.asList(mega.getMin(), mega.getMax()));
 							moveChunkCmd.append("to", to.getShard());
-							logger.debug("dry run: {}", moveChunkCmd);
+							logger.debug("dryRun: {}", moveChunkCmd);
 						}
 	
 						if (stopped.get()) {
