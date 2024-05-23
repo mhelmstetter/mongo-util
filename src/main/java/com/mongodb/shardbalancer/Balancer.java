@@ -369,9 +369,6 @@ public class Balancer implements Callable<Integer> {
 				
 				logger.debug("About to balance {}, for {} iterations / shard pairs", ns, negativeChunksToMoveCount);
 				
-				if (balancerConfig.isDryRun()) {
-					continue;
-				}
 				
 				NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
 				
@@ -401,27 +398,36 @@ public class Balancer implements Callable<Integer> {
 	
 						BsonValue id = chunkDoc.get("id");
 						CountingMegachunk mega = innerMap.get(new BsonValueWrapper(id));
-						logger.debug("move chunk [ {} / {} ]: {}, _id: {}", i++, hotChunks.size(), mega, chunkDoc.get("_id"));
 	
 						boolean success = false;
-						try {
-							success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), to.getShard(), false, false, false, false, true);
-						} catch (MongoCommandException mce) {
-							if (mce.getMessage().contains("no chunk found")) {
-								this.loadChunkMap(ns);
+						if (balancerConfig.isDryRun()) {
+							logger.debug("about to move chunk [ {} / {} ]: {}, _id: {}", i++, hotChunks.size(), mega, chunkDoc.get("_id"));
+							try {
+								success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), to.getShard(), false, false, true, true, true);
+							} catch (MongoCommandException mce) {
+								if (mce.getMessage().contains("no chunk found")) {
+									this.loadChunkMap(ns);
+								}
 							}
-						}
-						
-						if (success) {
-							moveCount++;
-							mega.setShard(to.getShard());
-							mega.updateLastMovedTime();
-							balancerConfig.getStatsCollection().updateOne(
-									and(eq("_id", chunkDoc.get("_id")), eq("chunks.id", id)),
-									Updates.combine(
-										Updates.set("chunks.$.balanced", true),
-										Updates.inc("balancedChunks", 1)
-									));
+							
+							if (success) {
+								moveCount++;
+								mega.setShard(to.getShard());
+								mega.updateLastMovedTime();
+								balancerConfig.getStatsCollection().updateOne(
+										and(eq("_id", chunkDoc.get("_id")), eq("chunks.id", id)),
+										Updates.combine(
+											Updates.set("chunks.$.balanced", true),
+											Updates.inc("balancedChunks", 1)
+										));
+							}
+							
+						} else {
+							
+							Document moveChunkCmd = new Document("moveChunk", ns);
+							moveChunkCmd.append("bounds", Arrays.asList(mega.getMin(), mega.getMax()));
+							moveChunkCmd.append("to", to.getShard());
+							logger.debug("dry run: {}", moveChunkCmd);
 						}
 	
 						if (stopped.get()) {

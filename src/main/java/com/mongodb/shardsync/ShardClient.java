@@ -1538,9 +1538,12 @@ public class ShardClient {
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
 		moveChunkCmd.append("to", moveToShard);
-		if (isVersion44OrLater()) {
-			moveChunkCmd.append("forceJumbo", true);
-		}
+		
+		// TODO make a flag for this, for now DO NOT forceJumbo
+//		if (isVersion44OrLater()) {
+//			moveChunkCmd.append("forceJumbo", true);
+//		}
+		
 		if (secondaryThrottle) {
 			moveChunkCmd.append("_secondaryThrottle", secondaryThrottle);
 			moveChunkCmd.append("writeConcern", WriteConcern.MAJORITY.asDocument());
