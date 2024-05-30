@@ -12,8 +12,6 @@ import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonInt64;
 import org.bson.BsonString;
-import org.bson.BsonValue;
-import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,18 +66,16 @@ public class ChunkUpdateBuffer {
 			String ns = entry.getKey();
 			Map<Integer, Set<CountingMegachunk>> innerMap = entry.getValue();
 			
+			if (innerMap == null || innerMap.isEmpty()) {
+				logger.debug("innerMap was empty for {}", ns);
+			}
+			
 			for (Set<CountingMegachunk> chunkList : innerMap.values()) {
 				
 				BsonDocument checkpoint = new BsonDocument();
 				
-				int uberId = -1;
 				long total = 0;
 				int activeChunks = 0;
-				
-				if (chunkList.size() > 0) {
-					uberId = chunkList.iterator().next().getUberId();
-					checkpoint.append("uberId", new BsonInt64(uberId));
-				}
 				
 				checkpoint.append("analysisId", config.getAnalysisId());
 				checkpoint.append("ns", new BsonString(ns));
@@ -94,19 +90,6 @@ public class ChunkUpdateBuffer {
 				checkpoint.append("chunks", chunks);
 				
 				for (CountingMegachunk chunk : chunkList) {
-					if (chunk.getUberId() != uberId) {
-						logger.warn("uberId mismatch: {} {}", uberId, chunk.getUberId());
-					}
-					//chunks.put(chunk.getMin().getString("_id").getValue(), chunk.getSeenCount());
-					
-					
-//					BsonValue v = chunk.getMin().get("_id");
-//					
-//					if (v == null) {
-//						logger.warn("chunk min does not have _id: {}", chunk);
-//						continue;
-//					}
-					
 					chunks.add(new BsonDocument("id", chunk.getMin()).append("cnt", new BsonInt64(chunk.getSeenCount())));
 					total += chunk.getSeenCount();
 					activeChunks++;

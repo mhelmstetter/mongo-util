@@ -18,7 +18,6 @@ import static com.mongodb.client.model.Sorts.orderBy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -98,7 +97,7 @@ public class Balancer implements Callable<Integer> {
 
 	private ChunkStats chunkStats;
 
-	Map<String, RawBsonDocument> sourceChunksCache;
+	
 	Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
 	
 	private int backoffSleepMinutes = 0;
@@ -143,7 +142,7 @@ public class Balancer implements Callable<Integer> {
 		chunkManager.setSourceShardClient(sourceShardClient);
 		chunkManager.initializeChunkQuery();
 		chunkMap = new HashMap<>();
-		sourceChunksCache = new LinkedHashMap<>();
+		
 		
 		if (balancerConfig.getIncludeNamespaces().isEmpty()) {
 			loadChunkMap(null);
@@ -165,11 +164,11 @@ public class Balancer implements Callable<Integer> {
 		} else {
 			chunkQuery = chunkManager.newChunkQuery(namespace);
 		}
-		sourceShardClient.loadChunksCache(chunkQuery, sourceChunksCache);
+		sourceShardClient.loadChunksCache(chunkQuery, balancerConfig.getSourceChunksCache());
 		
 		Set<String> nsSeen = new LinkedHashSet<>();
 		
-		for (RawBsonDocument chunkDoc : sourceChunksCache.values()) {
+		for (RawBsonDocument chunkDoc : balancerConfig.getSourceChunksCache().values()) {
 
 			CountingMegachunk mega = new CountingMegachunk();
 			

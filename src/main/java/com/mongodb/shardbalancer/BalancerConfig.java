@@ -2,6 +2,7 @@ package com.mongodb.shardbalancer;
 
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
@@ -10,6 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonObjectId;
 import org.bson.Document;
+import org.bson.RawBsonDocument;
 
 import com.mongodb.client.MongoCollection;
 import com.mongodb.model.Namespace;
@@ -45,7 +47,11 @@ public class BalancerConfig extends BaseConfiguration {
 	
 	private double deltaThresholdPercent;
 	
+	// chunk stats
 	Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
+	
+	// all chunks
+	Map<String, RawBsonDocument> sourceChunksCache = new LinkedHashMap<>();
 	
 	AtomicBoolean runAnalyzer = new AtomicBoolean(false);
 	
@@ -183,6 +189,10 @@ public class BalancerConfig extends BaseConfiguration {
 
 	public void setChunksToMove(int chunksToMove) {
 		this.chunksToMove = chunksToMove;
+	}
+
+	public Map<String, RawBsonDocument> getSourceChunksCache() {
+		return sourceChunksCache;
 	}
 	
 	
