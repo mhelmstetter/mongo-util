@@ -222,7 +222,7 @@ public class DupeRechecker {
 			}
 		}
 
-		logger.debug("{} duplicate _ids in batch, {} _ids were not duplicate", n, dupeIdsCount, nonDupeIdsCount);
+		//logger.debug("{} duplicate _ids in batch, {} _ids were not duplicate", n, dupeIdsCount, nonDupeIdsCount);
 
 		Bson deleteQuery = in("_id", nonDupeIdsSet);
 		for (Namespace nsDelete : namespacesToCheck.get(n)) {
@@ -230,7 +230,7 @@ public class DupeRechecker {
 			MongoCollection<RawBsonDocument> coll = archiveDb.getCollection(nsDelete.getNamespace(),
 					RawBsonDocument.class);
 			DeleteResult dr = coll.deleteMany(deleteQuery);
-			logger.debug("{}: deleted {} non-duplicates from archive", nsDelete, dr.getDeletedCount());
+			//logger.debug("{}: deleted {} non-duplicates from archive", nsDelete, dr.getDeletedCount());
 		}
 
 		totalDuplicateIds += dupeIdsCount;
