@@ -50,14 +50,13 @@ public class DupeRechecker {
 	private Map<Namespace, List<Namespace>> namespacesToCheck = new HashMap<>();
 
 	private Integer startId;
-	
+
 	private List<BsonValue> dupesBatch = new ArrayList<>(200);
-	
+
 	Bson sort = eq("_id", 1);
-	
+
 	int totalDuplicateIds = 0;
 	int totalNotDuplicateIds = 0;
-	
 
 	public DupeRechecker(String sourceUriStr, String destUriStr, String archiveDbName, String startIdStr) {
 		ConnectionString connectionString = new ConnectionString(sourceUriStr);
@@ -125,110 +124,118 @@ public class DupeRechecker {
 		for (Namespace n : namespacesToCheck.keySet()) {
 
 			logger.debug("will check {} ==> {}", n, namespacesToCheck.get(n));
-			
+
 			List<Namespace> nsList = namespacesToCheck.get(n);
-			
-			MongoCollection<RawBsonDocument> collection = archiveDb.getCollection(nsList.get(0).getNamespace(), RawBsonDocument.class);
-			
-			MongoCursor<RawBsonDocument> cursor = collection.find().projection(sort).sort(sort).iterator();
-			
-			MongoDatabase sourceDb = sourceClient.getDatabase(n.getDatabaseName());
-			MongoCollection<RawBsonDocument> sourceCollection = sourceDb.getCollection(n.getCollectionName(), RawBsonDocument.class);
-			
-			Map<BsonValue, Integer> idCountMap = new HashMap<>();
-			
-			BsonValue lastId = null;
-			
-			while (cursor.hasNext()) {
-                RawBsonDocument fullDoc = cursor.next();
-                BsonValue id = null;
-                try {
-                    id = fullDoc.get("_id");
-                } catch (Exception e) {
-                    logger.warn(String.format("%s - Error reading doc id, fullDoc: %s, error: %s",
-                            collection.getNamespace(), fullDoc, e));
-                    continue;
-                }
-                
-                if (id.equals(lastId)) {
-                	logger.warn("{} - unexpected duplicate in the archive db for _id: {}", collection.getNamespace(), id);
-                } else {
-                	dupesBatch.add(id);
-                }
-                
-                if (dupesBatch.size() >= 200) {
-                	processDupesBatch(n, sourceCollection, idCountMap);
-                }
-                
-                lastId = id;
-    		}
-			
-			if (dupesBatch.size() > 0) {
-            	processDupesBatch(n, sourceCollection, idCountMap);
-            }
-			
-			logger.debug("{}: totalDuplicateIds: {}, totalNotDuplicateIds: {}", totalDuplicateIds, totalNotDuplicateIds);
-			
-			totalDuplicateIds = 0;
-			totalNotDuplicateIds = 0;
-			
+
+			for (Namespace archiveNs : nsList) {
+
+				MongoCollection<RawBsonDocument> collection = archiveDb.getCollection(archiveNs.getNamespace(),
+						RawBsonDocument.class);
+
+				MongoCursor<RawBsonDocument> cursor = collection.find().projection(sort).sort(sort).iterator();
+
+				MongoDatabase sourceDb = sourceClient.getDatabase(n.getDatabaseName());
+				MongoCollection<RawBsonDocument> sourceCollection = sourceDb.getCollection(n.getCollectionName(),
+						RawBsonDocument.class);
+
+				Map<BsonValue, Integer> idCountMap = new HashMap<>();
+
+				BsonValue lastId = null;
+
+				while (cursor.hasNext()) {
+					RawBsonDocument fullDoc = cursor.next();
+					BsonValue id = null;
+					try {
+						id = fullDoc.get("_id");
+					} catch (Exception e) {
+						logger.warn(String.format("%s - Error reading doc id, fullDoc: %s, error: %s",
+								collection.getNamespace(), fullDoc, e));
+						continue;
+					}
+
+					if (id.equals(lastId)) {
+						logger.warn("{} - unexpected duplicate in the archive db for _id: {}",
+								collection.getNamespace(), id);
+					} else {
+						dupesBatch.add(id);
+					}
+
+					if (dupesBatch.size() >= 200) {
+						processDupesBatch(n, sourceCollection, idCountMap);
+					}
+
+					lastId = id;
+				}
+
+				if (dupesBatch.size() > 0) {
+					processDupesBatch(n, sourceCollection, idCountMap);
+				}
+
+				logger.debug("{}: totalDuplicateIds: {}, totalNotDuplicateIds: {}", totalDuplicateIds,
+						totalNotDuplicateIds);
+
+				totalDuplicateIds = 0;
+				totalNotDuplicateIds = 0;
+
+			}
 
 		}
 
 		logger.debug("CorruptUtil complete");
 	}
-	
-	private void processDupesBatch(Namespace n, MongoCollection<RawBsonDocument> sourceCollection, Map<BsonValue, Integer> idCountMap) {
+
+	private void processDupesBatch(Namespace n, MongoCollection<RawBsonDocument> sourceCollection,
+			Map<BsonValue, Integer> idCountMap) {
 		Bson query = in("_id", dupesBatch);
 		MongoCursor<RawBsonDocument> c2 = sourceCollection.find(query).sort(sort).iterator();
-		
-		
-		while (c2.hasNext()) {
-		    RawBsonDocument fullDoc2 = c2.next();
-		    BsonValue id2 = null;
-		    try {
-		        id2 = fullDoc2.get("_id");
-		    } catch (Exception e) {
-		        logger.warn(String.format("%s - Error reading doc id, fullDoc: %s, error: %s",
-		                sourceCollection.getNamespace(), fullDoc2, e));
-		        continue;
-		    }
 
-		    idCountMap.put(id2, idCountMap.getOrDefault(id2, 0) + 1);
+		while (c2.hasNext()) {
+			RawBsonDocument fullDoc2 = c2.next();
+			BsonValue id2 = null;
+			try {
+				id2 = fullDoc2.get("_id");
+			} catch (Exception e) {
+				logger.warn(String.format("%s - Error reading doc id, fullDoc: %s, error: %s",
+						sourceCollection.getNamespace(), fullDoc2, e));
+				continue;
+			}
+
+			idCountMap.put(id2, idCountMap.getOrDefault(id2, 0) + 1);
 		}
-		
+
 		int dupeIdsCount = 0;
 		int nonDupeIdsCount = 0;
 		Set<BsonValue> nonDupeIdsSet = new LinkedHashSet<>();
-		
+
 		// Print the duplicate and non-duplicate IDs
 		for (Map.Entry<BsonValue, Integer> entry : idCountMap.entrySet()) {
-		    BsonValue key = entry.getKey();
-		    int count = entry.getValue();
+			BsonValue key = entry.getKey();
+			int count = entry.getValue();
 
-		    if (count > 1) {
-		    	dupeIdsCount++;
-		        //logger.warn("{} - duplicate id found for id: {}", collection.getNamespace(), key);
-		    } else {
-		    	nonDupeIdsCount++;
-		    	nonDupeIdsSet.add(key);
-		    }
+			if (count > 1) {
+				dupeIdsCount++;
+				// logger.warn("{} - duplicate id found for id: {}", collection.getNamespace(),
+				// key);
+			} else {
+				nonDupeIdsCount++;
+				nonDupeIdsSet.add(key);
+			}
 		}
-		
-		logger.debug("{} duplicate _ids in batch, {} _ids were not duplicate", dupeIdsCount, nonDupeIdsCount);
-		
+
+		logger.debug("{} duplicate _ids in batch, {} _ids were not duplicate", n, dupeIdsCount, nonDupeIdsCount);
+
 		Bson deleteQuery = in("_id", nonDupeIdsSet);
 		for (Namespace nsDelete : namespacesToCheck.get(n)) {
-			
-			MongoCollection<RawBsonDocument> coll = archiveDb.getCollection(nsDelete.getNamespace(), RawBsonDocument.class);
+
+			MongoCollection<RawBsonDocument> coll = archiveDb.getCollection(nsDelete.getNamespace(),
+					RawBsonDocument.class);
 			DeleteResult dr = coll.deleteMany(deleteQuery);
 			logger.debug("{}: deleted {} non-duplicates from archive", nsDelete, dr.getDeletedCount());
 		}
-		
-		
+
 		totalDuplicateIds += dupeIdsCount;
 		totalNotDuplicateIds += nonDupeIdsCount;
-		
+
 		dupesBatch.clear();
 		idCountMap.clear();
 	}
