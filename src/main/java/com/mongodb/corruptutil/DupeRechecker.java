@@ -171,7 +171,7 @@ public class DupeRechecker {
 					processDupesBatch(n, sourceCollection, idCountMap);
 				}
 
-				logger.debug("{}: totalDuplicateIds: {}, totalNotDuplicateIds: {}", totalDuplicateIds,
+				logger.debug("{}: totalDuplicateIds: {}, totalNotDuplicateIds: {}", archiveNs, totalDuplicateIds,
 						totalNotDuplicateIds);
 
 				totalDuplicateIds = 0;
