@@ -118,13 +118,13 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				String ns = chunk.getString("ns").getValue();
 				BsonDocument min = (BsonDocument) chunk.get("min");
 				BsonObjectId id = chunk.getObjectId("_id");
-				//BsonDocument max = (BsonDocument) chunk.get("max");
+				BsonDocument max = (BsonDocument) chunk.get("max");
 				sourceShardClient.moveRange(ns, min, destShard, balancerConfig.isDryRun());
  				
 				rangesMoved++;
 				moveCount++;
-				logger.debug("{}: moved range with min: {} to shard {}, rangesMoved: {}, totalMoved: {} - _id: {}", ns, min,
-						destShard, rangesMoved, moveCount, id);
+				logger.debug("{}: moved range with min: {}, max: {} to shard {}, rangesMoved: {}, totalMoved: {} - _id: {}", ns, min,
+						max, destShard, rangesMoved, moveCount, id);
 
 				Bson filter = and(eq("uuid", chunk.get("uuid")), eq("min", min));
 				RawBsonDocument ch = chunksColl.find(filter).first();
