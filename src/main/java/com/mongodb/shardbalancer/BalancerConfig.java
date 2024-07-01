@@ -36,8 +36,6 @@ public class BalancerConfig extends BaseConfiguration {
 	
 	private MongoCollection<Document> balancerStateCollection;
 	
-	protected Set<String> sourceShards;
-	
 	private boolean dryRun;
 	
 	private double deltaThresholdPercent;
@@ -68,9 +66,10 @@ public class BalancerConfig extends BaseConfiguration {
 		this.sourceShards = new HashSet<>();
 		sourceShards.addAll(Arrays.asList(shards));
 	}
-
-	public Set<String> getSourceShards() {
-		return sourceShards;
+	
+	public void setDestShards(String[] shards) {
+		this.destShards = new HashSet<>();
+		destShards.addAll(Arrays.asList(shards));
 	}
 
 	public int getAnalyzerSleepIntervalMinutes() {

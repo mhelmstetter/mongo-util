@@ -49,6 +49,8 @@ import org.bson.codecs.DocumentCodec;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
+import org.bson.json.JsonMode;
+import org.bson.json.JsonWriterSettings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -104,6 +106,11 @@ public class ShardClient {
 
 	private static Logger logger = LoggerFactory.getLogger(ShardClient.class);
 	private static Pattern excludeCollRegex = Pattern.compile("system\\..*");
+	
+	private final static JsonWriterSettings writerSettings = JsonWriterSettings.builder()
+            .outputMode(JsonMode.SHELL)
+            .indent(false)
+            .build();
 
 	private final static int ONE_GIGABYTE = 1024 * 1024 * 1024;
 	private final static int ONE_MEGABYTE = 1024 * 1024;
@@ -1424,7 +1431,6 @@ public class ShardClient {
 		            unwind("$collectionData"),
 		            addFields(new Field<>("ns", "$collectionData._id")),
 		            project(fields(
-		                excludeId(),
 		                exclude("history", "lastmodEpoch", "lastmod", "collectionData")
 		            ))
 		        ));
@@ -1564,15 +1570,32 @@ public class ShardClient {
 			boolean ignoreMissing, boolean secondaryThrottle, boolean waitForDelete, boolean majorityWrite) {
 		return moveChunk(namespace, min, max, moveToShard, ignoreMissing, secondaryThrottle, waitForDelete, majorityWrite, false);
 	}
+	
+	public void moveRange(String namespace, BsonDocument min, String moveToShard, boolean dryRun) {
+		Document moveChunkCmd = new Document("moveRange", namespace);
+		moveChunkCmd.append("toShard", moveToShard);
+		moveChunkCmd.append("min", min);
+		if (dryRun) {
+			logger.debug("moveRange - dryRun: {}", moveChunkCmd.toJson(writerSettings));
+		} else {
+			long t1 = System.currentTimeMillis();
+			try {
+				adminCommand(moveChunkCmd);
+			} catch (MongoCommandException mce) {
+				logger.warn(String.format("moveRange error ns: %s, message: %s", namespace, mce.getMessage()));
+			}
+			long t2 = System.currentTimeMillis();
+			long elapsed = t2 - t1;
+			logger.debug("moveChunk: elapsed {} ms", elapsed);
+		}
+	}
 
 	public boolean moveChunk(String namespace, BsonDocument min, BsonDocument max, String moveToShard, 
 			boolean ignoreMissing, boolean secondaryThrottle, boolean waitForDelete, boolean majorityWrite, boolean throwCommandExceptions) {
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
 		moveChunkCmd.append("to", moveToShard);
-		if (version.startsWith("4.4")) {
-			moveChunkCmd.append("forceJumbo", true);
-		}
+
 		if (secondaryThrottle) {
 			moveChunkCmd.append("_secondaryThrottle", secondaryThrottle);
 			moveChunkCmd.append("writeConcern", WriteConcern.MAJORITY.asDocument());

@@ -44,6 +44,8 @@ public class BaseConfiguration {
 	public String destRsRegex;
 	
 	public Boolean sourceRsSsl;
+	protected Set<String> sourceShards;
+	protected Set<String> destShards;
 
 	public BaseConfiguration() {
 		super();
@@ -256,6 +258,18 @@ public class BaseConfiguration {
 
 	public void setSourceRsSsl(Boolean sourceRsSsl) {
 		this.sourceRsSsl = sourceRsSsl;
+	}
+	
+	public Set<String> getSourceShards() {
+		return sourceShards;
+	}
+
+	public Set<String> getDestShards() {
+		return destShards;
+	}
+
+	public void setDestShards(Set<String> destShards) {
+		this.destShards = destShards;
 	}
 
 }

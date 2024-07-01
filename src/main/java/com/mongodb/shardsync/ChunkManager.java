@@ -32,6 +32,7 @@ import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.shardsync.ShardClient.ShardClientType;
 import com.mongodb.util.bson.Base64;
+import com.mongodb.util.bson.BsonUtils;
 import com.mongodb.util.bson.BsonUuidUtil;
 
 public class ChunkManager {
@@ -560,6 +561,9 @@ public class ChunkManager {
 	
 	public BsonDocument newChunkQuery(ShardClient shardClient, String namespace) {
 		BsonDocument chunkQuery = new BsonDocument();
+		if (! config.getSourceShards().isEmpty()) {
+			chunkQuery.append("shard", new BsonDocument("$in", BsonUtils.convertSetToBsonArray(config.getSourceShards())));
+		}
 		if (namespace != null) {
 			if (shardClient.isVersion5OrLater()) {
 				BsonBinary uuidBinary = shardClient.getUuidForNamespace(namespace);
