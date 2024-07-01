@@ -3,9 +3,13 @@ package com.mongodb.shardbalancer;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.concurrent.Callable;
 
 import org.apache.commons.configuration2.Configuration;
@@ -37,6 +41,9 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 	private String configFile;
 
 	protected final Logger logger = LoggerFactory.getLogger(ShardRemovalBalancer.class);
+	
+	private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+
 
 	private final static String SOURCE_URI = "source";
 	private final static String SOURCE_SHARDS = "sourceShards";
@@ -44,6 +51,8 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 	private final static String INCLUDE_NAMESPACES = "includeNamespaces";
 	private final static String DRY_RUN = "dryRun";
 	private final static String LIMIT = "limit";
+	private final static String START_TIME = "startTime";
+	private final static String END_TIME = "endTime";
 
 	private BalancerConfig balancerConfig;
 
@@ -54,6 +63,9 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 	private int limit;
 
 	Map<String, RawBsonDocument> sourceChunksCache;
+
+	private LocalTime startTime;
+	private LocalTime endTime;
 
 	public void init() {
 		Set<String> sourceShards = balancerConfig.getSourceShards();
@@ -92,21 +104,20 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 		sourceShardClient.loadChunksCache(chunkQuery, sourceChunksCache);
 	}
 
-	public Integer call() throws ConfigurationException, InterruptedException {
-
-		parseArgs();
-		init();
-
+	private void balanceData() {
+		int moveCount = 0;
 		MongoCollection<RawBsonDocument> chunksColl = sourceShardClient.getChunksCollectionRaw();
 
-		int moveCount = 0;
-
 		for (RawBsonDocument chunk : sourceChunksCache.values()) {
-
 			String currentShard = chunk.getString("shard").getValue();
 			int rangesMoved = 0;
 
 			while (moveCount < limit) {
+				// Check if endTime is reached
+				if (LocalTime.now().isAfter(endTime)) {
+					logger.debug("End time reached, terminating the process");
+					return;
+				}
 
 				String destShard = RandomUtils.getRandomElementFromSet(balancerConfig.getDestShards());
 
@@ -120,21 +131,47 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				BsonObjectId id = chunk.getObjectId("_id");
 				BsonDocument max = (BsonDocument) chunk.get("max");
 				sourceShardClient.moveRange(ns, min, destShard, balancerConfig.isDryRun());
- 				
+
 				rangesMoved++;
 				moveCount++;
-				logger.debug("{}: moved range with min: {}, max: {} to shard {}, rangesMoved: {}, totalMoved: {} - _id: {}", ns, min,
-						max, destShard, rangesMoved, moveCount, id);
+				logger.debug(
+						"{}: moved range with min: {}, max: {} to shard {}, rangesMoved: {}, totalMoved: {} - _id: {}",
+						ns, min, max, destShard, rangesMoved, moveCount, id);
 
 				Bson filter = and(eq("uuid", chunk.get("uuid")), eq("min", min));
 				RawBsonDocument ch = chunksColl.find(filter).first();
 				currentShard = ch.getString("shard").getValue();
 			}
-
 		}
+	}
 
+	public Integer call() throws ConfigurationException, InterruptedException {
+
+		parseArgs();
+		init();
+		waitUntil(startTime);
+		balanceData();
 		return 0;
+	}
 
+	private static LocalTime parseTime(String timeString) {
+		try {
+			return LocalTime.parse(timeString, TIME_FORMATTER);
+		} catch (Exception e) {
+			throw new IllegalArgumentException("Invalid time format. Please use 'HH:MM' format.", e);
+		}
+	}
+
+	private static void waitUntil(LocalTime startTime) {
+		LocalTime now = LocalTime.now();
+		if (now.isBefore(startTime)) {
+			long millisUntilStart = ChronoUnit.MILLIS.between(now, startTime);
+			try {
+				Thread.sleep(millisUntilStart);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+			}
+		}
 	}
 
 	protected void parseArgs() throws ConfigurationException {
@@ -154,6 +191,11 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 		balancerConfig.setDryRun(config.getBoolean(DRY_RUN, false));
 
 		this.limit = config.getInt(LIMIT, Integer.MAX_VALUE);
+		
+		TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+		startTime = parseTime(config.getString(START_TIME));
+        endTime = parseTime(config.getString(END_TIME));
+
 	}
 
 	private Configuration readProperties() throws ConfigurationException {
