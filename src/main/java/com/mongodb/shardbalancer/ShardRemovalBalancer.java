@@ -105,6 +105,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 	}
 
 	private void balanceData() {
+		logger.debug("Starting balanceData(), will run until endTime: {}", endTime);
 		int moveCount = 0;
 		MongoCollection<RawBsonDocument> chunksColl = sourceShardClient.getChunksCollectionRaw();
 
@@ -162,7 +163,8 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 		}
 	}
 
-	private static void waitUntil(LocalTime startTime) {
+	private void waitUntil(LocalTime startTime) {
+		logger.debug("Sleeping until startTime: {}", startTime);
 		LocalTime now = LocalTime.now();
 		if (now.isBefore(startTime)) {
 			long millisUntilStart = ChronoUnit.MILLIS.between(now, startTime);
@@ -195,6 +197,11 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 		TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
 		startTime = parseTime(config.getString(START_TIME));
         endTime = parseTime(config.getString(END_TIME));
+        
+        // Ensure endTime is after startTime, or handle the case where it spans to the next day
+        if (endTime.isBefore(startTime)) {
+            endTime = endTime.plusHours(24);
+        }
 
 	}
 
