@@ -135,7 +135,7 @@ public class ShardDiffUtil {
 
 		sourceChunksCacheMap = new HashMap<>();
 
-		BsonDocument chunkQuery = chunkManager.getChunkQuery();
+		BsonDocument chunkQuery = chunkManager.getSourceChunkQuery();
 		Map<String, RawBsonDocument> sourceCache = sourceShardClient.loadChunksCache(chunkQuery);
 		DiffSummaryClient diffSummaryClient = config.getDiffSummaryClient();
 

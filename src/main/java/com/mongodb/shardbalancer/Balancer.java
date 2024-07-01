@@ -140,7 +140,7 @@ public class Balancer implements Callable<Integer> {
 
 		chunkManager = new ChunkManager(balancerConfig);
 		chunkManager.setSourceShardClient(sourceShardClient);
-		chunkManager.initializeChunkQuery();
+		chunkManager.initializeSourceChunkQuery();
 		chunkMap = new HashMap<>();
 		sourceChunksCache = new LinkedHashMap<>();
 		loadChunkMap(null);
@@ -152,9 +152,9 @@ public class Balancer implements Callable<Integer> {
 		BsonDocument chunkQuery = null;
 		
 		if (namespace == null) {
-			chunkQuery = chunkManager.getChunkQuery();
+			chunkQuery = chunkManager.getSourceChunkQuery();
 		} else {
-			chunkQuery = chunkManager.newChunkQuery(namespace);
+			chunkQuery = chunkManager.newChunkQuery(sourceShardClient, namespace);
 		}
 		sourceShardClient.loadChunksCache(chunkQuery, sourceChunksCache);
 		

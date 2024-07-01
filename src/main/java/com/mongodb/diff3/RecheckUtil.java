@@ -55,7 +55,7 @@ public class RecheckUtil {
         
         if (config.isFiltered()) {
         	chunkManager = new ChunkManager(config);
-    		Bson query = chunkManager.initializeChunkQuery();
+    		Bson query = chunkManager.initializeSourceChunkQuery();
     		this.chunkQuery = and(query, eq("status", "RETRYING"));
         } else {
         	this.chunkQuery = eq("status", "RETRYING");

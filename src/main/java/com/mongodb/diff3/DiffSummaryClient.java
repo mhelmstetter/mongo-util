@@ -63,6 +63,7 @@ public class DiffSummaryClient {
         Map<String, RawBsonDocument> chunksCache = new LinkedHashMap<>();
         //Bson projection = include("min", "max", "ns", "status");
         Bson projection = exclude("history");
+        // TODO sort by UUID in 5+
         FindIterable<RawBsonDocument> sourceChunks = coll.find(chunkQuery).projection(projection).sort(Sorts.ascending("ns", "min"));
 
         for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext(); ) {

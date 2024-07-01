@@ -4,6 +4,7 @@ import static com.mongodb.client.model.Filters.eq;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -25,20 +26,21 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Sets;
-import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
-import com.mongodb.client.model.Sorts;
 import com.mongodb.model.Megachunk;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.shardsync.ShardClient.ShardClientType;
+import com.mongodb.util.bson.Base64;
 import com.mongodb.util.bson.BsonUuidUtil;
 
 public class ChunkManager {
 
 	private static Logger logger = LoggerFactory.getLogger(ChunkManager.class);
 	
-	private BsonDocument chunkQuery;
+	private BsonDocument sourceChunkQuery;
+	private BsonDocument destChunkQuery;
+	
 	private ShardClient destShardClient;
 	private ShardClient sourceShardClient;
 	
@@ -151,7 +153,7 @@ public class ChunkManager {
 			
 			
 		}
-		initializeChunkQuery();
+		initializeSourceChunkQuery();
 		
 		// reverse map
 		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
@@ -213,8 +215,8 @@ public class ChunkManager {
 		logger.debug("createAndMoveChunks (optimized) started");
 		//logger.debug("chunkQuery: {}", chunkQuery);
 
-		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
-		Set<String> destMins = getChunkMins();
+		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(sourceChunkQuery);
+		Set<String> destMins = getChunkMins(sourceChunkQuery);
 		
 		double totalChunks = (double)sourceChunksCache.size();
 
@@ -249,10 +251,12 @@ public class ChunkManager {
 		}
 		
 		logger.debug("phase 2 complete, {} optimized chunks created", chunkCount);
+		
+		initializeDestChunkQuery();
 
 		// get current locations of megachunks on destination
 		Map<String, String> destChunkToShardMap = readDestinationChunks();
-		destMins = getChunkMins();
+		destMins = getChunkMins(destChunkQuery);
 
 		int errorCount = 0;
 		int moveCount = 0;
@@ -322,10 +326,10 @@ public class ChunkManager {
 	 */
 	public void createDestChunksUsingSplitCommand() {
 		logger.debug("createDestChunksUsingSplitCommand started");
-		logger.debug("chunkQuery: {}", chunkQuery);
+		logger.debug("chunkQuery: {}", sourceChunkQuery);
 		
-		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
-		destShardClient.loadChunksCache(chunkQuery);
+		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(sourceChunkQuery);
+		destShardClient.loadChunksCache(destChunkQuery);
 
 		String lastNs = null;
 		int currentCount = 0;
@@ -352,10 +356,14 @@ public class ChunkManager {
 	
 	public void compareAndMoveChunks(boolean doMove, boolean ignoreMissing) {
 
+		if (destChunkQuery == null) {
+			initializeDestChunkQuery();
+		}
 		Map<String, String> destChunkMap = readDestinationChunks();
-		logger.debug("chunkQuery: {}", chunkQuery);
-		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
-		destShardClient.loadChunksCache(chunkQuery);
+		logger.debug("chunkQuery: {}", sourceChunkQuery);
+		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(sourceChunkQuery);
+		
+		destShardClient.loadChunksCache(destChunkQuery);
 
 		String lastNs = null;
 		int currentCount = 0;
@@ -419,8 +427,8 @@ public class ChunkManager {
 
 			} else if (!doMove) {
 				if (!mappedShard.equals(destShard)) {
-					logger.debug(String.format("mismatch: %s ==> %s", destShard, mappedShard));
-					logger.debug("dest chunk is on wrong shard for sourceChunk: " + sourceChunk);
+					logger.warn(String.format("mismatch: %s ==> %s", destShard, mappedShard));
+					logger.warn("dest chunk is on wrong shard for sourceChunk: " + sourceChunk);
 					mismatchedCount++;
 				}
 				matchedCount++;
@@ -443,8 +451,8 @@ public class ChunkManager {
 	}
 	
 	public void compareChunksEquivalent() {
-		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(chunkQuery);
-		Map<String, RawBsonDocument> destChunksCache = destShardClient.loadChunksCache(chunkQuery);
+		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(sourceChunkQuery);
+		Map<String, RawBsonDocument> destChunksCache = destShardClient.loadChunksCache(destChunkQuery);
 		
 		List<Megachunk> sourceMega = getMegaChunks(sourceChunksCache, sourceShardClient);
 		
@@ -470,10 +478,10 @@ public class ChunkManager {
 	private Map<String, String> readDestinationChunks() {
 		logger.debug("Reading destination chunks");
 		Map<String, String> destChunkMap = new HashMap<String, String>();
-		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
-		FindIterable<RawBsonDocument> destChunks = destChunksColl.find(chunkQuery).sort(Sorts.ascending("ns", "min"));
-
-		for (RawBsonDocument destChunk : destChunks) {
+		
+		Map<String, RawBsonDocument> destChunks = destShardClient.getChunksCache(destChunkQuery);
+		
+		for (RawBsonDocument destChunk : destChunks.values()) {
 			String id = destShardClient.getIdFromChunk(destChunk);
 			//logger.debug("dest id: " + id);
 			String shard = destChunk.getString("shard").getValue();
@@ -491,36 +499,71 @@ public class ChunkManager {
 		return id;
 	}
 	
-	private Set<String> getChunkMins() {
+	private Set<String> getChunkMins(BsonDocument chunkQuery) {
 		Set<String> minsSet = new HashSet<>();
-		MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
-		FindIterable<RawBsonDocument> destChunks = destChunksColl.find().sort(Sorts.ascending("ns", "min"));
+		//MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
+		//FindIterable<RawBsonDocument> destChunks = destChunksColl.find().sort(destShardClient.getChunkSort());
+		Map<String, RawBsonDocument> destChunksMap = destShardClient.getChunksCache(chunkQuery);
 
-		for (RawBsonDocument chunk : destChunks) {
+		for (RawBsonDocument chunk : destChunksMap.values()) {
 			minsSet.add(getChunkMinKey(chunk));
 		}
 		return minsSet;
 	}
 	
-	public BsonDocument initializeChunkQuery() {
-		this.chunkQuery = newChunkQuery();
-		return chunkQuery;
+	public BsonDocument initializeSourceChunkQuery() {
+		logger.debug("*** initializeSourceChunkQuery()");
+		this.sourceChunkQuery = newChunkQuery(sourceShardClient);
+		return sourceChunkQuery;
 	}
 	
-	public BsonDocument newChunkQuery() {
-		return newChunkQuery(null);
+	public BsonDocument initializeDestChunkQuery() {
+		logger.debug("initializeDestChunkQuery()");
+		this.destChunkQuery = newChunkQuery(destShardClient);
+		return destChunkQuery;
 	}
 	
-	public BsonDocument newChunkQuery(String namespace) {
+	public BsonDocument newChunkQuery(ShardClient shardClient) {
+		return newChunkQuery(shardClient, null);
+	}
+	
+	public List<BsonBinary> fetchUUIDs(ShardClient shardClient, Set<String> dbNames) {
+        List<BsonBinary> uuids = new ArrayList<>();
+        MongoCollection<Document> collections = shardClient.getCollection("config.collections");
+        
+        List<Document> pipeline = Arrays.asList(
+                new Document("$project", new Document("_id", 1)
+                    .append("uuid", 1)
+                    .append("dbName", new Document("$arrayElemAt", Arrays.asList(new Document("$split", Arrays.asList("$_id", ".")), 0)))),
+                new Document("$match", new Document("dbName", new Document("$in", dbNames))),
+                new Document("$project", new Document("_id", 1).append("uuid", 1))
+            );
+        
+        collections.aggregate(pipeline).forEach(document -> {
+            Object uuidObj = document.get("uuid");
+            if (uuidObj instanceof UUID) {
+            	BsonBinary bb = BsonUuidUtil.uuidToBsonBinary((UUID) uuidObj);
+            	
+            	String base64 = Base64.encode(bb.getData());
+
+            	logger.debug("Adding collection: {}, bsonBinary: {}", document, base64);
+            	uuids.add(bb);
+                
+            } else {
+                System.out.println("xxxx");
+                
+            }
+        });
+
+        return uuids;
+    }
+	
+	public BsonDocument newChunkQuery(ShardClient shardClient, String namespace) {
 		BsonDocument chunkQuery = new BsonDocument();
 		if (namespace != null) {
-			if (sourceShardClient.isVersion5OrLater()) {
-				Document coll = sourceShardClient.getCollectionsMap().get(namespace);
-				if (coll != null) {
-					UUID uuid = (UUID)coll.get("uuid");
-					BsonBinary uuidBinary = BsonUuidUtil.uuidToBsonBinary(uuid);
-					chunkQuery.append("uuid", new BsonDocument("$eq", uuidBinary));
-				}
+			if (shardClient.isVersion5OrLater()) {
+				BsonBinary uuidBinary = shardClient.getUuidForNamespace(namespace);
+				chunkQuery.append("uuid", new BsonDocument("$eq", uuidBinary));
 			} else {
 				chunkQuery.append("ns", new BsonDocument("$eq", new BsonString(namespace)));
 			}
@@ -529,18 +572,33 @@ public class ChunkManager {
 			List<BsonValue> inList = new ArrayList<>();
 			List<BsonDocument> orList = new ArrayList<>();
 			for (Namespace includeNs : config.getIncludeNamespaces()) {
-				inList.add(new BsonString(includeNs.getNamespace()));
+				if (shardClient.isVersion5OrLater()) {
+					inList.add(shardClient.getUuidForNamespace(includeNs.getNamespace()));
+				} else {
+					inList.add(new BsonString(includeNs.getNamespace()));
+				}
 			}
-			for (String dbName : config.getIncludeDatabases()) {
-				orList.add(new BsonDocument("ns", new BsonDocument("$regex", new BsonString("^" + dbName + "\\."))));
+			if (shardClient.isVersion5OrLater()) {
+				inList.addAll(fetchUUIDs(shardClient, config.getIncludeDatabases()));
+				
+			} else {
+				for (String dbName : config.getIncludeDatabases()) {
+					orList.add(new BsonDocument("ns", new BsonDocument("$regex", new BsonString("^" + dbName + "\\."))));
+				}
 			}
 			
-			BsonDocument inDoc = new BsonDocument("ns", new BsonDocument("$in", new BsonArray(inList)));
+			BsonDocument inDoc;
+			if (shardClient.isVersion5OrLater()) {
+				inDoc = new BsonDocument("uuid", new BsonDocument("$in", new BsonArray(inList)));
+			} else {
+				inDoc = new BsonDocument("ns", new BsonDocument("$in", new BsonArray(inList)));
+			}
+			
 			orList.add(inDoc);
 			chunkQuery.append("$or", new BsonArray(orList));
 		} else {
-			if (sourceShardClient.isVersion5OrLater()) {
-				Document coll = sourceShardClient.getCollectionsMap().get("config.system.sessions");
+			if (shardClient.isVersion5OrLater()) {
+				Document coll = shardClient.getCollectionsMap().get("config.system.sessions");
 				if (coll != null) {
 					UUID uuid = (UUID)coll.get("uuid");
 					BsonBinary uuidBinary = BsonUuidUtil.uuidToBsonBinary(uuid);
@@ -567,8 +625,8 @@ public class ChunkManager {
 		return destToSourceShardMap.get(destShardName);
 	}
 
-	public void setChunkQuery(BsonDocument chunkQuery) {
-		this.chunkQuery = chunkQuery;
+	public void setSourceChunkQuery(BsonDocument chunkQuery) {
+		this.sourceChunkQuery = chunkQuery;
 	}
 	
 	public Set<String> getShardsForNamespace(Namespace ns) {
@@ -579,8 +637,8 @@ public class ChunkManager {
 		return shards;
 }
 
-	public BsonDocument getChunkQuery() {
-		return chunkQuery;
+	public BsonDocument getSourceChunkQuery() {
+		return sourceChunkQuery;
 	}
 
 	public void setSourceShardClient(ShardClient sourceShardClient) {

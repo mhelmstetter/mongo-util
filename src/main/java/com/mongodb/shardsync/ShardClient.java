@@ -1,17 +1,22 @@
 package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Accumulators.addToSet;
+import static com.mongodb.client.model.Aggregates.addFields;
 import static com.mongodb.client.model.Aggregates.group;
+import static com.mongodb.client.model.Aggregates.lookup;
 import static com.mongodb.client.model.Aggregates.match;
+import static com.mongodb.client.model.Aggregates.project;
+import static com.mongodb.client.model.Aggregates.unwind;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.gt;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.regex;
-import static com.mongodb.client.model.Projections.include;
 import static com.mongodb.client.model.Projections.exclude;
-import static com.mongodb.client.model.Projections.*;
+import static com.mongodb.client.model.Projections.excludeId;
+import static com.mongodb.client.model.Projections.fields;
+import static com.mongodb.client.model.Projections.include;
 import static java.util.Arrays.asList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
@@ -62,6 +67,7 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
+import com.mongodb.client.model.Field;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
@@ -70,7 +76,6 @@ import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.model.DatabaseCatalog;
 import com.mongodb.model.DatabaseCatalogProvider;
 import com.mongodb.model.IndexSpec;
-import com.mongodb.model.Megachunk;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Privilege;
@@ -1025,6 +1030,18 @@ public class ShardClient {
 	public Map<String, Document> getCollectionsMap() {
 		return collectionsMap;
 	}
+	
+	public BsonBinary getUuidForNamespace(String ns) {
+		Document coll = collectionsMap.get(ns);
+		if (coll == null) {
+			this.populateCollectionsMap();
+			coll = collectionsMap.get(ns);
+		}
+		
+		UUID uuid = (UUID)coll.get("uuid");
+		BsonBinary uuidBinary = BsonUuidUtil.uuidToBsonBinary(uuid);
+		return uuidBinary;
+	}
 
 	public MongoClient getMongoClient() {
 		return mongoClient;
@@ -1272,7 +1289,7 @@ public class ShardClient {
 
 		MongoCollection<RawBsonDocument> sourceChunksColl = getChunksCollectionRaw();
 		FindIterable<RawBsonDocument> sourceChunks = sourceChunksColl.find().noCursorTimeout(true)
-				.sort(Sorts.ascending("ns", "min"));
+				.sort(getChunkSort());
 
 		String lastNs = null;
 		int currentCount = 0;
@@ -1367,7 +1384,7 @@ public class ShardClient {
 		return loadChunksCache(chunkQuery, cache);
 	}
 	
-	private Bson getChunkSort() {
+	public Bson getChunkSort() {
 		if (this.isVersion5OrLater()) {
 			return Sorts.ascending("uuid", "min");
 		} else {
@@ -1377,11 +1394,8 @@ public class ShardClient {
 	}
 	
 	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery, Map<String, RawBsonDocument> cache) {
-		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
 
-		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery)
-				.projection(exclude("_id", "history", "lastmodEpoch", "lastmod"))
-				.sort(getChunkSort());
+		MongoIterable<RawBsonDocument> sourceChunks = getSourceChunks(chunkQuery);
 
 		int count = 0;
 		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
@@ -1390,21 +1404,43 @@ public class ShardClient {
 			cache.put(chunkId, chunk);
 			count++;
 		}
-		logger.debug("{}: loaded {} chunks into chunksCache", name, count);
+		logger.debug("*** {}: loaded {} chunks into chunksCache", name, count);
 		return cache;
 	}
 
 	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery) {
 		return loadChunksCache(chunkQuery, chunksCache);
 	}
+	
+	private MongoIterable<RawBsonDocument> getSourceChunks(Bson chunkQuery) {
+		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
+
+		MongoIterable<RawBsonDocument> sourceChunks;
+		
+		if (this.isVersion5OrLater()) {
+			sourceChunks = chunksColl.aggregate(Arrays.asList(
+		            match(chunkQuery),
+		            lookup("collections", "uuid", "uuid", "collectionData"),
+		            unwind("$collectionData"),
+		            addFields(new Field<>("ns", "$collectionData._id")),
+		            project(fields(
+		                excludeId(),
+		                exclude("history", "lastmodEpoch", "lastmod", "collectionData")
+		            ))
+		        ));
+		} else {
+			sourceChunks = chunksColl.find(chunkQuery)
+					.projection(exclude("_id", "history", "lastmodEpoch", "lastmod"))
+					.sort(getChunkSort());
+		}
+		return sourceChunks;
+	}
 
 	public Map<String, Map<String, RawBsonDocument>> loadChunksCacheMap(Document chunkQuery) {
 		Map<String, Map<String, RawBsonDocument>> output = new HashMap<>();
-		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
-		FindIterable<RawBsonDocument> sourceChunks = chunksColl.find(chunkQuery)
-				.projection(fields(exclude("lastmod"), exclude("lastmodEpoch"), exclude("history"), excludeId())).
-				sort(Sorts.ascending("ns", "min"));
-
+		
+		MongoIterable<RawBsonDocument> sourceChunks = getSourceChunks(chunkQuery);
+		
 		int count = 0;
 		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
 			RawBsonDocument chunk = sourceChunksIterator.next();
@@ -1430,7 +1466,15 @@ public class ShardClient {
 	public boolean checkChunkExists(BsonDocument chunk) {
 		String ns = chunk.getString("ns").getValue();
 		// if the dest chunk exists already, skip it
-		Document query = new Document("ns", ns);
+		
+		Document query;
+		if (this.isVersion5OrLater()) {
+			// the uuids might be different between the chunk we are checking for and the target
+			query = new Document("uuid", getUuidForNamespace(ns));
+		} else {
+			query = new Document("ns", ns);
+		}
+		 
 		query.append("min", chunk.get("min"));
 		query.append("max", chunk.get("max"));
 		long count = getChunksCollectionRaw().countDocuments(query);

@@ -723,6 +723,10 @@ public class ShardConfigSync implements Callable<Integer> {
     public void syncMetadata() throws InterruptedException {
         logger.debug(String.format("Starting metadata sync/migration, %s: %s",
                 ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
+        
+        if (destShardClient.isVersion5OrLater()) {
+        	throw new IllegalArgumentException("syncMetadata no longer supported for > 5.x, please use syncMetadataOptimized");
+        }
 
         initChunkManager();
         stopBalancers();
@@ -732,6 +736,7 @@ public class ShardConfigSync implements Callable<Integer> {
 
         sourceShardClient.populateCollectionsMap();
         shardDestinationCollections();
+        destShardClient.populateCollectionsMap();
         chunkManager.createDestChunksUsingSplitCommand();
         chunkManager.compareAndMoveChunks(true, false);
 
@@ -750,6 +755,7 @@ public class ShardConfigSync implements Callable<Integer> {
         enableDestinationSharding();
         sourceShardClient.populateCollectionsMap();
         shardDestinationCollections();
+        destShardClient.populateCollectionsMap();
 
         chunkManager.createAndMoveChunks();
 
@@ -1358,6 +1364,7 @@ public class ShardConfigSync implements Callable<Integer> {
             }
         }
         logger.debug("shardDestinationCollectionsUsingShardCommand() complete");
+        destShardClient.populateCollectionsMap(true);
     }
 
     /**
