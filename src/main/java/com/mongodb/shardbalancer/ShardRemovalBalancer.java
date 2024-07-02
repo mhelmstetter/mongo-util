@@ -119,16 +119,19 @@ public class ShardRemovalBalancer implements Callable<Integer> {
         }
 
 		while (chunkIterator.hasNext() && moveCount < limit) {
+			
+			if (ZonedDateTime.now(ZoneId.of("UTC")).isAfter(endDateTime)) {
+                logger.debug("End time {} reached, terminating the process for today", endDateTime);
+                return;
+            }
+			
 			RawBsonDocument chunk = chunkIterator.next();
 			//String currentShard = chunk.getString("shard").getValue();
 			int rangesMoved = 0;
 
 			//while (moveCount < limit) {
 				// Check if endTime is reached
-				if (LocalTime.now().isAfter(endTime)) {
-					logger.debug("End time reached, terminating the process");
-					return;
-				}
+				
 
 				String destShard = RandomUtils.getRandomElementFromSet(balancerConfig.getDestShards());
 
@@ -213,7 +216,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 	}
 	
 	private void waitUntil() {
-		logger.debug("Sleeping until startTime: {}", startTime);
+		logger.debug("Sleeping until startDateTime: {}", startDateTime);
         ZonedDateTime now = ZonedDateTime.now(ZoneId.of("UTC"));
         if (now.isBefore(startDateTime)) {
             long millisUntilStart = ChronoUnit.MILLIS.between(now, startDateTime);
