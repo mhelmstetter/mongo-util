@@ -1,11 +1,11 @@
 package com.mongodb.shardbalancer;
 
-import static com.mongodb.client.model.Filters.and;
-import static com.mongodb.client.model.Filters.eq;
-
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -21,11 +21,9 @@ import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.bson.BsonDocument;
 import org.bson.BsonObjectId;
 import org.bson.RawBsonDocument;
-import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.client.MongoCollection;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.RandomUtils;
@@ -66,6 +64,12 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 
 	private LocalTime startTime;
 	private LocalTime endTime;
+	
+	private ZonedDateTime startDateTime;
+    private ZonedDateTime endDateTime;
+    
+    private Iterator<RawBsonDocument> chunkIterator;
+    private boolean firstRun = true;
 
 	public void init() {
 		Set<String> sourceShards = balancerConfig.getSourceShards();
@@ -107,13 +111,19 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 	private void balanceData() {
 		logger.debug("Starting balanceData(), will run until endTime: {}", endTime);
 		int moveCount = 0;
-		MongoCollection<RawBsonDocument> chunksColl = sourceShardClient.getChunksCollectionRaw();
+		//MongoCollection<RawBsonDocument> chunksColl = sourceShardClient.getChunksCollectionRaw();
+		
+		if (firstRun) {
+            chunkIterator = sourceChunksCache.values().iterator();
+            firstRun = false;
+        }
 
-		for (RawBsonDocument chunk : sourceChunksCache.values()) {
-			String currentShard = chunk.getString("shard").getValue();
+		while (chunkIterator.hasNext() && moveCount < limit) {
+			RawBsonDocument chunk = chunkIterator.next();
+			//String currentShard = chunk.getString("shard").getValue();
 			int rangesMoved = 0;
 
-			while (moveCount < limit) {
+			//while (moveCount < limit) {
 				// Check if endTime is reached
 				if (LocalTime.now().isAfter(endTime)) {
 					logger.debug("End time reached, terminating the process");
@@ -122,16 +132,17 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 
 				String destShard = RandomUtils.getRandomElementFromSet(balancerConfig.getDestShards());
 
-				if (currentShard.equals(destShard)) {
-					logger.debug("currentShard == destShard, all chunks moved");
-					break;
-				}
+//				if (currentShard.equals(destShard)) {
+//					logger.debug("currentShard == destShard, all chunks moved");
+//					break;
+//				}
 
 				String ns = chunk.getString("ns").getValue();
 				BsonDocument min = (BsonDocument) chunk.get("min");
 				BsonObjectId id = chunk.getObjectId("_id");
 				BsonDocument max = (BsonDocument) chunk.get("max");
-				sourceShardClient.moveRange(ns, min, destShard, balancerConfig.isDryRun());
+				//sourceShardClient.moveRange(ns, min, destShard, balancerConfig.isDryRun());
+				sourceShardClient.moveChunk(ns, min, max, destShard, false, false, false, false);
 
 				rangesMoved++;
 				moveCount++;
@@ -139,10 +150,10 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 						"{}: moved range with min: {}, max: {} to shard {}, rangesMoved: {}, totalMoved: {} - _id: {}",
 						ns, min, max, destShard, rangesMoved, moveCount, id);
 
-				Bson filter = and(eq("uuid", chunk.get("uuid")), eq("min", min));
-				RawBsonDocument ch = chunksColl.find(filter).first();
-				currentShard = ch.getString("shard").getValue();
-			}
+//				Bson filter = and(eq("uuid", chunk.get("uuid")), eq("min", min));
+//				RawBsonDocument ch = chunksColl.find(filter).first();
+//				currentShard = ch.getString("shard").getValue();
+			//}
 		}
 	}
 
@@ -150,8 +161,46 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 
 		parseArgs();
 		init();
-		waitUntil();
-		balanceData();
+		
+		while (true) {
+            // Get current date and time in UTC
+            ZonedDateTime now = ZonedDateTime.now(ZoneId.of("UTC"));
+
+            // Calculate start and end times for today
+            startDateTime = now.with(startTime);
+            endDateTime = startDateTime.with(endTime);
+
+            // Move to the next day if the end time is before the start time
+            if (endDateTime.isBefore(startDateTime)) {
+            	logger.debug("endDateTime is before startDateTime, adding 1 day to endDateTime");
+                endDateTime = endDateTime.plusDays(1); 
+            }
+            
+            if (now.isAfter(endDateTime)) {
+            	logger.debug("Current time is after endDateTime, adding 1 day to both start/end times");
+                startDateTime = startDateTime.plusDays(1);
+                endDateTime = endDateTime.plusDays(1);
+            }
+
+            // If current time is within the start and end time window, start immediately
+            if (now.isAfter(startDateTime) && now.isBefore(endDateTime)) {
+            	logger.debug("Already witin time window, starting balanceData()");
+                balanceData();
+            } else {
+                // Wait until the start time
+                waitUntil();
+                balanceData();
+            }
+            
+            if (chunkIterator != null && !chunkIterator.hasNext()) {
+            	logger.debug("All chunks have been iterated -- all done!");
+            	break;
+            }
+
+            startDateTime = startDateTime.plusDays(1);
+            // Wait until the next start time
+            waitUntil();
+        }
 		return 0;
 	}
 
@@ -162,19 +211,19 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 			throw new IllegalArgumentException("Invalid time format. Please use 'HH:MM' format.", e);
 		}
 	}
-
+	
 	private void waitUntil() {
 		logger.debug("Sleeping until startTime: {}", startTime);
-		LocalTime now = LocalTime.now();
-		if (now.isBefore(startTime)) {
-			long millisUntilStart = ChronoUnit.MILLIS.between(now, startTime);
-			try {
-				Thread.sleep(millisUntilStart);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-			}
-		}
-	}
+        ZonedDateTime now = ZonedDateTime.now(ZoneId.of("UTC"));
+        if (now.isBefore(startDateTime)) {
+            long millisUntilStart = ChronoUnit.MILLIS.between(now, startDateTime);
+            try {
+                Thread.sleep(millisUntilStart);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
 
 	protected void parseArgs() throws ConfigurationException {
 
