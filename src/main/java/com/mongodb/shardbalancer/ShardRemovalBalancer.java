@@ -150,7 +150,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 
 		parseArgs();
 		init();
-		waitUntil(startTime);
+		waitUntil();
 		balanceData();
 		return 0;
 	}
@@ -163,7 +163,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 		}
 	}
 
-	private void waitUntil(LocalTime startTime) {
+	private void waitUntil() {
 		logger.debug("Sleeping until startTime: {}", startTime);
 		LocalTime now = LocalTime.now();
 		if (now.isBefore(startTime)) {
