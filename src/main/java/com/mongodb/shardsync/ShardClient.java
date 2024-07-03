@@ -1575,6 +1575,7 @@ public class ShardClient {
 		Document cmd = new Document("dataSize", namespace);
 		cmd.append("min", min);
 		cmd.append("max", max);
+		cmd.append("estimate", true);
 		Document result = null;
 		try {
 			result = adminCommand(cmd);
