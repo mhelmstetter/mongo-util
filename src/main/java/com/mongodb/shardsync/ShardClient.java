@@ -1571,6 +1571,19 @@ public class ShardClient {
 		return moveChunk(namespace, min, max, moveToShard, ignoreMissing, secondaryThrottle, waitForDelete, majorityWrite, false);
 	}
 	
+	public Document dataSize(String namespace, BsonDocument min, BsonDocument max) {
+		Document cmd = new Document("dataSize", namespace);
+		cmd.append("min", min);
+		cmd.append("max", max);
+		Document result = null;
+		try {
+			result = adminCommand(cmd);
+		} catch (MongoCommandException mce) {
+			logger.warn(String.format("moveRange error ns: %s, message: %s", namespace, mce.getMessage()));
+		}
+		return result;
+	}
+	
 	public void moveRange(String namespace, BsonDocument min, String moveToShard, boolean dryRun) {
 		Document moveChunkCmd = new Document("moveRange", namespace);
 		moveChunkCmd.append("toShard", moveToShard);

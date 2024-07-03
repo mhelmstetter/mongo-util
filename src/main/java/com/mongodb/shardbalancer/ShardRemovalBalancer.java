@@ -20,6 +20,7 @@ import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.bson.BsonDocument;
 import org.bson.BsonObjectId;
+import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -127,7 +128,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 			
 			RawBsonDocument chunk = chunkIterator.next();
 			//String currentShard = chunk.getString("shard").getValue();
-			int rangesMoved = 0;
+			//int rangesMoved = 0;
 
 			//while (moveCount < limit) {
 				// Check if endTime is reached
@@ -145,13 +146,23 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				BsonObjectId id = chunk.getObjectId("_id");
 				BsonDocument max = (BsonDocument) chunk.get("max");
 				//sourceShardClient.moveRange(ns, min, destShard, balancerConfig.isDryRun());
-				sourceShardClient.moveChunk(ns, min, max, destShard, false, false, false, false);
+				
+				Document dataSize = sourceShardClient.dataSize(ns, min, max);
+				long count = dataSize.getLong("numObjects");
+				if (count >= 3172058) {
+					logger.debug("chunk too big, splitting");
+					sourceShardClient.splitFind(ns, min, true);
+					continue;
+				} else {
+					sourceShardClient.moveChunk(ns, min, max, destShard, false, false, false, false);
+				}
+				
 
-				rangesMoved++;
+				//rangesMoved++;
 				moveCount++;
 				logger.debug(
-						"{}: moved range with min: {}, max: {} to shard {}, rangesMoved: {}, totalMoved: {} - _id: {}",
-						ns, min, max, destShard, rangesMoved, moveCount, id);
+						"{}: moved range with min: {}, max: {} to shard {}, totalMoved: {} - _id: {}",
+						ns, min, max, destShard, moveCount, id);
 
 //				Bson filter = and(eq("uuid", chunk.get("uuid")), eq("min", min));
 //				RawBsonDocument ch = chunksColl.find(filter).first();
