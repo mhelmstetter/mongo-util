@@ -1,5 +1,6 @@
 package com.mongodb.shardsync;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -7,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.model.Namespace;
+import com.mongodb.shardbalancer.BalancerConfig;
 
 public class BaseConfiguration {
 
@@ -270,6 +272,10 @@ public class BaseConfiguration {
 
 	public void setDestShards(Set<String> destShards) {
 		this.destShards = destShards;
+	}
+
+	public void setSourceShards(Set<String> shards) {
+		this.sourceShards = shards;
 	}
 
 }

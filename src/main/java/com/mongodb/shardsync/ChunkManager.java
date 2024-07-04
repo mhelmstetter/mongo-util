@@ -93,6 +93,10 @@ public class ChunkManager {
 			sourceShardClient.init();
 			destShardClient.init();
 			
+			config.setSourceShards(sourceShardClient.getShardsMap().keySet());
+			config.setDestShards(sourceShardClient.getShardsMap().keySet());
+			
+			
 		} else {
 			logger.debug("Default 1:1 shard mapping");
 			
@@ -111,6 +115,9 @@ public class ChunkManager {
 			
 			sourceShardClient.init();
 			destShardClient.init();
+			
+			config.setSourceShards(sourceShardClient.getShardsMap().keySet());
+			config.setDestShards(sourceShardClient.getShardsMap().keySet());
 			
 			logger.debug("Source shard count: " + sourceShardClient.getShardsMap().size());
 			// default, just match up the shards 1:1

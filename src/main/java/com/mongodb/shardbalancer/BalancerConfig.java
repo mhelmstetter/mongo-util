@@ -1,7 +1,5 @@
 package com.mongodb.shardbalancer;
 
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
@@ -62,16 +60,6 @@ public class BalancerConfig extends BaseConfiguration {
 		this.statsCollection = statsCollection;
 	}
 	
-	public void setSourceShards(String[] shards) {
-		this.sourceShards = new HashSet<>();
-		sourceShards.addAll(Arrays.asList(shards));
-	}
-	
-	public void setDestShards(String[] shards) {
-		this.destShards = new HashSet<>();
-		destShards.addAll(Arrays.asList(shards));
-	}
-
 	public int getAnalyzerSleepIntervalMinutes() {
 		return analyzerSleepIntervalMinutes;
 	}

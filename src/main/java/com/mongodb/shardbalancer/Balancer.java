@@ -18,6 +18,7 @@ import static com.mongodb.client.model.Sorts.orderBy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -499,7 +500,7 @@ public class Balancer implements Callable<Integer> {
 		balancerConfig.setNamespaceFilters(includes);
 
 		String[] sourceShards = config.getStringArray(SOURCE_SHARDS);
-		balancerConfig.setSourceShards(sourceShards);
+		balancerConfig.setSourceShards(new HashSet<>(Arrays.asList(sourceShards)));
 		balancerConfig.setAnalyzerSleepIntervalMinutes(config.getInt(ANALYZER_SLEEP_INTERVAL, 15));
 		balancerConfig.setDryRun(config.getBoolean(DRY_RUN, false));
 		balancerConfig.setDeltaThresholdPercent(config.getDouble(DELTA_THRESHOLD_PERCENT, 3.0));

@@ -5,6 +5,8 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -248,10 +250,10 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 		balancerConfig.setNamespaceFilters(includes);
 
 		String[] sourceShards = config.getStringArray(SOURCE_SHARDS);
-		balancerConfig.setSourceShards(sourceShards);
+		balancerConfig.setSourceShards(new HashSet<>(Arrays.asList(sourceShards)));
 
 		String[] destShards = config.getStringArray(DEST_SHARDS);
-		balancerConfig.setDestShards(destShards);
+		balancerConfig.setDestShards(new HashSet<>(Arrays.asList(destShards)));
 
 		balancerConfig.setDryRun(config.getBoolean(DRY_RUN, false));
 
