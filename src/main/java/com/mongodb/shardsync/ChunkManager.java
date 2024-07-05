@@ -281,17 +281,21 @@ public class ChunkManager {
 				throw new IllegalArgumentException(
 						"No destination shard mapping found for source shard: " + mega2.getShard());
 			}
-
+			
 			String destShard = destChunkToShardMap.get(mega2.getId());
+			
+			logger.debug("chunk shard: {}, mappedShard: {}, destShard: {}", mega2.getShard(), mappedShard, destShard);
 
 			if (doMove && destShard != null && !mappedShard.equals(destShard)) {
 				boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), 
 						(RawBsonDocument)mega2.getMax(), mappedShard, false, false, false, false);
 				if (! moveSuccess) {
 					errorCount++;
+				} else {
+					moveCount++;
 				}
 			}
-			moveCount++;
+			
 			ts = Instant.now().getEpochSecond();
 			long secondsSinceLastLog = ts - startTsSeconds;
 			if (secondsSinceLastLog >= 60) {
