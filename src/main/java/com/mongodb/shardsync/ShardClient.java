@@ -529,10 +529,10 @@ public class ShardClient {
 			collectionsMap.clear();
 		}
 
-		if (!collectionsMap.isEmpty()) {
-			return;
-		}
-		logger.debug("Starting populateCollectionsMap()");
+//		if (!collectionsMap.isEmpty()) {
+//			return;
+//		}
+		logger.debug("Starting {} populateCollectionsMap()", name);
 		MongoCollection<Document> shardsColl = configDb.getCollection("collections");
 		Bson filter = null;
 		if (namespaces == null || namespaces.isEmpty()) {
@@ -1041,7 +1041,7 @@ public class ShardClient {
 	public BsonBinary getUuidForNamespace(String ns) {
 		Document coll = collectionsMap.get(ns);
 		if (coll == null) {
-			this.populateCollectionsMap();
+			this.populateCollectionsMap(true);
 			coll = collectionsMap.get(ns);
 		}
 		
@@ -1403,6 +1403,8 @@ public class ShardClient {
 	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery, Map<String, RawBsonDocument> cache) {
 
 		MongoIterable<RawBsonDocument> sourceChunks = getSourceChunks(chunkQuery);
+		
+		//logger.debug("{} loadChunksCache, chunkQuery: {}", name, chunkQuery);
 
 		int count = 0;
 		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {

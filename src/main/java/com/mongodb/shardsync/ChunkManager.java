@@ -162,7 +162,6 @@ public class ChunkManager {
 			
 		}
 		initializeSourceChunkQuery();
-		initializeDestChunkQuery();
 		
 		// reverse map
 		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
@@ -225,6 +224,9 @@ public class ChunkManager {
 		//logger.debug("chunkQuery: {}", chunkQuery);
 
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(sourceChunkQuery);
+		if (destChunkQuery == null) {
+			initializeDestChunkQuery();
+		}
 		Set<String> destMins = getChunkMins(destChunkQuery);
 		
 		double totalChunks = (double)sourceChunksCache.size();
@@ -510,6 +512,11 @@ public class ChunkManager {
 	
 	private Set<String> getChunkMins(BsonDocument chunkQuery) {
 		Set<String> minsSet = new HashSet<>();
+		
+		if (chunkQuery == null) {
+			this.initializeDestChunkQuery();
+		}
+		
 		//MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
 		//FindIterable<RawBsonDocument> destChunks = destChunksColl.find().sort(destShardClient.getChunkSort());
 		Map<String, RawBsonDocument> destChunksMap = destShardClient.getChunksCache(chunkQuery);

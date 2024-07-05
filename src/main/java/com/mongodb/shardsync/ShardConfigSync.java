@@ -749,12 +749,14 @@ public class ShardConfigSync implements Callable<Integer> {
         logger.debug(String.format("Starting optimized metadata sync/migration, %s: %s",
                 ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
 
+        enableDestinationSharding();
+        shardDestinationCollections();
+        
         initChunkManager();
         stopBalancers();
         createCollections();
-        enableDestinationSharding();
+        
         sourceShardClient.populateCollectionsMap();
-        shardDestinationCollections();
         destShardClient.populateCollectionsMap();
 
         chunkManager.createAndMoveChunks();
