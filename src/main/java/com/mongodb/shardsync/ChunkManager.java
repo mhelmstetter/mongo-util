@@ -162,6 +162,7 @@ public class ChunkManager {
 			
 		}
 		initializeSourceChunkQuery();
+		initializeDestChunkQuery();
 		
 		// reverse map
 		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
@@ -224,7 +225,7 @@ public class ChunkManager {
 		//logger.debug("chunkQuery: {}", chunkQuery);
 
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(sourceChunkQuery);
-		Set<String> destMins = getChunkMins(sourceChunkQuery);
+		Set<String> destMins = getChunkMins(destChunkQuery);
 		
 		double totalChunks = (double)sourceChunksCache.size();
 
@@ -556,9 +557,6 @@ public class ChunkManager {
 
             	logger.debug("Adding collection: {}, bsonBinary: {}", document, base64);
             	uuids.add(bb);
-                
-            } else {
-                System.out.println("xxxx");
                 
             }
         });

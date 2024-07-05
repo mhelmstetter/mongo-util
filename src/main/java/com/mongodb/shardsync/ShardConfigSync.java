@@ -142,6 +142,8 @@ public class ShardConfigSync implements Callable<Integer> {
     }
 
     public void initialize() {
+    	this.sourceShardClient = config.getSourceShardClient();
+        this.destShardClient = config.getDestShardClient();
         initAtlasUtil();
     }
 
