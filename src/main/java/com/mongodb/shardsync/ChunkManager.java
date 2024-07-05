@@ -534,8 +534,8 @@ public class ChunkManager {
 	}
 	
 	public BsonDocument initializeDestChunkQuery() {
-		logger.debug("initializeDestChunkQuery()");
 		this.destChunkQuery = newChunkQuery(destShardClient);
+		logger.debug("initializeDestChunkQuery(), query: {}", destChunkQuery);
 		return destChunkQuery;
 	}
 	
@@ -589,7 +589,9 @@ public class ChunkManager {
 			List<BsonDocument> orList = new ArrayList<>();
 			for (Namespace includeNs : config.getIncludeNamespaces()) {
 				if (shardClient.isVersion5OrLater()) {
-					inList.add(shardClient.getUuidForNamespace(includeNs.getNamespace()));
+					BsonBinary uuidBinary = shardClient.getUuidForNamespace(includeNs.getNamespace());
+					logger.debug("adding namespace {}, uuid: {}", includeNs, BsonUuidUtil.convertBsonBinaryToUuid(uuidBinary));
+					inList.add(uuidBinary);
 				} else {
 					inList.add(new BsonString(includeNs.getNamespace()));
 				}
