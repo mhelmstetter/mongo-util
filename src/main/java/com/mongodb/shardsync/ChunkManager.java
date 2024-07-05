@@ -573,8 +573,9 @@ public class ChunkManager {
 	
 	public BsonDocument newChunkQuery(ShardClient shardClient, String namespace) {
 		BsonDocument chunkQuery = new BsonDocument();
+		
 		if (! config.getSourceShards().isEmpty()) {
-			chunkQuery.append("shard", new BsonDocument("$in", BsonUtils.convertSetToBsonArray(config.getSourceShards())));
+			chunkQuery.append("shard", new BsonDocument("$in", BsonUtils.convertSetToBsonArray(shardClient.getShardsMap().keySet())));
 		}
 		if (namespace != null) {
 			if (shardClient.isVersion5OrLater()) {
