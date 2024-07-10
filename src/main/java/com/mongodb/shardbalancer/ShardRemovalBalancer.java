@@ -151,7 +151,9 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				
 				Document dataSize = sourceShardClient.dataSize(ns, min, max);
 				long count = dataSize.getLong("numObjects");
-				if (count >= 3172058) {
+				
+				// 335020
+				if (count >= 335020) {
 					logger.debug("chunk too big, splitting");
 					sourceShardClient.splitFind(ns, min, true);
 					continue;
