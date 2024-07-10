@@ -156,26 +156,27 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				BsonDocument max = (BsonDocument) chunk.get("max");
 				//sourceShardClient.moveRange(ns, min, destShard, balancerConfig.isDryRun());
 				
-				//Document stats = null;
-				Double stats = null;
-				if (collStatsMap.containsKey(ns)) {
-					stats = collStatsMap.get(ns);
-				} else {
-					Document statsDoc = sourceShardClient.collStats(ns);
-					stats = statsDoc.getDouble("avgObjSize");
-					collStatsMap.put(ns, stats);
-				}
-				
-				
-				Double maxDocs = Double.valueOf(2.0 * (maxChunkSize / stats));
-				logger.debug("maxDocs: {}", maxDocs);
+//				Double stats = null;
+//				if (collStatsMap.containsKey(ns)) {
+//					stats = collStatsMap.get(ns);
+//				} else {
+//					Document statsDoc = sourceShardClient.collStats(ns);
+//					stats = statsDoc.getDouble("avgObjSize");
+//					collStatsMap.put(ns, stats);
+//				}
+//				
+//				
+//				Double maxDocs = Double.valueOf(2.0 * (maxChunkSize / stats));
+//				logger.debug("maxDocs: {}", maxDocs);
 				
 				Document dataSize = sourceShardClient.dataSize(ns, min, max);
 				long count = dataSize.getLong("numObjects");
 				
 				// 335020
-				if (count >= maxDocs) {
-					logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
+				if (count >= 335020) {
+					//logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
+					
+					logger.debug("chunk too big, splitting");
 					sourceShardClient.splitFind(ns, min, true);
 					
 					BsonBinary uuidBinary = sourceShardClient.getUuidForNamespace(ns);
