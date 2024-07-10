@@ -77,7 +77,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
     private Iterator<RawBsonDocument> chunkIterator;
     private boolean firstRun = true;
     
-    private long maxChunkSize = 1073741824;
+    private double maxChunkSize = 1073741824;
     private Map<String, Double> collStatsMap = new HashMap<>();
 
 	public void init() {
@@ -167,7 +167,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				}
 				
 				
-				Double maxDocs = Double.valueOf(2 * (maxChunkSize / stats));
+				Double maxDocs = Double.valueOf(2.0 * (maxChunkSize / stats));
 				logger.debug("maxDocs: {}", maxDocs);
 				
 				Document dataSize = sourceShardClient.dataSize(ns, min, max);
