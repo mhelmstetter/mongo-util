@@ -1400,6 +1400,12 @@ public class ShardClient {
 		
 	}
 	
+	public RawBsonDocument reloadChunk(BsonDocument chunkQuery) {
+		MongoIterable<RawBsonDocument> sourceChunks = getSourceChunks(chunkQuery);
+		RawBsonDocument chunk = sourceChunks.first();
+		return chunk;
+	}
+	
 	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery, Map<String, RawBsonDocument> cache) {
 
 		MongoIterable<RawBsonDocument> sourceChunks = getSourceChunks(chunkQuery);
@@ -1583,6 +1589,17 @@ public class ShardClient {
 			result = adminCommand(cmd);
 		} catch (MongoCommandException mce) {
 			logger.warn(String.format("moveRange error ns: %s, message: %s", namespace, mce.getMessage()));
+		}
+		return result;
+	}
+	
+	public Document collStats(String namespace) {
+		Document cmd = new Document("collStats", namespace);
+		Document result = null;
+		try {
+			result = adminCommand(cmd);
+		} catch (MongoCommandException mce) {
+			logger.warn(String.format("collStats error ns: %s, message: %s", namespace, mce.getMessage()));
 		}
 		return result;
 	}

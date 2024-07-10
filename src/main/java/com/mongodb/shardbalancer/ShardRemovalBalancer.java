@@ -6,6 +6,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -22,6 +23,7 @@ import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.bson.BsonDocument;
 import org.bson.BsonObjectId;
+import org.bson.BsonString;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
@@ -73,6 +75,9 @@ public class ShardRemovalBalancer implements Callable<Integer> {
     
     private Iterator<RawBsonDocument> chunkIterator;
     private boolean firstRun = true;
+    
+    private long maxChunkSize = 1073741824;
+    private Map<String, Long> collStatsMap = new HashMap<>();
 
 	public void init() {
 		Set<String> sourceShards = balancerConfig.getSourceShards();
@@ -142,31 +147,53 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 //					logger.debug("currentShard == destShard, all chunks moved");
 //					break;
 //				}
-
-				String ns = chunk.getString("ns").getValue();
+				
+				BsonString bsonNs = chunk.getString("ns");
+				String ns = bsonNs.getValue();
 				BsonDocument min = (BsonDocument) chunk.get("min");
 				BsonObjectId id = chunk.getObjectId("_id");
 				BsonDocument max = (BsonDocument) chunk.get("max");
 				//sourceShardClient.moveRange(ns, min, destShard, balancerConfig.isDryRun());
 				
+				//Document stats = null;
+				Long stats = null;
+				if (collStatsMap.containsKey(ns)) {
+					stats = collStatsMap.get(ns);
+				} else {
+					Document statsDoc = sourceShardClient.collStats(ns);
+					stats = statsDoc.getLong("avgObjSize");
+					collStatsMap.put(ns, stats);
+				}
+				
+				Long maxDocs = 2 * (stats / maxChunkSize);
+				
 				Document dataSize = sourceShardClient.dataSize(ns, min, max);
 				long count = dataSize.getLong("numObjects");
 				
 				// 335020
-				if (count >= 335020) {
-					logger.debug("chunk too big, splitting");
+				if (count >= maxDocs) {
+					logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
 					sourceShardClient.splitFind(ns, min, true);
-					continue;
-				} else {
-					sourceShardClient.moveChunk(ns, min, max, destShard, false, false, false, false);
+					
+					BsonDocument chunkQuery = new BsonDocument("ns", bsonNs);
+					chunkQuery.append("min", min);
+					RawBsonDocument newChunk = sourceShardClient.reloadChunk(chunkQuery);
+					min = (BsonDocument) newChunk.get("min");
+					id = newChunk.getObjectId("_id");
+					max = (BsonDocument) newChunk.get("max");
 				}
 				
-
+				boolean result = sourceShardClient.moveChunk(ns, min, max, destShard, false, false, false, false);
+				
+				if (result) {
+					moveCount++;
+					logger.debug(
+							"{}: moved range with min: {}, max: {} to shard {}, totalMoved: {} - _id: {}",
+							ns, min, max, destShard, moveCount, id);
+				}
+				
 				//rangesMoved++;
-				moveCount++;
-				logger.debug(
-						"{}: moved range with min: {}, max: {} to shard {}, totalMoved: {} - _id: {}",
-						ns, min, max, destShard, moveCount, id);
+				
 
 //				Bson filter = and(eq("uuid", chunk.get("uuid")), eq("min", min));
 //				RawBsonDocument ch = chunksColl.find(filter).first();
