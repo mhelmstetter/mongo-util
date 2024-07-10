@@ -21,6 +21,7 @@ import org.apache.commons.configuration2.builder.FileBasedConfigurationBuilder;
 import org.apache.commons.configuration2.builder.fluent.Parameters;
 import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
 import org.apache.commons.configuration2.ex.ConfigurationException;
+import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonObjectId;
 import org.bson.BsonString;
@@ -176,9 +177,15 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 					logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
 					sourceShardClient.splitFind(ns, min, true);
 					
-					BsonDocument chunkQuery = new BsonDocument("ns", bsonNs);
+					BsonBinary uuidBinary = sourceShardClient.getUuidForNamespace(ns);
+					
+					BsonDocument chunkQuery = new BsonDocument("uuid", uuidBinary);
 					chunkQuery.append("min", min);
 					RawBsonDocument newChunk = sourceShardClient.reloadChunk(chunkQuery);
+					if (newChunk == null) {
+						logger.debug("unable to reload chunk, query: {}", chunkQuery);
+						continue;
+					}
 					min = (BsonDocument) newChunk.get("min");
 					id = newChunk.getObjectId("_id");
 					max = (BsonDocument) newChunk.get("max");
