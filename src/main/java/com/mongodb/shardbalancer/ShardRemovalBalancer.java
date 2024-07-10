@@ -77,7 +77,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
     private boolean firstRun = true;
     
     private long maxChunkSize = 1073741824;
-    private Map<String, Long> collStatsMap = new HashMap<>();
+    private Map<String, Double> collStatsMap = new HashMap<>();
 
 	public void init() {
 		Set<String> sourceShards = balancerConfig.getSourceShards();
@@ -156,16 +156,17 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				//sourceShardClient.moveRange(ns, min, destShard, balancerConfig.isDryRun());
 				
 				//Document stats = null;
-				Long stats = null;
+				Double stats = null;
 				if (collStatsMap.containsKey(ns)) {
 					stats = collStatsMap.get(ns);
 				} else {
 					Document statsDoc = sourceShardClient.collStats(ns);
-					stats = statsDoc.getLong("avgObjSize");
+					stats = statsDoc.getDouble("avgObjSize");
 					collStatsMap.put(ns, stats);
 				}
 				
-				Long maxDocs = 2 * (stats / maxChunkSize);
+				
+				Long maxDocs = Double.valueOf(2 * (stats / maxChunkSize)).longValue();
 				
 				Document dataSize = sourceShardClient.dataSize(ns, min, max);
 				long count = dataSize.getLong("numObjects");
