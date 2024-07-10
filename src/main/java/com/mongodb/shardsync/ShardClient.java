@@ -525,7 +525,7 @@ public class ShardClient {
 		if (!collectionsMap.isEmpty()) {
 			return;
 		}
-		logger.debug("Starting populateCollectionsMap()");
+		logger.debug("{} Starting populateCollectionsMap()", name);
 		MongoCollection<Document> shardsColl = configDb.getCollection("collections");
 		Bson filter = null;
 		if (namespaces == null || namespaces.isEmpty()) {

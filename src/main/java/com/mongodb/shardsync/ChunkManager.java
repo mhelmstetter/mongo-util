@@ -549,9 +549,6 @@ public class ChunkManager {
             	logger.debug("Adding collection: {}, bsonBinary: {}", document, base64);
             	uuids.add(bb);
                 
-            } else {
-                System.out.println("xxxx");
-                
             }
         });
 
