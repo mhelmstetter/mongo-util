@@ -167,7 +167,8 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				}
 				
 				
-				Long maxDocs = Double.valueOf(2 * (stats / maxChunkSize)).longValue();
+				Double maxDocs = Double.valueOf(2 * (maxChunkSize / stats));
+				logger.debug("maxDocs: {}", maxDocs);
 				
 				Document dataSize = sourceShardClient.dataSize(ns, min, max);
 				long count = dataSize.getLong("numObjects");
