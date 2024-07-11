@@ -63,7 +63,7 @@ public class DupeIdFinderWorker implements Runnable {
     	if (archiveDb != null) {
     		
     		dupesBatch.add(doc.get("_id"));
-    		if (dupesBatch.size() <= BATCH_SIZE) {
+    		if (dupesBatch.size() >= BATCH_SIZE) {
     			
     			Bson query = in("_id", dupesBatch);
         		int d = 1;
@@ -171,8 +171,11 @@ public class DupeIdFinderWorker implements Runnable {
     			 cursor = collection.find().projection(proj).sort(sort).iterator();
     		}
     		
-           
+            logger.debug("starting worker query {}", collection.getNamespace());
             Number total = collection.estimatedDocumentCount();
+            
+            logger.debug("{} estimated doc count: {}", collection.getNamespace(), total);
+            
             BsonValue lastId = null;
             //RawBsonDocument lastDocument = null;
             
