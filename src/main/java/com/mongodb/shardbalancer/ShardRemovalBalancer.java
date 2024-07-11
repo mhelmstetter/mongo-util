@@ -172,11 +172,11 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				Document dataSize = sourceShardClient.dataSize(ns, min, max);
 				long count = dataSize.getLong("numObjects");
 				
-				// 335020
-				if (count >= 335020) {
+				int i = 0;
+				while (count >= 1233476) {
 					//logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
 					
-					logger.debug("chunk too big, splitting");
+					logger.debug("chunk too big, splitting - iteration {}", i);
 					sourceShardClient.splitFind(ns, min, true);
 					
 					BsonBinary uuidBinary = sourceShardClient.getUuidForNamespace(ns);
@@ -191,6 +191,10 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 					min = (BsonDocument) newChunk.get("min");
 					id = newChunk.getObjectId("_id");
 					max = (BsonDocument) newChunk.get("max");
+					
+					dataSize = sourceShardClient.dataSize(ns, min, max);
+					count = dataSize.getLong("numObjects");
+					i++;
 				}
 				
 				boolean result = sourceShardClient.moveChunk(ns, min, max, destShard, false, false, false, false);
