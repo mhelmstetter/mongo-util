@@ -92,7 +92,7 @@ public class DupeUtil {
 					}
                     
                     MongoCollection<RawBsonDocument> coll = db.getCollection(collectionName, RawBsonDocument.class);
-                    Runnable worker = new DupeIdFinderWorker(sourceClient, coll, archiveDb, startId);
+                    Runnable worker = new DupeIdCollectionWorker(coll, archiveDb, startId);
                     executor.execute(worker);
                 }
             }
