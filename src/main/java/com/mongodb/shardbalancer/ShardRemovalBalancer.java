@@ -197,7 +197,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 					i++;
 				}
 				
-				boolean result = sourceShardClient.moveChunk(ns, min, max, destShard, false, false, false, false);
+				boolean result = sourceShardClient.moveChunk(ns, min, max, destShard, false, false, true, false);
 				
 				if (result) {
 					moveCount++;
