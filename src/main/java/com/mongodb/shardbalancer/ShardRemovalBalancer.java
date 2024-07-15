@@ -173,7 +173,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				long count = dataSize.getLong("numObjects");
 				
 				int i = 0;
-				while (count >= 330584) {
+				while (count >= 3172058) {
 					//logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
 					
 					logger.debug("chunk too big, splitting - iteration {}", i);
