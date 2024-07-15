@@ -28,7 +28,7 @@ import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.InsertOneModel;
 import com.mongodb.client.model.WriteModel;
 
-public class DupeIdTask implements Callable<Integer> {
+public class DupeIdTask implements Callable<DupeIdTaskResult> {
 
 	private static Logger logger = LoggerFactory.getLogger(DupeIdTask.class);
 	private final static BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
@@ -57,7 +57,7 @@ public class DupeIdTask implements Callable<Integer> {
 	}
 
 	@Override
-	public Integer call() throws Exception {
+	public DupeIdTaskResult call() throws Exception {
 		
 		MongoCursor<RawBsonDocument> cursor = null;
        
@@ -69,7 +69,17 @@ public class DupeIdTask implements Callable<Integer> {
 		try {
 			
 			
-    		Bson query = and(gte("_id", startId), lt("_id", endId));
+    		Bson query = null;
+    		
+    		if (startId == null) {
+    			query = lt("_id", endId);
+    		} else if (endId == null) {
+    			query = gte("_id", startId);
+    		} else {
+    			query = and(gte("_id", startId), lt("_id", endId));
+    		}
+    		
+    		
     		cursor = collection.find(query).projection(proj).sort(sort).iterator();
 
 			while (cursor.hasNext()) {
@@ -99,7 +109,7 @@ public class DupeIdTask implements Callable<Integer> {
 			cursor.close();
             flushAll();
 		}
-		return null;
+		return new DupeIdTaskResult(count, dupeCount);
 	}
 	
 	private void handleDupes(RawBsonDocument doc) {

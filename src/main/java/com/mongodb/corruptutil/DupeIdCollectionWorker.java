@@ -2,7 +2,6 @@ package com.mongodb.corruptutil;
 
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.gte;
-import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Projections.include;
 
 import java.util.ArrayList;
@@ -11,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -21,20 +21,18 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoBulkWriteException;
-import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.AggregateIterable;
-import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.BulkWriteOptions;
-import com.mongodb.client.model.InsertOneModel;
 import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.WriteModel;
 import com.mongodb.util.CallerBlocksPolicy;
+
+import io.netty.util.concurrent.Future;
 
 public class DupeIdCollectionWorker implements Runnable {
 	
@@ -63,7 +61,9 @@ public class DupeIdCollectionWorker implements Runnable {
     private final int queueSize = 25000;
 	private final int threads = 4;
     BlockingQueue<Runnable> workQueue;
+    
 	protected ThreadPoolExecutor executor = null;
+	private ExecutorCompletionService<DupeIdTaskResult> completionService;
 
     public DupeIdCollectionWorker(MongoCollection<RawBsonDocument> collection, MongoDatabase archiveDb, Integer startId) {
         this.collection = collection;
@@ -73,6 +73,7 @@ public class DupeIdCollectionWorker implements Runnable {
         
         workQueue = new ArrayBlockingQueue<>(queueSize);
 		executor = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5));
+		completionService = new ExecutorCompletionService<>(executor);
     }
     
 
@@ -82,9 +83,9 @@ public class DupeIdCollectionWorker implements Runnable {
     	
         MongoCursor<RawBsonDocument> cursor = null;
         long start = System.currentTimeMillis();
-        long last = start;
         long count = 0;
         long dupeCount = 0;
+        long submitCount = 0;
 
         try {
         	Bson proj = include("_id");
@@ -110,15 +111,22 @@ public class DupeIdCollectionWorker implements Runnable {
             
             
             AggregateIterable<RawBsonDocument> results = collection.aggregate(pipeline);
+            
+            BsonValue last = null;
             for (BsonDocument result : results) {
-            	
-            	result.get("_id");
-            	logger.debug("sample value: {}", result);
+            	BsonValue id = result.get("_id");
+            	DupeIdTask task = new DupeIdTask(collection, archiveDb, last, id);
+            	completionService.submit(task);
+            	submitCount++;
+            	last = id;
             }
+            logger.debug("submitted {} tasks", submitCount);
                  
-            
-            
-            
+            for (int i = 0; i < submitCount; i++) {
+            	DupeIdTaskResult result = completionService.take().get();
+            	dupeCount += result.dupeCount;
+            	count += result.totalCount;
+            }
             
         } catch (Exception e) {
             logger.error("worker run error", e);
