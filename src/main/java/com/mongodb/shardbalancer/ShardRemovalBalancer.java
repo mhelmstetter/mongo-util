@@ -79,6 +79,11 @@ public class ShardRemovalBalancer implements Callable<Integer> {
     
     private double maxChunkSize = 1073741824;
     private Map<String, Double> collStatsMap = new HashMap<>();
+    
+    String ns;
+    BsonDocument min;
+    BsonDocument max;
+    String destShard;
 
 	public void init() {
 		Set<String> sourceShards = balancerConfig.getSourceShards();
@@ -116,6 +121,39 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 		}
 		sourceShardClient.loadChunksCache(chunkQuery, sourceChunksCache);
 	}
+	
+	public boolean moveChunkWithRetry() {
+	    boolean retry = true;
+	    while (retry) {
+	        try {
+	        	sourceShardClient.moveChunk(ns, min, max, destShard, false, false, true, false, true);
+	            retry = false; // If no exception, exit the loop
+	        } catch (Exception e) {
+	            if (e.getMessage().contains("ChunkTooBig")) {
+	                logger.debug("Split then retry due to ChunkTooBig...");
+	                splitChunk();
+	            } else {
+	                return false;
+	            }
+	        }
+	    }
+	    return true;
+	}
+	
+	private void splitChunk() {
+		sourceShardClient.splitFind(ns, min, true);
+		
+		BsonBinary uuidBinary = sourceShardClient.getUuidForNamespace(ns);
+		
+		BsonDocument chunkQuery = new BsonDocument("uuid", uuidBinary);
+		chunkQuery.append("min", min);
+		RawBsonDocument newChunk = sourceShardClient.reloadChunk(chunkQuery);
+		if (newChunk == null) {
+			logger.debug("unable to reload chunk, query: {}", chunkQuery);
+		}
+		min = (BsonDocument) newChunk.get("min");
+		max = (BsonDocument) newChunk.get("max");
+	}
 
 	private void balanceData() {
 		logger.debug("Starting balanceData(), will run until endTime: {}", endTime);
@@ -142,7 +180,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				// Check if endTime is reached
 				
 
-				String destShard = RandomUtils.getRandomElementFromSet(balancerConfig.getDestShards());
+				destShard = RandomUtils.getRandomElementFromSet(balancerConfig.getDestShards());
 
 //				if (currentShard.equals(destShard)) {
 //					logger.debug("currentShard == destShard, all chunks moved");
@@ -150,10 +188,10 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 //				}
 				
 				BsonString bsonNs = chunk.getString("ns");
-				String ns = bsonNs.getValue();
-				BsonDocument min = (BsonDocument) chunk.get("min");
+				ns = bsonNs.getValue();
+				min = (BsonDocument) chunk.get("min");
 				BsonObjectId id = chunk.getObjectId("_id");
-				BsonDocument max = (BsonDocument) chunk.get("max");
+				max = (BsonDocument) chunk.get("max");
 				//sourceShardClient.moveRange(ns, min, destShard, balancerConfig.isDryRun());
 				
 //				Double stats = null;
@@ -177,27 +215,16 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 					//logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
 					
 					logger.debug("chunk too big, splitting - iteration {}", i);
-					sourceShardClient.splitFind(ns, min, true);
-					
-					BsonBinary uuidBinary = sourceShardClient.getUuidForNamespace(ns);
-					
-					BsonDocument chunkQuery = new BsonDocument("uuid", uuidBinary);
-					chunkQuery.append("min", min);
-					RawBsonDocument newChunk = sourceShardClient.reloadChunk(chunkQuery);
-					if (newChunk == null) {
-						logger.debug("unable to reload chunk, query: {}", chunkQuery);
-						continue;
-					}
-					min = (BsonDocument) newChunk.get("min");
-					id = newChunk.getObjectId("_id");
-					max = (BsonDocument) newChunk.get("max");
+					splitChunk();
 					
 					dataSize = sourceShardClient.dataSize(ns, min, max);
 					count = dataSize.getLong("numObjects");
 					i++;
 				}
 				
-				boolean result = sourceShardClient.moveChunk(ns, min, max, destShard, false, false, true, false);
+				
+				boolean result = moveChunkWithRetry();
+				
 				
 				if (result) {
 					moveCount++;
