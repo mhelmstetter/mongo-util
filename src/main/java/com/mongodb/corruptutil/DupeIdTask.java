@@ -94,7 +94,7 @@ public class DupeIdTask implements Callable<DupeIdTaskResult> {
                 if (id.equals(lastId)) {
                     duplicateDocs.add(doc);
                     dupeCount++;
-                    logger.warn("{} - duplicate _id found for _id: {}", collection.getNamespace(), id);
+                    //logger.warn("{} - duplicate _id found for _id: {}", collection.getNamespace(), id);
                 } else {
                     if (!duplicateDocs.isEmpty()) {
                         handleDupes(duplicateDocs);
@@ -145,7 +145,7 @@ public class DupeIdTask implements Callable<DupeIdTaskResult> {
                             BsonValue id = fullDoc.get("_id");
 
                             if (id.equals(lastId)) {
-                                logger.warn("{} - duplicate _id found for _id: {}", collection.getNamespace(), id);
+                                //logger.warn("{} - duplicate _id found for _id: {}", collection.getNamespace(), id);
                                 String collName = String.format("%s_%s", base, d++);
                                 insert(fullDoc, collName);
                             } else {
