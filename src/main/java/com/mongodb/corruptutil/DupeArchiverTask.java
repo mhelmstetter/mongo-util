@@ -56,7 +56,6 @@ public class DupeArchiverTask implements Callable<Integer> {
 	public Integer call() throws Exception {
 		try {
 			Bson query = in("_id", dupesBatch);
-    		int d = 1;
     		MongoCursor<RawBsonDocument> cursor = collection.find(query).sort(sort).iterator();
     		
     		logger.debug("{} - query: {}", ns, query);
@@ -65,7 +64,6 @@ public class DupeArchiverTask implements Callable<Integer> {
     		
     		List<RawBsonDocument> dupesBuffer = new ArrayList<>(2);
     		
-    		int i = 0;
     		while (cursor.hasNext()) {
                 RawBsonDocument fullDoc = cursor.next();
                 BsonValue id = null;

@@ -31,6 +31,7 @@ import com.mongodb.util.CallerBlocksPolicy;
 public class DupeIdCollectionWorker implements Runnable {
     
     private final static int ONE_MINUTE = 60 * 1000;
+    private final static int LOG_INTERVAL = 30 * 1000; // 30 seconds
 
     private static Logger logger = LoggerFactory.getLogger(DupeIdCollectionWorker.class);
 
@@ -38,9 +39,6 @@ public class DupeIdCollectionWorker implements Runnable {
     
     private MongoDatabase archiveDb;
     
-    private String base;
-    
-    private Integer startId;
     
     Bson sort = eq("_id", 1);
     
@@ -50,36 +48,27 @@ public class DupeIdCollectionWorker implements Runnable {
     
     protected ThreadPoolExecutor executor = null;
     private ExecutorCompletionService<DupeIdTaskResult> completionService;
+    
+    long count = 0;
+    long dupeCount = 0;
 
-    public DupeIdCollectionWorker(MongoCollection<RawBsonDocument> collection, MongoDatabase archiveDb, Integer startId) {
+    public DupeIdCollectionWorker(MongoCollection<RawBsonDocument> collection, MongoDatabase archiveDb) {
         this.collection = collection;
         this.archiveDb = archiveDb;
-        this.startId = startId;
-        this.base = collection.getNamespace().getFullName();
         
         workQueue = new ArrayBlockingQueue<>(queueSize);
-        executor = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE*5));
+        executor = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE * 5));
         completionService = new ExecutorCompletionService<>(executor);
     }
     
     @Override
     public void run() {
         
-        MongoCursor<RawBsonDocument> cursor = null;
         long start = System.currentTimeMillis();
-        long count = 0;
-        long dupeCount = 0;
+        
         long submitCount = 0;
 
         try {
-            Bson proj = include("_id");
-            Bson query = null;
-            if (startId != null) {
-                query = gte("_id", startId);
-                cursor = collection.find(query).projection(proj).sort(sort).iterator();
-            } else {
-                cursor = collection.find().projection(proj).sort(sort).iterator();
-            }
             
             logger.debug("starting worker query {}", collection.getNamespace());
             Number total = collection.estimatedDocumentCount();
@@ -102,12 +91,28 @@ public class DupeIdCollectionWorker implements Runnable {
                 last = id;
             }
             logger.debug("submitted {} tasks", submitCount);
-                 
+
+            // Create a thread to log progress every 30 seconds
+            Thread progressLogger = new Thread(() -> {
+                try {
+                    while (true) {
+                        Thread.sleep(LOG_INTERVAL);
+                        logger.info("Current status: processed {} documents, found {} duplicates", count, dupeCount);
+                    }
+                } catch (InterruptedException e) {
+                    // Exit when interrupted
+                }
+            });
+            progressLogger.start();
+            
             for (int i = 0; i < submitCount; i++) {
                 DupeIdTaskResult result = completionService.take().get();
                 dupeCount += result.dupeCount;
                 count += result.totalCount;
             }
+            
+            // Interrupt the logging thread after processing
+            progressLogger.interrupt();
             
         } catch (Exception e) {
             logger.error("worker run error", e);
