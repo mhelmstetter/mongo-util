@@ -1,8 +1,6 @@
 package com.mongodb.corruptutil;
 
 import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.gte;
-import static com.mongodb.client.model.Projections.include;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,6 +9,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
@@ -21,7 +20,6 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Projections;
@@ -43,7 +41,6 @@ public class DupeIdCollectionWorker implements Runnable {
     Bson sort = eq("_id", 1);
     
     private final int queueSize = 25000;
-    private final int threads = 4;
     BlockingQueue<Runnable> workQueue;
     
     protected ThreadPoolExecutor executor = null;
@@ -51,8 +48,11 @@ public class DupeIdCollectionWorker implements Runnable {
     
     long count = 0;
     long dupeCount = 0;
+    long duplicateDocsCount = 0;
+    int completedTaskCount = 0;
+    AtomicInteger submitCount = new AtomicInteger(0);
 
-    public DupeIdCollectionWorker(MongoCollection<RawBsonDocument> collection, MongoDatabase archiveDb) {
+    public DupeIdCollectionWorker(MongoCollection<RawBsonDocument> collection, MongoDatabase archiveDb, int threads) {
         this.collection = collection;
         this.archiveDb = archiveDb;
         
@@ -66,38 +66,57 @@ public class DupeIdCollectionWorker implements Runnable {
         
         long start = System.currentTimeMillis();
         
-        long submitCount = 0;
 
         try {
             
             logger.debug("starting worker query {}", collection.getNamespace());
-            Number total = collection.estimatedDocumentCount();
+            long total = collection.estimatedDocumentCount();
             
-            logger.debug("{} estimated doc count: {}", collection.getNamespace(), total);
+            int sampleCount = 25000;
+            
+            if (total < 100000) {
+            	sampleCount = (int)Math.round(total * 0.01);
+            }
+            logger.debug("{} estimated doc count: {}, sample count: {}", collection.getNamespace(), total, sampleCount);
             
             List<Bson> pipeline = new ArrayList<>();
             pipeline.add(Aggregates.project(Projections.fields(Projections.include("_id"))));
-            pipeline.add(Aggregates.sample(25000));
+            pipeline.add(Aggregates.sample(sampleCount));
             pipeline.add(Aggregates.sort(Sorts.orderBy(Sorts.ascending("_id"))));
             
             AggregateIterable<RawBsonDocument> results = collection.aggregate(pipeline);
             
             BsonValue last = null;
+            int taskNum = 1 ;
             for (BsonDocument result : results) {
                 BsonValue id = result.get("_id");
                 DupeIdTask task = new DupeIdTask(collection, archiveDb, last, id);
+                
                 completionService.submit(task);
-                submitCount++;
+                submitCount.incrementAndGet();
                 last = id;
             }
-            logger.debug("submitted {} tasks", submitCount);
+            
+            // Add an additional task to cover the range after the last sampled _id
+            if (last != null) {
+                DupeIdTask finalTask = new DupeIdTask(collection, archiveDb, last, null);
+                completionService.submit(finalTask);
+                submitCount.incrementAndGet();
+            }
+            
+            logger.debug("submitted {} tasks", submitCount.get());
 
             // Create a thread to log progress every 30 seconds
             Thread progressLogger = new Thread(() -> {
                 try {
                     while (true) {
                         Thread.sleep(LOG_INTERVAL);
-                        logger.info("Current status: processed {} documents, found {} duplicates", count, dupeCount);
+                        double completionPercentage = (completedTaskCount / (double) submitCount.get()) * 100;
+                        
+                        logger.info(String.format("(%.2f%%) processed %,d documents, found %,d duplicates, %,d documents having duplicate _ids", 
+                                completionPercentage, count, dupeCount, duplicateDocsCount));
+                        
+
                     }
                 } catch (InterruptedException e) {
                     // Exit when interrupted
@@ -105,10 +124,12 @@ public class DupeIdCollectionWorker implements Runnable {
             });
             progressLogger.start();
             
-            for (int i = 0; i < submitCount; i++) {
+            for (int i = 0; i < submitCount.get(); i++) {
                 DupeIdTaskResult result = completionService.take().get();
                 dupeCount += result.dupeCount;
                 count += result.totalCount;
+                duplicateDocsCount += result.duplicateDocsCount;
+                completedTaskCount ++;
             }
             
             // Interrupt the logging thread after processing
@@ -121,8 +142,23 @@ public class DupeIdCollectionWorker implements Runnable {
         }
         long end = System.currentTimeMillis();
         Double dur = (end - start) / 1000.0;
-        logger.debug(String.format("Done dupe _id check %s, %s documents in %f seconds, dupe id count: %s",
-                collection.getNamespace(), count, dur, dupeCount));
+        logger.debug(String.format("Done dupe _id check %s, %s documents in %f seconds, dupe id count: %s, dupe docs count: %s",
+                collection.getNamespace(), count, dur, dupeCount, duplicateDocsCount));
+        
+        shutdown();
 
     }
+    
+	public void shutdown() {
+		logger.debug("DupeIdCollectionWorker starting shutdown");
+		executor.shutdown();
+		try {
+			Thread.sleep(10000);
+			executor.awaitTermination(999, TimeUnit.DAYS);
+		} catch (InterruptedException e) {
+			logger.warn("DupeIdCollectionWorker interrupted");
+			Thread.currentThread().interrupt();
+		}
+		logger.debug("DupeIdCollectionWorker shutdown complete");
+	}
 }
