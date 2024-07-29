@@ -36,6 +36,8 @@ public class BalancerConfig extends BaseConfiguration {
 	
 	private boolean dryRun;
 	
+	private boolean waitForDelete;
+	
 	private double deltaThresholdPercent;
 	
 	Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
@@ -159,6 +161,14 @@ public class BalancerConfig extends BaseConfiguration {
 
 	public void setActiveChunkThreshold(int activeChunkThreshold) {
 		this.activeChunkThreshold = activeChunkThreshold;
+	}
+
+	public boolean isWaitForDelete() {
+		return waitForDelete;
+	}
+
+	public void setWaitForDelete(boolean waitForDelete) {
+		this.waitForDelete = waitForDelete;
 	}
 	
 	

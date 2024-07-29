@@ -57,6 +57,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 	private final static String LIMIT = "limit";
 	private final static String START_TIME = "startTime";
 	private final static String END_TIME = "endTime";
+	private final static String WAIT_FOR_DELETE = "waitForDelete";
 
 	private BalancerConfig balancerConfig;
 
@@ -126,7 +127,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 	    boolean retry = true;
 	    while (retry) {
 	        try {
-	        	sourceShardClient.moveChunk(ns, min, max, destShard, false, false, true, false, true);
+	        	sourceShardClient.moveChunk(ns, min, max, destShard, false, false, balancerConfig.isWaitForDelete(), false, true);
 	            retry = false; // If no exception, exit the loop
 	        } catch (Exception e) {
 	            if (e.getMessage().contains("ChunkTooBig")) {
@@ -326,6 +327,7 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 		balancerConfig.setDestShards(new HashSet<>(Arrays.asList(destShards)));
 
 		balancerConfig.setDryRun(config.getBoolean(DRY_RUN, false));
+		balancerConfig.setWaitForDelete(config.getBoolean(WAIT_FOR_DELETE, false));
 
 		this.limit = config.getInt(LIMIT, Integer.MAX_VALUE);
 		
