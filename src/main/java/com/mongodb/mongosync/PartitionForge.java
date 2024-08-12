@@ -69,6 +69,7 @@ public class PartitionForge implements Callable<Integer> {
 	@Override
 	public Integer call() throws InterruptedException {
 
+		init();
 		long start = System.currentTimeMillis();
 		Namespace ns = new Namespace(namespaceStr);
 		Bson proj = Projections.fields(Projections.include("_id"));
@@ -164,7 +165,6 @@ public class PartitionForge implements Callable<Integer> {
 
 	public static void main(String... args) {
 		PartitionForge forge = new PartitionForge();
-		forge.init();
 		int exitCode = new CommandLine(forge).execute(args);
 		System.exit(exitCode);
 	}
