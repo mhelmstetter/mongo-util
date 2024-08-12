@@ -54,7 +54,7 @@ public class PartitionForge implements Callable<Integer> {
 	MongoCollection<Document> partitionColl;
 	MongoCollection<Document> resumeDataColl;
 
-	public PartitionForge() {
+	public void init() {
 		sourceShardClient = new ShardClient("source", sourceUri);
 		sourceShardClient.init();
 		sourceShardClient.populateShardMongoClients();
@@ -163,7 +163,9 @@ public class PartitionForge implements Callable<Integer> {
 	}
 
 	public static void main(String... args) {
-		int exitCode = new CommandLine(new PartitionForge()).execute(args);
+		PartitionForge forge = new PartitionForge();
+		forge.init();
+		int exitCode = new CommandLine(forge).execute(args);
 		System.exit(exitCode);
 	}
 
