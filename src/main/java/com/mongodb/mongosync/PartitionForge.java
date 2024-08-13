@@ -2,6 +2,7 @@ package com.mongodb.mongosync;
 
 import static com.mongodb.client.model.Filters.eq;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
 
+import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
@@ -53,6 +55,9 @@ public class PartitionForge implements Callable<Integer> {
 	MongoDatabase destDb;
 	MongoCollection<Document> partitionColl;
 	MongoCollection<Document> resumeDataColl;
+	Bson idProj = Projections.fields(Projections.include("_id"));
+	
+	SortedSet<Object> idSet = new TreeSet<>();
 
 	public void init() {
 		sourceShardClient = new ShardClient("source", sourceUri);
@@ -64,6 +69,12 @@ public class PartitionForge implements Callable<Integer> {
 		destDb = destShardClient.getMongoClient().getDatabase("mongosync_reserved_for_internal_use");
 		partitionColl = destDb.getCollection("partitions");
 		resumeDataColl = destDb.getCollection("resumeData");
+		
+		long partCount = partitionColl.estimatedDocumentCount();
+		if (partCount > 0) {
+			logger.debug("{} partitions already exist in mongosync internal db, deleting them", partCount);
+			partitionColl.deleteMany(new Document());
+		}
 	}
 
 	@Override
@@ -72,19 +83,14 @@ public class PartitionForge implements Callable<Integer> {
 		init();
 		long start = System.currentTimeMillis();
 		Namespace ns = new Namespace(namespaceStr);
-		Bson proj = Projections.fields(Projections.include("_id"));
-
-		List<Bson> pipeline = new ArrayList<>();
-		pipeline.add(Aggregates.project(proj));
-		pipeline.add(Aggregates.sample(sampleCountPerShard));
-		pipeline.add(Aggregates.sort(Sorts.orderBy(Sorts.ascending("_id"))));
-
-		SortedSet<Object> idSet = new TreeSet<>();
+		List<Bson> pipeline = getAggPipeline(sampleCountPerShard);
 
 		// Populate idSet with the cluster level min and max
 		MongoCollection<Document> c = sourceShardClient.getCollection(ns);
-		Object min = c.find().projection(proj).sort(Sorts.ascending("_id")).limit(1).first().get("_id");
-		Object max = c.find().projection(proj).sort(Sorts.descending("_id")).limit(1).first().get("_id");
+		Object min = c.find().projection(idProj).sort(Sorts.ascending("_id")).limit(1).first().get("_id");
+		logger.debug("min _id: {}", min);
+		Object max = c.find().projection(idProj).sort(Sorts.descending("_id")).limit(1).first().get("_id");
+		logger.debug("max _id: {}", max);
 		idSet.add(min);
 		idSet.add(max);
 
@@ -95,16 +101,25 @@ public class PartitionForge implements Callable<Integer> {
 		for (MongoClient client : sourceShardClient.getShardMongoClients().values()) {
 			MongoCollection<Document> coll = client.getDatabase(ns.getDatabaseName())
 					.getCollection(ns.getCollectionName());
-			AggregateIterable<Document> results = coll.aggregate(pipeline);
-			for (Document result : results) {
-				Object id = result.get("_id");
-				idSet.add(id);
-			}
+			populateIdSet(pipeline, coll);
+		}
+		logger.debug("idSet size: {}", idSet.size());
+		
+		// check if set is odd size, keep adding elements until it reaches even size
+		pipeline = getAggPipeline(1);
+		while ( (idSet.size() % 2) != 0 ) {
+			logger.debug("idSet size {} is odd, adding elements until even", idSet.size());
+			MongoClient client = sourceShardClient.getShardMongoClients().values().iterator().next();
+			MongoCollection<Document> coll = client.getDatabase(ns.getDatabaseName())
+					.getCollection(ns.getCollectionName());
+			populateIdSet(pipeline, coll);
 		}
 
 		Set<String> shards = sourceShardClient.getShardMongoClients().keySet();
 		Iterator<String> shardIterator = shards.iterator();
 
+		int nowSecond = (int) Instant.now().getEpochSecond();
+		BsonTimestamp ts = new BsonTimestamp(nowSecond, 1);
 		List<Document> batch = new ArrayList<>(1000);
 		Object previous = null;
 		int count = 0;
@@ -115,6 +130,8 @@ public class PartitionForge implements Callable<Integer> {
 			if (previous != null) {
 				Object lowerBound = previous;
 				Object upperBound = id;
+				
+				//logger.debug("low: {}, upper: {}", lowerBound, upperBound);
 
 				// If the iterator has no more elements, reset it
 				if (!shardIterator.hasNext()) {
@@ -135,6 +152,8 @@ public class PartitionForge implements Callable<Integer> {
 				doc.append("upperBound", upperBound);
 				doc.append("isCapped", false);
 				// TODO figure out if we need to populate startedAtTs, finishedAtTs
+				doc.append("startedAtTs", ts);
+				doc.append("finishedAtTs", ts);
 				
 				batch.add(doc);
 				count++;
@@ -161,6 +180,23 @@ public class PartitionForge implements Callable<Integer> {
 		logger.debug(String.format("Completed in %f seconds", dur));
 
 		return 0;
+	}
+	
+	private void populateIdSet(List<Bson> pipeline, MongoCollection<Document> coll) {
+		AggregateIterable<Document> results = coll.aggregate(pipeline);
+		for (Document result : results) {
+			Object id = result.get("_id");
+			idSet.add(id);
+		}
+		
+	}
+
+	private List<Bson> getAggPipeline(int sampleSize) {
+		List<Bson> pipeline = new ArrayList<>();
+		pipeline.add(Aggregates.project(idProj));
+		pipeline.add(Aggregates.sample(sampleCountPerShard));
+		pipeline.add(Aggregates.sort(Sorts.orderBy(Sorts.ascending("_id"))));
+		return pipeline;
 	}
 
 	public static void main(String... args) {
