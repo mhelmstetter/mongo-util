@@ -195,7 +195,7 @@ public class PartitionForge implements Callable<Integer> {
 		List<Bson> pipeline = new ArrayList<>();
 		pipeline.add(Aggregates.project(idProj));
 		pipeline.add(Aggregates.sample(sampleCountPerShard));
-		pipeline.add(Aggregates.sort(Sorts.orderBy(Sorts.ascending("_id"))));
+		//pipeline.add(Aggregates.sort(Sorts.orderBy(Sorts.ascending("_id"))));
 		return pipeline;
 	}
 
