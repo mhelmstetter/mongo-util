@@ -110,6 +110,8 @@ public class PartitionForge implements Callable<Integer> {
 			int tries = 0;
 			while (idSet.size() < (currentSize + sampleCountPerShard) && tries < 200) {
 				populateIdSet(pipeline, coll);
+				tries++;
+				logger.debug("shard: {} - try {}, idSet size: {}", shard, tries, idSet.size());
 			}
 			int delta = idSet.size() - currentSize;
 			logger.debug("sampled shard {}, took {} tries, added {} sampled ids to set", shard, tries, delta);
@@ -208,7 +210,7 @@ public class PartitionForge implements Callable<Integer> {
 	private List<Bson> getAggPipeline(int sampleSize) {
 		List<Bson> pipeline = new ArrayList<>();
 		pipeline.add(Aggregates.project(idProj));
-		pipeline.add(Aggregates.sample(sampleCountPerShard));
+		pipeline.add(Aggregates.sample(sampleSize));
 		// pipeline.add(Aggregates.sort(Sorts.orderBy(Sorts.ascending("_id"))));
 		return pipeline;
 	}
