@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
@@ -99,7 +100,9 @@ public class PartitionForge implements Callable<Integer> {
 		Object uuid = collectionsDoc.get("uuid");
 
 		List<Bson> pipeline = getAggPipeline(10);
-		for (MongoClient client : sourceShardClient.getShardMongoClients().values()) {
+		for (Map.Entry<String, MongoClient> entry : sourceShardClient.getShardMongoClients().entrySet()) {
+			MongoClient client = entry.getValue();
+			String shard = entry.getKey();
 			MongoCollection<Document> coll = client.getDatabase(ns.getDatabaseName())
 					.getCollection(ns.getCollectionName());
 
@@ -108,7 +111,8 @@ public class PartitionForge implements Callable<Integer> {
 			while (idSet.size() < (currentSize + sampleCountPerShard) && tries < 200) {
 				populateIdSet(pipeline, coll);
 			}
-
+			int delta = idSet.size() - currentSize;
+			logger.debug("sampled shard {}, took {} tries, added {} sampled ids to set", shard, tries, delta);
 		}
 		logger.debug("idSet size: {}", idSet.size());
 
