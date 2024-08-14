@@ -17,6 +17,7 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.MongoServerException;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
@@ -51,12 +52,12 @@ public class PartitionForge implements Callable<Integer> {
 
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
-	
+
 	MongoDatabase destDb;
 	MongoCollection<Document> partitionColl;
 	MongoCollection<Document> resumeDataColl;
 	Bson idProj = Projections.fields(Projections.include("_id"));
-	
+
 	SortedSet<Object> idSet = new TreeSet<>();
 
 	public void init() {
@@ -69,7 +70,7 @@ public class PartitionForge implements Callable<Integer> {
 		destDb = destShardClient.getMongoClient().getDatabase("mongosync_reserved_for_internal_use");
 		partitionColl = destDb.getCollection("partitions");
 		resumeDataColl = destDb.getCollection("resumeData");
-		
+
 		long partCount = partitionColl.estimatedDocumentCount();
 		if (partCount > 0) {
 			logger.debug("{} partitions already exist in mongosync internal db, deleting them", partCount);
@@ -83,7 +84,6 @@ public class PartitionForge implements Callable<Integer> {
 		init();
 		long start = System.currentTimeMillis();
 		Namespace ns = new Namespace(namespaceStr);
-		List<Bson> pipeline = getAggPipeline(sampleCountPerShard);
 
 		// Populate idSet with the cluster level min and max
 		MongoCollection<Document> c = sourceShardClient.getCollection(ns);
@@ -98,16 +98,23 @@ public class PartitionForge implements Callable<Integer> {
 		Document collectionsDoc = collectionsColl.find(eq("_id", ns.getNamespace())).first();
 		Object uuid = collectionsDoc.get("uuid");
 
+		List<Bson> pipeline = getAggPipeline(10);
 		for (MongoClient client : sourceShardClient.getShardMongoClients().values()) {
 			MongoCollection<Document> coll = client.getDatabase(ns.getDatabaseName())
 					.getCollection(ns.getCollectionName());
-			populateIdSet(pipeline, coll);
+
+			int currentSize = idSet.size();
+			int tries = 0;
+			while (idSet.size() < (currentSize + sampleCountPerShard) && tries < 200) {
+				populateIdSet(pipeline, coll);
+			}
+
 		}
 		logger.debug("idSet size: {}", idSet.size());
-		
+
 		// check if set is odd size, keep adding elements until it reaches even size
 		pipeline = getAggPipeline(1);
-		while ( (idSet.size() % 2) != 0 ) {
+		while ((idSet.size() % 2) != 0) {
 			logger.debug("idSet size {} is odd, adding elements until even", idSet.size());
 			MongoClient client = sourceShardClient.getShardMongoClients().values().iterator().next();
 			MongoCollection<Document> coll = client.getDatabase(ns.getDatabaseName())
@@ -130,8 +137,8 @@ public class PartitionForge implements Callable<Integer> {
 			if (previous != null) {
 				Object lowerBound = previous;
 				Object upperBound = id;
-				
-				//logger.debug("low: {}, upper: {}", lowerBound, upperBound);
+
+				// logger.debug("low: {}, upper: {}", lowerBound, upperBound);
 
 				// If the iterator has no more elements, reset it
 				if (!shardIterator.hasNext()) {
@@ -154,24 +161,24 @@ public class PartitionForge implements Callable<Integer> {
 				// TODO figure out if we need to populate startedAtTs, finishedAtTs
 				doc.append("startedAtTs", ts);
 				doc.append("finishedAtTs", ts);
-				
+
 				batch.add(doc);
 				count++;
 				if (batch.size() >= 1000) {
 					partitionColl.insertMany(batch);
-                    batch.clear();
-                }
+					batch.clear();
+				}
 
 			}
 			previous = id;
 		}
-		
+
 		if (!batch.isEmpty()) {
 			partitionColl.insertMany(batch);
-        }
-		
+		}
+
 		logger.debug("{} partitions created", count);
-		
+
 		UpdateResult result = resumeDataColl.updateOne(new Document(), Updates.set("syncPhase", "collection copy"));
 		logger.debug("updated resumeData syncPhase, result: {}", result);
 
@@ -181,21 +188,24 @@ public class PartitionForge implements Callable<Integer> {
 
 		return 0;
 	}
-	
+
 	private void populateIdSet(List<Bson> pipeline, MongoCollection<Document> coll) {
-		AggregateIterable<Document> results = coll.aggregate(pipeline);
-		for (Document result : results) {
-			Object id = result.get("_id");
-			idSet.add(id);
+		try {
+			AggregateIterable<Document> results = coll.aggregate(pipeline);
+			for (Document result : results) {
+				Object id = result.get("_id");
+				idSet.add(id);
+			}
+		} catch (MongoServerException mse) {
 		}
-		
+
 	}
 
 	private List<Bson> getAggPipeline(int sampleSize) {
 		List<Bson> pipeline = new ArrayList<>();
 		pipeline.add(Aggregates.project(idProj));
 		pipeline.add(Aggregates.sample(sampleCountPerShard));
-		//pipeline.add(Aggregates.sort(Sorts.orderBy(Sorts.ascending("_id"))));
+		// pipeline.add(Aggregates.sort(Sorts.orderBy(Sorts.ascending("_id"))));
 		return pipeline;
 	}
 
