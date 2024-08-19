@@ -193,35 +193,22 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				min = (BsonDocument) chunk.get("min");
 				BsonObjectId id = chunk.getObjectId("_id");
 				max = (BsonDocument) chunk.get("max");
-				//sourceShardClient.moveRange(ns, min, destShard, balancerConfig.isDryRun());
+
 				
-//				Double stats = null;
-//				if (collStatsMap.containsKey(ns)) {
-//					stats = collStatsMap.get(ns);
-//				} else {
-//					Document statsDoc = sourceShardClient.collStats(ns);
-//					stats = statsDoc.getDouble("avgObjSize");
-//					collStatsMap.put(ns, stats);
+//				Document dataSize = sourceShardClient.dataSize(ns, min, max);
+//				long count = dataSize.getLong("numObjects");
+//				
+//				int i = 0;
+//				while (count >= 3172058) {
+//					//logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
+//					
+//					logger.debug("chunk too big, splitting - iteration {}", i);
+//					splitChunk();
+//					
+//					dataSize = sourceShardClient.dataSize(ns, min, max);
+//					count = dataSize.getLong("numObjects");
+//					i++;
 //				}
-//				
-//				
-//				Double maxDocs = Double.valueOf(2.0 * (maxChunkSize / stats));
-//				logger.debug("maxDocs: {}", maxDocs);
-				
-				Document dataSize = sourceShardClient.dataSize(ns, min, max);
-				long count = dataSize.getLong("numObjects");
-				
-				int i = 0;
-				while (count >= 3172058) {
-					//logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
-					
-					logger.debug("chunk too big, splitting - iteration {}", i);
-					splitChunk();
-					
-					dataSize = sourceShardClient.dataSize(ns, min, max);
-					count = dataSize.getLong("numObjects");
-					i++;
-				}
 				
 				
 				boolean result = moveChunkWithRetry();
