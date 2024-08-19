@@ -620,16 +620,16 @@ public class ChunkManager {
 			orList.add(inDoc);
 			chunkQuery.append("$or", new BsonArray(orList));
 		} else {
-			if (shardClient.isVersion5OrLater()) {
-				Document coll = shardClient.getCollectionsMap().get("config.system.sessions");
-				if (coll != null) {
-					UUID uuid = (UUID)coll.get("uuid");
-					BsonBinary uuidBinary = BsonUuidUtil.uuidToBsonBinary(uuid);
-					chunkQuery.append("uuid", new BsonDocument("$ne", uuidBinary));
-				}
-			} else {
-				chunkQuery.append("ns", new BsonDocument("$ne", new BsonString("config.system.sessions")));
-			}
+//			if (shardClient.isVersion5OrLater()) {
+//				Document coll = shardClient.getCollectionsMap().get("config.system.sessions");
+//				if (coll != null) {
+//					UUID uuid = (UUID)coll.get("uuid");
+//					BsonBinary uuidBinary = BsonUuidUtil.uuidToBsonBinary(uuid);
+//					chunkQuery.append("uuid", new BsonDocument("$ne", uuidBinary));
+//				}
+//			} else {
+//				chunkQuery.append("ns", new BsonDocument("$ne", new BsonString("config.system.sessions")));
+//			}
 		}
 		return chunkQuery;
 	}
