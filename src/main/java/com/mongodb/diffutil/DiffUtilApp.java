@@ -47,6 +47,7 @@ public class DiffUtilApp {
         options.addOption(OptionBuilder.withArgName("Configuration properties file").hasArgs().withLongOpt("config")
                 .isRequired(false).create("c"));
         options.addOption(OptionBuilder.withArgName("Include namespace").hasArgs().withLongOpt("includeNamespace").create("f"));
+        options.addOption(OptionBuilder.withArgName("Namespace mapping").hasArgs().withLongOpt("namespaceMap").create("m"));
         options.addOption(OptionBuilder.withArgName("Compare counts only")
                 .withLongOpt(COLL_COUNTS).create(COLL_COUNTS));
         options.addOption(OptionBuilder.withArgName("Compare all documents in all collections, using parallel cursors")
@@ -133,6 +134,8 @@ public class DiffUtilApp {
         	sync.setGlobalSampleRate(Double.parseDouble(sampleRateStr));
         }
         
+        String[] mappings = line.getOptionValues("m");
+        sync.setMappings(mappings);
         
         String[] includes = line.getOptionValues("f"); 
         sync.setIncludes(includes);
@@ -148,7 +151,12 @@ public class DiffUtilApp {
             sync.compareDocuments(false);
         }
         if (line.hasOption(COMPARE_IDS)) {
-            sync.compareIds();
+        	if (mappings != null && mappings.length > 0) {
+        		sync.compareIdsMapped();
+        	} else {
+        		sync.compareIds();
+        	}
+            
         }
         if (line.hasOption(RETRY)) {
         	sync.retry();

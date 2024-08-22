@@ -353,77 +353,8 @@ public class DiffUtil {
 					MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(sort).iterator();
 					MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(sort).iterator();
 
-					RawBsonDocument sourceDoc = null;
-					RawBsonDocument sourceNext = null;
-					BsonValue sourceKey = null;
-
-					RawBsonDocument destDoc = null;
-					RawBsonDocument destNext = null;
-					BsonValue destKey = null;
-					Integer compare = null;
-
-					while (sourceCursor.hasNext() || sourceNext != null || destCursor.hasNext() || destNext != null) {
-						
-						if (sourceNext != null) {
-							sourceDoc = sourceNext;
-							sourceNext = null;
-							sourceKey = sourceDoc.get("_id");
-						} else if (sourceCursor.hasNext()) {
-							sourceDoc = sourceCursor.next();
-							sourceCount++;
-							sourceKey = sourceDoc.get("_id");
-						} else {
-							sourceDoc = null;
-							sourceKey = null;
-						}
-
-						if (destNext != null) {
-							destDoc = destNext;
-							destNext = null;
-							destKey = destDoc.get("_id");
-						} else if (destCursor.hasNext()) {
-							destDoc = destCursor.next();
-							destCount++;
-							destKey = destDoc.get("_id");
-						} else {
-							destDoc = null;
-							destKey = null;
-						}
-
-						if (sourceKey != null && destKey != null) {
-							compare = comparator.compare(sourceKey, destKey);
-						} else if (sourceKey == null) {
-							if (reportMissing) {
-								logger.error(String.format("%s - fail: %s missing on source", collectionName, destKey));
-							}
-							ds.totalMissingDocs++;
-							continue;
-						} else if (destKey == null) {
-							if (reportMissing) {
-								logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
-							}
-							ds.totalMissingDocs++;
-							continue;
-						}
-
-						if (compare < 0) {
-							if (reportMissing) {
-								logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
-							}
-							ds.totalMissingDocs++;
-							destNext = destDoc;
-						} else if (compare > 0) {
-							if (reportMissing) {
-								logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
-							}
-							ds.totalMissingDocs++;
-							sourceNext = sourceDoc;
-						} else {
-							DiffUtils.compare(collectionName, sourceDoc, sourceKey, destDoc, ds);
-							
-						}
-					}
-
+					compareCursors(collectionName, sourceCursor, destCursor, ds, true);
+					
 					logger.debug(String.format("%s - complete. sourceCount: %s, destCount: %s", collectionName,
 							sourceCount, destCount));
 				}
@@ -438,6 +369,121 @@ public class DiffUtil {
 				String.format("%s dbs compared, %s collections compared, missingDbs %s, idMatches: %s, missingDocs: %s",
 						ds.totalDbs, ds.totalCollections, ds.missingDbs, ds.totalMatches, ds.totalMissingDocs));
 		return ds;
+	}
+	
+	private void compareCursors(String collectionName, MongoCursor<RawBsonDocument> sourceCursor, 
+			MongoCursor<RawBsonDocument> destCursor, DiffSummary ds, boolean compareDocuments) {
+		
+		RawBsonDocument sourceDoc = null;
+		RawBsonDocument sourceNext = null;
+		BsonValue sourceKey = null;
+
+		RawBsonDocument destDoc = null;
+		RawBsonDocument destNext = null;
+		BsonValue destKey = null;
+		Integer compare = null;
+
+		while (sourceCursor.hasNext() || sourceNext != null || destCursor.hasNext() || destNext != null) {
+			
+			if (sourceNext != null) {
+				sourceDoc = sourceNext;
+				sourceNext = null;
+				sourceKey = sourceDoc.get("_id");
+			} else if (sourceCursor.hasNext()) {
+				sourceDoc = sourceCursor.next();
+				sourceCount++;
+				sourceKey = sourceDoc.get("_id");
+			} else {
+				sourceDoc = null;
+				sourceKey = null;
+			}
+
+			if (destNext != null) {
+				destDoc = destNext;
+				destNext = null;
+				destKey = destDoc.get("_id");
+			} else if (destCursor.hasNext()) {
+				destDoc = destCursor.next();
+				destCount++;
+				destKey = destDoc.get("_id");
+			} else {
+				destDoc = null;
+				destKey = null;
+			}
+
+			if (sourceKey != null && destKey != null) {
+				compare = comparator.compare(sourceKey, destKey);
+			} else if (sourceKey == null) {
+				if (reportMissing) {
+					logger.error(String.format("%s - fail: %s missing on source", collectionName, destKey));
+				}
+				ds.totalMissingDocs++;
+				continue;
+			} else if (destKey == null) {
+				if (reportMissing) {
+					logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+				}
+				ds.totalMissingDocs++;
+				continue;
+			}
+
+			if (compare < 0) {
+				if (reportMissing) {
+					logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
+				}
+				ds.totalMissingDocs++;
+				destNext = destDoc;
+			} else if (compare > 0) {
+				if (reportMissing) {
+					logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
+				}
+				ds.totalMissingDocs++;
+				sourceNext = sourceDoc;
+			} else {
+				if (compareDocuments) {
+					DiffUtils.compare(collectionName, sourceDoc, sourceKey, destDoc, ds);
+				} else {
+					if (reportMatches) {
+						logger.debug("match on {}, _id: {}", collectionName, sourceKey);
+					}
+					ds.totalMatches++;
+				}
+			}
+		}
+	}
+	
+	public void compareIdsMapped() {
+		DiffSummary ds = new DiffSummary();
+		logger.debug("Starting compareIds mode");
+		Document sort = new Document("_id", 1);
+		
+		for (Map.Entry<Namespace, Namespace> entry : mappedNamespaces.entrySet()) {
+			Namespace srcNs = entry.getKey();
+			Namespace destNs = entry.getValue();
+			
+			MongoDatabase sourceDb = sourceClient.getDatabase(srcNs.getDatabaseName());
+			MongoDatabase destDb = destClient.getDatabase(destNs.getDatabaseName());
+			
+			MongoCollection<RawBsonDocument> sourceColl = sourceDb.getCollection(srcNs.getCollectionName(),
+					RawBsonDocument.class);
+			MongoCollection<RawBsonDocument> destColl = destDb.getCollection(destNs.getCollectionName(),
+					RawBsonDocument.class);
+			long sourceCount = 0;
+			long destCount = 0;
+
+			MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(sort).projection(sort)
+					.iterator();
+			MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(sort).projection(sort).iterator();
+			
+			compareCursors(srcNs.getCollectionName(), sourceCursor, destCursor, ds, false);
+			
+			logger.debug(String.format("%s - complete. sourceCount: %s, destCount: %s", srcNs.getCollectionName(),
+					sourceCount, destCount));
+		}
+		logger.debug(
+				String.format("%s dbs compared, %s collections compared, missingDbs %s, idMatches: %s, missingDocs: %s",
+						ds.totalDbs, ds.totalCollections, ds.missingDbs, ds.totalMatches, ds.totalMissingDocs));
+		
 	}
 
 	@SuppressWarnings("unchecked")
@@ -484,81 +530,7 @@ public class DiffUtil {
 							.iterator();
 					MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(sort).projection(sort).iterator();
 
-					RawBsonDocument sourceDoc = null;
-					RawBsonDocument sourceNext = null;
-					BsonValue sourceKey = null;
-
-					RawBsonDocument destDoc = null;
-					RawBsonDocument destNext = null;
-					BsonValue destKey = null;
-					Integer compare = null;
-
-					while (sourceCursor.hasNext() || sourceNext != null || destCursor.hasNext() || destNext != null) {
-						if (sourceNext != null) {
-							sourceDoc = sourceNext;
-							sourceNext = null;
-							sourceKey = sourceDoc.get("_id");
-						} else if (sourceCursor.hasNext()) {
-							sourceDoc = sourceCursor.next();
-							sourceCount++;
-							sourceKey = sourceDoc.get("_id");
-						} else {
-							sourceDoc = null;
-							sourceKey = null;
-						}
-
-						if (destNext != null) {
-							destDoc = destNext;
-							destNext = null;
-							destKey = destDoc.get("_id");
-						} else if (destCursor.hasNext()) {
-							destDoc = destCursor.next();
-							destCount++;
-							destKey = destDoc.get("_id");
-						} else {
-							destDoc = null;
-							destKey = null;
-						}
-
-						if (sourceKey != null && destKey != null) {
-							compare = comparator.compare(sourceKey, destKey);
-						} else if (sourceKey == null) {
-							if (reportMissing) {
-								logger.error(String.format("%s - fail: %s missing on source", collectionName, destKey));
-							}
-							ds.totalMissingDocs++;
-							continue;
-						} else if (destKey == null) {
-							if (reportMissing) {
-								logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
-							}
-							ds.totalMissingDocs++;
-							continue;
-						}
-
-						if (compare < 0) {
-							if (reportMissing) {
-								logger.error(String.format("%s - fail: %s missing on dest", collectionName, sourceKey));
-							}
-							ds.totalMissingDocs++;
-							destNext = destDoc;
-						} else if (compare > 0) {
-							if (reportMissing) {
-								logger.warn(String.format("%s - fail: %s missing on source", collectionName, destKey));
-							}
-							ds.totalMissingDocs++;
-							sourceNext = sourceDoc;
-						} else {
-							if (reportMatches) {
-								logger.debug("match on {}, _id: {}", collectionName, sourceKey);
-								RawBsonDocument s = sourceColl.find(eq("_id", sourceKey)).projection(include("deviceid", "tenantid", "date")).first();
-								RawBsonDocument d = destColl.find(eq("_id", sourceKey)).projection(include("deviceid", "tenantid", "date")).first();
-								logger.debug("src dupe: {}", s);
-								logger.debug("dest dupe: {}", d);
-							}
-							ds.totalMatches++;
-						}
-					}
+					compareCursors(collectionName, sourceCursor, destCursor, ds, false);
 
 					logger.debug(String.format("%s - complete. sourceCount: %s, destCount: %s", collectionName,
 							sourceCount, destCount));
@@ -669,6 +641,20 @@ public class DiffUtil {
 				} else {
 					includedDatabases.add(nsStr);
 				}
+			}
+		}
+	}
+	
+	public void setMappings(String[] mappings) {
+		if (mappings != null) {
+			for (String mapping : mappings) {
+				String[] sourceTarget = mapping.split("\\|");
+				logger.debug(sourceTarget[0] + " ==> " + sourceTarget[1]);
+				
+				Namespace srcNs = new Namespace(sourceTarget[0]);
+				Namespace destNs = new Namespace(sourceTarget[1]);
+				
+				mappedNamespaces.put(srcNs, destNs);
 			}
 		}
 	}
