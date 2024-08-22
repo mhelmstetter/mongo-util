@@ -647,6 +647,11 @@ public class DiffUtil {
 	
 	public void setMappings(String[] mappings) {
 		if (mappings != null) {
+			
+			if (mappedNamespaces == null) {
+				mappedNamespaces = new HashMap<>();
+			}
+			
 			for (String mapping : mappings) {
 				String[] sourceTarget = mapping.split("\\|");
 				logger.debug(sourceTarget[0] + " ==> " + sourceTarget[1]);
