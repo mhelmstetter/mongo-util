@@ -34,7 +34,6 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.WriteModel;
 import com.mongodb.model.Namespace;
-import com.mongodb.mongosync.ApplyOperationsHelper;
 import com.mongodb.mongosync.BulkWriteOutput;
 import com.mongodb.shardsync.ShardClient;
 

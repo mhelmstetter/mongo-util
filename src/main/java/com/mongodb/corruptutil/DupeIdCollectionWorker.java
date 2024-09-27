@@ -4,9 +4,13 @@ import static com.mongodb.client.model.Filters.eq;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -18,6 +22,7 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.MongoServerException;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -25,6 +30,7 @@ import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.util.CallerBlocksPolicy;
+import com.mongodb.util.bson.BsonValueWrapper;
 
 public class DupeIdCollectionWorker implements Runnable {
     
@@ -37,7 +43,7 @@ public class DupeIdCollectionWorker implements Runnable {
     
     private MongoDatabase archiveDb;
     
-    
+    Bson idProj = Projections.fields(Projections.include("_id"));
     Bson sort = eq("_id", 1);
     
     private final int queueSize = 25000;
@@ -66,31 +72,67 @@ public class DupeIdCollectionWorker implements Runnable {
         
         long start = System.currentTimeMillis();
         
+        final AtomicInteger successCount = new AtomicInteger(0);
+        final AtomicInteger errorCount = new AtomicInteger(0);
+        
+        SortedSet<BsonValueWrapper> idSet = new TreeSet<>();
 
         try {
             
             logger.debug("starting worker query {}", collection.getNamespace());
             long total = collection.estimatedDocumentCount();
             
-            int sampleCount = 25000;
+            // Populate idSet with the cluster level min and max
+    		BsonValue min = collection.find().projection(idProj).sort(Sorts.ascending("_id")).limit(1).first().get("_id");
+    		logger.debug("min _id: {}", min);
+    		BsonValue max = collection.find().projection(idProj).sort(Sorts.descending("_id")).limit(1).first().get("_id");
+    		logger.debug("max _id: {}", max);
+    		idSet.add(new BsonValueWrapper(min));
+    		idSet.add(new BsonValueWrapper(max));
             
-            if (total < 100000) {
-            	sampleCount = (int)Math.round(total * 0.01);
-            }
-            logger.debug("{} estimated doc count: {}, sample count: {}", collection.getNamespace(), total, sampleCount);
+    		final int sampleCount = total < 100000 ? (int)Math.round(total * 0.01) : 25000;
+
+            
+            int sampleInterval = (int)Math.round(sampleCount * 0.01);
+            
+            logger.debug("{} estimated doc count: {}, sampleCount: {}, sampleInterval: {}", collection.getNamespace(), 
+            		total, sampleCount, sampleInterval);
             
             List<Bson> pipeline = new ArrayList<>();
             pipeline.add(Aggregates.project(Projections.fields(Projections.include("_id"))));
-            pipeline.add(Aggregates.sample(sampleCount));
+            pipeline.add(Aggregates.sample(sampleInterval));
             pipeline.add(Aggregates.sort(Sorts.orderBy(Sorts.ascending("_id"))));
             
-            AggregateIterable<RawBsonDocument> results = collection.aggregate(pipeline);
+            ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+            long startTime = System.currentTimeMillis();
+
+            // Track progress
+            scheduler.scheduleAtFixedRate(() -> {
+                int currentSize = idSet.size();
+                double progress = ((double) currentSize / sampleCount) * 100;
+                long elapsedTime = (System.currentTimeMillis() - startTime) / 1000;
+                logger.debug(String.format("Sampling Progress: %.2f%%, successes: %,12d, errors: %,12d, elapsed: %d seconds%n",
+                		successCount, errorCount, progress, elapsedTime));
+            }, 0, 60, TimeUnit.SECONDS);
+            
+            
+            while (idSet.size() < sampleCount) {
+            	try {
+        			AggregateIterable<RawBsonDocument> results = collection.aggregate(pipeline);
+        			for (RawBsonDocument result : results) {
+        				BsonValue id = result.get("_id");
+        				idSet.add(new BsonValueWrapper(id));
+        			}
+        			successCount.incrementAndGet();
+        		} catch (MongoServerException mse) {
+        			errorCount.incrementAndGet();
+        		}
+            }
             
             BsonValue last = null;
-            int taskNum = 1 ;
-            for (BsonDocument result : results) {
-                BsonValue id = result.get("_id");
-                DupeIdTask task = new DupeIdTask(collection, archiveDb, last, id);
+            for (BsonValueWrapper bvw : idSet) {
+            	BsonValue id = bvw.getValue();
+            	DupeIdTask task = new DupeIdTask(collection, archiveDb, last, id);
                 
                 completionService.submit(task);
                 submitCount.incrementAndGet();

@@ -12,18 +12,9 @@ import com.mongodb.shardsync.ShardClient;
 
 public class MongoSyncOptions {
 
-	private int threads = 4;
-	private int batchSize = 5000;
-	private int oplogBatchSize = 5000;
 	private String sourceMongoUri;
 	private String destMongoUri;
-	private boolean dropDestDbs;
-	private boolean cleanTimestampFiles;
-	private boolean useMultiThreadedOplogTailWorkers = false;
-	private boolean skipChunkSyncIfMatchingCounts = false;
-	private boolean initialSyncOnly;
-	private int oplogThreads = 4;
-	private int oplogQueueSize = 50;
+	
 
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
@@ -38,15 +29,6 @@ public class MongoSyncOptions {
 	private Set<String> excludedDatabases = new HashSet<String>();
 	private Set<String> shardList;
 
-	private Map<String, String> transformersMap = new HashMap<>();
-
-	public int getThreads() {
-		return threads;
-	}
-
-	public void setThreads(int threads) {
-		this.threads = threads;
-	}
 
 	public String getSourceMongoUri() {
 		return sourceMongoUri;
@@ -135,54 +117,6 @@ public class MongoSyncOptions {
 		return excludedNamespaces.contains(ns);
 	}
 
-	public void setDropDestDbs(boolean dropDestDbs) {
-		this.dropDestDbs = dropDestDbs;
-	}
-
-	public boolean isDropDestDbs() {
-		return dropDestDbs;
-	}
-
-	public int getBatchSize() {
-		return batchSize;
-	}
-
-	public void setBatchSize(int batchSize) {
-		this.batchSize = batchSize;
-	}
-
-	public boolean isCleanTimestampFiles() {
-		return cleanTimestampFiles;
-	}
-
-	public void setCleanTimestampFiles(boolean cleanTimestampFiles) {
-		this.cleanTimestampFiles = cleanTimestampFiles;
-	}
-
-	public boolean isUseMultiThreadedOplogTailWorkers() {
-		return useMultiThreadedOplogTailWorkers;
-	}
-
-	public void setUseMultiThreadedOplogTailWorkers(boolean useMultiThreadedOplogTailWorkers) {
-		this.useMultiThreadedOplogTailWorkers = useMultiThreadedOplogTailWorkers;
-	}
-
-	public int getOplogThreads() {
-		return oplogThreads;
-	}
-
-	public void setOplogThreads(int oplogThreads) {
-		this.oplogThreads = oplogThreads;
-	}
-
-	public int getOplogQueueSize() {
-		return oplogQueueSize;
-	}
-
-	public void setOplogQueueSize(int oplogQueueSize) {
-		this.oplogQueueSize = oplogQueueSize;
-	}
-
 	public Set<String> getIncludedNamespaceStrings() {
 		return includedNamespaceStrings;
 	}
@@ -203,27 +137,6 @@ public class MongoSyncOptions {
 		return includedCollections;
 	}
 
-	public void setOplogTransformers(String transformersStr) {
-		if (transformersStr == null) {
-			return;
-		}
-		String[] transformers = transformersStr.split(",");
-		if (transformers != null) {
-			for (String tranConfig : transformers) {
-				String[] parts = tranConfig.split("\\|");
-				String namespace = parts[0];
-				String lookupValueKey = parts[1];
-				// final Class<?> clazz =
-				// ClassLoader.getSystemClassLoader().loadClass(className);
-				transformersMap.put(namespace, lookupValueKey);
-			}
-		}
-	}
-
-	public Map<String, String> getTransformersMap() {
-		return transformersMap;
-	}
-
 	public ShardClient getSourceShardClient() {
 		return sourceShardClient;
 	}
@@ -238,30 +151,6 @@ public class MongoSyncOptions {
 
 	public void setDestShardClient(ShardClient destShardClient) {
 		this.destShardClient = destShardClient;
-	}
-
-	public int getOplogBatchSize() {
-		return oplogBatchSize;
-	}
-
-	public void setOplogBatchSize(int oplogBatchSize) {
-		this.oplogBatchSize = oplogBatchSize;
-	}
-
-	public boolean isInitialSyncOnly() {
-		return initialSyncOnly;
-	}
-
-	public void setInitialSyncOnly(boolean initialSyncOnly) {
-		this.initialSyncOnly = initialSyncOnly;
-	}
-
-	public boolean isSkipChunkSyncIfMatchingCounts() {
-		return skipChunkSyncIfMatchingCounts;
-	}
-
-	public void setSkipChunkSyncIfMatchingCounts(boolean skipChunkSyncIfMatchingCounts) {
-		this.skipChunkSyncIfMatchingCounts = skipChunkSyncIfMatchingCounts;
 	}
 	
 	public void setShardList(String shardListStr) {
