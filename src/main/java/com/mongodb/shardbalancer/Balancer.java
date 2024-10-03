@@ -406,6 +406,8 @@ public class Balancer implements Callable<Integer> {
 							} catch (MongoCommandException mce) {
 								if (mce.getMessage().contains("no chunk found")) {
 									this.loadChunkMap(ns);
+								} else {
+									logger.error("moveChunk error: {}", mce.getMessage());
 								}
 							}
 							
@@ -419,6 +421,10 @@ public class Balancer implements Callable<Integer> {
 											Updates.set("chunks.$.balanced", true),
 											Updates.inc("balancedChunks", 1)
 										));
+								try {
+									Thread.sleep(1000);
+								} catch (InterruptedException e) {
+								}
 							}
 							
 						} else {
