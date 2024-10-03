@@ -1,0 +1,6 @@
+source=mongodb://localhost:27017
+dest=mongodb://mhunity:mhunity@cluster0-shard-00-00.xmcdw.mongodb.net:27016/?ssl=true&authSource=admin&retryWrites=true&w=majority
+mongomirrorBinary=/Users/matt/projects/mongo-util/build/mongomirror
+stopWhenLagWithin=1
+nonPrivileged=true
+statusDbUri=mongodb://localhost:28017,localhost:28018,localhost:28019
