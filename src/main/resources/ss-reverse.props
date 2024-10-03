@@ -1,7 +1,0 @@
-dest=mongodb://dev-adminuser:VcEAmyc9bNehTDNRbevV@iad1-mongos0.objectrocket.com:16073/build-service-staging
-source=mongodb://buildAutomationAdmin:RVpInFko7cpKVMVM@migrationvalidation-shard-00-00.aevpe.mongodb.net:27016/?ssl=true&authSource=admin
-mongomirrorBinary=mongomirror
-destRsSsl=false
-destRsManual=iad1oplog-a.objectrocket.com:50193
-sourceRsSsl=true
-filter=build-service-staging

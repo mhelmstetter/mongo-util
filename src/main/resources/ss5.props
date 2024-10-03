@@ -1,8 +1,0 @@
-source=mongodb://dev-adminuser:VcEAmyc9bNehTDNRbevV@iad1-mongos0.objectrocket.com:26073/build-service-staging?ssl=true
-sourceRsManual=iad1oplog-a.objectrocket.com:50193
-sourceRsSsl=false
-#filter=build-service-staging
-dest=mongodb://mhunity:mhunity@cluster0-shard-00-00.xmcdw.mongodb.net:27016/?ssl=true&authSource=admin&retryWrites=true&w=majority
-#dest=mongodb://mongoadmin:gxUxfVPaTw2CPmrO@cluster0-shard-00-00.ufghn.mongodb.net:27016/?ssl=true
-mongomirrorBinary=mongomirror
-#statusDbUri=mongodb://localhost:28017,localhost:28018,localhost:28019
