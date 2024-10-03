@@ -25,7 +25,6 @@ import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonObjectId;
 import org.bson.BsonString;
-import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -213,12 +212,15 @@ public class ShardRemovalBalancer implements Callable<Integer> {
 				
 				boolean result = moveChunkWithRetry();
 				
-				
 				if (result) {
 					moveCount++;
 					logger.debug(
 							"{}: moved range with min: {}, max: {} to shard {}, totalMoved: {} - _id: {}",
 							ns, min, max, destShard, moveCount, id);
+					try {
+						Thread.sleep(1000);
+					} catch (InterruptedException e) {
+					}
 				}
 				
 				//rangesMoved++;
