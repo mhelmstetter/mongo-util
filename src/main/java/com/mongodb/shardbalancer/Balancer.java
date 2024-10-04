@@ -414,7 +414,8 @@ public class Balancer implements Callable<Integer> {
 						if (!balancerConfig.isDryRun()) {
 							
 							Document dataSize = sourceShardClient.dataSize(ns, min, max);
-							long count = dataSize.getLong("numObjects");
+							Number countNumber = dataSize.get("numObjects", Number.class);
+							long count = countNumber.longValue();
 							
 							int j = 0;
 							while (count >= maxDocs) {
