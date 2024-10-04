@@ -1,17 +1,22 @@
 package com.mongodb.shardsync;
 
 import static com.mongodb.client.model.Accumulators.addToSet;
+import static com.mongodb.client.model.Aggregates.addFields;
 import static com.mongodb.client.model.Aggregates.group;
+import static com.mongodb.client.model.Aggregates.lookup;
 import static com.mongodb.client.model.Aggregates.match;
+import static com.mongodb.client.model.Aggregates.project;
+import static com.mongodb.client.model.Aggregates.unwind;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.gt;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.regex;
-import static com.mongodb.client.model.Projections.include;
 import static com.mongodb.client.model.Projections.exclude;
-import static com.mongodb.client.model.Projections.*;
+import static com.mongodb.client.model.Projections.excludeId;
+import static com.mongodb.client.model.Projections.fields;
+import static com.mongodb.client.model.Projections.include;
 import static java.util.Arrays.asList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
@@ -62,6 +67,7 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
+import com.mongodb.client.model.Field;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
@@ -70,7 +76,6 @@ import com.mongodb.internal.dns.DefaultDnsResolver;
 import com.mongodb.model.DatabaseCatalog;
 import com.mongodb.model.DatabaseCatalogProvider;
 import com.mongodb.model.IndexSpec;
-import com.mongodb.model.Megachunk;
 import com.mongodb.model.Mongos;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Privilege;
@@ -901,6 +906,20 @@ public class ShardClient {
 	private Document collStatsCommand(String collName) {
 		return new Document("collStats", collName);
 	}
+	
+	public Document dataSize(String namespace, BsonDocument min, BsonDocument max) {
+		Document cmd = new Document("dataSize", namespace);
+		cmd.append("min", min);
+		cmd.append("max", max);
+		cmd.append("estimate", true);
+		Document result = null;
+		try {
+			result = adminCommand(cmd);
+		} catch (MongoCommandException mce) {
+			logger.warn(String.format("moveRange error ns: %s, message: %s", namespace, mce.getMessage()));
+		}
+		return result;
+	}
 
 	public Document collStats(String dbName, String collName) {
 		return this.mongoClient.getDatabase(dbName).runCommand(collStatsCommand(collName));
@@ -1034,6 +1053,18 @@ public class ShardClient {
 
 	public Map<String, Document> getCollectionsMap() {
 		return collectionsMap;
+	}
+	
+	public BsonBinary getUuidForNamespace(String ns) {
+		Document coll = collectionsMap.get(ns);
+		if (coll == null) {
+			this.populateCollectionsMap(true);
+			coll = collectionsMap.get(ns);
+		}
+		
+		UUID uuid = (UUID)coll.get("uuid");
+		BsonBinary uuidBinary = BsonUuidUtil.uuidToBsonBinary(uuid);
+		return uuidBinary;
 	}
 
 	public MongoClient getMongoClient() {
@@ -1384,6 +1415,35 @@ public class ShardClient {
 			return Sorts.ascending("ns", "min");
 		}
 		
+	}
+	
+	public RawBsonDocument reloadChunk(BsonDocument chunkQuery) {
+		MongoIterable<RawBsonDocument> sourceChunks = getSourceChunks(chunkQuery);
+		RawBsonDocument chunk = sourceChunks.first();
+		return chunk;
+	}
+	
+	private MongoIterable<RawBsonDocument> getSourceChunks(Bson chunkQuery) {
+		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
+
+		MongoIterable<RawBsonDocument> sourceChunks;
+		
+		if (this.isVersion5OrLater()) {
+			sourceChunks = chunksColl.aggregate(Arrays.asList(
+		            match(chunkQuery),
+		            lookup("collections", "uuid", "uuid", "collectionData"),
+		            unwind("$collectionData"),
+		            addFields(new Field<>("ns", "$collectionData._id")),
+		            project(fields(
+		                exclude("history", "lastmodEpoch", "lastmod", "collectionData")
+		            ))
+		        ));
+		} else {
+			sourceChunks = chunksColl.find(chunkQuery)
+					.projection(exclude("_id", "history", "lastmodEpoch", "lastmod"))
+					.sort(getChunkSort());
+		}
+		return sourceChunks;
 	}
 	
 	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery, Map<String, RawBsonDocument> cache) {

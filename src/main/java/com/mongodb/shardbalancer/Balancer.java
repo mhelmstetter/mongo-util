@@ -28,6 +28,8 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.configuration2.PropertiesConfiguration;
@@ -46,7 +48,6 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoCommandException;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.model.Accumulators;
 import com.mongodb.client.model.Aggregates;
@@ -101,6 +102,14 @@ public class Balancer implements Callable<Integer> {
 	Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
 	
 	private int backoffSleepMinutes = 0;
+	
+    String ns;
+    BsonDocument min;
+    BsonDocument max;
+    String destShard;
+    private long maxDocs = 3172058;
+    String regex = "maximum number of documents for a chunk is (\\d+)";
+    Pattern pattern = Pattern.compile(regex);
 	
 	public Balancer() {
 		// setup logger here so system property can be set first
@@ -345,7 +354,7 @@ public class Balancer implements Callable<Integer> {
 			List<BsonDocument> nsStats = this.getNamespaceStats();
 			for (BsonDocument d : nsStats) {
 				
-				String ns = d.getString("ns").getValue();
+				ns = d.getString("ns").getValue();
 				
 				chunkStats.updateTargetOpsPerShard(ns, balancerConfig.getDeltaThresholdPercent(), shardsSet, balancerConfig.getActiveChunkThreshold());
 				List<ChunkStatsEntry> entries = chunkStats.getEntries(ns);
@@ -397,19 +406,30 @@ public class Balancer implements Callable<Integer> {
 	
 						BsonValue id = chunkDoc.get("id");
 						CountingMegachunk mega = innerMap.get(new BsonValueWrapper(id));
+						min = mega.getMin();
+						max = mega.getMax();
+						destShard = to.getShard();
 	
 						boolean success = false;
 						if (!balancerConfig.isDryRun()) {
-							logger.debug("about to move chunk [ {} / {} ]: {}, _id: {}", i++, hotChunks.size(), mega, chunkDoc.get("_id"));
-							try {
-								success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), to.getShard(), false, false, true, true, true);
-							} catch (MongoCommandException mce) {
-								if (mce.getMessage().contains("no chunk found")) {
-									this.loadChunkMap(ns);
-								} else {
-									logger.error("moveChunk error: {}", mce.getMessage());
-								}
+							
+							Document dataSize = sourceShardClient.dataSize(ns, min, max);
+							long count = dataSize.getLong("numObjects");
+							
+							int j = 0;
+							while (count >= maxDocs) {
+								logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
+								
+								logger.debug("chunk too big, splitting - iteration {}", i);
+								splitChunk();
+								
+								dataSize = sourceShardClient.dataSize(ns, min, max);
+								count = dataSize.getLong("numObjects");
+								j++;
 							}
+							
+							logger.debug("about to move chunk [ {} / {} ]: {}, _id: {}", i++, hotChunks.size(), mega, chunkDoc.get("_id"));
+							moveChunkWithRetry();
 							
 							if (success) {
 								moveCount++;
@@ -449,8 +469,51 @@ public class Balancer implements Callable<Integer> {
 		}
 
 		return 0;
-
 	}
+	
+	public boolean moveChunkWithRetry() {
+	    boolean retry = true;
+	    while (retry) {
+	        try {
+	        	sourceShardClient.moveChunk(ns, min, max, destShard, false, false, false, true, true);
+	            retry = false; // If no exception, exit the loop
+	        } catch (Exception e) {
+	            if (e.getMessage().contains("ChunkTooBig")) {
+	            	
+	            	Matcher matcher = pattern.matcher(e.getMessage());
+
+	                if (matcher.find()) {
+	                    // Get the first capturing group, which is the number
+	                    String maxDocsStr = matcher.group(1);
+	                    maxDocs = Long.parseLong(maxDocsStr);
+	                    System.out.println("Maximum number of documents for a chunk is: " + maxDocs);
+	                }
+	            	
+	                logger.debug("Split then retry due to ChunkTooBig...");
+	                splitChunk();
+	            } else {
+	                return false;
+	            }
+	        }
+	    }
+	    return true;
+	}
+	
+	private void splitChunk() {
+		sourceShardClient.splitFind(ns, min, true);
+		
+		BsonBinary uuidBinary = sourceShardClient.getUuidForNamespace(ns);
+		
+		BsonDocument chunkQuery = new BsonDocument("uuid", uuidBinary);
+		chunkQuery.append("min", min);
+		RawBsonDocument newChunk = sourceShardClient.reloadChunk(chunkQuery);
+		if (newChunk == null) {
+			logger.debug("unable to reload chunk, query: {}", chunkQuery);
+		}
+		min = (BsonDocument) newChunk.get("min");
+		max = (BsonDocument) newChunk.get("max");
+	}
+	
 
 	private void updateChunkStats() {
 
