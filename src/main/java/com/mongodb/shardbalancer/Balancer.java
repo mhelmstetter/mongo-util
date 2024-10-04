@@ -425,7 +425,8 @@ public class Balancer implements Callable<Integer> {
 								splitChunk();
 								
 								dataSize = sourceShardClient.dataSize(ns, min, max);
-								count = dataSize.getLong("numObjects");
+								countNumber = dataSize.get("numObjects", Number.class);
+								count = countNumber.longValue();
 								j++;
 							}
 							
