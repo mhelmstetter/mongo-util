@@ -71,6 +71,9 @@ public class Balancer implements Callable<Integer> {
 
 	@Option(names = { "--config" }, required = false, defaultValue = "balancer.properties")
 	private String configFile;
+	
+	@Option(names = { "--analysisId" }, required = false)
+	private String analysisId;
 
 	// @Option(names = { "-h", "--help", "-?", "-help"})
 	// private boolean help;
@@ -85,7 +88,6 @@ public class Balancer implements Callable<Integer> {
 	private final static String DELTA_THRESHOLD_PERCENT = "deltaThresholdPercent";
 	private final static String MOVE_COUNT_BACKOFF_THRESHOLD = "moveCountBackoffThreshold";
 	private final static String ACTIVE_CHUNK_THRESHOLD = "activeChunkThreshold";
-	private final static String ANALYSIS_ID = "analysisId";
 
 	private BalancerConfig balancerConfig;
 
@@ -649,7 +651,7 @@ public class Balancer implements Callable<Integer> {
 		balancerConfig.setMoveCountBackoffThreshold(config.getInt(MOVE_COUNT_BACKOFF_THRESHOLD, 10));
 		balancerConfig.setActiveChunkThreshold(config.getInt(ACTIVE_CHUNK_THRESHOLD, 10));
 		
-		String analysisId = config.getString(ANALYSIS_ID);
+		
 		if (analysisId != null) {
 			balancerConfig.setAnalysisId(new BsonObjectId(new ObjectId(analysisId)));
 			balancerConfig.setSkipAnalyzer(true);
