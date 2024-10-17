@@ -377,7 +377,7 @@ public class Balancer implements Callable<Integer> {
 					}
 					
 					// max out to 2 iterations
-					if (negativeChunksToMoveCount >= 2) {
+					if (negativeChunksToMoveCount >= 16) {
 						break;
 					}
 				}
