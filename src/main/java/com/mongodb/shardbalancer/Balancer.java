@@ -377,7 +377,7 @@ public class Balancer implements Callable<Integer> {
 					}
 					
 					// max out to 2 iterations
-					if (negativeChunksToMoveCount >= 16) {
+					if (negativeChunksToMoveCount >= 3) {
 						break;
 					}
 				}
@@ -428,7 +428,7 @@ public class Balancer implements Callable<Integer> {
 							while (count >= maxDocs) {
 								logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
 								
-								logger.debug("chunk too big, splitting - iteration {}", i);
+								logger.debug("chunk too big, splitting - iteration {}", j);
 								splitChunk();
 								
 								dataSize = sourceShardClient.dataSize(ns, min, max);
@@ -590,7 +590,7 @@ public class Balancer implements Callable<Integer> {
 		List<BsonDocument> results = new ArrayList<>();
 		
 		long lowestDelta = minimumAbsoluteValue(from.getDeltaOps(), to.getDeltaOps());
-		long target = Math.round(lowestDelta * 0.33);
+		long target = Math.round(lowestDelta * 0.66);
 		
 		AggregateIterable<BsonDocument> resultsIterable = balancerConfig.getStatsCollection()
 				.aggregate(Arrays.asList(
