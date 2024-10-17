@@ -353,8 +353,8 @@ public class Balancer implements Callable<Integer> {
 				oplogAnalyzer.start();
 				Thread.sleep(balancerConfig.getAnalyzerSleepIntervalMillis());
 				oplogAnalyzer.stop();
-				updateChunkStats();
 			}
+			updateChunkStats();
 			
 			Set<String> shardsSet = this.sourceShardClient.getShardsMap().keySet();
 			
