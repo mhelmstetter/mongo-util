@@ -341,11 +341,11 @@ public class Balancer implements Callable<Integer> {
 			logger.debug("Balancer call() iteration {}, last round move count: {}", iteration++, moveCount);
 			
 			
-			if (moveCount <= balancerConfig.getMoveCountBackoffThreshold() && iteration > 2) {
-				backoffSleep();
-			} else {
-				backoffSleepMinutes = 5;
-			}
+//			if (moveCount <= balancerConfig.getMoveCountBackoffThreshold() && iteration > 3) {
+//				backoffSleep();
+//			} else {
+//				backoffSleepMinutes = 5;
+//			}
 				
 			moveCount = 0;
 			
