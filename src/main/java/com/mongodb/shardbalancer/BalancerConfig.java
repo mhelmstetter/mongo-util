@@ -45,6 +45,8 @@ public class BalancerConfig extends BaseConfiguration {
 	
 	private boolean dryRun;
 	
+	private boolean skipAnalyzer;
+	
 	private double deltaThresholdPercent;
 	
 	// chunk stats
@@ -193,6 +195,14 @@ public class BalancerConfig extends BaseConfiguration {
 
 	public Map<String, RawBsonDocument> getSourceChunksCache() {
 		return sourceChunksCache;
+	}
+
+	public boolean isSkipAnalyzer() {
+		return skipAnalyzer;
+	}
+
+	public void setSkipAnalyzer(boolean skipAnalyzer) {
+		this.skipAnalyzer = skipAnalyzer;
 	}
 	
 	

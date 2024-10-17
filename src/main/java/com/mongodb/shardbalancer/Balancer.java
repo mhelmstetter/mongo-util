@@ -41,10 +41,12 @@ import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonMaxKey;
 import org.bson.BsonMinKey;
+import org.bson.BsonObjectId;
 import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
+import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -83,6 +85,7 @@ public class Balancer implements Callable<Integer> {
 	private final static String DELTA_THRESHOLD_PERCENT = "deltaThresholdPercent";
 	private final static String MOVE_COUNT_BACKOFF_THRESHOLD = "moveCountBackoffThreshold";
 	private final static String ACTIVE_CHUNK_THRESHOLD = "activeChunkThreshold";
+	private final static String ANALYSIS_ID = "analysisId";
 
 	private BalancerConfig balancerConfig;
 
@@ -145,7 +148,7 @@ public class Balancer implements Callable<Integer> {
 				sourceShardClient.getCollection(balancerConfig.getBalancerStateNamespace()));
 		
 		balancerConfig.getStatsCollection().createIndex(new Document("analysisId", 1));
-		balancerConfig.getStatsCollection().createIndex(new Document("endTime", 1), new IndexOptions().expireAfter(43200L, TimeUnit.SECONDS));
+		balancerConfig.getStatsCollection().createIndex(new Document("endTime", 1), new IndexOptions().expireAfter(999999L, TimeUnit.SECONDS));
 
 		chunkManager = new ChunkManager(balancerConfig);
 		chunkManager.setSourceShardClient(sourceShardClient);
@@ -344,10 +347,12 @@ public class Balancer implements Callable<Integer> {
 				
 			moveCount = 0;
 			
-			oplogAnalyzer.start();
-			Thread.sleep(balancerConfig.getAnalyzerSleepIntervalMillis());
-			oplogAnalyzer.stop();
-			updateChunkStats();
+			if (! balancerConfig.isSkipAnalyzer()) {
+				oplogAnalyzer.start();
+				Thread.sleep(balancerConfig.getAnalyzerSleepIntervalMillis());
+				oplogAnalyzer.stop();
+				updateChunkStats();
+			}
 			
 			Set<String> shardsSet = this.sourceShardClient.getShardsMap().keySet();
 			
@@ -466,6 +471,9 @@ public class Balancer implements Callable<Integer> {
 				}
 			}
 			
+			if (balancerConfig.isSkipAnalyzer()) {
+				break;
+			}
 			Thread.sleep(30000);
 
 		}
@@ -640,6 +648,13 @@ public class Balancer implements Callable<Integer> {
 		balancerConfig.setDeltaThresholdPercent(config.getDouble(DELTA_THRESHOLD_PERCENT, 3.0));
 		balancerConfig.setMoveCountBackoffThreshold(config.getInt(MOVE_COUNT_BACKOFF_THRESHOLD, 10));
 		balancerConfig.setActiveChunkThreshold(config.getInt(ACTIVE_CHUNK_THRESHOLD, 10));
+		
+		String analysisId = config.getString(ANALYSIS_ID);
+		if (analysisId != null) {
+			balancerConfig.setAnalysisId(new BsonObjectId(new ObjectId(analysisId)));
+			balancerConfig.setSkipAnalyzer(true);
+		}
+		
 	}
 
 	private Configuration readProperties() throws ConfigurationException {
