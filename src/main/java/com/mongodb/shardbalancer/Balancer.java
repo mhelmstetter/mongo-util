@@ -627,6 +627,8 @@ public class Balancer implements Callable<Integer> {
 				results.add(result);
 			}
 			
+			logger.debug("getHotChunks - ns: {}, from: {}, totalOps: {}, count: {}, target: {}", ns, from.getShard(), totalOps, count, target);
+			
 		}
 		
 		logger.debug("{}: will move {} chunks from {} to {}", ns, results.size(), 
