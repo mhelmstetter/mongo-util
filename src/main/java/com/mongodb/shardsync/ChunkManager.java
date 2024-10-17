@@ -641,4 +641,12 @@ public class ChunkManager {
 	public void setSourceShardClient(ShardClient sourceShardClient) {
 		this.sourceShardClient = sourceShardClient;
 	}
+
+	public ShardClient getDestShardClient() {
+		return destShardClient;
+	}
+
+	public void setDestShardClient(ShardClient destShardClient) {
+		this.destShardClient = destShardClient;
+	}
 }
