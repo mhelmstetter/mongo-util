@@ -1,8 +1,10 @@
 package com.mongodb.util.bson;
 
+import java.util.Arrays;
 import java.util.Objects;
 
 import org.bson.BsonArray;
+import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonType;
 import org.bson.BsonValue;
@@ -81,14 +83,14 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
                         return value1.asObjectId().getValue().compareTo(value2.asObjectId().getValue());
                     case DECIMAL128:
                         return value1.asDecimal128().getValue().compareTo(value2.asDecimal128().getValue());
+                    case BINARY:
+                    	return compareBsonBinary(value1, value2);
                     case JAVASCRIPT:
                     case JAVASCRIPT_WITH_SCOPE:
                     case REGULAR_EXPRESSION:
-                    case BINARY:
                     case SYMBOL:
                     case DB_POINTER:
                     case TIMESTAMP:
-                    	System.out.println("TIMESTAMP: value1:" + value1 + ", value2:" + value2);
                         return value1.asString().getValue().compareTo(value2.asString().getValue());
                     default:
                         throw new IllegalArgumentException("Unsupported BsonType: " + type1);
@@ -98,6 +100,19 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
                 return type1.compareTo(type2);
             }
         }
+    }
+    
+    private int compareBsonBinary(BsonValue value1, BsonValue value2) {
+        // Step 1: Compare the type byte
+    	BsonBinary b1 = (BsonBinary)value1;
+    	BsonBinary b2 = (BsonBinary)value2;
+        int typeComparison = Integer.compare(value1.getBsonType().getValue(), value2.getBsonType().getValue());
+        if (typeComparison != 0) {
+            return typeComparison;
+        }
+
+        // Step 2: Compare the data arrays lexicographically
+        return Arrays.compare(b1.getData(), b2.getData());
     }
     
     private int compareNumbers(BsonValue value1, BsonValue value2) {
