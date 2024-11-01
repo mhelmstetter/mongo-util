@@ -88,6 +88,7 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
                     case SYMBOL:
                     case DB_POINTER:
                     case TIMESTAMP:
+                    	System.out.println("TIMESTAMP: value1:" + value1 + ", value2:" + value2);
                         return value1.asString().getValue().compareTo(value2.asString().getValue());
                     default:
                         throw new IllegalArgumentException("Unsupported BsonType: " + type1);
