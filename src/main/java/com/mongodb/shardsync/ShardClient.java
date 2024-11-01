@@ -771,7 +771,7 @@ public class ShardClient {
 		logger.debug(String.format("Force deleted %s config.chunks documents", r.getDeletedCount()));
 	}
 
-	public void dropDatabasesAndConfigMetadata(List<String> databasesList) {
+	public void dropDatabasesAndConfigMetadata(Collection<String> databasesList) {
 		for (String dbName : databasesList) {
 			if (!dbName.equals("admin")) {
 				logger.debug(name + " dropping " + dbName);

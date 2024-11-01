@@ -1956,4 +1956,8 @@ public class ShardConfigSync implements Callable<Integer> {
         }
     }
 
+	public void setChunkManager(ChunkManager chunkManager) {
+		this.chunkManager = chunkManager;
+	}
+
 }

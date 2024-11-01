@@ -4,16 +4,23 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.client.MongoDatabase;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
-import com.mongodb.shardsync.BaseConfiguration;
+import com.mongodb.mongosync.model.MongoSyncState;
+import com.mongodb.mongosync.model.MongoSyncStatus;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
+import com.mongodb.shardsync.ShardConfigSync;
+import com.mongodb.shardsync.SyncConfiguration;
+import com.mongodb.util.ProcessUtils;
+import com.mongodb.util.ProcessUtils.ProcessInfo;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -23,7 +30,7 @@ import picocli.CommandLine.ParseResult;
 import picocli.CommandLine.PropertiesDefaultProvider;
 
 @Command(name = "mongosync", mixinStandardHelpOptions = true, version = "mongosync 0.1", description = "mongosync runner", defaultValueProvider = PropertiesDefaultProvider.class)
-public class MongoSync implements Callable<Integer> {
+public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 
 	protected static final Logger logger = LoggerFactory.getLogger(MongoSync.class);
 
@@ -45,31 +52,58 @@ public class MongoSync implements Callable<Integer> {
 	@Option(names = { "--buildIndexes" }, description = "Build indexes on target", required = false)
 	private boolean buildIndexes = true;
 	
+	@Option(names = { "--drop" }, description = "Drop target db and mongosync internal db", required = false)
+	private boolean drop = false;
+	
 	@Option(names = { "--includeNamespaces" }, description = "Namespaces to include", required = false)
-	private List<String> includeNamespaces;
+	private Set<String> includeNamespaces;
 
+	private ShardConfigSync shardConfigSync;
+	private SyncConfiguration shardConfigSyncConfig;
 	private ChunkManager chunkManager;
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
+	
 
 	List<MongoSyncRunner> mongosyncRunners;
 
 	private void initialize() throws IOException {
 
-		BaseConfiguration config = new BaseConfiguration();
-		config.setSourceClusterUri(sourceUri);
-		config.setDestClusterUri(destUri);
+		shardConfigSyncConfig = new SyncConfiguration();
+		shardConfigSyncConfig.setSourceClusterUri(sourceUri);
+		shardConfigSyncConfig.setDestClusterUri(destUri);
+		shardConfigSyncConfig.setNamespaceFilters(includeNamespaces.toArray(new String[0]));
+		
 
-		chunkManager = new ChunkManager(config);
+		chunkManager = new ChunkManager(shardConfigSyncConfig);
 		chunkManager.initalize();
-		this.sourceShardClient = config.getSourceShardClient();
-		this.destShardClient = config.getDestShardClient();
+		this.sourceShardClient = shardConfigSyncConfig.getSourceShardClient();
+		this.destShardClient = shardConfigSyncConfig.getDestShardClient();
 
 		sourceShardClient.populateShardMongoClients();
-		sourceShardClient.populateCollectionsMap();
+		sourceShardClient.populateCollectionsMap(includeNamespaces);
 		destShardClient.populateShardMongoClients();
+		
+		
+		shardConfigSync = new ShardConfigSync(shardConfigSyncConfig);
+		shardConfigSync.setChunkManager(chunkManager);
+		shardConfigSync.initialize();
+		
 
 		mongosyncRunners = new ArrayList<>(sourceShardClient.getShardsMap().size());
+		
+		if (logDir == null) {
+			logDir = new File(".");
+		}
+		
+		if (drop) {
+			destShardClient.dropDatabasesAndConfigMetadata(shardConfigSyncConfig.getIncludeDatabasesAll());
+			MongoDatabase msyncInternal = destShardClient.getMongoClient().getDatabase("mongosync_reserved_for_internal_use");
+			if (msyncInternal != null) {
+				msyncInternal.drop();
+			}
+		}
+		
 	}
 
 	@Override
@@ -77,17 +111,22 @@ public class MongoSync implements Callable<Integer> {
 		initialize();
 		
 		List<Namespace> includes = null;
-		if (! includeNamespaces.isEmpty()) {
+		if (includeNamespaces != null && !includeNamespaces.isEmpty()) {
 			includes = new ArrayList<>();
 			for (String ns : includeNamespaces) {
 				includes.add(new Namespace(ns));
 			}
 		}
+		
+		List<ProcessInfo> mongosyncsRunningAtStart = ProcessUtils.killAllProcesses("mongosync");
+		for (ProcessInfo p : mongosyncsRunningAtStart) {
+			logger.warn("Found mongosync already running at start, process has been killed: {}", p);
+		}
 
 		int port = 27000;
 		for (Shard source : sourceShardClient.getShardsMap().values()) {
 
-			MongoSyncRunner mongosync = new MongoSyncRunner(source.getId());
+			MongoSyncRunner mongosync = new MongoSyncRunner(source.getId(), this);
 			mongosyncRunners.add(mongosync);
 			mongosync.setSourceUri(sourceUri);
 			mongosync.setDestinationUri(destUri);
@@ -99,15 +138,34 @@ public class MongoSync implements Callable<Integer> {
 
 			String destShardId = chunkManager.getShardMapping(source.getId());
 			Shard dest = destShardClient.getShardsMap().get(destShardId);
-			logger.debug(String.format("Creating MongoMirrorRunner for %s ==> %s", source.getId(), dest.getId()));
+			logger.debug(String.format("Creating MongoSyncRunner for %s ==> %s", source.getId(), dest.getId()));
 			mongosync.initialize();
 		}
+		
+		MongoSyncStatus status;
+		Thread.sleep(5000);
 		
 		for (MongoSyncRunner mongosync : mongosyncRunners) {
 			mongosync.start();
 		}
 		
-
+		while (true) {
+			Thread.sleep(30000);
+			int completeCount = 0;
+			for (MongoSyncRunner mongosync : mongosyncRunners) {
+				status = mongosync.getStatus();
+				if (status != null) {
+					logger.debug("mongosync {}: status {}", mongosync.getId(), status);
+				}
+				if (mongosync.isComplete()) {
+					completeCount++;
+				}
+			}
+			if (completeCount == mongosyncRunners.size()) {
+				logger.debug("all done, exiting");
+				break;
+			}
+		}
 		return 0;
 	}
 
@@ -157,6 +215,36 @@ public class MongoSync implements Callable<Integer> {
 		}
 
 		System.exit(exitCode);
+	}
+
+	@Override
+	public void mongoSyncPaused() {
+		
+		// Coordinator will be paused, pause others also
+//		for (MongoSyncRunner mongosync : mongosyncRunners) {
+//			MongoSyncStatus status = mongosync.checkStatus();
+//			if (status != null && ! status.getProgress().getState().equals(MongoSyncState.PAUSED)) {
+//				mongosync.pause();
+//			}
+//		}
+		
+		try {
+			
+			shardConfigSync.enableDestinationSharding();
+			destShardClient.populateCollectionsMap(true, includeNamespaces);
+			chunkManager.createAndMoveChunks();
+		} catch (Exception e) {
+			logger.warn("error in chunk init", e);
+		}
+		
+		
+		for (MongoSyncRunner mongosync : mongosyncRunners) {
+			MongoSyncStatus status = mongosync.checkStatus();
+			if (status != null && status.getProgress().getState().equals(MongoSyncState.PAUSED)) {
+				mongosync.resume();
+			}
+		}
+		
 	}
 
 }

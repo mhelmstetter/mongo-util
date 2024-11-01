@@ -253,7 +253,7 @@ public class ChunkManager {
 		logger.debug("phase 2 complete, {} optimized chunks created", chunkCount);
 		
 		initializeDestChunkQuery();
-
+		
 		// get current locations of megachunks on destination
 		Map<String, String> destChunkToShardMap = readDestinationChunks();
 		destMins = getChunkMins(destChunkQuery);
@@ -264,7 +264,7 @@ public class ChunkManager {
 
 		// step 3: move megachunks to correct shards
 		for (Megachunk mega2 : optimizedChunks) {
-
+			
 			String mappedShard = getShardMapping(mega2.getShard());
 			if (mappedShard == null) {
 				throw new IllegalArgumentException(
