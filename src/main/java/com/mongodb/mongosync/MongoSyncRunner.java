@@ -33,8 +33,6 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	
 	private static final ReentrantLock lock = new ReentrantLock();
 
-	private static final int WAITFOR_TIMEOUT = 60000;
-
 	public final static String[] PASSWORD_KEYS = { "--password", "--destinationPassword" };
 
 	private boolean hasBeenPaused = false;
@@ -116,39 +114,73 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 		monitorThread.start();
 
 	}
+	
+	private boolean restartProcess() {
+	    try {
+	        logger.info("{} - Restarting process", id);
+	        initialize();  // Re-run the initialization to start a fresh process
+	        return true;
+	    } catch (IOException e) {
+	        logger.error("Failed to restart process {}: {}", id, e.getMessage());
+	        return false;
+	    }
+	}
 
 	private void monitorProcess() {
-		ThreadUtils.sleep(5000);
-		while (!executeResultHandler.hasResult()) {
-			if (!watchdog.isWatching()) {
-				logger.warn("{} - process is no longer being watched, process may have been terminated", id);
-			}
+	    int restartAttempts = 0;
+	    final int maxRestarts = 3;
+	    
+	    while (restartAttempts < maxRestarts) {
+	        ThreadUtils.sleep(5000);  // initial delay
+	        
+	        while (!executeResultHandler.hasResult()) {
+	            if (!watchdog.isWatching() || watchdog.killedProcess()) {
+	                logger.warn("{} - process terminated unexpectedly", id);
+	                mongoSyncStatus = null;
+	                
+	                if (restartAttempts < maxRestarts) {
+	                    restartAttempts++;
+	                    logger.info("{} - Restart attempt {}/{}", id, restartAttempts, maxRestarts);
+	                    
+	                    if (!restartProcess()) {
+	                        logger.error("{} - Restart failed. Exiting monitor.", id);
+	                        return;
+	                    }
+	                } else {
+	                    logger.error("{} - Max restart attempts reached. Exiting monitor.", id);
+	                    return;
+	                }
+	                break;
+	            }
 
-			if (watchdog.killedProcess()) {
-				logger.error("{} - process was killed");
-			}
-			checkStatus();
-			if (mongoSyncStatus != null && mongoSyncStatus.getProgress().isCanCommit() && !hasBeenCommited) {
-				commit();
-				hasBeenCommited = true;
-				break;
-			}
-			ThreadUtils.sleep(10000);
-		}
-		
-		try {
-			executeResultHandler.waitFor(60 * 5 * 1000);
-		} catch (InterruptedException e) {
-		}
+	            checkStatus();
+	            
+	            if (mongoSyncStatus != null && mongoSyncStatus.getProgress().isCanCommit() && !hasBeenCommited) {
+	                commit();
+	                hasBeenCommited = true;
+	                return;
+	            }
 
-		// Check if there was any abnormal termination
-		if (executeResultHandler.getException() != null) {
-			logger.error("{} - process exited with an error: ", id, executeResultHandler.getException());
-		} else {
-			logger.info("{} - process exited normally", id);
-		}
-		complete = true;
+	            ThreadUtils.sleep(10000);
+	        }
+	        
+	        try {
+	            executeResultHandler.waitFor(60 * 5 * 1000);
+	        } catch (InterruptedException e) {
+	            Thread.currentThread().interrupt();
+	        }
+
+	        if (executeResultHandler.getException() != null) {
+	            logger.error("{} - process exited with exit code {}, error: ", id, executeResultHandler.getExitValue(), executeResultHandler.getException());
+	        } else {
+	            logger.info("{} - process exited normally", id);
+	        }
+	        complete = true;
+	        return;
+	    }
 	}
+
+
 
 	public MongoSyncStatus getStatus() {
 		return mongoSyncStatus;
@@ -159,19 +191,26 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	}
 
 	private MongoSyncStatus checkStatus(int tries) {
-		try {
-			String json = httpUtils.doGetAsString(baseUrl + "progress", tries);
-			if (json != null) {
-				synchronized (this) {
-					mongoSyncStatus = gson.fromJson(json, MongoSyncStatus.class);
-				}
-				return mongoSyncStatus;
-			}
-		} catch (IOException e) {
-			logger.warn("IOException checking status: {}", e.getMessage());
-		}
-		return mongoSyncStatus;
+	    try {
+	        String json = httpUtils.doGetAsString(baseUrl + "progress", tries);
+	        if (json != null) {
+	            synchronized (this) {
+	                mongoSyncStatus = gson.fromJson(json, MongoSyncStatus.class);
+	            }
+	            return mongoSyncStatus;
+	        }
+	    } catch (IOException e) {
+	        logger.warn("IOException checking status: {}", e.getMessage());
+	    }
+	    
+	    // If status checking fails multiple times, assume the process is down
+	    if (mongoSyncStatus == null) {
+	        logger.error("Unable to retrieve status for process {} - assuming it has terminated.", id);
+	    }
+
+	    return mongoSyncStatus;
 	}
+
 	
 	private void waitForIdleStatus() {
 		int sleep = 1000;
