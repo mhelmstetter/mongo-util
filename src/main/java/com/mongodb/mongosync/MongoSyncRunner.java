@@ -129,32 +129,23 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	private void monitorProcess() {
 	    int restartAttempts = 0;
 	    final int maxRestarts = 3;
-	    
+
 	    while (restartAttempts < maxRestarts) {
-	        ThreadUtils.sleep(5000);  // initial delay
-	        
+	        ThreadUtils.sleep(5000);  // Initial delay before checking
+
 	        while (!executeResultHandler.hasResult()) {
 	            if (!watchdog.isWatching() || watchdog.killedProcess()) {
-	                logger.warn("{} - process terminated unexpectedly", id);
+	                logger.warn("{} - Process terminated unexpectedly", id);
 	                mongoSyncStatus = null;
-	                
-	                if (restartAttempts < maxRestarts) {
-	                    restartAttempts++;
-	                    logger.info("{} - Restart attempt {}/{}", id, restartAttempts, maxRestarts);
-	                    
-	                    if (!restartProcess()) {
-	                        logger.error("{} - Restart failed. Exiting monitor.", id);
-	                        return;
-	                    }
-	                } else {
-	                    logger.error("{} - Max restart attempts reached. Exiting monitor.", id);
-	                    return;
+
+	                if (!attemptRestart(++restartAttempts, maxRestarts)) {
+	                    return;  // Exit monitor if restart fails or max attempts reached
 	                }
 	                break;
 	            }
 
 	            checkStatus();
-	            
+
 	            if (mongoSyncStatus != null && mongoSyncStatus.getProgress().isCanCommit() && !hasBeenCommited) {
 	                commit();
 	                hasBeenCommited = true;
@@ -163,23 +154,50 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 
 	            ThreadUtils.sleep(10000);
 	        }
-	        
+
 	        try {
+	            // Wait for the process to complete or timeout
 	            executeResultHandler.waitFor(60 * 5 * 1000);
 	        } catch (InterruptedException e) {
 	            Thread.currentThread().interrupt();
 	        }
 
+	        // Check for abnormal termination
 	        if (executeResultHandler.getException() != null) {
-	            logger.error("{} - process exited with exit code {}, error: ", id, executeResultHandler.getExitValue(), executeResultHandler.getException());
+	            logger.error("{} - Process exited with error: {}", id, executeResultHandler.getException().getMessage());
+
+	            if (!attemptRestart(++restartAttempts, maxRestarts)) {
+	                return;  // Exit monitor if restart fails or max attempts reached
+	            }
 	        } else {
-	            logger.info("{} - process exited normally", id);
+	            logger.info("{} - Process exited normally", id);
+	            complete = true;
+	            return;
 	        }
-	        complete = true;
-	        return;
 	    }
 	}
 
+	/**
+	 * Attempts to restart the process if within the allowed restart attempts.
+	 * 
+	 * @param attempt The current restart attempt count.
+	 * @param maxAttempts The maximum allowed restart attempts.
+	 * @return true if the restart attempt was successful, false if the maximum attempts were reached or restart failed.
+	 */
+	private boolean attemptRestart(int attempt, int maxAttempts) {
+	    if (attempt <= maxAttempts) {
+	        logger.info("{} - Restart attempt {}/{}", id, attempt, maxAttempts);
+
+	        if (restartProcess()) {
+	            return true;  // Restart successful
+	        } else {
+	            logger.error("{} - Restart failed. Exiting monitor.", id);
+	        }
+	    } else {
+	        logger.error("{} - Max restart attempts ({}) reached. Exiting monitor.", id, maxAttempts);
+	    }
+	    return false;  // Restart not possible
+	}
 
 
 	public MongoSyncStatus getStatus() {
