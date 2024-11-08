@@ -86,6 +86,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		sourceShardClient.populateShardMongoClients();
 		sourceShardClient.populateCollectionsMap(includeNamespaces);
 		destShardClient.populateShardMongoClients();
+		destShardClient.stopBalancer();
 		
 		
 		shardConfigSync = new ShardConfigSync(shardConfigSyncConfig);
