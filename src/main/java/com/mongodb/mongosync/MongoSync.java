@@ -158,10 +158,10 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			Thread.sleep(30000);
 			int completeCount = 0;
 			for (MongoSyncRunner mongosync : mongosyncRunners) {
-				status = mongosync.getStatus();
-				if (status != null) {
-					logger.debug("mongosync {}: status {}", mongosync.getId(), status);
-				}
+//				status = mongosync.getStatus();
+//				if (status != null) {
+//					logger.debug("mongosync {}: status {}", mongosync.getId(), status);
+//				}
 				if (mongosync.isComplete()) {
 					completeCount++;
 				}

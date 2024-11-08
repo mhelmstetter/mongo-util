@@ -109,9 +109,12 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 		executor.execute(cmdLine, executeResultHandler);
 
 		// Start a separate thread to monitor the process state
-		monitorThread = new Thread(this::monitorProcess);
-		monitorThread.setDaemon(true);
-		monitorThread.start();
+		if (monitorThread == null) {
+			monitorThread = new Thread(this::monitorProcess);
+			monitorThread.setDaemon(true);
+			monitorThread.start();
+		}
+		
 
 	}
 	
@@ -185,6 +188,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	 * @return true if the restart attempt was successful, false if the maximum attempts were reached or restart failed.
 	 */
 	private boolean attemptRestart(int attempt, int maxAttempts) {
+		ThreadUtils.sleep(5000 * attempt);
 	    if (attempt <= maxAttempts) {
 	        logger.info("{} - Restart attempt {}/{}", id, attempt, maxAttempts);
 
@@ -218,12 +222,14 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	            return mongoSyncStatus;
 	        }
 	    } catch (IOException e) {
-	        logger.warn("IOException checking status: {}", e.getMessage());
+	        logger.warn("{} - IOException checking status: {}", id, e.getMessage());
 	    }
 	    
 	    // If status checking fails multiple times, assume the process is down
 	    if (mongoSyncStatus == null) {
-	        logger.error("Unable to retrieve status for process {} - assuming it has terminated.", id);
+	        logger.error("{} - Unable to retrieve status for process, assuming it has terminated", id);
+	    } else {
+	    	logger.debug("{}: status {}", id, mongoSyncStatus);
 	    }
 
 	    return mongoSyncStatus;
