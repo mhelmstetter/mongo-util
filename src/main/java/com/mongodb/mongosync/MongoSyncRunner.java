@@ -143,7 +143,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 
 		// Check if there was any abnormal termination
 		if (executeResultHandler.getException() != null) {
-			logger.error("{} - process exited with an error: ", id, executeResultHandler.getException().getMessage());
+			logger.error("{} - process exited with an error: ", id, executeResultHandler.getException());
 		} else {
 			logger.info("{} - process exited normally", id);
 		}
@@ -168,6 +168,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 				return mongoSyncStatus;
 			}
 		} catch (IOException e) {
+			logger.warn("IOException checking status: {}", e.getMessage());
 		}
 		return mongoSyncStatus;
 	}
