@@ -39,6 +39,9 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	
 	@Option(names = { "--logDir" }, description = "log path", required = false)
 	private File logDir;
+	
+	@Option(names = { "--loadLevel" }, description = "mongosync parallelism: between 1 (least parallel) to 4 (most parallel) (default: 3)", required = false, defaultValue = "3")
+	private int loadLevel;
 
 	@Option(names = { "--source" }, description = "source mongodb uri connection string", required = false)
 	private String sourceUri;
@@ -132,7 +135,8 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			mongosync.setDestinationUri(destUri);
 			mongosync.setMongosyncBinary(mongosyncBinary);
 			mongosync.setPort(port++);
-			mongosync.setLoadLevel(3);
+			mongosync.setLoadLevel(loadLevel);
+			mongosync.setBuildIndexes(buildIndexes);
 			mongosync.setLogDir(logDir);
 			mongosync.setIncludeNamespaces(includes);
 
