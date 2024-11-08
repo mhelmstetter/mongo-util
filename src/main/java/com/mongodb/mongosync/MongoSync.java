@@ -147,7 +147,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			mongosync.initialize();
 		}
 		
-		MongoSyncStatus status;
+//		MongoSyncStatus status;
 		Thread.sleep(5000);
 		
 		for (MongoSyncRunner mongosync : mongosyncRunners) {

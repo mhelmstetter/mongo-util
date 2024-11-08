@@ -51,7 +51,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 
 	private boolean buildIndexes;
 	
-	private boolean complete = false;
+	//private boolean complete = false;
 
 	private List<Namespace> includeNamespaces;
 
@@ -173,8 +173,9 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	                return;  // Exit monitor if restart fails or max attempts reached
 	            }
 	        } else {
-	            logger.info("{} - Process exited normally", id);
-	            complete = true;
+	            logger.info("{} - Process exited, will restart", id);
+	            attemptRestart(++restartAttempts, maxRestarts);
+	            //complete = true;
 	            return;
 	        }
 	    }
@@ -219,6 +220,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	            synchronized (this) {
 	                mongoSyncStatus = gson.fromJson(json, MongoSyncStatus.class);
 	            }
+	            logger.debug("{}: status: {}", id, mongoSyncStatus);
 	            return mongoSyncStatus;
 	        }
 	    } catch (IOException e) {
@@ -228,8 +230,6 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	    // If status checking fails multiple times, assume the process is down
 	    if (mongoSyncStatus == null) {
 	        logger.error("{} - Unable to retrieve status for process, assuming it has terminated", id);
-	    } else {
-	    	logger.debug("{}: status {}", id, mongoSyncStatus);
 	    }
 
 	    return mongoSyncStatus;
@@ -295,6 +295,8 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 					if (mongoSyncApiResponse.isSuccess()) {
 						return mongoSyncApiResponse;
 					}
+				} else {
+					logger.warn("{}: post result was null", id);
 				}
 			} catch (IOException e) {
 				logger.error("Error executing {}: {}", apiPath, e.getMessage());
@@ -405,6 +407,6 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	}
 
 	public boolean isComplete() {
-		return complete;
+		return hasBeenCommited;
 	}
 }
