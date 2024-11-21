@@ -649,4 +649,12 @@ public class ChunkManager {
 	public void setDestShardClient(ShardClient destShardClient) {
 		this.destShardClient = destShardClient;
 	}
+
+	public BaseConfiguration getConfig() {
+		return config;
+	}
+
+	public Map<String, String> getSourceToDestShardMap() {
+		return sourceToDestShardMap;
+	}
 }

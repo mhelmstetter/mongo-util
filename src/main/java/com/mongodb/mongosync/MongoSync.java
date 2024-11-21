@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.dbhash.DbHashUtil;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
 import com.mongodb.mongosync.model.MongoSyncState;
@@ -60,6 +61,9 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	
 	@Option(names = { "--includeNamespaces" }, description = "Namespaces to include", required = false)
 	private Set<String> includeNamespaces;
+	
+	@Option(names = { "--shardMap" }, description = "Shard map, ex: shA|sh0,shB|sh1", required = false)
+	private String shardMap;
 
 	private ShardConfigSync shardConfigSync;
 	private SyncConfiguration shardConfigSyncConfig;
@@ -76,6 +80,9 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		shardConfigSyncConfig.setSourceClusterUri(sourceUri);
 		shardConfigSyncConfig.setDestClusterUri(destUri);
 		shardConfigSyncConfig.setNamespaceFilters(includeNamespaces.toArray(new String[0]));
+		if (shardMap != null) {
+			shardConfigSyncConfig.setShardMap(shardMap.split(","));
+        }
 		
 
 		chunkManager = new ChunkManager(shardConfigSyncConfig);
@@ -171,6 +178,9 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 				break;
 			}
 		}
+		
+		DbHashUtil dbHash = new DbHashUtil(chunkManager, includeNamespaces);
+		dbHash.call();
 		return 0;
 	}
 
@@ -224,14 +234,6 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 
 	@Override
 	public void mongoSyncPaused() {
-		
-		// Coordinator will be paused, pause others also
-//		for (MongoSyncRunner mongosync : mongosyncRunners) {
-//			MongoSyncStatus status = mongosync.checkStatus();
-//			if (status != null && ! status.getProgress().getState().equals(MongoSyncState.PAUSED)) {
-//				mongosync.pause();
-//			}
-//		}
 		
 		try {
 			

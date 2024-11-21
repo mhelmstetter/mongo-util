@@ -107,5 +107,16 @@ public class HttpUtils {
 		String responseStr = EntityUtils.toString(response.getEntity());
 		return responseStr;
 	}
+	
+	public <T> T doPostAsObject(String url, String data, Class<T> classOfT) throws IOException {
+		String json = doPostAsString(url, data);
+		try {
+			return gson.fromJson(json, classOfT);
+		} catch (JsonSyntaxException jse) {
+			logger.error("Error unmarshalling json", jse);
+			return null;
+		}
+
+	}
 
 }

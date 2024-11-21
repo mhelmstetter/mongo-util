@@ -59,4 +59,17 @@ public class Shard {
 		this.rsName = rsName;
 	}
 
+	@Override
+	public String toString() {
+		StringBuilder builder = new StringBuilder();
+		builder.append("Shard [id=");
+		builder.append(id);
+		builder.append(", host=");
+		builder.append(host);
+		//builder.append(", rsName=");
+		//builder.append(rsName);
+		builder.append("]");
+		return builder.toString();
+	}
+
 }

@@ -155,7 +155,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	                return;
 	            }
 
-	            ThreadUtils.sleep(10000);
+	            ThreadUtils.sleep(20000);
 	        }
 
 	        try {
@@ -247,7 +247,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 		}
 	}
 
-	public void start() {
+	public void start() throws IOException {
 		waitForIdleStatus();
 		JsonObject jsonObject = new JsonObject();
 		jsonObject.addProperty("source", "cluster0");
@@ -256,6 +256,8 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 		if (!buildIndexes) {
 			jsonObject.addProperty("buildIndexes", "never");
 		}
+		
+		//jsonObject.addProperty("destinationDataHandling", "ignorePreExistingNamespaces");
 
 		if (includeNamespaces != null && !includeNamespaces.isEmpty()) {
 			JsonArray includeNamespacesArray = new JsonArray();
@@ -272,13 +274,14 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 
 		String jsonData = jsonObject.toString();
 
-		String statusStr;
-		try {
-			statusStr = httpUtils.doPostAsString(baseUrl + "/start", jsonData);
-			logger.debug("start result ({}): {}", port, statusStr);
-		} catch (IOException e) {
-			logger.error("Error starting", e);
+		
+		MongoSyncApiResponse progress = httpUtils.doPostAsObject(baseUrl + "/start", jsonData, MongoSyncApiResponse.class);
+		if (!progress.isSuccess()) {
+			throw new IOException(progress.getErrorDescription());
 		}
+		logger.debug("{}: start result: {}", id, progress);
+		
+		
 	}
 
 	private MongoSyncApiResponse httpPost(String apiPath, String symbol) {
@@ -299,7 +302,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 					logger.warn("{}: post result was null", id);
 				}
 			} catch (IOException e) {
-				logger.error("Error executing {}: {}", apiPath, e.getMessage());
+				logger.error("{}: Error executing {}: {}", id, apiPath, e.getMessage());
 			} finally {
 				lock.unlock();
 			}
