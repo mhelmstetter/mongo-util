@@ -150,7 +150,7 @@ public class Balancer implements Callable<Integer> {
 				sourceShardClient.getCollection(balancerConfig.getBalancerStateNamespace()));
 		
 		balancerConfig.getStatsCollection().createIndex(new Document("analysisId", 1));
-		balancerConfig.getStatsCollection().createIndex(new Document("endTime", 1), new IndexOptions().expireAfter(999999L, TimeUnit.SECONDS));
+		balancerConfig.getStatsCollection().createIndex(new Document("endTime", 1), new IndexOptions().expireAfter(43200L, TimeUnit.SECONDS));
 
 		chunkManager = new ChunkManager(balancerConfig);
 		chunkManager.setSourceShardClient(sourceShardClient);
@@ -419,23 +419,6 @@ public class Balancer implements Callable<Integer> {
 	
 						boolean success = false;
 						if (!balancerConfig.isDryRun()) {
-							
-							Document dataSize = sourceShardClient.dataSize(ns, min, max);
-							Number countNumber = dataSize.get("numObjects", Number.class);
-							long count = countNumber.longValue();
-							
-							int j = 0;
-							while (count >= maxDocs) {
-								logger.debug("maxDocs: {}, chunk too big, splitting", maxDocs);
-								
-								logger.debug("chunk too big, splitting - iteration {}", j);
-								splitChunk();
-								
-								dataSize = sourceShardClient.dataSize(ns, min, max);
-								countNumber = dataSize.get("numObjects", Number.class);
-								count = countNumber.longValue();
-								j++;
-							}
 							
 							logger.debug("about to move chunk [ {} / {} ]: {}, _id: {}", i++, hotChunks.size(), mega, chunkDoc.get("_id"));
 							moveChunkWithRetry();
