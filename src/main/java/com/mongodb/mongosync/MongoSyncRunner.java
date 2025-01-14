@@ -257,7 +257,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 			jsonObject.addProperty("buildIndexes", "never");
 		}
 		
-		//jsonObject.addProperty("destinationDataHandling", "ignorePreExistingNamespaces");
+		jsonObject.addProperty("destinationDataHandling", "ignorePreExistingNamespaces");
 
 		if (includeNamespaces != null && !includeNamespaces.isEmpty()) {
 			JsonArray includeNamespacesArray = new JsonArray();

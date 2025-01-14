@@ -1036,6 +1036,9 @@ public class ShardClient {
 		if (coll == null) {
 			this.populateCollectionsMap();
 			coll = collectionsMap.get(ns);
+			if (coll == null) {
+				throw new IllegalArgumentException(String.format("Collection %s does not exist on %s", ns, name));
+			}
 		}
 		
 		UUID uuid = (UUID)coll.get("uuid");
