@@ -107,7 +107,6 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		shardConfigSync = new ShardConfigSync(shardConfigSyncConfig);
 		shardConfigSync.setChunkManager(chunkManager);
 		shardConfigSync.initialize();
-		shardConfigSync.syncMetadataOptimized();
 		
 		partitionForge = new PartitionForge();
 		partitionForge.setSourceShardClient(sourceShardClient);
@@ -263,9 +262,11 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		
 		try {
 			
-			shardConfigSync.enableDestinationSharding();
-			destShardClient.populateCollectionsMap(true, includeNamespaces);
-			chunkManager.createAndMoveChunks();
+			shardConfigSync.syncMetadataOptimized();
+			
+//			shardConfigSync.enableDestinationSharding();
+//			destShardClient.populateCollectionsMap(true, includeNamespaces);
+//			chunkManager.createAndMoveChunks();
 		} catch (Exception e) {
 			logger.warn("error in chunk init", e);
 		}
