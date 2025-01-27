@@ -30,4 +30,17 @@ public class MongoSyncApiResponse {
 		this.errorDescription = errorDescription;
 	}
 
+	@Override
+	public String toString() {
+		StringBuilder builder = new StringBuilder();
+		builder.append("MongoSyncApiResponse [success=");
+		builder.append(success);
+		builder.append(", error=");
+		builder.append(error);
+		builder.append(", errorDescription=");
+		builder.append(errorDescription);
+		builder.append("]");
+		return builder.toString();
+	}
+
 }

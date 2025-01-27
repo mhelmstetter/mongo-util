@@ -64,12 +64,17 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	
 	@Option(names = { "--shardMap" }, description = "Shard map, ex: shA|sh0,shB|sh1", required = false)
 	private String shardMap;
+	
+	@Option(names = { "--wiredTigerConfigString" }, description = "WiredTiger config string", required = false)
+	private String wiredTigerConfigString;
 
 	private ShardConfigSync shardConfigSync;
 	private SyncConfiguration shardConfigSyncConfig;
 	private ChunkManager chunkManager;
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
+	
+	private PartitionForge partitionForge;
 	
 
 	List<MongoSyncRunner> mongosyncRunners;
@@ -84,6 +89,10 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			shardConfigSyncConfig.setShardMap(shardMap.split(","));
         }
 		
+		if (wiredTigerConfigString != null) {
+			shardConfigSyncConfig.setWiredTigerConfigString(wiredTigerConfigString);
+		}
+		
 
 		chunkManager = new ChunkManager(shardConfigSyncConfig);
 		chunkManager.initalize();
@@ -95,12 +104,24 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		destShardClient.populateShardMongoClients();
 		destShardClient.stopBalancer();
 		
-		
 		shardConfigSync = new ShardConfigSync(shardConfigSyncConfig);
 		shardConfigSync.setChunkManager(chunkManager);
 		shardConfigSync.initialize();
+		shardConfigSync.syncMetadataOptimized();
 		
-
+		partitionForge = new PartitionForge();
+		partitionForge.setSourceShardClient(sourceShardClient);
+		partitionForge.setDestShardClient(destShardClient);
+		partitionForge.init();
+		for (String ns : includeNamespaces) {
+			partitionForge.setNamespaceStr(ns);
+			try {
+				partitionForge.call();
+			} catch (InterruptedException e) {
+				logger.error("PartitionForge interrupted");
+			}
+		}
+		
 		mongosyncRunners = new ArrayList<>(sourceShardClient.getShardsMap().size());
 		
 		if (logDir == null) {
@@ -137,6 +158,11 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		int port = 27000;
 		for (Shard source : sourceShardClient.getShardsMap().values()) {
 
+//			File logPath = new File(logDir.getAbsolutePath() + File.separator + source.getId());
+//			if (!logPath.exists()) {
+//				logPath.mkdirs();
+//			}
+			
 			MongoSyncRunner mongosync = new MongoSyncRunner(source.getId(), this);
 			mongosyncRunners.add(mongosync);
 			mongosync.setSourceUri(sourceUri);

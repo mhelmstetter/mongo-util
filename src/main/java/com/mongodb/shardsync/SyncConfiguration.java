@@ -62,6 +62,8 @@ public class SyncConfiguration extends BaseConfiguration {
 	
 	private String usersInputCsv;
     private String usersOutputCsv;
+    
+    private String wiredTigerConfigString;
 
 	public SyncConfiguration() {
 		super();
@@ -404,5 +406,13 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setUsersOutputCsv(String usersOutputCsv) {
 		this.usersOutputCsv = usersOutputCsv;
+	}
+
+	public String getWiredTigerConfigString() {
+		return wiredTigerConfigString;
+	}
+
+	public void setWiredTigerConfigString(String wiredTigerConfigString) {
+		this.wiredTigerConfigString = wiredTigerConfigString;
 	}
 }

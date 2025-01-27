@@ -44,7 +44,7 @@ public class BaseConfiguration {
 	public String destRsRegex;
 	
 	public Boolean sourceRsSsl;
-
+	
 	public BaseConfiguration() {
 		super();
 	}

@@ -187,11 +187,15 @@ public class ShardConfigSync implements Callable<Integer> {
             throw new IllegalArgumentException("dest connection must be to a mongos router unless using shardToRs");
         }
     }
-
+    
     private void createCollections() {
+    	createCollections(null);
+    }
+
+    private void createCollections(SyncConfiguration syncConfig) {
         MongoClient sourceClient = sourceShardClient.getMongoClient();
         MongoClient destClient = destShardClient.getMongoClient();
-
+        
         destShardClient.populateCollectionsMap();
         Map<String, Document> existingDestCollections = destShardClient.getCollectionsMap();
 
@@ -213,6 +217,50 @@ public class ShardConfigSync implements Callable<Integer> {
                 if (existingDestCollections.containsKey(ns.getNamespace())) {
                     continue;
                 }
+                
+                if (syncConfig != null && syncConfig.getWiredTigerConfigString() != null) {
+                	Document options;
+                    if (collectionInfo.containsKey("options")) {
+                    	options = (Document)collectionInfo.get("options");
+                    } else {
+                    	options = new Document();
+                    	collectionInfo.put("options", options);
+                    }
+                    
+                    Document storageEngine;
+                	if (options.containsKey("storageEngine")) {
+                		storageEngine = (Document)options.get("storageEngine");
+                	} else {
+                		storageEngine = new Document();
+                		options.put("storageEngine", storageEngine);
+                	}
+                	
+                	Document wiredTiger;
+                	if (storageEngine.containsKey("wiredTiger")) {
+                		wiredTiger = (Document)options.get("wiredTiger");
+                	} else {
+                		wiredTiger = new Document();
+                		storageEngine.put("wiredTiger", wiredTiger);
+                	}
+                	
+                	String configString;
+                	if (wiredTiger.containsKey("configString")) {
+                		configString = wiredTiger.getString("configString");
+                		if (configString != null && configString.length() > 0) {
+                			if (! configString.contains("block_compressor")) {
+                    			configString = configString + "," + syncConfig.getWiredTigerConfigString();
+                    		}
+                		} else {
+                			configString = syncConfig.getWiredTigerConfigString();
+                		}
+                		
+                	} else {
+                		configString = syncConfig.getWiredTigerConfigString();
+                		wiredTiger.put("configString", configString);
+                	}
+                }
+                
+                
 
                 try {
                     destClient.getDatabase(dbName).createCollection(collectionName, getCreateCollectionOptions(collectionInfo));
@@ -248,7 +296,6 @@ public class ShardConfigSync implements Callable<Integer> {
         
         Document validator = options.get("validator", Document.class);
         if (validator != null) {
-        	System.out.println();
         	ValidationOptions validationOpts = new ValidationOptions().validator(validator);
         	opts.validationOptions(validationOpts);
         }
@@ -731,7 +778,7 @@ public class ShardConfigSync implements Callable<Integer> {
         initChunkManager();
         stopBalancers();
         //checkAutosplit();
-        createCollections();
+        createCollections(config);
         enableDestinationSharding();
 
         sourceShardClient.populateCollectionsMap();
@@ -751,7 +798,7 @@ public class ShardConfigSync implements Callable<Integer> {
 
         initChunkManager();
         stopBalancers();
-        createCollections();
+        createCollections(config);
         enableDestinationSharding();
         sourceShardClient.populateCollectionsMap();
         shardDestinationCollections();

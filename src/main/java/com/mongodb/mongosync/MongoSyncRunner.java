@@ -51,8 +51,6 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 
 	private boolean buildIndexes;
 	
-	//private boolean complete = false;
-
 	private List<Namespace> includeNamespaces;
 
 	private int errorCount;
@@ -62,8 +60,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	private Logger logger;
 
 	private HttpUtils httpUtils;
-//    private MongoMirrorLogHandler logHandler;
-//    private EmailSender emailSender;
+
 
 	private DefaultExecutor executor;
 	private ExecuteWatchdog watchdog;

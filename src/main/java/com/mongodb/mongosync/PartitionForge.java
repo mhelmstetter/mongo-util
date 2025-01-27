@@ -48,7 +48,7 @@ public class PartitionForge implements Callable<Integer> {
 
 	@Option(names = { "--ns" }, description = "source namespace", required = true)
 	private String namespaceStr;
-
+	
 	int sampleCountPerShard = 450;
 
 	private ShardClient sourceShardClient;
@@ -62,12 +62,17 @@ public class PartitionForge implements Callable<Integer> {
 	SortedSet<Object> idSet = new TreeSet<>();
 
 	public void init() {
-		sourceShardClient = new ShardClient("source", sourceUri);
-		sourceShardClient.init();
-		sourceShardClient.populateShardMongoClients();
+		logger.debug("PartitionForge initializing");
+		if (sourceShardClient == null) {
+			sourceShardClient = new ShardClient("source", sourceUri);
+			sourceShardClient.init();
+			sourceShardClient.populateShardMongoClients();
+		}
 
-		destShardClient = new ShardClient("dest", destUri);
-		destShardClient.init();
+		if (destShardClient == null) {
+			destShardClient = new ShardClient("dest", destUri);
+			destShardClient.init();
+		}
 		destDb = destShardClient.getMongoClient().getDatabase("mongosync_reserved_for_internal_use");
 		partitionColl = destDb.getCollection("partitions");
 		resumeDataColl = destDb.getCollection("resumeData");
@@ -82,9 +87,12 @@ public class PartitionForge implements Callable<Integer> {
 	@Override
 	public Integer call() throws InterruptedException {
 
-		init();
+		if (sourceShardClient == null) {
+			init();
+		}
 		long start = System.currentTimeMillis();
 		Namespace ns = new Namespace(namespaceStr);
+		logger.debug("PartitionForge starting for ns: {}", ns);
 
 		// Populate idSet with the cluster level min and max
 		MongoCollection<Document> c = sourceShardClient.getCollection(ns);
@@ -219,6 +227,18 @@ public class PartitionForge implements Callable<Integer> {
 		PartitionForge forge = new PartitionForge();
 		int exitCode = new CommandLine(forge).execute(args);
 		System.exit(exitCode);
+	}
+
+	public void setNamespaceStr(String namespaceStr) {
+		this.namespaceStr = namespaceStr;
+	}
+
+	public void setSourceShardClient(ShardClient sourceShardClient) {
+		this.sourceShardClient = sourceShardClient;
+	}
+
+	public void setDestShardClient(ShardClient destShardClient) {
+		this.destShardClient = destShardClient;
 	}
 
 }
