@@ -67,6 +67,9 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	
 	@Option(names = { "--wiredTigerConfigString" }, description = "WiredTiger config string", required = false)
 	private String wiredTigerConfigString;
+	
+	@Option(names = { "--forgePartitions" }, description = "Forge partitions to avoid $sample issues", required = false)
+	private boolean forgePartitions = true;
 
 	private ShardConfigSync shardConfigSync;
 	private SyncConfiguration shardConfigSyncConfig;
@@ -116,17 +119,21 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			}
 		}
 		
-		partitionForge = new PartitionForge();
-		partitionForge.setSourceShardClient(sourceShardClient);
-		partitionForge.setDestShardClient(destShardClient);
-		partitionForge.init();
-		for (String ns : includeNamespaces) {
-			partitionForge.setNamespaceStr(ns);
-			try {
-				partitionForge.call();
-			} catch (InterruptedException e) {
-				logger.error("PartitionForge interrupted");
+		if (forgePartitions) {
+			partitionForge = new PartitionForge();
+			partitionForge.setSourceShardClient(sourceShardClient);
+			partitionForge.setDestShardClient(destShardClient);
+			partitionForge.init();
+			for (String ns : includeNamespaces) {
+				partitionForge.setNamespaceStr(ns);
+				try {
+					partitionForge.call();
+				} catch (InterruptedException e) {
+					logger.error("PartitionForge interrupted");
+				}
 			}
+		} else {
+			logger.debug("Using native mongosync partition creation");
 		}
 		
 		mongosyncRunners = new ArrayList<>(sourceShardClient.getShardsMap().size());
