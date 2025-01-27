@@ -108,6 +108,14 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		shardConfigSync.setChunkManager(chunkManager);
 		shardConfigSync.initialize();
 		
+		if (drop) {
+			destShardClient.dropDatabasesAndConfigMetadata(shardConfigSyncConfig.getIncludeDatabasesAll());
+			MongoDatabase msyncInternal = destShardClient.getMongoClient().getDatabase("mongosync_reserved_for_internal_use");
+			if (msyncInternal != null) {
+				msyncInternal.drop();
+			}
+		}
+		
 		partitionForge = new PartitionForge();
 		partitionForge.setSourceShardClient(sourceShardClient);
 		partitionForge.setDestShardClient(destShardClient);
@@ -127,13 +135,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			logDir = new File(".");
 		}
 		
-		if (drop) {
-			destShardClient.dropDatabasesAndConfigMetadata(shardConfigSyncConfig.getIncludeDatabasesAll());
-			MongoDatabase msyncInternal = destShardClient.getMongoClient().getDatabase("mongosync_reserved_for_internal_use");
-			if (msyncInternal != null) {
-				msyncInternal.drop();
-			}
-		}
+		
 		
 	}
 
