@@ -281,7 +281,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 					Namespace ns = new Namespace(nsString);
 					Number count = destShardClient.getFastCollectionCount(ns.getDatabaseName(), ns.getCollectionName());
 					logger.debug("ns: {} count: {}", ns, count);
-					if (count.doubleValue() > 0) {
+					if (count.longValue() == 0) {
 						MongoDatabase db = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
 						MongoCollection<Document> coll = db.getCollection(ns.getCollectionName());
 						logger.debug("dropping existing empty collection {} created by mongosync");
