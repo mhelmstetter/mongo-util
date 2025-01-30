@@ -7,9 +7,11 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
+import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.dbhash.DbHashUtil;
 import com.mongodb.model.Namespace;
@@ -118,6 +120,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 				msyncInternal.drop();
 			}
 		}
+		destShardClient.populateCollectionsMap(includeNamespaces);
 		
 		if (forgePartitions) {
 			partitionForge = new PartitionForge();
@@ -270,6 +273,20 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	public void mongoSyncPaused() {
 		
 		try {
+			
+			Set<String> existingDestNs = destShardClient.getCollectionsMap().keySet();
+			for (String nsString : includeNamespaces) {
+				if (existingDestNs.contains(nsString)) {
+					Namespace ns = new Namespace(nsString);
+					Number count = destShardClient.getFastCollectionCount(ns.getDatabaseName(), ns.getCollectionName());
+					if (count.doubleValue() > 0) {
+						MongoDatabase db = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
+						MongoCollection<Document> coll = db.getCollection(ns.getCollectionName());
+						logger.debug("dropping existing empty collection {} created by mongosync");
+						coll.drop();
+					}
+				}
+			}
 			
 			shardConfigSync.syncMetadataOptimized();
 			
