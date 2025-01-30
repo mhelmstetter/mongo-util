@@ -275,10 +275,12 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		try {
 			
 			Set<String> existingDestNs = destShardClient.getCollectionsMap().keySet();
+			logger.debug("dest cluster has {} collections total", existingDestNs.size());
 			for (String nsString : includeNamespaces) {
 				if (existingDestNs.contains(nsString)) {
 					Namespace ns = new Namespace(nsString);
 					Number count = destShardClient.getFastCollectionCount(ns.getDatabaseName(), ns.getCollectionName());
+					logger.debug("ns: {} count: {}", ns, count);
 					if (count.doubleValue() > 0) {
 						MongoDatabase db = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
 						MongoCollection<Document> coll = db.getCollection(ns.getCollectionName());
