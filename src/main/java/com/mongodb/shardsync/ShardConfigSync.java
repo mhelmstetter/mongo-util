@@ -196,7 +196,7 @@ public class ShardConfigSync implements Callable<Integer> {
         MongoClient sourceClient = sourceShardClient.getMongoClient();
         MongoClient destClient = destShardClient.getMongoClient();
         
-        destShardClient.populateCollectionsMap();
+        destShardClient.populateCollectionsMap(true);
         Map<String, Document> existingDestCollections = destShardClient.getCollectionsMap();
 
         for (String dbName : sourceClient.listDatabaseNames()) {
