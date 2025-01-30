@@ -120,7 +120,6 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 				msyncInternal.drop();
 			}
 		}
-		destShardClient.populateCollectionsMap(includeNamespaces);
 		
 		if (forgePartitions) {
 			partitionForge = new PartitionForge();
@@ -284,7 +283,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 					if (count.longValue() == 0) {
 						MongoDatabase db = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
 						MongoCollection<Document> coll = db.getCollection(ns.getCollectionName());
-						logger.debug("dropping existing empty collection {} created by mongosync");
+						logger.debug("dropping existing empty collection {} created by mongosync", ns);
 						coll.drop();
 					}
 				}

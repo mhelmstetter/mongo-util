@@ -215,6 +215,7 @@ public class ShardConfigSync implements Callable<Integer> {
                 }
 
                 if (existingDestCollections.containsKey(ns.getNamespace())) {
+                	logger.debug("ns {} exists, won't create", ns);
                     continue;
                 }
                 
