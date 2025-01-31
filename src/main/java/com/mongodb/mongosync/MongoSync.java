@@ -272,7 +272,8 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		try {
 
 			Set<String> existingDestNs = destShardClient.getCollectionsMap().keySet();
-			logger.debug("dest cluster has {} collections total", existingDestNs.size());
+			logger.debug("dest cluster has {} collections total -- {}", existingDestNs.size(), existingDestNs);
+			logger.debug("includeNamespaces: {}", includeNamespaces);
 			for (String nsString : includeNamespaces) {
 				if (existingDestNs.contains(nsString)) {
 					Namespace ns = new Namespace(nsString);
