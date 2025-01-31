@@ -86,7 +86,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 
 		addArg("cluster0", sourceUri);
 		addArg("cluster1", destinationUri);
-		// addArg("logPath", logPath.getAbsolutePath());
+		//addArg("logPath", logDir.getAbsolutePath());
 		addArg("port", port);
 		addArg("loadLevel", loadLevel);
 		addArg("id", id);
@@ -398,9 +398,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 		if (!hasBeenPaused) {
 			logger.debug("{}: ********** READY FOR PAUSE! **********", id);
 			this.pause();
-			if (isCoordinator()) {
-				pauseListener.mongoSyncPaused();
-			}
+			pauseListener.mongoSyncPaused(this);
 			hasBeenPaused = true;
 		}
 

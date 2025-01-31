@@ -2,6 +2,6 @@ package com.mongodb.mongosync;
 
 public interface MongoSyncPauseListener {
 	
-	public void mongoSyncPaused();
+	public void mongoSyncPaused(MongoSyncRunner runner);
 
 }
