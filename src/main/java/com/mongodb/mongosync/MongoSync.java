@@ -73,16 +73,11 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	@Option(names = { "--wiredTigerConfigString" }, description = "WiredTiger config string", required = false)
 	private String wiredTigerConfigString;
 
-	@Option(names = { "--forgePartitions" }, description = "Forge partitions to avoid $sample issues", required = false)
-	private boolean forgePartitions = true;
-
 	private ShardConfigSync shardConfigSync;
 	private SyncConfiguration shardConfigSyncConfig;
 	private ChunkManager chunkManager;
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
-
-	private PartitionForge partitionForge;
 
 	List<MongoSyncRunner> mongosyncRunners;
 
@@ -125,23 +120,6 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			}
 		}
 
-		if (forgePartitions) {
-			partitionForge = new PartitionForge();
-			partitionForge.setSourceShardClient(sourceShardClient);
-			partitionForge.setDestShardClient(destShardClient);
-			partitionForge.init();
-			for (String ns : includeNamespaces) {
-				partitionForge.setNamespaceStr(ns);
-				try {
-					partitionForge.call();
-				} catch (InterruptedException e) {
-					logger.error("PartitionForge interrupted");
-				}
-			}
-		} else {
-			logger.debug("Using native mongosync partition creation");
-		}
-
 		mongosyncRunners = new ArrayList<>(sourceShardClient.getShardsMap().size());
 
 		if (logDir == null) {
@@ -178,7 +156,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			mongosync.setPort(port++);
 			mongosync.setLoadLevel(loadLevel);
 			mongosync.setBuildIndexes(buildIndexes);
-			// mongosync.setLogDir(logDir);
+			mongosync.setLogDir(logDir);
 			mongosync.setIncludeNamespaces(includes);
 
 			String destShardId = chunkManager.getShardMapping(source.getId());
@@ -274,19 +252,6 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			Set<String> existingDestNs = destShardClient.getCollectionsMap().keySet();
 			logger.debug("dest cluster has {} collections total -- {}", existingDestNs.size(), existingDestNs);
 			logger.debug("includeNamespaces: {}", includeNamespaces);
-			for (String nsString : includeNamespaces) {
-				if (existingDestNs.contains(nsString)) {
-					Namespace ns = new Namespace(nsString);
-					Number count = destShardClient.getFastCollectionCount(ns.getDatabaseName(), ns.getCollectionName());
-					logger.debug("ns: {} count: {}", ns, count);
-					if (count.longValue() == 0) {
-						MongoDatabase db = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
-						MongoCollection<Document> coll = db.getCollection(ns.getCollectionName());
-						logger.debug("dropping existing empty collection {} created by mongosync", ns);
-						coll.drop();
-					}
-				}
-			}
 
 			shardConfigSync.syncMetadataOptimized();
 

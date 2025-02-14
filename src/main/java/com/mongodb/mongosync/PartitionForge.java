@@ -27,6 +27,7 @@ import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.Updates;
+import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardsync.ShardClient;
@@ -90,9 +91,51 @@ public class PartitionForge implements Callable<Integer> {
 		if (sourceShardClient == null) {
 			init();
 		}
+		
+		Set<String> shards = sourceShardClient.getShardsMap().keySet();
+		
+		MongoClient mc = destShardClient.getMongoClient();
+		MongoDatabase metaDb = mc.getDatabase("mongosync_reserved_for_internal_use");
+		MongoCollection<Document> resumeColl = metaDb.getCollection("resumeData");
+		
+		DeleteResult dr = resumeColl.deleteMany(new Document());
+		logger.debug("deleted existing resume data, {} documents", dr.getDeletedCount());
+		
+		for (String shard : shards) {
+			
+			Document d = new Document("_id", shard);
+			d.append("resumeDataReversalCount", 1L);
+			d.append("syncPhase", "collection copy");
+			Document crudChangeStreamResumeInfo = new Document("lastEventTs", null);
+			d.append("crudChangeStreamResumeInfo", crudChangeStreamResumeInfo);
+			Document ddlChangeStreamResumeInfo = new Document("lastEventTs", null);
+			d.append("ddlChangeStreamResumeInfo", ddlChangeStreamResumeInfo);
+			d.append("state", "RUNNING");
+			Document directionMapping = new Document("source", "cluster0").append("destination", "cluster1");
+			d.append("directionMapping", directionMapping);
+			d.append("crudEventsReceivedPerOpType", null);
+			d.append("ddlEventsReceivedPerOpType", null);
+			
+			Document phaseTransitions = new Document("phase", "initializing collections and indexes");
+			BsonTimestamp timestamp = new BsonTimestamp((int) (System.currentTimeMillis() / 1000), 1);
+			phaseTransitions.append("ts", timestamp);
+			List<Document> phaseTransitionsList = new ArrayList<>();
+			phaseTransitionsList.add(phaseTransitions);
+			d.append("phaseTransitions", phaseTransitionsList);
+			
+			resumeColl.insertOne(d);
+			
+		}
+		
+		
 		long start = System.currentTimeMillis();
 		Namespace ns = new Namespace(namespaceStr);
 		logger.debug("PartitionForge starting for ns: {}", ns);
+		
+		Document collStats = sourceShardClient.collStats(ns.getDatabaseName(), ns.getCollectionName());
+		
+		Number statsCount = (Number)collStats.get("count");
+		Number statsSize = (Number)collStats.get("size");
 
 		// Populate idSet with the cluster level min and max
 		MongoCollection<Document> c = sourceShardClient.getCollection(ns);
@@ -127,16 +170,16 @@ public class PartitionForge implements Callable<Integer> {
 		logger.debug("idSet size: {}", idSet.size());
 
 		// check if set is odd size, keep adding elements until it reaches even size
-		pipeline = getAggPipeline(1);
-		while ((idSet.size() % 2) != 0) {
-			logger.debug("idSet size {} is odd, adding elements until even", idSet.size());
-			MongoClient client = sourceShardClient.getShardMongoClients().values().iterator().next();
-			MongoCollection<Document> coll = client.getDatabase(ns.getDatabaseName())
-					.getCollection(ns.getCollectionName());
-			populateIdSet(pipeline, coll);
-		}
+//		pipeline = getAggPipeline(10);
+//		while ((idSet.size() % 2) != 0) {
+//			logger.debug("idSet size {} is odd, adding elements until even", idSet.size());
+//			MongoClient client = sourceShardClient.getShardMongoClients().values().iterator().next();
+//			MongoCollection<Document> coll = client.getDatabase(ns.getDatabaseName())
+//					.getCollection(ns.getCollectionName());
+//			populateIdSet(pipeline, coll);
+//		}
 
-		Set<String> shards = sourceShardClient.getShardMongoClients().keySet();
+		
 		Iterator<String> shardIterator = shards.iterator();
 
 		int nowSecond = (int) Instant.now().getEpochSecond();
@@ -193,8 +236,9 @@ public class PartitionForge implements Callable<Integer> {
 
 		logger.debug("{} partitions created", count);
 
-		UpdateResult result = resumeDataColl.updateOne(new Document(), Updates.set("syncPhase", "collection copy"));
-		logger.debug("updated resumeData syncPhase, result: {}", result);
+		// TODO no longer necessary?
+		//UpdateResult result = resumeDataColl.updateOne(new Document(), Updates.set("syncPhase", "collection copy"));
+		//logger.debug("updated resumeData syncPhase, result: {}", result);
 
 		long end = System.currentTimeMillis();
 		Double dur = (end - start) / 1000.0;
