@@ -468,9 +468,12 @@ public class Balancer implements Callable<Integer> {
 	
 	public boolean moveChunkWithRetry() {
 	    boolean retry = true;
+	    int iteration = 0;
 	    while (retry) {
 	        try {
+	        	logger.debug("moveChunkWithRetry iteration {}, ns: {}", iteration, ns);
 	        	sourceShardClient.moveChunk(ns, min, max, destShard, false, false, false, true, true);
+	        	Thread.currentThread().sleep(1000);
 	            retry = false; // If no exception, exit the loop
 	        } catch (Exception e) {
 	            if (e.getMessage().contains("ChunkTooBig")) {
@@ -481,7 +484,7 @@ public class Balancer implements Callable<Integer> {
 	                    // Get the first capturing group, which is the number
 	                    String maxDocsStr = matcher.group(1);
 	                    maxDocs = Long.parseLong(maxDocsStr);
-	                    System.out.println("Maximum number of documents for a chunk is: " + maxDocs);
+	                    logger.debug("Maximum number of documents for a chunk is: {}", maxDocs);
 	                }
 	            	
 	                logger.debug("Split then retry due to ChunkTooBig...");
@@ -490,6 +493,7 @@ public class Balancer implements Callable<Integer> {
 	                return false;
 	            }
 	        }
+	        iteration++;
 	    }
 	    return true;
 	}

@@ -1555,7 +1555,8 @@ public class ShardClient {
 		splitCommand.put("find", find);
 
 		try {
-			adminCommand(splitCommand);
+			Document result = adminCommand(splitCommand);
+			logger.debug("splitFind result: {}", result);
 		} catch (MongoCommandException mce) {
 			if (logErrors) {
 				logger.error("command splitAt error for namespace {}, message: {}", ns, mce.getMessage());
