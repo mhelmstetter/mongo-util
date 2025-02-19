@@ -587,6 +587,10 @@ public class Balancer implements Callable<Integer> {
 		
 		NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
 		
+		logger.debug("***** chunkMap size: {}", chunkMap.size());
+		logger.debug("***** innerMap size: {}", innerMap.size());
+		
+		//long megaWasNullCount = 0L;
 		long totalOps = 0;
 		for (BsonDocument result : resultsIterable) {
 			
@@ -596,6 +600,7 @@ public class Balancer implements Callable<Integer> {
 			if (mega == null) {
 				logger.debug("mega was null for id: {}, ns: {}", id, ns);
 				continue;
+				//megaWasNullCount++;
 			}
 			
 			Long elapsedSinceLastMove = mega.elapsedSinceLastMoved();
