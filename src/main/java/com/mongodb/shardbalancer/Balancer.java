@@ -610,9 +610,14 @@ public class Balancer implements Callable<Integer> {
 			BsonValue id = result.get("id");
 			CountingMegachunk mega = innerMap.get(new BsonValueWrapper(id));
 			
+			if (mega == null) {
+				logger.debug("mega was null for id: {}, ns: {}", id, ns);
+				continue;
+			}
+			
 			Long elapsedSinceLastMove = mega.elapsedSinceLastMoved();
 			if (elapsedSinceLastMove != null && elapsedSinceLastMove <= 60) {
-				//logger.debug("skipping chunk from hot list, chunk was just moved {} minutes ago: {}", elapsedSinceLastMove, mega);
+				logger.debug("skipping chunk from hot list, chunk was just moved {} minutes ago: {}", elapsedSinceLastMove, mega);
 				continue;
 			}
 			
