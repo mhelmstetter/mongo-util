@@ -150,7 +150,7 @@ public class Balancer implements Callable<Integer> {
 				sourceShardClient.getCollection(balancerConfig.getBalancerStateNamespace()));
 		
 		balancerConfig.getStatsCollection().createIndex(new Document("analysisId", 1));
-		balancerConfig.getStatsCollection().createIndex(new Document("endTime", 1), new IndexOptions().expireAfter(999999L, TimeUnit.SECONDS));
+		balancerConfig.getStatsCollection().createIndex(new Document("endTime", 1), new IndexOptions().expireAfter(43200L, TimeUnit.SECONDS));
 
 		chunkManager = new ChunkManager(balancerConfig);
 		chunkManager.setSourceShardClient(sourceShardClient);
