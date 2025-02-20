@@ -1525,17 +1525,19 @@ public class ShardClient {
 		}
 	}
 	
-	public void splitFind(String ns, BsonDocument find, boolean logErrors) {
+	public Document splitFind(String ns, BsonDocument find, boolean logErrors) {
 		Document splitCommand = new Document("split", ns);
 		splitCommand.put("find", find);
 
 		try {
-			adminCommand(splitCommand);
+			Document result = adminCommand(splitCommand);
+			return result;
 		} catch (MongoCommandException mce) {
 			if (logErrors) {
 				logger.error("command splitAt error for namespace {}, message: {}", ns, mce.getMessage());
 			}
 		}
+		return null;
 	}
 
 	public void splitAt(String ns, BsonDocument middle, boolean logErrors) {
@@ -1597,7 +1599,7 @@ public class ShardClient {
 		}
 		return true;
 	}
-
+	
 	public List<Document> splitVector(Namespace ns, Document collectionMeta) {
 		Document splitVectorCmd = new Document("splitVector", ns.getNamespace());
 		Document keyPattern = (Document)collectionMeta.get("key");

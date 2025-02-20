@@ -348,6 +348,11 @@ public class Balancer implements Callable<Integer> {
 						try {
 							success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), to.getShard(), false, false, false, false, true);
 						} catch (MongoCommandException mce) {
+							if (mce.getMessage().contains("ChunkTooBig")) {
+								logger.debug("Split then retry due to ChunkTooBig...");
+				                splitChunk(ns, mega.getMin());
+							}
+							
 							if (mce.getMessage().contains("no chunk found")) {
 								this.loadChunkMap(ns);
 							}
@@ -380,6 +385,22 @@ public class Balancer implements Callable<Integer> {
 
 		return 0;
 
+	}
+	
+	private void splitChunk(String ns, BsonDocument min) {
+		Document result = sourceShardClient.splitFind(ns, min, true);
+		logger.debug("splitFind / split chunk result: {}", result);
+		
+		BsonBinary uuidBinary = sourceShardClient.getUuidForNamespace(ns);
+		
+		BsonDocument chunkQuery = new BsonDocument("uuid", uuidBinary);
+		chunkQuery.append("min", min);
+//		RawBsonDocument newChunk = sourceShardClient.reloadChunk(chunkQuery);
+//		if (newChunk == null) {
+//			logger.debug("unable to reload chunk, query: {}", chunkQuery);
+//		}
+//		min = (BsonDocument) newChunk.get("min");
+//		max = (BsonDocument) newChunk.get("max");
 	}
 
 	private void updateChunkStats() {
