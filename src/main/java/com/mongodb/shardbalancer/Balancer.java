@@ -342,32 +342,42 @@ public class Balancer implements Callable<Integer> {
 	
 						BsonValue id = chunkDoc.get("id");
 						CountingMegachunk mega = innerMap.get(new BsonValueWrapper(id));
-						logger.debug("move chunk [ {} / {} ]: {}, _id: {}", i++, hotChunks.size(), mega, chunkDoc.get("_id"));
+						
 	
-						boolean success = false;
-						try {
-							success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), to.getShard(), false, false, false, false, true);
-						} catch (MongoCommandException mce) {
-							if (mce.getMessage().contains("ChunkTooBig")) {
-								logger.debug("Split then retry due to ChunkTooBig...");
-				                splitChunk(ns, mega.getMin());
+						for (int _try = 0;_try < 10; _try++) {
+							
+							logger.debug("move chunk, try {} [ {} / {} ]: {}, _id: {}", _try, i++, hotChunks.size(), mega, chunkDoc.get("_id"));
+							
+							boolean success = false;
+							try {
+								
+								// TODO - need to loop multiple times here, because we could get ChunkToBig multiple times
+								
+								success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), to.getShard(), false, false, false, false, true);
+							} catch (MongoCommandException mce) {
+								if (mce.getMessage().contains("ChunkTooBig")) {
+									logger.debug("Split then retry due to ChunkTooBig..., try {}", _try);
+					                splitChunk(ns, mega.getMin());
+								}
+								
+								if (mce.getMessage().contains("no chunk found")) {
+									this.loadChunkMap(ns);
+								}
 							}
 							
-							if (mce.getMessage().contains("no chunk found")) {
-								this.loadChunkMap(ns);
+							if (success) {
+								logger.debug("moveChunk success, try {}", _try);
+								moveCount++;
+								mega.setShard(to.getShard());
+								mega.updateLastMovedTime();
+								balancerConfig.getStatsCollection().updateOne(
+										and(eq("_id", chunkDoc.get("_id")), eq("chunks.id", id)),
+										Updates.combine(
+											Updates.set("chunks.$.balanced", true),
+											Updates.inc("balancedChunks", 1)
+										));
+								continue;
 							}
-						}
-						
-						if (success) {
-							moveCount++;
-							mega.setShard(to.getShard());
-							mega.updateLastMovedTime();
-							balancerConfig.getStatsCollection().updateOne(
-									and(eq("_id", chunkDoc.get("_id")), eq("chunks.id", id)),
-									Updates.combine(
-										Updates.set("chunks.$.balanced", true),
-										Updates.inc("balancedChunks", 1)
-									));
 						}
 	
 						if (stopped.get()) {
