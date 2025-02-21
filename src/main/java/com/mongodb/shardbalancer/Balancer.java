@@ -148,7 +148,7 @@ public class Balancer implements Callable<Integer> {
 	
 	private void loadChunkMap(String namespace) {
 		
-		logger.debug("Starting loadChunkMap, size: {}");
+		logger.debug("Starting loadChunkMap, size: {}, ns: {}", chunkMap.size(), namespace);
 		BsonDocument chunkQuery = null;
 		
 		if (namespace == null) {
@@ -358,11 +358,13 @@ public class Balancer implements Callable<Integer> {
 								if (mce.getMessage().contains("ChunkTooBig")) {
 									logger.debug("Split then retry due to ChunkTooBig..., try {}", _try);
 					                splitChunk(ns, mega.getMin());
+					                this.loadChunkMap(ns);
 								}
 								
 								if (mce.getMessage().contains("no chunk found")) {
 									this.loadChunkMap(ns);
 								}
+								
 							}
 							
 							if (success) {
