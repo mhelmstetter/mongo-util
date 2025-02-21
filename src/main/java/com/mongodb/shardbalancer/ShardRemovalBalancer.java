@@ -77,8 +77,8 @@ public class ShardRemovalBalancer implements Callable<Integer> {
     private Iterator<RawBsonDocument> chunkIterator;
     private boolean firstRun = true;
     
-    private double maxChunkSize = 1073741824;
-    private Map<String, Double> collStatsMap = new HashMap<>();
+//    private double maxChunkSize = 1073741824;
+//    private Map<String, Double> collStatsMap = new HashMap<>();
     
     String ns;
     BsonDocument min;
