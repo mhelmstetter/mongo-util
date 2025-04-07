@@ -88,7 +88,10 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		shardConfigSyncConfig = new SyncConfiguration();
 		shardConfigSyncConfig.setSourceClusterUri(sourceUri);
 		shardConfigSyncConfig.setDestClusterUri(destUri);
-		shardConfigSyncConfig.setNamespaceFilters(includeNamespaces.toArray(new String[0]));
+		if (includeNamespaces != null) {
+			shardConfigSyncConfig.setNamespaceFilters(includeNamespaces.toArray(new String[0]));
+		}
+		
 		if (shardMap != null) {
 			shardConfigSyncConfig.setShardMap(shardMap.split(","));
 		}
@@ -112,7 +115,13 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		shardConfigSync.initialize();
 
 		if (drop) {
-			destShardClient.dropDatabasesAndConfigMetadata(shardConfigSyncConfig.getIncludeDatabasesAll());
+			Set<String> includes = shardConfigSyncConfig.getIncludeDatabasesAll();
+			if (includes.isEmpty()) {
+				shardConfigSync.dropDestinationDatabasesAndConfigMetadata();
+			} else {
+				destShardClient.dropDatabasesAndConfigMetadata(includes);
+			}
+			
 			MongoDatabase msyncInternal = destShardClient.getMongoClient()
 					.getDatabase("mongosync_reserved_for_internal_use");
 			if (msyncInternal != null) {
@@ -146,6 +155,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		}
 
 		int port = 27000;
+		int i = 0;
 		for (Shard source : sourceShardClient.getShardsMap().values()) {
 
 			MongoSyncRunner mongosync = new MongoSyncRunner(source.getId(), this);
@@ -158,19 +168,23 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			mongosync.setBuildIndexes(buildIndexes);
 			mongosync.setLogDir(logDir);
 			mongosync.setIncludeNamespaces(includes);
-
+			if (i == 0) {
+				mongosync.setCoordinator(true);
+			}
 			String destShardId = chunkManager.getShardMapping(source.getId());
 			Shard dest = destShardClient.getShardsMap().get(destShardId);
 			logger.debug(String.format("Creating MongoSyncRunner for %s ==> %s", source.getId(), dest.getId()));
 			mongosync.initialize();
+			
+			i++;
 		}
 
-//		MongoSyncStatus status;
 		Thread.sleep(5000);
 
-		for (MongoSyncRunner mongosync : mongosyncRunners) {
-			mongosync.start();
-		}
+		// Start the first one (coordinator)
+		MongoSyncRunner coordinator = mongosyncRunners.get(0);
+		coordinator.start();
+		
 
 		while (true) {
 			Thread.sleep(30000);
@@ -243,42 +257,46 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		System.exit(exitCode);
 	}
 
-	private void allMongoSyncRunnersPaused() {
-		
-		logger.debug("All MongoSyncRunners are paused, intializing collections and sharding");
-
-		try {
-
-			Set<String> existingDestNs = destShardClient.getCollectionsMap().keySet();
-			logger.debug("dest cluster has {} collections total -- {}", existingDestNs.size(), existingDestNs);
-			logger.debug("includeNamespaces: {}", includeNamespaces);
-
-			shardConfigSync.syncMetadataOptimized();
-
-//			shardConfigSync.enableDestinationSharding();
-//			destShardClient.populateCollectionsMap(true, includeNamespaces);
-//			chunkManager.createAndMoveChunks();
-		} catch (Exception e) {
-			logger.warn("error in chunk init", e);
-		}
-
-		for (MongoSyncRunner mongosync : mongosyncRunners) {
-			MongoSyncStatus status = mongosync.checkStatus();
-			if (status != null && status.getProgress().getState().equals(MongoSyncState.PAUSED)) {
-				mongosync.resume();
-			}
-		}
-
-	}
-
 	@Override
-	public void mongoSyncPaused(MongoSyncRunner runner) {
+	public void mongoSyncPaused(MongoSyncRunner runner) throws IOException {
 
 		int pauseCount = mongosyncRunnersPausedCount.incrementAndGet();
 		logger.debug("mongosync runner {} is paused, numPausedRunners: {}", runner.getId(), pauseCount);
 
-		if (pauseCount >= mongosyncRunners.size()) {
-			allMongoSyncRunnersPaused();
+		if (pauseCount == 1) {
+			logger.debug("Coordinator mongosync has been paused, intializing collections and sharding");
+
+			try {
+
+				Set<String> existingDestNs = destShardClient.getCollectionsMap().keySet();
+				logger.debug("dest cluster has {} collections total -- {}", existingDestNs.size(), existingDestNs);
+				logger.debug("includeNamespaces: {}", includeNamespaces);
+
+				shardConfigSync.syncMetadataOptimized();
+
+			} catch (Exception e) {
+				logger.warn("error in chunk init", e);
+			}
+			
+			logger.debug("Starting mongosync followers");
+			for (MongoSyncRunner mongosync : mongosyncRunners) {
+				if (mongosync.equals(runner)) {
+					continue;
+				}
+				try {
+					mongosync.start();
+				} catch (IOException e) {
+					logger.warn("error starting mongosync {}", mongosync.getId());
+					mongosync.start();
+				}
+			}
+			
+			//MongoSyncStatus status = runner.checkStatus();
+			runner.resume();
+			runner.waitForRunningState();
+
+		} else {
+			logger.warn("more than 1 mongosync appears to have been paused, current paused runner: {}", runner.getId());
 		}
 	}
 

@@ -2,7 +2,9 @@ package com.mongodb.mongosync;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Date;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.exec.CommandLine;
@@ -35,8 +37,8 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 
 	public final static String[] PASSWORD_KEYS = { "--password", "--destinationPassword" };
 
-	private boolean hasBeenPaused = false;
-	private boolean hasBeenCommited = false;
+	private AtomicBoolean hasBeenPaused = new AtomicBoolean(false);
+	private AtomicBoolean hasBeenCommited = new AtomicBoolean(false);
 
 	private File mongosyncBinary;
 	private CommandLine cmdLine;
@@ -50,6 +52,8 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	private int loadLevel;
 
 	private boolean buildIndexes;
+	
+	private boolean coordinator;
 	
 	private List<Namespace> includeNamespaces;
 
@@ -90,6 +94,7 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 		addArg("port", port);
 		addArg("loadLevel", loadLevel);
 		addArg("id", id);
+		addArg("acceptDisclaimer");
 
 		MongoSyncLogHandler logHandler = new MongoSyncLogHandler(this, id, logDir);
 		PumpStreamHandler psh = new PumpStreamHandler(logHandler);
@@ -146,9 +151,9 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 
 	            checkStatus();
 
-	            if (mongoSyncStatus != null && mongoSyncStatus.getProgress().isCanCommit() && !hasBeenCommited) {
+	            if (mongoSyncStatus != null && mongoSyncStatus.getProgress().isCanCommit() && !hasBeenCommited.get()) {
 	                commit();
-	                hasBeenCommited = true;
+	                hasBeenCommited.set(true);
 	                return;
 	            }
 
@@ -211,8 +216,17 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	}
 
 	private MongoSyncStatus checkStatus(int tries) {
+//		if (mongoSyncStatus.getProgress().getState().equals(MongoSyncState.PAUSED)) {
+//			logger.debug("mongosync is paused");
+//		}
+		if (hasBeenPaused.get()) {
+			logger.debug("mongosync is paused, skipping checkStatus");
+		}
 	    try {
+	    	lock.lock();
+	    	logger.debug("calling checkStatus for monogsync id: {}", id);
 	        String json = httpUtils.doGetAsString(baseUrl + "progress", tries);
+	        lock.unlock();
 	        if (json != null) {
 	            synchronized (this) {
 	                mongoSyncStatus = gson.fromJson(json, MongoSyncStatus.class);
@@ -232,20 +246,27 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	    return mongoSyncStatus;
 	}
 
-	
-	private void waitForIdleStatus() {
+	private void waitForState(MongoSyncState state) {
 		int sleep = 1000;
+		logger.debug("mongosync {}: waiting for state {}, currentState: {}", id, state, mongoSyncStatus);
 		for (int i = 1; i <= 100; i++) {
 			ThreadUtils.sleep(i * sleep);
-			logger.debug("mongosync {}: preflight check #{}: {}", id, i, mongoSyncStatus);
-			if (mongoSyncStatus != null && mongoSyncStatus.getProgress().getState().equals(MongoSyncState.IDLE)) {
+			if (mongoSyncStatus != null && mongoSyncStatus.getProgress().getState().equals(state)) {
+				logger.debug("mongosync {}: state {} has been reached, iteration #{}", id, state, i);
 				break;
 			}
 		}
 	}
+	
+	public void waitForRunningState() {
+		waitForState(MongoSyncState.RUNNING);
+	}
+	
+	private void waitForIdleStatus() {
+		waitForState(MongoSyncState.IDLE);
+	}
 
 	public void start() throws IOException {
-		waitForIdleStatus();
 		JsonObject jsonObject = new JsonObject();
 		jsonObject.addProperty("source", "cluster0");
 		jsonObject.addProperty("destination", "cluster1");
@@ -309,17 +330,26 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	}
 
 	public void pause() {
+		logger.debug("About to pause mongosync {}", id);
 		httpPost("pause", "⏸️️");
 	}
 
 	public void resume() {
-		httpPost("resume", "▶️");
+		MongoSyncStatus status = checkStatus();
+		MongoSyncState state = status.getProgress().getState();
+		if (!state.equals(MongoSyncState.PAUSED)) {
+			logger.debug("Skipping resume mongosync {}, state: {}", id, state);
+		} else {
+			logger.debug("Calling resume for mongosync {} (may take up to 2 minutes)", id);
+			httpPost("resume", "▶️");
+		}
 	}
 
 	public void commit() {
+		logger.debug("About to commit mongosync {}", id);
 		MongoSyncApiResponse mongoSyncApiResponse = httpPost("commit", "⏹️");
 		if (mongoSyncApiResponse != null && mongoSyncApiResponse.isSuccess()) {
-			hasBeenCommited = true;
+			hasBeenCommited.set(true);
 			watchdog.destroyProcess();
 		}
 	}
@@ -328,6 +358,10 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 		if (argValue != null) {
 			cmdLine.addArgument("--" + argName + "=" + argValue);
 		}
+	}
+	
+	private void addArg(String argName) {
+		cmdLine.addArgument("--" + argName);
 	}
 
 	private void addArg(String argName, String argValue) {
@@ -383,28 +417,31 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	public void setIncludeNamespaces(List<Namespace> includeNamespaces) {
 		this.includeNamespaces = includeNamespaces;
 	}
-	
-	private boolean isCoordinator() {
-		if (mongoSyncStatus != null) {
-			return mongoSyncStatus.getProgress().getCoordinatorID().equals(id);
-		} else {
-			logger.warn("checking isCoordinator(), mongoSyncStatus was null");
-			return false;
-		}
-	}
 
 	@Override
 	public void readyForPauseAfterCollectionCreation() {
-		if (!hasBeenPaused) {
+		if (!hasBeenPaused.get()) {
 			logger.debug("{}: ********** READY FOR PAUSE! **********", id);
 			this.pause();
-			pauseListener.mongoSyncPaused(this);
-			hasBeenPaused = true;
+			try {
+				pauseListener.mongoSyncPaused(this);
+			} catch (IOException e) {
+				logger.error("error pausing mongosync {}, error: {}", id, e.getMessage());
+			}
+			hasBeenPaused.set(true);
 		}
 
 	}
 
 	public boolean isComplete() {
-		return hasBeenCommited;
+		return hasBeenCommited.get();
+	}
+
+	public boolean isCoordinator() {
+		return coordinator;
+	}
+
+	public void setCoordinator(boolean coordinator) {
+		this.coordinator = coordinator;
 	}
 }

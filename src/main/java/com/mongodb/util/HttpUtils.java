@@ -3,8 +3,8 @@ package com.mongodb.util;
 import java.io.IOException;
 
 import org.apache.http.HttpStatus;
-import org.apache.http.ParseException;
 import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
@@ -28,9 +28,17 @@ public class HttpUtils {
 	private CloseableHttpClient httpClient;
 
 	private Gson gson;
+	
+	private final static int TIMEOUT = 60 * 1000 * 3;
 
 	public HttpUtils() {
-		httpClient = HttpClients.custom().build();
+		RequestConfig requestConfig = RequestConfig.custom()
+	            .setConnectTimeout(TIMEOUT)  // Timeout for establishing a connection (in milliseconds)
+	            .setSocketTimeout(TIMEOUT)  // Timeout for waiting for data (in milliseconds)
+	            .setConnectionRequestTimeout(TIMEOUT) // Timeout for requesting a connection from the connection manager
+	            .build();
+		
+		httpClient = HttpClients.custom().setDefaultRequestConfig(requestConfig).build();
 		gson = new GsonBuilder().create();
 	}
 	

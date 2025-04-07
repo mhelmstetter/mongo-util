@@ -198,7 +198,13 @@ public class DbHashUtil implements Callable<Integer> {
 
 			for (Map.Entry<String, MutablePair<String, String>> innerEntry : innerMap.entrySet()) {
 				MutablePair<String, String> pair = innerEntry.getValue();
-				logger.debug("    shard: {}, sourceHash: {}, destHash: {}", innerEntry.getKey(), pair.left, pair.right);
+				if (pair.left.equals(pair.right)) {
+					logger.debug("    shard: {}, sourceHash: {}, destHash: {} -- ✅ PASS", innerEntry.getKey(), pair.left, pair.right);
+				} else {
+					logger.debug("    shard: {}, sourceHash: {}, destHash: {} -- ❌ FAIL", innerEntry.getKey(), pair.left, pair.right);
+				}
+				
+				
 			}
 
 		}

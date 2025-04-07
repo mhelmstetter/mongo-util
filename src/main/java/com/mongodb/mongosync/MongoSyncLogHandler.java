@@ -30,10 +30,13 @@ public class MongoSyncLogHandler extends LogOutputStream {
     
     private PrintWriter writer;
 
-    public MongoSyncLogHandler(MongoSyncEventListener listener, String id, File logPath) throws IOException {
+    public MongoSyncLogHandler(MongoSyncRunner listener, String id, File logPath) throws IOException {
         super();
-        this.listener = listener;
-        readyForPauseRegex = constructRegexContainingPhrases(READY_FOR_PAUSE_PHRASES);
+        if (listener.isCoordinator()) {
+        	this.listener = listener;
+            readyForPauseRegex = constructRegexContainingPhrases(READY_FOR_PAUSE_PHRASES);
+        }
+        
         
         File logFile = new File(logPath, id + ".log");
         if (logFile.exists()) {
