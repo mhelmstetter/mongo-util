@@ -94,7 +94,6 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 		addArg("port", port);
 		addArg("loadLevel", loadLevel);
 		addArg("id", id);
-		addArg("acceptDisclaimer");
 
 		MongoSyncLogHandler logHandler = new MongoSyncLogHandler(this, id, logDir);
 		PumpStreamHandler psh = new PumpStreamHandler(logHandler);
