@@ -3,7 +3,9 @@ package com.mongodb.corruptutil;
 import static com.mongodb.client.model.Filters.eq;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -15,7 +17,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
@@ -25,6 +26,7 @@ import org.slf4j.LoggerFactory;
 import com.mongodb.MongoServerException;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Projections;
@@ -188,7 +190,6 @@ public class DupeIdCollectionWorker implements Runnable {
                 collection.getNamespace(), count, dur, dupeCount, duplicateDocsCount));
         
         shutdown();
-
     }
     
 	public void shutdown() {
@@ -202,5 +203,13 @@ public class DupeIdCollectionWorker implements Runnable {
 			Thread.currentThread().interrupt();
 		}
 		logger.debug("DupeIdCollectionWorker shutdown complete");
+	}
+	
+	public long getCount() {
+		return count;
+	}
+
+	public long getDupeCount() {
+		return dupeCount;
 	}
 }

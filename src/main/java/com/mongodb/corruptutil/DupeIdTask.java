@@ -92,16 +92,16 @@ public class DupeIdTask implements Callable<DupeIdTaskResult> {
 	                if (!duplicateIds.isEmpty()) {
 	                    duplicateIds.add(lastId);
 	                    dupesBatch.addAll(duplicateIds);
-	                    //processDupesBatch();
+	                    processDupesBatch();
 	                    duplicateIds.clear();
 	                }
 	            }
 
 	            lastId = id;
 
-//	            if (dupesBatch.size() >= BATCH_SIZE) {
-//	                processDupesBatch();
-//	            }
+	            if (dupesBatch.size() >= BATCH_SIZE) {
+	                processDupesBatch();
+	            }
 	        }
 
 	        // Process any remaining duplicates

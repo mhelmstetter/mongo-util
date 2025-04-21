@@ -8,17 +8,14 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.corruptutil.DupeUtil;
 import com.mongodb.dbhash.DbHashUtil;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
-import com.mongodb.mongosync.model.MongoSyncState;
-import com.mongodb.mongosync.model.MongoSyncStatus;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.shardsync.ShardConfigSync;
@@ -72,12 +69,16 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 
 	@Option(names = { "--wiredTigerConfigString" }, description = "WiredTiger config string", required = false)
 	private String wiredTigerConfigString;
+	
+	@Option(names = { "--dupeCheckTreads" }, description = "# threads per collection to use for duplicate _id checking", required = false, defaultValue = "4")
+	private int dupeCheckThreads;
 
 	private ShardConfigSync shardConfigSync;
 	private SyncConfiguration shardConfigSyncConfig;
 	private ChunkManager chunkManager;
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
+	private DupeUtil dupeUtil;
 
 	List<MongoSyncRunner> mongosyncRunners;
 
@@ -134,12 +135,22 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		if (logDir == null) {
 			logDir = new File(".");
 		}
+		
+		dupeUtil = new DupeUtil(sourceUri, destUri, "dupeArchive", null);
+		dupeUtil.setThreads(dupeCheckThreads);
+		dupeUtil.addFilters(includeNamespaces.toArray(new String[0]));
 
 	}
 
 	@Override
 	public Integer call() throws Exception {
 		initialize();
+		
+		long dupeCount = dupeUtil.run();
+		
+		if (dupeCount > 0) {
+			
+		}
 
 		List<Namespace> includes = null;
 		if (includeNamespaces != null && !includeNamespaces.isEmpty()) {

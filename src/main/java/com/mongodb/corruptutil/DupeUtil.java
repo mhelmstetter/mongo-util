@@ -1,10 +1,14 @@
 package com.mongodb.corruptutil;
 
+import java.text.NumberFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -12,17 +16,25 @@ import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
+import org.bson.Document;
 import org.bson.RawBsonDocument;
+import org.bson.conversions.Bson;
+import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Projections;
+import com.mongodb.client.result.DeleteResult;
 import com.mongodb.model.Namespace;
 
 public class DupeUtil {
@@ -48,6 +60,12 @@ public class DupeUtil {
     
     private Integer startId;
     
+    private final Set<String> startingCollectionNames = new HashSet<>();
+    private final Set<String> finalCollectionNames = new HashSet<>();
+    private final Set<String> newCollectionNames = new HashSet<>();
+    
+    List<DupeIdCollectionWorker> workers = new ArrayList<>();
+    
     public DupeUtil(String sourceUriStr, String destUriStr, String archiveDbName, String startIdStr) {
     	ConnectionString connectionString = new ConnectionString(sourceUriStr);
     	MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
@@ -72,10 +90,11 @@ public class DupeUtil {
     	if (startIdStr != null) {
     		startId = Integer.parseInt(startIdStr);
     	}
-    	
+    	populateCollectionNames(startingCollectionNames);
     }
     
-    public void run() throws InterruptedException {
+    public long run() throws InterruptedException {
+    	logger.debug("DupeUtil starting");
         executor = Executors.newFixedThreadPool(threads);
         MongoIterable<String> dbNames = sourceClient.listDatabaseNames();
         for (String dbName : dbNames) {
@@ -92,7 +111,8 @@ public class DupeUtil {
 					}
                     
                     MongoCollection<RawBsonDocument> coll = db.getCollection(collectionName, RawBsonDocument.class);
-                    Runnable worker = new DupeIdCollectionWorker(coll, archiveDb, threads);
+                    DupeIdCollectionWorker worker = new DupeIdCollectionWorker(coll, archiveDb, threads);
+                    workers.add(worker);
                     executor.execute(worker);
                 }
             }
@@ -102,10 +122,134 @@ public class DupeUtil {
         while (!executor.isTerminated()) {
             Thread.sleep(1000);
         }
-        logger.debug("CorruptUtil complete");
+        
+        long totalCount = 0;
+        long dupeCount = 0;
+        for (DupeIdCollectionWorker worker : workers) {
+        	totalCount += worker.getCount();
+        	dupeCount += worker.getDupeCount();
+        }
+        
+        NumberFormat formatter = NumberFormat.getInstance();
+        logger.debug("DupeUtil complete, found {} duplicates out of {} docs", 
+                     formatter.format(dupeCount), formatter.format(totalCount));
+        
+        computeNewCollections();
+        logger.debug("new collections: {}", newCollectionNames);
+        
+        return dupeCount;
     }
     
-    private void addFilters(String[] filters) {
+	/**
+	 * Computes the set difference between finalCollectionNames and startingCollectionNames.
+	 * The result contains all elements that are in finalCollectionNames but not in startingCollectionNames.
+	 */
+	public void computeNewCollections() {
+	    // Clear any existing entries in newCollections
+		newCollectionNames.clear();
+	    
+	    // Add all elements from finalCollectionNames
+		newCollectionNames.addAll(finalCollectionNames);
+	    
+	    // Remove all elements that are also in startingCollectionNames
+		newCollectionNames.removeAll(startingCollectionNames);
+	}
+	
+	public void populateCollectionNames(Set<String> names) {
+	    
+	    try (MongoCursor<String> cursor = archiveDb.listCollectionNames().iterator()) {
+	        while (cursor.hasNext()) {
+	            names.add(cursor.next());
+	        }
+	    }
+	}
+	
+	/**
+	 * Iterates through collections ending with "_1" and deletes related documents 
+	 * from corresponding collections.
+	 * Collection names follow pattern: <dbName>_collectionName_[1-3]
+	 *
+	 * @param mongoClient The MongoDB client instance
+	 * @param newCollectionNames Set of collection names to process
+	 * @param batchSize Size of batches for deletion operations
+	 */
+	public void processAndDeleteRelatedDocuments(MongoClient mongoClient, 
+	                                           Set<String> newCollectionNames,
+	                                           int batchSize) {
+	    // Filter for collections ending with "_1"
+	    Set<String> sourceCollections = newCollectionNames.stream()
+	            .filter(name -> name.endsWith("_1"))
+	            .collect(Collectors.toSet());
+	    
+	    for (String sourceCollection : sourceCollections) {
+	        // Parse dbName and collectionName from the pattern <dbName>_collectionName_1
+	        String[] parts = sourceCollection.split("_");
+	        if (parts.length < 3) {
+	            logger.warn("Invalid collection name format: " + sourceCollection);
+	            continue;
+	        }
+	        
+	        String dbName = parts[0];
+	        // Reconstruct the collection base name without the suffix "_1"
+	        String collectionBaseName = String.join("_", 
+	            Arrays.copyOfRange(parts, 1, parts.length - 1));
+	        
+	        // Get the source collection to query IDs from
+	        MongoCollection<Document> collection = mongoClient
+	            .getDatabase(dbName)
+	            .getCollection(sourceCollection);
+	        
+	        // Query only the _id fields
+	        FindIterable<Document> documents = collection.find()
+	            .projection(Projections.include("_id"));
+	        
+	        List<ObjectId> idBatch = new ArrayList<>(batchSize);
+	        
+	        // Iterate through the IDs and delete in batches
+	        for (Document doc : documents) {
+	            idBatch.add(doc.getObjectId("_id"));
+	            
+	            // When batch is full, delete from target collection and reset batch
+	            if (idBatch.size() >= batchSize) {
+	                deleteFromTargetCollection(mongoClient, dbName, collectionBaseName, idBatch);
+	                idBatch.clear();
+	            }
+	        }
+	        
+	        // Process any remaining IDs in the final batch
+	        if (!idBatch.isEmpty()) {
+	            deleteFromTargetCollection(mongoClient, dbName, collectionBaseName, idBatch);
+	        }
+	    }
+	}
+
+	/**
+	 * Deletes documents from the target collection using the provided IDs.
+	 *
+	 * @param mongoClient MongoDB client
+	 * @param dbName Database name
+	 * @param collectionBaseName Base collection name
+	 * @param idBatch List of ObjectIds to delete
+	 */
+	private void deleteFromTargetCollection(MongoClient mongoClient, 
+	                                     String dbName, 
+	                                     String collectionBaseName,
+	                                     List<ObjectId> idBatch) {
+
+		MongoCollection<Document> targetCollection = mongoClient
+	        .getDatabase(dbName)
+	        .getCollection(collectionBaseName);
+	    
+	    // Create the $in query for deletion
+	    Bson deleteFilter = Filters.in("_id", idBatch);
+	    
+	    // Perform the deletion
+	    DeleteResult result = targetCollection.deleteMany(deleteFilter);
+	    logger.info("Deleted " + result.getDeletedCount() + " documents from " + 
+	                dbName + "." + collectionBaseName);
+	}
+    
+    public void addFilters(String[] filters) {
     	this.filtered = filters != null;
     	if (filters == null) {
     		return;
@@ -116,7 +260,7 @@ public class DupeUtil {
     	}
     }
     
-    private void setThreads(int threads) {
+    public void setThreads(int threads) {
         this.threads = threads;
     }
 
