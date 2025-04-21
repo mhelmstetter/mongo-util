@@ -3,9 +3,7 @@ package com.mongodb.corruptutil;
 import static com.mongodb.client.model.Filters.eq;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -26,12 +24,12 @@ import org.slf4j.LoggerFactory;
 import com.mongodb.MongoServerException;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.util.CallerBlocksPolicy;
+import com.mongodb.util.PausableThreadPoolExecutor;
 import com.mongodb.util.bson.BsonValueWrapper;
 
 public class DupeIdCollectionWorker implements Runnable {
@@ -65,7 +63,7 @@ public class DupeIdCollectionWorker implements Runnable {
         this.archiveDb = archiveDb;
         
         workQueue = new ArrayBlockingQueue<>(queueSize);
-        executor = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE * 5));
+        executor = new PausableThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, workQueue, new CallerBlocksPolicy(ONE_MINUTE * 5));
         completionService = new ExecutorCompletionService<>(executor);
     }
     
@@ -120,6 +118,7 @@ public class DupeIdCollectionWorker implements Runnable {
             
             while (idSet.size() < sampleCount) {
             	try {
+            		logger.debug("while loop idSet size: {}", idSet.size());
         			AggregateIterable<RawBsonDocument> results = collection.aggregate(pipeline);
         			for (RawBsonDocument result : results) {
         				BsonValue id = result.get("_id");
