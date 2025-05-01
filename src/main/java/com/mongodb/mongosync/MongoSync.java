@@ -72,6 +72,9 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	
 	@Option(names = { "--dupeCheckTreads" }, description = "# threads per collection to use for duplicate _id checking", required = false, defaultValue = "4")
 	private int dupeCheckThreads;
+	
+	@Option(names = { "--targetShards" }, description = "Target shards to distribute chunks to", required = false)
+    private Set<String> targetShards;
 
 	private ShardConfigSync shardConfigSync;
 	private SyncConfiguration shardConfigSyncConfig;
@@ -149,7 +152,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		long dupeCount = dupeUtil.run();
 		
 		if (dupeCount > 0) {
-			
+			//TODO
 		}
 
 		List<Namespace> includes = null;

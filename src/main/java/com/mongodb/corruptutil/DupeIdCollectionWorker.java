@@ -93,7 +93,7 @@ public class DupeIdCollectionWorker implements Runnable {
     		final int sampleCount = total < 100000 ? (int)Math.round(total * 0.01) : 25000;
 
             
-            int sampleInterval = (int)Math.round(sampleCount * 0.01);
+    		int sampleInterval = Math.max(1, (int)Math.round(sampleCount * 0.01));
             
             logger.debug("{} estimated doc count: {}, sampleCount: {}, sampleInterval: {}", collection.getNamespace(), 
             		total, sampleCount, sampleInterval);
