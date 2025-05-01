@@ -57,6 +57,9 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 
 	@Option(names = { "--buildIndexes" }, description = "Build indexes on target", required = false)
 	private boolean buildIndexes = true;
+	
+	@Option(names = { "--dupeCheck" }, description = "Check for duplicate _ids", required = false)
+	private boolean dupeCheck = true;
 
 	@Option(names = { "--drop" }, description = "Drop target db and mongosync internal db", required = false)
 	private boolean drop = false;
@@ -149,10 +152,12 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	public Integer call() throws Exception {
 		initialize();
 		
-		long dupeCount = dupeUtil.run();
-		
-		if (dupeCount > 0) {
-			//TODO
+		if (dupeCheck) {
+			long dupeCount = dupeUtil.run();
+			
+			if (dupeCount > 0) {
+				//TODO
+			}
 		}
 
 		List<Namespace> includes = null;
@@ -185,6 +190,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			if (i == 0) {
 				mongosync.setCoordinator(true);
 			}
+			
 			String destShardId = chunkManager.getShardMapping(source.getId());
 			Shard dest = destShardClient.getShardsMap().get(destShardId);
 			logger.debug(String.format("Creating MongoSyncRunner for %s ==> %s", source.getId(), dest.getId()));
