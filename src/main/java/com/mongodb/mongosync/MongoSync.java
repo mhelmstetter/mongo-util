@@ -8,10 +8,18 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.bson.Document;
+import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.MongoException;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Projections;
+import com.mongodb.client.result.DeleteResult;
 import com.mongodb.corruptutil.DupeUtil;
 import com.mongodb.dbhash.DbHashUtil;
 import com.mongodb.model.Namespace;
@@ -65,7 +73,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	private boolean drop = false;
 
 	@Option(names = { "--includeNamespaces" }, description = "Namespaces to include", required = false, split=",")
-	private Set<String> includeNamespaces;
+	private Set<String> includeNamespaceStrings;
 
 	@Option(names = { "--shardMap" }, description = "Shard map, ex: shA|sh0,shB|sh1", required = false)
 	private String shardMap;
@@ -76,6 +84,9 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	@Option(names = { "--dupeCheckThreads" }, description = "# threads per collection to use for duplicate _id checking", required = false, defaultValue = "4")
 	private int dupeCheckThreads;
 	
+	@Option(names = { "--archiveDbName" }, description = "database name that dupe checker uses to store found duplicates", required = false, defaultValue = "_dupesArchive")
+	private String archiveDbName;
+	
 	@Option(names = { "--targetShards" }, description = "Target shards to distribute chunks to", required = false, split=",")
     private Set<String> targetShards;
 
@@ -85,6 +96,8 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	private ShardClient sourceShardClient;
 	private ShardClient destShardClient;
 	private DupeUtil dupeUtil;
+	
+	private List<Namespace> includeNamespaces = new ArrayList<>();
 
 	List<MongoSyncRunner> mongosyncRunners;
 
@@ -95,8 +108,8 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		shardConfigSyncConfig = new SyncConfiguration();
 		shardConfigSyncConfig.setSourceClusterUri(sourceUri);
 		shardConfigSyncConfig.setDestClusterUri(destUri);
-		if (includeNamespaces != null) {
-			shardConfigSyncConfig.setNamespaceFilters(includeNamespaces.toArray(new String[0]));
+		if (includeNamespaceStrings != null) {
+			shardConfigSyncConfig.setNamespaceFilters(includeNamespaceStrings.toArray(new String[0]));
 		}
 		
 		if (shardMap != null) {
@@ -117,7 +130,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		this.destShardClient = shardConfigSyncConfig.getDestShardClient();
 
 		sourceShardClient.populateShardMongoClients();
-		sourceShardClient.populateCollectionsMap(includeNamespaces);
+		sourceShardClient.populateCollectionsMap(includeNamespaceStrings);
 		destShardClient.populateShardMongoClients();
 		destShardClient.stopBalancer();
 
@@ -146,9 +159,15 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			logDir = new File(".");
 		}
 		
-		dupeUtil = new DupeUtil(sourceUri, destUri, "dupeArchive", null);
+		dupeUtil = new DupeUtil(sourceUri, destUri, archiveDbName, null);
 		dupeUtil.setThreads(dupeCheckThreads);
-		dupeUtil.addFilters(includeNamespaces.toArray(new String[0]));
+		dupeUtil.addFilters(includeNamespaceStrings.toArray(new String[0]));
+		
+		if (includeNamespaceStrings != null && !includeNamespaceStrings.isEmpty()) {
+			for (String ns : includeNamespaceStrings) {
+				includeNamespaces.add(new Namespace(ns));
+			}
+		}
 
 	}
 
@@ -160,15 +179,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			long dupeCount = dupeUtil.run();
 			
 			if (dupeCount > 0) {
-				//TODO
-			}
-		}
-
-		List<Namespace> includes = null;
-		if (includeNamespaces != null && !includeNamespaces.isEmpty()) {
-			includes = new ArrayList<>();
-			for (String ns : includeNamespaces) {
-				includes.add(new Namespace(ns));
+				deleteDuplicatesOnSource();
 			}
 		}
 
@@ -190,7 +201,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			mongosync.setLoadLevel(loadLevel);
 			mongosync.setBuildIndexes(buildIndexes);
 			mongosync.setLogDir(logDir);
-			mongosync.setIncludeNamespaces(includes);
+			mongosync.setIncludeNamespaces(includeNamespaces);
 			if (i == 0) {
 				mongosync.setCoordinator(true);
 			}
@@ -231,13 +242,124 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		}
 
 		if (targetShards == null || targetShards.isEmpty()) {
-			DbHashUtil dbHash = new DbHashUtil(chunkManager, includeNamespaces);
+			DbHashUtil dbHash = new DbHashUtil(chunkManager, includeNamespaceStrings);
 			dbHash.call();
 		} else {
-			logger.debug("skipping dbHash since targetShards were specified / shard alignment does not match");
+			logger.debug("skipping dbHash since targetShards were specified / shard alignment does not match, reverting to estimated document counts");
+			compareCollectionCounts();
 		}
 		
 		return 0;
+	}
+	
+	private void deleteDuplicatesOnSource() {
+		for (Namespace ns : includeNamespaces) {
+			Namespace archiveNs1 = new Namespace(archiveDbName, ns.getNamespace() + "_1");
+			//Namespace archiveNs2 = new Namespace(archiveDbName, ns.getNamespace() + "_2");
+			MongoCollection<Document> c1 = destShardClient.getCollection(archiveNs1);
+			//MongoCollection<Document> c2 = destShardClient.getCollection(archiveNs2);
+			
+			// we only have to delete from c1, since the duplicate delete will delete all for a given _id
+			deleteDuplicates(c1, ns);
+		}
+	}
+	
+	private void deleteDuplicates(MongoCollection<Document> archiveColl, Namespace sourceNs) {
+	    MongoCollection<Document> sourceColl = sourceShardClient.getCollection(sourceNs);
+	    
+	    List<Object> idBatch = new ArrayList<>(1000);
+	    int totalDeleted = 0;
+	    int batchCount = 0;
+	    
+	    logger.info("Starting deletion of duplicates from {} based on archive collection", sourceNs);
+	    
+	    // Project only the _id field in the find operation
+	    FindIterable<Document> idOnlyDocs = archiveColl.find().projection(Projections.include("_id"));
+	    
+	    for (Document d : idOnlyDocs) {
+	        idBatch.add(d.get("_id"));
+	        
+	        // When we reach 1000 ids, execute a batch delete
+	        if (idBatch.size() >= 1000) {
+	            int deleted = deleteIdsInBatchWithRetry(sourceColl, idBatch);
+	            totalDeleted += deleted;
+	            batchCount++;
+	            
+	            logger.info("Batch #{}: Deleted {} documents from {}", batchCount, deleted, sourceNs);
+	            idBatch.clear(); // Reset the batch
+	        }
+	    }
+	    
+	    // Don't forget to process any remaining ids (less than 1000)
+	    if (!idBatch.isEmpty()) {
+	        int deleted = deleteIdsInBatchWithRetry(sourceColl, idBatch);
+	        totalDeleted += deleted;
+	        batchCount++;
+	        
+	        logger.info("Final batch #{}: Deleted {} documents from {}", batchCount, deleted, sourceNs);
+	    }
+	    
+	    logger.info("Completed deletion process. Total documents deleted: {} in {} batches", totalDeleted, batchCount);
+	}
+
+	private int deleteIdsInBatchWithRetry(MongoCollection<Document> collection, List<Object> ids) {
+	    final int MAX_RETRIES = 3;
+	    final int RETRY_DELAY_MS = 1000; // Initial delay of 1 second
+	    
+	    int retryCount = 0;
+	    Exception lastException = null;
+	    
+	    while (retryCount < MAX_RETRIES) {
+	        try {
+	            return deleteIdsInBatch(collection, new ArrayList<>(ids)); // Create a defensive copy
+	        } catch (MongoException e) {
+	            lastException = e;
+	            retryCount++;
+	            
+	            if (retryCount >= MAX_RETRIES) {
+	                logger.error("Failed to delete batch after {} retries", MAX_RETRIES, e);
+	                break;
+	            }
+	            
+	            // Exponential backoff
+	            int delayMs = RETRY_DELAY_MS * (int) Math.pow(2, retryCount - 1);
+	            logger.warn("Batch deletion failed (attempt {}/{}). Retrying in {} ms. Error: {}", 
+	                       retryCount, MAX_RETRIES, delayMs, e.getMessage());
+	            
+	            try {
+	                Thread.sleep(delayMs);
+	            } catch (InterruptedException ie) {
+	                Thread.currentThread().interrupt();
+	                throw new RuntimeException("Interrupted during retry delay", ie);
+	            }
+	        }
+	    }
+	    
+	    // If we've exhausted retries, throw the last exception
+	    if (lastException != null) {
+	        throw new RuntimeException("Failed to delete batch after exhausting retries", lastException);
+	    }
+	    
+	    return 0; // Should never reach here
+	}
+
+	// Original helper to perform the actual deletion
+	private int deleteIdsInBatch(MongoCollection<Document> collection, List<Object> ids) {
+	    Bson filter = Filters.in("_id", ids);
+	    DeleteResult result = collection.deleteMany(filter);
+	    return (int) result.getDeletedCount();
+	}
+	
+	private void compareCollectionCounts() {
+		for (Namespace ns : includeNamespaces) {
+			Number sourceCount = sourceShardClient.getFastCollectionCount(ns.getDatabaseName(), ns.getCollectionName());
+			Number destCount = destShardClient.getFastCollectionCount(ns.getDatabaseName(), ns.getCollectionName());
+			if (sourceCount.equals(destCount)) {
+				logger.debug("    ns: {}, sourceCount and destCount match {} -- ✅ PASS", ns, sourceCount);
+			} else {
+				logger.debug("    ns: {}, sourceCount and destCount differ, sourceCount: {}, destCount: {} -- ❌ FAIL", ns, sourceCount, destCount);
+			}
+		}
 	}
 
 	private void shutdown() {
@@ -301,7 +423,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 
 				Set<String> existingDestNs = destShardClient.getCollectionsMap().keySet();
 				logger.debug("dest cluster has {} collections total -- {}", existingDestNs.size(), existingDestNs);
-				logger.debug("includeNamespaces: {}", includeNamespaces);
+				logger.debug("includeNamespaces: {}", includeNamespaceStrings);
 
 				shardConfigSync.syncMetadataOptimized();
 
