@@ -74,6 +74,8 @@ public class MongoDataLoader implements Callable<Integer> {
     private static final Set<ObjectId> duplicateIds = new HashSet<>();
     private static final Map<Integer, Integer> shardDistributionMap = new HashMap<>();
     
+    private static final AtomicInteger successfulDuplicatesCounter = new AtomicInteger(0);
+    
     private MongoClient mongoClient;
 
     public static void main(String[] args) {
@@ -208,7 +210,7 @@ public class MongoDataLoader implements Callable<Integer> {
                 logger.info("Insertion rate: {} docs/second", String.format("%.2f", counter.get() / duration));
                 
                 if (insertDupes) {
-                    logger.info("Inserted {} documents with duplicate _ids", duplicateIds.size());
+                	logger.info("Inserted {} documents with duplicate _ids", successfulDuplicatesCounter.get());
                 }
             } else {
                 logger.error("Timed out waiting for document insertion to complete");
@@ -614,6 +616,7 @@ public class MongoDataLoader implements Callable<Integer> {
                                 collection.insertOne(doc2);
                                 counter.incrementAndGet();
                                 logger.info("Successfully inserted duplicate _id: {}", duplicateId);
+                                successfulDuplicatesCounter.incrementAndGet();
                             } catch (Exception e) {
                                 logger.warn("Duplicate _id rejected for: {} - {}", duplicateId, e.getMessage());
                                 // Don't increment counter for documents that weren't inserted
