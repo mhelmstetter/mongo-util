@@ -84,7 +84,7 @@ public class DupeUtil implements Callable<Integer> {
     
     private final Set<String> startingCollectionNames = new HashSet<>();
     private final Set<String> finalCollectionNames = new HashSet<>();
-    private final Set<String> newCollectionNames = new HashSet<>();
+    private final Set<String> newArchiveCollectionNames = new HashSet<>();
     
     List<DupeIdCollectionWorker> workers = new ArrayList<>();
     
@@ -181,11 +181,6 @@ public class DupeUtil implements Callable<Integer> {
         }
         
         populateCollectionNames(startingCollectionNames);
-        
-        // Apply filters if specified via command line
-        if (filters != null && filters.length > 0) {
-            addFilters(filters);
-        }
     }
     
     @Override
@@ -241,7 +236,7 @@ public class DupeUtil implements Callable<Integer> {
                      formatter.format(dupeCount), formatter.format(totalCount));
         
         computeNewCollections();
-        logger.debug("new collections: {}", newCollectionNames);
+        logger.debug("new collections: {}", newArchiveCollectionNames);
         
         return dupeCount;
     }
@@ -252,13 +247,13 @@ public class DupeUtil implements Callable<Integer> {
      */
     public void computeNewCollections() {
         // Clear any existing entries in newCollections
-        newCollectionNames.clear();
+        newArchiveCollectionNames.clear();
         
         // Add all elements from finalCollectionNames
-        newCollectionNames.addAll(finalCollectionNames);
+        newArchiveCollectionNames.addAll(finalCollectionNames);
         
         // Remove all elements that are also in startingCollectionNames
-        newCollectionNames.removeAll(startingCollectionNames);
+        newArchiveCollectionNames.removeAll(startingCollectionNames);
     }
     
     public void populateCollectionNames(Set<String> names) {
@@ -374,4 +369,8 @@ public class DupeUtil implements Callable<Integer> {
         int exitCode = cmdLine.execute(args);
         System.exit(exitCode);
     }
+
+	public Set<String> getNewArchiveCollectionNames() {
+		return newArchiveCollectionNames;
+	}
 }
