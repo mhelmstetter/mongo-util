@@ -1,19 +1,5 @@
 package com.mongodb.corruptutil;
 
-import com.mongodb.ConnectionString;
-import com.mongodb.MongoClientSettings;
-import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoClients;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoDatabase;
-import org.bson.Document;
-import org.bson.types.ObjectId;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import picocli.CommandLine;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Option;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -28,7 +14,22 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
+
+import org.bson.Document;
+import org.bson.types.ObjectId;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 
 @Command(name = "MongoDataLoader", mixinStandardHelpOptions = true, 
          description = "Loads dummy data into MongoDB collections with optional sharding")
@@ -53,9 +54,6 @@ public class MongoDataLoader implements Callable<Integer> {
 
     @Option(names = {"-t", "--threads"}, description = "Number of worker threads", defaultValue = "4")
     private int numThreads;
-
-    @Option(names = {"-s", "--shard"}, description = "Enable sharding for the collection", defaultValue = "false")
-    private boolean enableSharding;
     
     @Option(names = {"--insert-dupes"}, description = "Insert duplicate _id values (~1% of documents)", defaultValue = "true")
     private boolean insertDupes;
@@ -135,10 +133,7 @@ public class MongoDataLoader implements Callable<Integer> {
                 database.createCollection(collectionName);
             }
             
-            // Setup sharding if enabled
-            if (enableSharding) {
-                setupRangeSharding(client, database);
-            }
+            setupRangeSharding(client, database);
             
             // Set up thread pool for data loading
             ExecutorService executor = Executors.newFixedThreadPool(numThreads);
@@ -177,9 +172,7 @@ public class MongoDataLoader implements Callable<Integer> {
             }
             
             // Map out the shard keys for duplicates to ensure they land on different shards
-            if (enableSharding && insertDupes) {
-                setupShardDistributionMap(duplicateCount);
-            }
+            setupShardDistributionMap(duplicateCount);
             
             for (int i = 0; i < numThreads; i++) {
                 int threadDocs = docsPerThread + (i == 0 ? remainingDocs : 0);
