@@ -17,6 +17,7 @@ import picocli.CommandLine.Option;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -27,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 @Command(name = "MongoDataLoader", mixinStandardHelpOptions = true, 
          description = "Loads dummy data into MongoDB collections with optional sharding")
@@ -60,12 +62,17 @@ public class MongoDataLoader implements Callable<Integer> {
     
     @Option(names = {"--shard-chunks"}, description = "Number of chunks to pre-split", defaultValue = "16")
     private int numShardChunks;
+    
+    @Option(names = {"--drop"}, description = "Drop the collection if it already exists", defaultValue = "true")
+    private boolean dropCollection;
 
     private static final AtomicInteger counter = new AtomicInteger(0);
     private static final Random random = new Random();
     private static final Set<ObjectId> generatedIds = new HashSet<>();
     private static final Set<ObjectId> duplicateIds = new HashSet<>();
     private static final Map<Integer, Integer> shardDistributionMap = new HashMap<>();
+    
+    private MongoClient mongoClient;
 
     public static void main(String[] args) {
         int exitCode = new CommandLine(new MongoDataLoader()).execute(args);
@@ -79,6 +86,7 @@ public class MongoDataLoader implements Callable<Integer> {
         logger.info("Documents to insert: {}", numDocuments);
         logger.info("Using {} threads", numThreads);
         logger.info("Insert duplicates: {}", insertDupes);
+        logger.info("Drop existing collection: {}", dropCollection);
         
         // Pre-calculate approximate number of duplicate documents (~1%)
         int duplicateCount = insertDupes ? Math.max(1, numDocuments / 100) : 0;
@@ -92,29 +100,44 @@ public class MongoDataLoader implements Callable<Integer> {
             .applyConnectionString(connectionString)
             .build();
         
-        try (MongoClient mongoClient = MongoClients.create(mongoClientSettings)) {
-            MongoDatabase database = mongoClient.getDatabase(databaseName);
+        try (MongoClient client = MongoClients.create(mongoClientSettings)) {
+            // Store reference to the client for use in other methods
+            this.mongoClient = client;
             
-            // Create the collection if it doesn't exist
+            MongoDatabase database = client.getDatabase(databaseName);
+            
+            // Check if the collection exists
             boolean collectionExists = database.listCollectionNames()
                     .into(new ArrayList<>())
                     .contains(collectionName);
                     
-            if (!collectionExists) {
-                logger.info("Creating collection: {}", collectionName);
-                database.createCollection(collectionName);
-            } else {
-                // If collection exists and we're sharding, we should drop it first
-                if (enableSharding) {
-                    logger.info("Dropping existing collection to reconfigure sharding");
+            if (collectionExists) {
+                if (!dropCollection) {
+                    // Collection exists and should not be dropped - throw fatal error
+                    String errorMsg = String.format(
+                        "Collection %s.%s already exists and --drop flag is not set",
+                        databaseName, collectionName
+                    );
+                    logger.error(errorMsg);
+                    return 1; // Return error code
+                } else {
+                    // Drop the collection as requested
+                    logger.info("Dropping existing collection: {}", collectionName);
                     database.getCollection(collectionName).drop();
+                    
+                    // Create a new collection
+                    logger.info("Creating collection: {}", collectionName);
                     database.createCollection(collectionName);
                 }
+            } else {
+                // Collection doesn't exist, create it
+                logger.info("Creating collection: {}", collectionName);
+                database.createCollection(collectionName);
             }
             
             // Setup sharding if enabled
             if (enableSharding) {
-                setupRangeSharding(mongoClient, database);
+                setupRangeSharding(client, database);
             }
             
             // Set up thread pool for data loading
@@ -163,7 +186,7 @@ public class MongoDataLoader implements Callable<Integer> {
                 int threadDupes = dupesPerThread + (i == 0 ? remainingDupes : 0);
                 
                 executor.submit(new DataLoader(
-                    mongoClient, 
+                    client, 
                     databaseName, 
                     collectionName, 
                     threadDocs,
@@ -217,11 +240,6 @@ public class MongoDataLoader implements Callable<Integer> {
             database.getCollection(collectionName).createIndex(new Document("x", 1));
             logger.info("Created index on shard key field 'x'");
             
-            // Pre-split the chunks
-            if (numShardChunks > 1) {
-                presplitChunks(adminDb);
-            }
-            
             // Shard the collection with range sharding on 'x'
             Document shardCmd = new Document("shardCollection", databaseName + "." + collectionName)
                 .append("key", new Document("x", 1));
@@ -229,22 +247,39 @@ public class MongoDataLoader implements Callable<Integer> {
             Document shardResult = adminDb.runCommand(shardCmd);
             logger.info("Shard collection result: {}", shardResult.toJson());
             
-            // Distribute chunks across shards
-            distributeChunksAcrossShards(mongoClient);
+            // Get available shards
+            Document shardListResult = adminDb.runCommand(new Document("listShards", 1));
+            List<Document> shards = (List<Document>) shardListResult.get("shards");
+            
+            if (shards.size() < 2) {
+                logger.warn("Found only {} shard(s). At least 2 shards are recommended for duplicate distribution.", 
+                    shards.size());
+            }
+            
+            // Pre-split the chunks if we have multiple chunks defined
+            if (numShardChunks > 1) {
+                presplitChunks(adminDb, shards);
+            }
             
         } catch (Exception e) {
             logger.warn("Failed to setup sharding: {}. Will continue with insertion anyway.", e.getMessage());
         }
     }
     
-    private void presplitChunks(MongoDatabase adminDb) {
+    private void presplitChunks(MongoDatabase adminDb, List<Document> shards) {
         try {
             logger.info("Pre-splitting collection into {} chunks", numShardChunks);
             
             // Calculate split points (we'll use integers spread evenly across the range)
             int maxValue = Integer.MAX_VALUE;
             int chunkSize = maxValue / numShardChunks;
+            List<String> shardNames = new ArrayList<>();
             
+            for (Document shard : shards) {
+                shardNames.add(shard.getString("_id"));
+            }
+            
+            // Split the chunks
             for (int i = 1; i < numShardChunks; i++) {
                 int splitPoint = i * chunkSize;
                 Document splitCmd = new Document("split", databaseName + "." + collectionName)
@@ -255,15 +290,56 @@ public class MongoDataLoader implements Callable<Integer> {
             }
             
             logger.info("Successfully pre-split collection into {} chunks", numShardChunks);
+            
+            // Manually distribute chunks in a round-robin fashion across shards
+            if (shardNames.size() >= 2) {
+                logger.info("Distributing chunks across {} shards", shardNames.size());
+                distributeChunksInRoundRobin(adminDb, shardNames);
+            }
         } catch (Exception e) {
             logger.warn("Failed to pre-split chunks: {}. Continuing with sharding anyway.", e.getMessage());
         }
     }
     
-    private void distributeChunksAcrossShards(MongoClient mongoClient) {
+    private void distributeChunksInRoundRobin(MongoDatabase adminDb, List<String> shardNames) {
         try {
-            logger.info("Ensuring chunks are distributed across different shards");
+            // For each chunk (using chunk midpoints), move it to the appropriate shard in round-robin
+            int maxValue = Integer.MAX_VALUE;
+            int chunkSize = maxValue / numShardChunks;
             
+            for (int i = 0; i < numShardChunks; i++) {
+                // Calculate the midpoint of this chunk
+                int midpoint = i * chunkSize + (chunkSize / 2);
+                
+                // Determine target shard in round-robin fashion
+                String targetShard = shardNames.get(i % shardNames.size());
+                
+                // Create the moveChunk command
+                Document moveCmd = new Document("moveChunk", databaseName + "." + collectionName)
+                    .append("find", new Document("x", midpoint))
+                    .append("to", targetShard);
+                
+                try {
+                    Document moveResult = adminDb.runCommand(moveCmd);
+                    logger.debug("Moved chunk with midpoint {} to shard {}: {}", 
+                        midpoint, targetShard, moveResult.toJson());
+                } catch (Exception e) {
+                    logger.warn("Failed to move chunk with midpoint {} to shard {}: {}", 
+                        midpoint, targetShard, e.getMessage());
+                }
+            }
+            
+            logger.info("Finished distributing chunks in round-robin fashion");
+        } catch (Exception e) {
+            logger.warn("Error in round-robin chunk distribution: {}", e.getMessage());
+        }
+    }
+    
+    private void setupShardDistributionMap(int duplicateCount) {
+        // This map will help us distribute duplicate documents across different shards
+        logger.info("Setting up shard distribution map for duplicate documents");
+        
+        try {
             // Get shard names
             MongoDatabase adminDb = mongoClient.getDatabase("admin");
             List<String> shardNames = new ArrayList<>();
@@ -272,7 +348,7 @@ public class MongoDataLoader implements Callable<Integer> {
             List<Document> shards = (List<Document>) shardListResult.get("shards");
             
             if (shards.size() < 2) {
-                logger.error("At least 2 shards are required for this utility to distribute duplicates correctly");
+                logger.error("At least 2 shards are required for distributing duplicates");
                 return;
             }
             
@@ -280,105 +356,122 @@ public class MongoDataLoader implements Callable<Integer> {
                 shardNames.add(shard.getString("_id"));
             }
             
-            logger.info("Found {} shards: {}", shardNames.size(), shardNames);
+            logger.info("Found {} shards for distributing duplicates: {}", shardNames.size(), shardNames);
             
-            // Define boundaries based on numShardChunks
-            int chunkSize = Integer.MAX_VALUE / numShardChunks;
+            // Get current chunk distribution
+            Document chunksCmd = new Document("listChunks", databaseName + "." + collectionName);
+            Document chunksResult = adminDb.runCommand(chunksCmd);
+            List<Document> chunks = (List<Document>) chunksResult.get("chunks");
             
-            // For each pair of chunks (0 and half, 1 and half+1, etc), ensure they're on different shards
-            for (int i = 0; i < numShardChunks / 2; i++) {
-                int chunkIndex1 = i;
-                int chunkIndex2 = i + numShardChunks / 2;
-                
-                int midpoint1 = chunkIndex1 * chunkSize + (chunkSize / 2);
-                int midpoint2 = chunkIndex2 * chunkSize + (chunkSize / 2);
-                
-                // Define target shards for alternating chunks
-                String targetShard1 = shardNames.get(0);
-                String targetShard2 = shardNames.get(1);
-                
-                // Move chunk 1 to first shard
-                Document moveChunk1 = new Document("moveChunk", databaseName + "." + collectionName)
-                    .append("find", new Document("x", midpoint1)) // middle of chunk
-                    .append("to", targetShard1);
-                
-                try {
-                    Document result1 = adminDb.runCommand(moveChunk1);
-                    logger.info("Moved chunk containing x={} to shard {}: {}", 
-                        midpoint1, targetShard1, result1.toJson());
-                } catch (Exception e) {
-                    logger.warn("Could not move chunk with midpoint {}: {}", 
-                        midpoint1, e.getMessage());
-                }
-                
-                // Move chunk 2 to second shard
-                Document moveChunk2 = new Document("moveChunk", databaseName + "." + collectionName)
-                    .append("find", new Document("x", midpoint2)) // middle of chunk
-                    .append("to", targetShard2);
-                
-                try {
-                    Document result2 = adminDb.runCommand(moveChunk2);
-                    logger.info("Moved chunk containing x={} to shard {}: {}", 
-                        midpoint2, targetShard2, result2.toJson());
-                } catch (Exception e) {
-                    logger.warn("Could not move chunk with midpoint {}: {}", 
-                        midpoint2, e.getMessage());
-                }
+            if (chunks == null || chunks.isEmpty()) {
+                logger.warn("No chunks found for collection. Make sure sharding is properly set up.");
+                return;
             }
             
-            // Wait for migrations to complete
-            boolean migrationInProgress = true;
-            int attempts = 0;
+            logger.info("Found {} chunks for collection {}.{}", chunks.size(), databaseName, collectionName);
             
-            while (migrationInProgress && attempts < 10) {
-                Document migrationStatus = adminDb.runCommand(
-                    new Document("balancerStatus", 1)
-                );
-                
-                // Check if the balancer is currently moving chunks
-                migrationInProgress = migrationStatus.getBoolean("inBalancerRound", false);
-                
-                if (migrationInProgress) {
-                    logger.info("Waiting for chunk migrations to complete...");
-                    Thread.sleep(5000); // Wait 5 seconds
-                    attempts++;
-                }
+            // Map chunks to their shards
+            Map<String, List<Document>> chunksByShards = new HashMap<>();
+            for (Document chunk : chunks) {
+                String shardName = chunk.getString("shard");
+                chunksByShards.computeIfAbsent(shardName, k -> new ArrayList<>()).add(chunk);
             }
             
-            logger.info("Chunk distribution completed");
+            // For each duplicate ID, assign shard keys that will place it on different shards
+            int index = 0;
+            for (ObjectId id : duplicateIds) {
+                // Select two different shards
+                String shard1 = shardNames.get(index % shardNames.size());
+                String shard2 = shardNames.get((index + 1) % shardNames.size());
+                
+                // Get chunks for these shards
+                List<Document> chunksOnShard1 = chunksByShards.getOrDefault(shard1, new ArrayList<>());
+                List<Document> chunksOnShard2 = chunksByShards.getOrDefault(shard2, new ArrayList<>());
+                
+                if (chunksOnShard1.isEmpty() || chunksOnShard2.isEmpty()) {
+                    // Fallback to simple distribution if chunk info is not available
+                    int chunkSize = Integer.MAX_VALUE / numShardChunks;
+                    int value1 = (index % numShardChunks) * chunkSize + (chunkSize / 2);
+                    int value2 = ((index + numShardChunks / 2) % numShardChunks) * chunkSize + (chunkSize / 2);
+                    
+                    shardDistributionMap.put(id.hashCode(), value1);
+                    shardDistributionMap.put(-id.hashCode(), value2);
+                    
+                    logger.debug("Fallback: Mapped duplicate ID {} to shard keys {} and {}", 
+                        id, value1, value2);
+                } else {
+                    // Get a chunk from each shard
+                    Document chunk1 = chunksOnShard1.get(index % chunksOnShard1.size());
+                    Document chunk2 = chunksOnShard2.get(index % chunksOnShard2.size());
+                    
+                    // Extract chunk boundaries
+                    Document min1 = (Document) chunk1.get("min");
+                    Document max1 = (Document) chunk1.get("max");
+                    Document min2 = (Document) chunk2.get("min");
+                    Document max2 = (Document) chunk2.get("max");
+                    
+                    // Choose shard key values in the middle of each chunk
+                    int value1 = calculateMiddleValue(min1, max1);
+                    int value2 = calculateMiddleValue(min2, max2);
+                    
+                    shardDistributionMap.put(id.hashCode(), value1);
+                    shardDistributionMap.put(-id.hashCode(), value2);
+                    
+                    logger.debug("Mapped duplicate ID {} to shard keys {} and {} on shards {} and {}", 
+                        id, value1, value2, shard1, shard2);
+                }
+                
+                index++;
+            }
+            
+            logger.info("Created shard distribution map for {} duplicate IDs", duplicateIds.size());
+            
         } catch (Exception e) {
-            logger.error("Error distributing chunks: {}", e.getMessage(), e);
+            logger.error("Error setting up shard distribution map: {}", e.getMessage());
+            // Fall back to simple distribution method
+            setupSimpleShardDistributionMap(duplicateCount);
         }
     }
     
-    private void setupShardDistributionMap(int duplicateCount) {
-        // This map will help us distribute duplicate documents across different shards
+    private int calculateMiddleValue(Document min, Document max) {
+        // Get the shard key field 'x' from min and max documents
+        int minValue = min.getInteger("x", 0);
+        int maxValue = max.getInteger("x", Integer.MAX_VALUE);
+        
+        // Choose a value in the middle of the range
+        if (maxValue == Integer.MAX_VALUE) {
+            // For the last chunk, don't use Integer.MAX_VALUE directly
+            return minValue + 1000000 + random.nextInt(1000000);
+        }
+        
+        // For middle chunks, calculate middle with some randomness
+        return minValue + (maxValue - minValue) / 2 + random.nextInt(Math.max(1, (maxValue - minValue) / 10));
+    }
+    
+    private void setupSimpleShardDistributionMap(int duplicateCount) {
+        logger.info("Using simple shard distribution as fallback");
         int chunkSize = Integer.MAX_VALUE / numShardChunks;
         
         int index = 0;
         for (ObjectId id : duplicateIds) {
-            // For each duplicate ID, we'll assign two different shard keys
-            // that fall into chunks we've positioned on different shards
-            
-            // First chunk: chunk index i
-            // Second chunk: chunk index i + numShardChunks/2 (on different shard)
-            int chunkIndex = index % (numShardChunks / 2);
+            // First chunk on first shard
+            int chunkIndex1 = index % (numShardChunks / 2);
+            // Second chunk on second shard (offset by half the chunks)
+            int chunkIndex2 = (chunkIndex1 + numShardChunks / 2) % numShardChunks;
             
             // Calculate values in the middle of different chunks
-            int value1 = chunkIndex * chunkSize + (chunkSize / 2);
-            int value2 = (chunkIndex + numShardChunks / 2) * chunkSize + (chunkSize / 2);
+            int value1 = chunkIndex1 * chunkSize + (chunkSize / 2);
+            int value2 = chunkIndex2 * chunkSize + (chunkSize / 2);
             
-            // Store the mapping - we'll use the hash code of the ObjectId as key
+            // Store the mapping
             shardDistributionMap.put(id.hashCode(), value1);
             shardDistributionMap.put(-id.hashCode(), value2);
             
-            logger.debug("Mapped duplicate ID {} to shard keys {} and {}", 
+            logger.debug("Simple mapping: Duplicate ID {} to shard keys {} and {}", 
                 id, value1, value2);
             
             index++;
         }
-        
-        logger.info("Created shard distribution map for {} duplicate IDs", duplicateIds.size());
     }
     
     static class DataLoader implements Runnable {
@@ -405,15 +498,16 @@ public class MongoDataLoader implements Callable<Integer> {
             // Claim a portion of the duplicate IDs for this thread
             synchronized (duplicateIds) {
                 int count = 0;
-                for (ObjectId id : duplicateIds) {
-                    if (count >= duplicatesToInsert) {
-                        break;
-                    }
+                Iterator<ObjectId> iterator = duplicateIds.iterator();
+                while (iterator.hasNext() && count < duplicatesToInsert) {
+                    ObjectId id = iterator.next();
                     pendingDuplicateIds.add(id);
+                    iterator.remove();
                     count++;
                 }
-                // Remove the claimed IDs from the shared set
-                duplicateIds.removeAll(pendingDuplicateIds);
+                
+                logger.debug("Thread claimed {} duplicate IDs for insertion", 
+                    pendingDuplicateIds.size());
             }
         }
         
@@ -533,7 +627,7 @@ public class MongoDataLoader implements Callable<Integer> {
             return doc;
         }
         
-        private void verifyShardPlacement(ObjectId id, int shardKey1, int shardKey2) {
+        public void verifyShardPlacement(ObjectId id, int shardKey1, int shardKey2) {
             try {
                 MongoDatabase adminDb = mongoClient.getDatabase("admin");
                 
