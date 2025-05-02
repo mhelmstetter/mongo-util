@@ -37,10 +37,10 @@ public class MongoDataLoader implements Callable<Integer> {
     @Option(names = {"-u", "--uri"}, description = "MongoDB connection URI", required = true)
     private String uri;
 
-    @Option(names = {"-d", "--database"}, description = "Target database name", required = true)
+    @Option(names = {"-d", "--database"}, description = "Target database name", defaultValue = "db1")
     private String databaseName;
 
-    @Option(names = {"-c", "--collection"}, description = "Target collection name", required = true)
+    @Option(names = {"-c", "--collection"}, description = "Target collection name", defaultValue = "c1")
     private String collectionName;
 
     @Option(names = {"-n", "--num-docs"}, description = "Number of documents to insert", defaultValue = "10000")
@@ -228,6 +228,10 @@ public class MongoDataLoader implements Callable<Integer> {
             
             Document shardResult = adminDb.runCommand(shardCmd);
             logger.info("Shard collection result: {}", shardResult.toJson());
+            
+            // Distribute chunks across shards
+            distributeChunksAcrossShards(mongoClient);
+            
         } catch (Exception e) {
             logger.warn("Failed to setup sharding: {}. Will continue with insertion anyway.", e.getMessage());
         }
@@ -256,25 +260,120 @@ public class MongoDataLoader implements Callable<Integer> {
         }
     }
     
+    private void distributeChunksAcrossShards(MongoClient mongoClient) {
+        try {
+            logger.info("Ensuring chunks are distributed across different shards");
+            
+            // Get shard names
+            MongoDatabase adminDb = mongoClient.getDatabase("admin");
+            List<String> shardNames = new ArrayList<>();
+            
+            Document shardListResult = adminDb.runCommand(new Document("listShards", 1));
+            List<Document> shards = (List<Document>) shardListResult.get("shards");
+            
+            if (shards.size() < 2) {
+                logger.error("At least 2 shards are required for this utility to distribute duplicates correctly");
+                return;
+            }
+            
+            for (Document shard : shards) {
+                shardNames.add(shard.getString("_id"));
+            }
+            
+            logger.info("Found {} shards: {}", shardNames.size(), shardNames);
+            
+            // Define boundaries based on numShardChunks
+            int chunkSize = Integer.MAX_VALUE / numShardChunks;
+            
+            // For each pair of chunks (0 and half, 1 and half+1, etc), ensure they're on different shards
+            for (int i = 0; i < numShardChunks / 2; i++) {
+                int chunkIndex1 = i;
+                int chunkIndex2 = i + numShardChunks / 2;
+                
+                int midpoint1 = chunkIndex1 * chunkSize + (chunkSize / 2);
+                int midpoint2 = chunkIndex2 * chunkSize + (chunkSize / 2);
+                
+                // Define target shards for alternating chunks
+                String targetShard1 = shardNames.get(0);
+                String targetShard2 = shardNames.get(1);
+                
+                // Move chunk 1 to first shard
+                Document moveChunk1 = new Document("moveChunk", databaseName + "." + collectionName)
+                    .append("find", new Document("x", midpoint1)) // middle of chunk
+                    .append("to", targetShard1);
+                
+                try {
+                    Document result1 = adminDb.runCommand(moveChunk1);
+                    logger.info("Moved chunk containing x={} to shard {}: {}", 
+                        midpoint1, targetShard1, result1.toJson());
+                } catch (Exception e) {
+                    logger.warn("Could not move chunk with midpoint {}: {}", 
+                        midpoint1, e.getMessage());
+                }
+                
+                // Move chunk 2 to second shard
+                Document moveChunk2 = new Document("moveChunk", databaseName + "." + collectionName)
+                    .append("find", new Document("x", midpoint2)) // middle of chunk
+                    .append("to", targetShard2);
+                
+                try {
+                    Document result2 = adminDb.runCommand(moveChunk2);
+                    logger.info("Moved chunk containing x={} to shard {}: {}", 
+                        midpoint2, targetShard2, result2.toJson());
+                } catch (Exception e) {
+                    logger.warn("Could not move chunk with midpoint {}: {}", 
+                        midpoint2, e.getMessage());
+                }
+            }
+            
+            // Wait for migrations to complete
+            boolean migrationInProgress = true;
+            int attempts = 0;
+            
+            while (migrationInProgress && attempts < 10) {
+                Document migrationStatus = adminDb.runCommand(
+                    new Document("balancerStatus", 1)
+                );
+                
+                // Check if the balancer is currently moving chunks
+                migrationInProgress = migrationStatus.getBoolean("inBalancerRound", false);
+                
+                if (migrationInProgress) {
+                    logger.info("Waiting for chunk migrations to complete...");
+                    Thread.sleep(5000); // Wait 5 seconds
+                    attempts++;
+                }
+            }
+            
+            logger.info("Chunk distribution completed");
+        } catch (Exception e) {
+            logger.error("Error distributing chunks: {}", e.getMessage(), e);
+        }
+    }
+    
     private void setupShardDistributionMap(int duplicateCount) {
         // This map will help us distribute duplicate documents across different shards
-        // by assigning different shard key values for the same _id
         int chunkSize = Integer.MAX_VALUE / numShardChunks;
         
         int index = 0;
         for (ObjectId id : duplicateIds) {
             // For each duplicate ID, we'll assign two different shard keys
-            // that fall into different chunks
-            int shardIndex1 = index % numShardChunks;
-            int shardIndex2 = (index + numShardChunks / 2) % numShardChunks;
+            // that fall into chunks we've positioned on different shards
+            
+            // First chunk: chunk index i
+            // Second chunk: chunk index i + numShardChunks/2 (on different shard)
+            int chunkIndex = index % (numShardChunks / 2);
             
             // Calculate values in the middle of different chunks
-            int value1 = shardIndex1 * chunkSize + chunkSize / 2;
-            int value2 = shardIndex2 * chunkSize + chunkSize / 2;
+            int value1 = chunkIndex * chunkSize + (chunkSize / 2);
+            int value2 = (chunkIndex + numShardChunks / 2) * chunkSize + (chunkSize / 2);
             
             // Store the mapping - we'll use the hash code of the ObjectId as key
             shardDistributionMap.put(id.hashCode(), value1);
-            shardDistributionMap.put(-id.hashCode(), value2);  // Negated to make it different
+            shardDistributionMap.put(-id.hashCode(), value2);
+            
+            logger.debug("Mapped duplicate ID {} to shard keys {} and {}", 
+                id, value1, value2);
             
             index++;
         }
@@ -355,29 +454,45 @@ public class MongoDataLoader implements Callable<Integer> {
                     }
                 }
                 
-                // Now insert duplicate documents (one by one to handle duplicates)
+                // Now insert duplicate documents with better error handling
                 for (ObjectId duplicateId : pendingDuplicateIds) {
                     try {
+                        // Get the pre-calculated shard key values that should land on different shards
+                        int shardKey1 = shardDistributionMap.getOrDefault(duplicateId.hashCode(), random.nextInt());
+                        int shardKey2 = shardDistributionMap.getOrDefault(-duplicateId.hashCode(), random.nextInt());
+                        
+                        logger.debug("Inserting document with _id {} and shard key {}", duplicateId, shardKey1);
+                        
                         // First document with this ID
                         Document doc1 = generateDummyDocument(true, duplicateId);
+                        doc1.put("x", shardKey1);  // Set the first shard key
                         collection.insertOne(doc1);
                         counter.incrementAndGet();
                         
-                        // Second document with the same ID (will be on different shard)
-                        Document doc2 = generateDummyDocument(true, duplicateId);
-                        // Use a negated hashcode to get different shard key for same ID
-                        doc2.put("x", shardDistributionMap.getOrDefault(-duplicateId.hashCode(), random.nextInt()));
+                        // Quick delay to allow for any background processes
+                        Thread.sleep(50);
                         
-                        // Since this is a duplicate _id, it might fail, but that's expected
+                        logger.debug("Attempting to insert duplicate with _id {} and different shard key {}", 
+                            duplicateId, shardKey2);
+                        
+                        // Second document with the same ID but different shard key
+                        Document doc2 = generateDummyDocument(true, duplicateId);
+                        doc2.put("x", shardKey2);  // Set the second shard key
+                        
                         try {
                             collection.insertOne(doc2);
                             counter.incrementAndGet();
+                            logger.info("Successfully inserted duplicate _id: {}", duplicateId);
+                            
+                            // Verify the documents landed on different shards
+                            verifyShardPlacement(duplicateId, shardKey1, shardKey2);
+                            
                         } catch (Exception e) {
-                            // Expected duplicate key exception
-                            logger.debug("Expected duplicate key error for _id: {}", duplicateId);
+                            logger.error("Failed to insert duplicate _id {} with different shard key: {}", 
+                                duplicateId, e.getMessage());
                         }
                     } catch (Exception e) {
-                        logger.warn("Error inserting duplicate document: {}", e.getMessage());
+                        logger.warn("Error inserting first duplicate document: {}", e.getMessage());
                     }
                 }
                 
@@ -391,7 +506,7 @@ public class MongoDataLoader implements Callable<Integer> {
         
         private Document generateDummyDocument(boolean isDuplicate, ObjectId specificId) {
             ObjectId docId;
-            int docCounter = counter.incrementAndGet();
+            int docCounter = counter.get() + 1; // Use get() instead of incrementAndGet() to avoid double counting
             
             if (isDuplicate && specificId != null) {
                 docId = specificId;
@@ -406,9 +521,6 @@ public class MongoDataLoader implements Callable<Integer> {
             
             Document doc = new Document()
                 .append("_id", docId)
-                .append("x", isDuplicate ? 
-                    shardDistributionMap.getOrDefault(docId.hashCode(), docCounter) : 
-                    docCounter)
                 .append("value", "test-value-" + docCounter)
                 .append("randomData", "Lorem ipsum dolor sit amet " + docCounter)
                 .append("isActive", docCounter % 2 == 0)
@@ -419,6 +531,68 @@ public class MongoDataLoader implements Callable<Integer> {
             }
             
             return doc;
+        }
+        
+        private void verifyShardPlacement(ObjectId id, int shardKey1, int shardKey2) {
+            try {
+                MongoDatabase adminDb = mongoClient.getDatabase("admin");
+                
+                // Find which shard contains the first document
+                Document explain1 = adminDb.runCommand(
+                    new Document("explain", 
+                        new Document("find", databaseName + "." + collectionName)
+                        .append("filter", new Document("_id", id).append("x", shardKey1))
+                    )
+                    .append("verbosity", "queryPlanner")
+                );
+                
+                // Find which shard contains the second document (should be a different shard)
+                Document explain2 = adminDb.runCommand(
+                    new Document("explain", 
+                        new Document("find", databaseName + "." + collectionName)
+                        .append("filter", new Document("_id", id).append("x", shardKey2))
+                    )
+                    .append("verbosity", "queryPlanner")
+                );
+                
+                // Extract shard information from explain output
+                String shard1 = extractShardFromExplain(explain1);
+                String shard2 = extractShardFromExplain(explain2);
+                
+                if (shard1 != null && shard2 != null) {
+                    if (shard1.equals(shard2)) {
+                        logger.error("PROBLEM: Both documents with _id {} landed on same shard {}", 
+                            id, shard1);
+                    } else {
+                        logger.info("SUCCESS: Documents with _id {} landed on different shards: {} and {}", 
+                            id, shard1, shard2);
+                    }
+                } else {
+                    logger.warn("Could not determine shard placement for one or both documents with _id {}", id);
+                }
+            } catch (Exception e) {
+                logger.error("Error verifying shard placement: {}", e.getMessage());
+            }
+        }
+        
+        private String extractShardFromExplain(Document explain) {
+            try {
+                if (explain.containsKey("queryPlanner")) {
+                    Document queryPlanner = (Document) explain.get("queryPlanner");
+                    if (queryPlanner.containsKey("winningPlan")) {
+                        Document winningPlan = (Document) queryPlanner.get("winningPlan");
+                        if (winningPlan.containsKey("shards")) {
+                            List<Document> shards = (List<Document>) winningPlan.get("shards");
+                            if (!shards.isEmpty()) {
+                                return shards.get(0).getString("shardName");
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Error extracting shard from explain: {}", e.getMessage());
+            }
+            return null;
         }
     }
 }

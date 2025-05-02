@@ -51,8 +51,15 @@ public class ChunkManager {
 	
 	private BaseConfiguration config;
 	
+	private Set<String> targetShards;
+	private Iterator<String> targetShardIterator;
+	
 	public ChunkManager (BaseConfiguration config) {
 		this.config = config;
+		if (config instanceof SyncConfiguration) {
+	        SyncConfiguration syncConfig = (SyncConfiguration) config;
+	        this.targetShards = syncConfig.getTargetShards();
+	    }
 	}
 	
 	@SuppressWarnings("unchecked")
@@ -111,56 +118,105 @@ public class ChunkManager {
 			sourceShardClient.init();
 			destShardClient.init();
 			
-			logger.debug("Source shard count: " + sourceShardClient.getShardsMap().size());
-			// default, just match up the shards 1:1
-			int index = 0;
-			
-			Map<String, Shard> sourceTertiaryMap = sourceShardClient.getTertiaryShardsMap();
-			
-			//Map<String, Shard> sourceShardsMap = sourceTertiaryMap.isEmpty() ?  sourceShardClient.getShardsMap() : sourceTertiaryMap;
-			Map<String, Shard> sourceShardsMap = sourceShardClient.getShardsMap();
-			
-			List<Shard> destList = new ArrayList<Shard>(destShardClient.getShardsMap().values());
-			
-			if (config.getShardMap() == null && sourceShardsMap.size() != destList.size() && !config.isShardToRs()) {
-				throw new IllegalArgumentException(String.format("disparate shard counts requires shardMap to be defined, sourceShardCount: %s, destShardCount: %s", 
-						sourceShardsMap.size(), destList.size()));
+			// Check if target shards are specified
+			if (config instanceof SyncConfiguration) {
+				SyncConfiguration syncConfig = (SyncConfiguration) config;
+				targetShards = syncConfig.getTargetShards();
 			}
 			
-			if (! config.isShardToRs()) {
-				for (Iterator<Shard> i = sourceShardsMap.values().iterator(); i.hasNext();) {
-					Shard sourceShard = i.next();
-					Shard destShard = destList.get(index);
-					if (destShard != null) {
-						logger.debug(sourceShard.getId() + " ==> " + destShard.getId());
-						sourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
-					}
-					index++;
+			// Validate target shards if specified
+			if (targetShards != null && !targetShards.isEmpty()) {
+				validateTargetShards();
+				logger.debug("Using specified target shards: {}", targetShards);
+				// If target shards are specified but no shard map, we'll create a round-robin mapping
+				createTargetShardsMapping();
+			} else {
+				logger.debug("Source shard count: " + sourceShardClient.getShardsMap().size());
+				// default, just match up the shards 1:1
+				int index = 0;
+				
+				Map<String, Shard> sourceTertiaryMap = sourceShardClient.getTertiaryShardsMap();
+				
+				//Map<String, Shard> sourceShardsMap = sourceTertiaryMap.isEmpty() ?  sourceShardClient.getShardsMap() : sourceTertiaryMap;
+				Map<String, Shard> sourceShardsMap = sourceShardClient.getShardsMap();
+				
+				List<Shard> destList = new ArrayList<Shard>(destShardClient.getShardsMap().values());
+				
+				if (config.getShardMap() == null && sourceShardsMap.size() != destList.size() && !config.isShardToRs()) {
+					throw new IllegalArgumentException(String.format("disparate shard counts requires shardMap to be defined, sourceShardCount: %s, destShardCount: %s", 
+							sourceShardsMap.size(), destList.size()));
 				}
 				
-				index = 0;
-				for (Iterator<Shard> i = sourceTertiaryMap.values().iterator(); i.hasNext();) {
-					Shard sourceShard = i.next();
-					Shard destShard = destList.get(index);
-					if (destShard != null) {
-						logger.debug("altMapping: " + sourceShard.getId() + " ==> " + destShard.getId());
-						altSourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
+				if (! config.isShardToRs()) {
+					for (Iterator<Shard> i = sourceShardsMap.values().iterator(); i.hasNext();) {
+						Shard sourceShard = i.next();
+						Shard destShard = destList.get(index);
+						if (destShard != null) {
+							logger.debug(sourceShard.getId() + " ==> " + destShard.getId());
+							sourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
+						}
+						index++;
 					}
-					index++;
+					
+					index = 0;
+					for (Iterator<Shard> i = sourceTertiaryMap.values().iterator(); i.hasNext();) {
+						Shard sourceShard = i.next();
+						Shard destShard = destList.get(index);
+						if (destShard != null) {
+							logger.debug("altMapping: " + sourceShard.getId() + " ==> " + destShard.getId());
+							altSourceToDestShardMap.put(sourceShard.getId(), destShard.getId());
+						}
+						index++;
+					}
 				}
 			}
-			
-			
-			
 		}
 		initializeSourceChunkQuery();
 		
 		// reverse map
 		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
-		
-//		if (config.getSourceClusterPattern() == null && ! sourceShardClient.isMongos()) {
-//			throw new IllegalArgumentException("source connection must be to a mongos router");
-//		}
+	}
+	
+	public void validateTargetShards() {
+	    if (targetShards == null || targetShards.isEmpty()) {
+	        return;
+	    }
+	    
+	    Set<String> validShards = destShardClient.getShardsMap().keySet();
+	    logger.debug("validShards: {}", validShards);
+	    logger.debug("targetShards: {}", targetShards);
+	    for (String targetShard : targetShards) {
+	        if (!validShards.contains(targetShard)) {
+	            throw new IllegalArgumentException(
+	                    "Target shard '" + targetShard + "' does not exist in destination cluster");
+	        }
+	    }
+	    logger.debug("Target shards validated: {}", targetShards);
+	}
+	
+	private void createTargetShardsMapping() {
+	    if (targetShards == null || targetShards.isEmpty()) {
+	        return;
+	    }
+	    
+	    // Get source shards
+	    Map<String, Shard> sourceShardsMap = sourceShardClient.getShardsMap();
+	    
+	    // Convert target shards to array for easier indexing
+	    String[] targetShardsArray = targetShards.toArray(new String[0]);
+	    int targetShardCount = targetShardsArray.length;
+	    
+	    // Create round-robin mapping from source shards to target shards
+	    int targetIndex = 0;
+	    for (String sourceShardId : sourceShardsMap.keySet()) {
+	        String targetShardId = targetShardsArray[targetIndex];
+	        sourceToDestShardMap.put(sourceShardId, targetShardId);
+	        
+	        logger.debug("Mapping source shard {} to target shard {}", sourceShardId, targetShardId);
+	        
+	        // Move to next target shard (round-robin)
+	        targetIndex = (targetIndex + 1) % targetShardCount;
+	    }
 	}
 	
 	public List<Megachunk> getMegaChunks(Map<String, RawBsonDocument> chunksCache, ShardClient shardClient) {
@@ -263,24 +319,33 @@ public class ChunkManager {
 		startTsSeconds = Instant.now().getEpochSecond();
 
 		// step 3: move megachunks to correct shards
-		for (Megachunk mega2 : optimizedChunks) {
-			
-			String mappedShard = getShardMapping(mega2.getShard());
-			if (mappedShard == null) {
-				throw new IllegalArgumentException(
-						"No destination shard mapping found for source shard: " + mega2.getShard());
-			}
+	    for (Megachunk mega2 : optimizedChunks) {
+	        String mappedShard;
+	        
+	        if (targetShards != null && !targetShards.isEmpty()) {
+	            // Use round-robin distribution
+	            mappedShard = getNextTargetShard();
+	        } else {
+	            // Use existing mapping
+	            mappedShard = getShardMapping(mega2.getShard());
+	        }
+	        
+	        if (mappedShard == null) {
+	            throw new IllegalArgumentException(
+	                    "No destination shard mapping found for source shard: " + mega2.getShard());
+	        }
 
-			String destShard = destChunkToShardMap.get(mega2.getId());
+	        String destShard = destChunkToShardMap.get(mega2.getId());
 
-			if (doMove && destShard != null && !mappedShard.equals(destShard)) {
-				boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), 
-						(RawBsonDocument)mega2.getMax(), mappedShard, false, false, false, false);
-				if (! moveSuccess) {
-					errorCount++;
-				}
-			}
-			moveCount++;
+	        if (doMove && destShard != null && !mappedShard.equals(destShard)) {
+	            boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), 
+	                    (RawBsonDocument)mega2.getMax(), mappedShard, false, false, false, false);
+	            if (!moveSuccess) {
+	                errorCount++;
+	            }
+	        }
+	        moveCount++;
+	        
 			ts = Instant.now().getEpochSecond();
 			long secondsSinceLastLog = ts - startTsSeconds;
 			if (secondsSinceLastLog >= 60) {
@@ -313,6 +378,20 @@ public class ChunkManager {
 		}
 		printChunkStatus(chunkCount, totalChunks, "chunks created");
 		logger.debug("createAndMoveChunks complete");
+	}
+	
+	public String getNextTargetShard() {
+	    if (targetShards == null || targetShards.isEmpty()) {
+	        // If no specific target shards are defined, use the existing mapping
+	        return null;
+	    }
+	    
+	    if (targetShardIterator == null || !targetShardIterator.hasNext()) {
+	        // Reset iterator when we reach the end
+	        targetShardIterator = targetShards.iterator();
+	    }
+	    
+	    return targetShardIterator.hasNext() ? targetShardIterator.next() : null;
 	}
 	
 	private void printChunkStatus(int chunkCount, double totalChunks, String opType) {
@@ -609,12 +688,17 @@ public class ChunkManager {
 	}
 
 	public String getShardMapping(String sourceShardName) {
-		if (! altSourceToDestShardMap.isEmpty()) {
-			String newKey = altSourceToDestShardMap.get(sourceShardName);
-			return newKey;
-			
+		
+		if (targetShards != null && !targetShards.isEmpty()) {
+			return getNextTargetShard();
 		} else {
-			return sourceToDestShardMap.get(sourceShardName);
+			if (! altSourceToDestShardMap.isEmpty()) {
+				String newKey = altSourceToDestShardMap.get(sourceShardName);
+				return newKey;
+				
+			} else {
+				return sourceToDestShardMap.get(sourceShardName);
+			}
 		}
 	}
 	

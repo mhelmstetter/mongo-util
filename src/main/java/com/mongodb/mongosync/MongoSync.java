@@ -64,7 +64,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	@Option(names = { "--drop" }, description = "Drop target db and mongosync internal db", required = false)
 	private boolean drop = false;
 
-	@Option(names = { "--includeNamespaces" }, description = "Namespaces to include", required = false)
+	@Option(names = { "--includeNamespaces" }, description = "Namespaces to include", required = false, split=",")
 	private Set<String> includeNamespaces;
 
 	@Option(names = { "--shardMap" }, description = "Shard map, ex: shA|sh0,shB|sh1", required = false)
@@ -73,10 +73,10 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	@Option(names = { "--wiredTigerConfigString" }, description = "WiredTiger config string", required = false)
 	private String wiredTigerConfigString;
 	
-	@Option(names = { "--dupeCheckTreads" }, description = "# threads per collection to use for duplicate _id checking", required = false, defaultValue = "4")
+	@Option(names = { "--dupeCheckThreads" }, description = "# threads per collection to use for duplicate _id checking", required = false, defaultValue = "4")
 	private int dupeCheckThreads;
 	
-	@Option(names = { "--targetShards" }, description = "Target shards to distribute chunks to", required = false)
+	@Option(names = { "--targetShards" }, description = "Target shards to distribute chunks to", required = false, split=",")
     private Set<String> targetShards;
 
 	private ShardConfigSync shardConfigSync;
@@ -106,6 +106,10 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		if (wiredTigerConfigString != null) {
 			shardConfigSyncConfig.setWiredTigerConfigString(wiredTigerConfigString);
 		}
+		
+		if (targetShards != null && !targetShards.isEmpty()) {
+	        shardConfigSyncConfig.setTargetShards(targetShards);
+	    }
 
 		chunkManager = new ChunkManager(shardConfigSyncConfig);
 		chunkManager.initalize();
@@ -193,7 +197,9 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			
 			String destShardId = chunkManager.getShardMapping(source.getId());
 			Shard dest = destShardClient.getShardsMap().get(destShardId);
-			logger.debug(String.format("Creating MongoSyncRunner for %s ==> %s", source.getId(), dest.getId()));
+			if (dest != null) {
+				logger.debug(String.format("Creating MongoSyncRunner for %s ==> %s", source.getId(), dest.getId()));
+			}
 			mongosync.initialize();
 			
 			i++;
@@ -224,8 +230,13 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			}
 		}
 
-		DbHashUtil dbHash = new DbHashUtil(chunkManager, includeNamespaces);
-		dbHash.call();
+		if (targetShards == null || targetShards.isEmpty()) {
+			DbHashUtil dbHash = new DbHashUtil(chunkManager, includeNamespaces);
+			dbHash.call();
+		} else {
+			logger.debug("skipping dbHash since targetShards were specified / shard alignment does not match");
+		}
+		
 		return 0;
 	}
 

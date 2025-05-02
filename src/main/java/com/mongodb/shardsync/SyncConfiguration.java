@@ -2,6 +2,7 @@ package com.mongodb.shardsync;
 
 import java.io.File;
 import java.util.List;
+import java.util.Set;
 
 public class SyncConfiguration extends BaseConfiguration {
 	
@@ -64,6 +65,7 @@ public class SyncConfiguration extends BaseConfiguration {
     private String usersOutputCsv;
     
     private String wiredTigerConfigString;
+    private Set<String> targetShards;
 
 	public SyncConfiguration() {
 		super();
@@ -414,5 +416,13 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setWiredTigerConfigString(String wiredTigerConfigString) {
 		this.wiredTigerConfigString = wiredTigerConfigString;
+	}
+
+	public Set<String> getTargetShards() {
+		return targetShards;
+	}
+
+	public void setTargetShards(Set<String> targetShards) {
+		this.targetShards = targetShards;
 	}
 }

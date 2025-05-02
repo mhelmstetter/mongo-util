@@ -576,6 +576,7 @@ public class ShardClient {
 
 		if (shardMongoClients.size() > 0) {
 			logger.debug("populateShardMongoClients already complete, skipping");
+			return;
 		}
 		
 		if (! this.mongos) {
