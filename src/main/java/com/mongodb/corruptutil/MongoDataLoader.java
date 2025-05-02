@@ -19,6 +19,8 @@ import org.bson.Document;
 import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.bson.types.MinKey;
+import org.bson.types.MaxKey;
 
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
@@ -30,6 +32,8 @@ import com.mongodb.client.MongoDatabase;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
+
+import static com.mongodb.client.model.Filters.eq;
 
 @Command(name = "MongoDataLoader", mixinStandardHelpOptions = true, 
          description = "Loads dummy data into MongoDB collections with optional sharding")
@@ -241,8 +245,11 @@ public class MongoDataLoader implements Callable<Integer> {
             logger.info("Shard collection result: {}", shardResult.toJson());
             
             // Get available shards
-            Document shardListResult = adminDb.runCommand(new Document("listShards", 1));
-            List<Document> shards = (List<Document>) shardListResult.get("shards");
+            MongoDatabase configDb = mongoClient.getDatabase("config");
+            MongoCollection<Document> shardsCollection = configDb.getCollection("shards");
+           
+            List<Document> shards = new ArrayList<>();
+            shardsCollection.find().into(shards);
             
             if (shards.size() < 2) {
                 logger.warn("Found only {} shard(s). At least 2 shards are recommended for duplicate distribution.", 
@@ -352,9 +359,14 @@ public class MongoDataLoader implements Callable<Integer> {
             logger.info("Found {} shards for distributing duplicates: {}", shardNames.size(), shardNames);
             
             // Get current chunk distribution
-            Document chunksCmd = new Document("listChunks", databaseName + "." + collectionName);
-            Document chunksResult = adminDb.runCommand(chunksCmd);
-            List<Document> chunks = (List<Document>) chunksResult.get("chunks");
+            MongoDatabase configDb = mongoClient.getDatabase("config");
+            MongoCollection<Document> collections = configDb.getCollection("collections");
+            Document collectionsDoc = collections.find(eq("_id", databaseName + "." + collectionName)).first();
+            Object uuid = collectionsDoc.get("uuid");
+            
+            List<Document> chunks = new ArrayList<>();
+            MongoCollection<Document> chunksColl = configDb.getCollection("chunks");
+            chunksColl.find(eq("uuid", uuid)).into(chunks);
             
             if (chunks == null || chunks.isEmpty()) {
                 logger.warn("No chunks found for collection. Make sure sharding is properly set up.");
@@ -420,7 +432,7 @@ public class MongoDataLoader implements Callable<Integer> {
             logger.info("Created shard distribution map for {} duplicate IDs", duplicateIds.size());
             
         } catch (Exception e) {
-            logger.error("Error setting up shard distribution map: {}", e.getMessage());
+            logger.error("Error setting up shard distribution map", e);
             // Fall back to simple distribution method
             setupSimpleShardDistributionMap(duplicateCount);
         }
@@ -428,9 +440,25 @@ public class MongoDataLoader implements Callable<Integer> {
     
     private int calculateMiddleValue(Document min, Document max) {
         // Get the shard key field 'x' from min and max documents
-        int minValue = min.getInteger("x", 0);
-        int maxValue = max.getInteger("x", Integer.MAX_VALUE);
-        
+    	int minValue, maxValue;
+    	Object minObj = min.get("x");
+    	if (minObj instanceof Integer) {
+    		minValue = (Integer)minObj;
+    	} else if (minObj instanceof MinKey) {
+    		minValue = Integer.MIN_VALUE;
+    	} else {
+    		throw new IllegalArgumentException("Unexpected x minKey value, type is " + minObj.getClass().getName());
+    	}
+    	
+    	Object maxObj = max.get("x");
+    	if (maxObj instanceof Integer) {
+    		maxValue = (Integer)maxObj;
+    	} else if (maxObj instanceof MaxKey) {
+    		maxValue = Integer.MAX_VALUE;
+    	} else {
+    		throw new IllegalArgumentException("Unexpected x maxKey value, type is " + maxObj.getClass().getName());
+    	}
+         
         // Choose a value in the middle of the range
         if (maxValue == Integer.MAX_VALUE) {
             // For the last chunk, don't use Integer.MAX_VALUE directly
@@ -447,10 +475,9 @@ public class MongoDataLoader implements Callable<Integer> {
         
         int index = 0;
         for (ObjectId id : duplicateIds) {
-            // First chunk on first shard
-            int chunkIndex1 = index % (numShardChunks / 2);
-            // Second chunk on second shard (offset by half the chunks)
-            int chunkIndex2 = (chunkIndex1 + numShardChunks / 2) % numShardChunks;
+            // Select one even and one odd chunk index to ensure different shards
+            int chunkIndex1 = (index * 2) % numShardChunks;          // Will always be even
+            int chunkIndex2 = (chunkIndex1 + 1) % numShardChunks;    // Will always be odd
             
             // Calculate values in the middle of different chunks
             int value1 = chunkIndex1 * chunkSize + (chunkSize / 2);
@@ -559,11 +586,9 @@ public class MongoDataLoader implements Callable<Integer> {
                         
                         try {
                             collection.insertOne(doc2);
-                            logger.warn("Unexpected success: Duplicate _id insertion worked for: {}", duplicateId);
                             counter.incrementAndGet();
                         } catch (Exception e) {
-                            // This is expected behavior - log it at debug level instead of showing as a problem
-                            logger.debug("Expected: Duplicate _id rejected for: {} - {}", duplicateId, e.getMessage());
+                            logger.warn("Duplicate _id rejected for: {} - {}", duplicateId, e.getMessage());
                             // Don't increment counter for documents that weren't inserted
                         }
                     } catch (Exception e) {

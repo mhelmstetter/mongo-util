@@ -118,7 +118,6 @@ public class DupeIdCollectionWorker implements Runnable {
             
             while (idSet.size() < sampleCount) {
             	try {
-            		logger.debug("while loop idSet size: {}", idSet.size());
         			AggregateIterable<RawBsonDocument> results = collection.aggregate(pipeline);
         			for (RawBsonDocument result : results) {
         				BsonValue id = result.get("_id");
@@ -192,16 +191,16 @@ public class DupeIdCollectionWorker implements Runnable {
     }
     
 	public void shutdown() {
-		logger.debug("DupeIdCollectionWorker starting shutdown");
+		logger.debug("DupeIdCollectionWorker starting shutdown for {}", collection.getNamespace());
 		executor.shutdown();
 		try {
 			Thread.sleep(10000);
 			executor.awaitTermination(999, TimeUnit.DAYS);
 		} catch (InterruptedException e) {
-			logger.warn("DupeIdCollectionWorker interrupted");
+			logger.warn("DupeIdCollectionWorker interrupted for {}", collection.getNamespace());
 			Thread.currentThread().interrupt();
 		}
-		logger.debug("DupeIdCollectionWorker shutdown complete");
+		logger.debug("DupeIdCollectionWorker shutdown complete for {}", collection.getNamespace());
 	}
 	
 	public long getCount() {

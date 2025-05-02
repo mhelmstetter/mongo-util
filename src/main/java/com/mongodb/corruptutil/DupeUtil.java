@@ -70,6 +70,9 @@ public class DupeUtil implements Callable<Integer> {
     @Option(names = {"-f", "--filter"}, description = "Namespace filter (can be specified multiple times)", split = ",")
     private String[] filters;
     
+    @Option(names = {"--dropArchiveDb"}, description = "Drop archiveDb at startup", defaultValue = "false")
+    private boolean dropArchiveDb;
+    
     private MongoClient sourceClient;
     private MongoClient destClient;
     
@@ -96,7 +99,11 @@ public class DupeUtil implements Callable<Integer> {
         this.archiveDbName = archiveDbName;
         this.startIdStr = startIdStr;
         
-        ConnectionString connectionString = new ConnectionString(sourceUriStr);
+        initialize();
+    }
+    
+    private void initialize() {
+    	ConnectionString connectionString = new ConnectionString(sourceUriStr);
         MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString)
                 .build();
@@ -114,11 +121,19 @@ public class DupeUtil implements Callable<Integer> {
         
         if (archiveDbName != null) {
             archiveDb = destClient.getDatabase(archiveDbName);
+        } else {
+        	archiveDb = destClient.getDatabase("_dupeUtilArchive");
         }
+        if (dropArchiveDb) {
+        	archiveDb.drop();
+        }
+        
         
         if (startIdStr != null) {
             startId = Integer.parseInt(startIdStr);
         }
+        
+        addFilters(filters);
         
         populateCollectionNames(startingCollectionNames);
     }
@@ -352,7 +367,11 @@ public class DupeUtil implements Callable<Integer> {
     }
     
     public static void main(String[] args) {
-        int exitCode = new CommandLine(new DupeUtil()).execute(args);
+    	DupeUtil util = new DupeUtil();
+    	CommandLine cmdLine = new CommandLine(util);
+    	cmdLine.parseArgs(args);
+    	util.initialize();
+        int exitCode = cmdLine.execute(args);
         System.exit(exitCode);
     }
 }
