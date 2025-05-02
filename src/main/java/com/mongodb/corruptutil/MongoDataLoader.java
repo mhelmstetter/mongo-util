@@ -67,6 +67,9 @@ public class MongoDataLoader implements Callable<Integer> {
     
     @Option(names = {"--drop"}, description = "Drop the collection if it already exists", defaultValue = "true")
     private boolean dropCollection;
+    
+    @Option(names = {"--distType"}, description = "Chunk distribution type (roundrobin or random)", defaultValue = "roundrobin")
+    private String distType;
 
     private static final AtomicInteger counter = new AtomicInteger(0);
     private static final Random random = new Random();
@@ -91,6 +94,13 @@ public class MongoDataLoader implements Callable<Integer> {
         logger.info("Using {} threads", numThreads);
         logger.info("Insert duplicates: {}", insertDupes);
         logger.info("Drop existing collection: {}", dropCollection);
+        logger.info("Chunk distribution type: {}", distType);
+        
+        // Validate distType
+        if (!distType.equalsIgnoreCase("roundrobin") && !distType.equalsIgnoreCase("random")) {
+            logger.error("Invalid distribution type: {}. Must be 'roundrobin' or 'random'", distType);
+            return 1;
+        }
         
         // Pre-calculate approximate number of duplicate documents (~1%)
         int duplicateCount = insertDupes ? Math.max(1, numDocuments / 100) : 0;
@@ -205,12 +215,45 @@ public class MongoDataLoader implements Callable<Integer> {
             double duration = (endTime - startTime) / 1000.0;
             
             if (completed) {
-                logger.info("Successfully inserted {} documents", counter.get());
-                logger.info("Operation completed in {} seconds", String.format("%.2f", duration));
-                logger.info("Insertion rate: {} docs/second", String.format("%.2f", counter.get() / duration));
+                int totalDocsInserted = counter.get();
+                int successfulDupes = successfulDuplicatesCounter.get();
                 
-                if (insertDupes) {
-                	logger.info("Inserted {} documents with duplicate _ids", successfulDuplicatesCounter.get());
+                // In a regular MongoDB setup, we'd expect numDocuments total docs
+                // But in a sharded setup with duplicate _ids, we expect numDocuments + successfulDupes
+                int expectedTotalWithoutDupes = totalDocsInserted;
+                int expectedTotalWithDupes = totalDocsInserted + successfulDupes;
+                
+                logger.info("Documents processed:");
+                logger.info("- Total regular documents: {}", totalDocsInserted - successfulDupes);
+                logger.info("- Documents with duplicate _ids: {}", successfulDupes);
+                logger.info("- Total documents attempted: {}", totalDocsInserted);
+                logger.info("Operation completed in {} seconds", String.format("%.2f", duration));
+                logger.info("Insertion rate: {} docs/second", String.format("%.2f", totalDocsInserted / duration));
+                
+                // Perform a count to verify
+                try {
+                    long actualCount = mongoClient.getDatabase(databaseName)
+                                                 .getCollection(collectionName)
+                                                 .countDocuments();
+                    logger.info("Verification:");
+                    logger.info("- With successful duplicate _ids, expected count: {}", expectedTotalWithDupes);
+                    logger.info("- Actual documents in collection: {}", actualCount);
+                    
+                    // Check if the count matches either expected value
+                    if (actualCount == expectedTotalWithoutDupes) {
+                        logger.info("Count matches normal MongoDB behavior (no duplicate _ids accepted)");
+                    } else if (actualCount == expectedTotalWithDupes) {
+                        logger.info("Count matches corrupted state (duplicate _ids accepted on different shards)");
+                    } else if (actualCount > expectedTotalWithoutDupes && actualCount < expectedTotalWithDupes) {
+                        logger.info("Some duplicate _ids were accepted ({} out of {})", 
+                                   actualCount - expectedTotalWithoutDupes, successfulDupes);
+                    } else if (actualCount > expectedTotalWithDupes) {
+                        logger.warn("More documents than expected! Check for data corruption.");
+                    } else {
+                        logger.warn("Fewer documents than expected - some inserts may have failed");
+                    }
+                } catch (Exception e) {
+                    logger.warn("Could not verify final document count: {}", e.getMessage());
                 }
             } else {
                 logger.error("Timed out waiting for document insertion to complete");
@@ -293,10 +336,16 @@ public class MongoDataLoader implements Callable<Integer> {
             
             logger.info("Successfully pre-split collection into {} chunks", numShardChunks);
             
-            // Manually distribute chunks in a round-robin fashion across shards
+            // Distribute chunks based on the specified distribution type
             if (shardNames.size() >= 2) {
-                logger.info("Distributing chunks across {} shards", shardNames.size());
-                distributeChunksInRoundRobin(adminDb, shardNames);
+                logger.info("Distributing chunks across {} shards using '{}' distribution type", 
+                    shardNames.size(), distType);
+                
+                if (distType.equalsIgnoreCase("roundrobin")) {
+                    distributeChunksInRoundRobin(adminDb, shardNames);
+                } else if (distType.equalsIgnoreCase("random")) {
+                    distributeChunksRandomly(adminDb, shardNames);
+                }
             }
         } catch (Exception e) {
             logger.warn("Failed to pre-split chunks: {}. Continuing with sharding anyway.", e.getMessage());
@@ -334,6 +383,40 @@ public class MongoDataLoader implements Callable<Integer> {
             logger.info("Finished distributing chunks in round-robin fashion");
         } catch (Exception e) {
             logger.warn("Error in round-robin chunk distribution: {}", e.getMessage());
+        }
+    }
+    
+    private void distributeChunksRandomly(MongoDatabase adminDb, List<String> shardNames) {
+        try {
+            // For each chunk (using chunk midpoints), move it to a random shard
+            int maxValue = Integer.MAX_VALUE;
+            int chunkSize = maxValue / numShardChunks;
+            
+            for (int i = 0; i < numShardChunks; i++) {
+                // Calculate the midpoint of this chunk
+                int midpoint = i * chunkSize + (chunkSize / 2);
+                
+                // Determine target shard randomly
+                String targetShard = shardNames.get(random.nextInt(shardNames.size()));
+                
+                // Create the moveChunk command
+                Document moveCmd = new Document("moveChunk", databaseName + "." + collectionName)
+                    .append("find", new Document("x", midpoint))
+                    .append("to", targetShard);
+                
+                try {
+                    Document moveResult = adminDb.runCommand(moveCmd);
+                    logger.debug("Moved chunk with midpoint {} to random shard {}: {}", 
+                        midpoint, targetShard, moveResult.toJson());
+                } catch (Exception e) {
+                    logger.warn("Failed to move chunk with midpoint {} to random shard {}: {}", 
+                        midpoint, targetShard, e.getMessage());
+                }
+            }
+            
+            logger.info("Finished distributing chunks randomly");
+        } catch (Exception e) {
+            logger.warn("Error in random chunk distribution: {}", e.getMessage());
         }
     }
     
@@ -390,9 +473,24 @@ public class MongoDataLoader implements Callable<Integer> {
             // For each duplicate ID, assign values from chunks on different shards
             int index = 0;
             for (ObjectId id : duplicateIds) {
-                // Pick two different shards in a deterministic way
-                String shard1 = shardNames.get(index % shardNames.size());
-                String shard2 = shardNames.get((index + 1) % shardNames.size());
+                // Choose shards based on the distribution type
+                String shard1, shard2;
+                
+                if (distType.equalsIgnoreCase("roundrobin")) {
+                    // Pick two different shards in a deterministic way
+                    shard1 = shardNames.get(index % shardNames.size());
+                    shard2 = shardNames.get((index + 1) % shardNames.size());
+                } else { // random
+                    // Pick two different shards randomly
+                    int firstShardIndex = random.nextInt(shardNames.size());
+                    int secondShardIndex;
+                    do {
+                        secondShardIndex = random.nextInt(shardNames.size());
+                    } while (secondShardIndex == firstShardIndex && shardNames.size() > 1);
+                    
+                    shard1 = shardNames.get(firstShardIndex);
+                    shard2 = shardNames.get(secondShardIndex);
+                }
                 
                 // Get chunks for these shards
                 List<Document> chunksForShard1 = chunksByShardName.get(shard1);
@@ -405,9 +503,18 @@ public class MongoDataLoader implements Callable<Integer> {
                     continue;
                 }
                 
-                // Pick a chunk from each shard (round-robin)
-                Document chunkFromShard1 = chunksForShard1.get(index % chunksForShard1.size());
-                Document chunkFromShard2 = chunksForShard2.get(index % chunksForShard2.size());
+                // Pick a chunk from each shard
+                Document chunkFromShard1, chunkFromShard2;
+                
+                if (distType.equalsIgnoreCase("roundrobin")) {
+                    // Round-robin selection within each shard
+                    chunkFromShard1 = chunksForShard1.get(index % chunksForShard1.size());
+                    chunkFromShard2 = chunksForShard2.get(index % chunksForShard2.size());
+                } else { // random
+                    // Random selection within each shard
+                    chunkFromShard1 = chunksForShard1.get(random.nextInt(chunksForShard1.size()));
+                    chunkFromShard2 = chunksForShard2.get(random.nextInt(chunksForShard2.size()));
+                }
                 
                 // Calculate values in the middle of each chunk's range
                 int value1 = calculateMiddleValueWithSafety(chunkFromShard1);
@@ -423,8 +530,8 @@ public class MongoDataLoader implements Callable<Integer> {
                 index++;
             }
             
-            logger.info("Created shard distribution map for {} duplicate IDs across {} shards", 
-                duplicateIds.size(), shardNames.size());
+            logger.info("Created shard distribution map for {} duplicate IDs across {} shards using {} distribution", 
+                duplicateIds.size(), shardNames.size(), distType);
             
         } catch (Exception e) {
             logger.error("Error setting up shard distribution map: {}", e.getMessage(), e);
@@ -484,23 +591,48 @@ public class MongoDataLoader implements Callable<Integer> {
     private void setupSimpleDuplicateDistribution(ObjectId id, int index) {
         int rangeSize = Integer.MAX_VALUE / 10;
         
-        // Pick two values in different ranges
-        int value1 = (index % 10) * rangeSize + rangeSize/2;
-        int value2 = ((index + 5) % 10) * rangeSize + rangeSize/2;
-        
-        shardDistributionMap.put(id.hashCode(), value1);
-        shardDistributionMap.put(-id.hashCode(), value2);
+        if (distType.equalsIgnoreCase("roundrobin")) {
+            // Pick two values in different ranges in a round-robin fashion
+            int value1 = (index % 10) * rangeSize + rangeSize/2;
+            int value2 = ((index + 5) % 10) * rangeSize + rangeSize/2;
+            
+            shardDistributionMap.put(id.hashCode(), value1);
+            shardDistributionMap.put(-id.hashCode(), value2);
+        } else { // random
+            // Pick two random values in different ranges
+            int range1 = random.nextInt(10);
+            int range2;
+            do {
+                range2 = random.nextInt(10);
+            } while (range2 == range1);
+            
+            int value1 = range1 * rangeSize + random.nextInt(rangeSize);
+            int value2 = range2 * rangeSize + random.nextInt(rangeSize);
+            
+            shardDistributionMap.put(id.hashCode(), value1);
+            shardDistributionMap.put(-id.hashCode(), value2);
+        }
     }
     
     private void setupSimpleShardDistributionMap(int duplicateCount) {
-        logger.info("Using simple shard distribution as fallback");
+        logger.info("Using simple shard distribution as fallback with {} strategy", distType);
         int chunkSize = Integer.MAX_VALUE / numShardChunks;
         
         int index = 0;
         for (ObjectId id : duplicateIds) {
-            // Select one even and one odd chunk index to ensure different shards
-            int chunkIndex1 = (index * 2) % numShardChunks;          // Will always be even
-            int chunkIndex2 = (chunkIndex1 + 1) % numShardChunks;    // Will always be odd
+            int chunkIndex1, chunkIndex2;
+            
+            if (distType.equalsIgnoreCase("roundrobin")) {
+                // Select one even and one odd chunk index to ensure different shards
+                chunkIndex1 = (index * 2) % numShardChunks;          // Will always be even
+                chunkIndex2 = (chunkIndex1 + 1) % numShardChunks;    // Will always be odd
+            } else { // random
+                // Select two random chunk indices
+                chunkIndex1 = random.nextInt(numShardChunks);
+                do {
+                    chunkIndex2 = random.nextInt(numShardChunks);
+                } while (chunkIndex2 == chunkIndex1 && numShardChunks > 1);
+            }
             
             // Calculate values in the middle of different chunks
             int value1 = chunkIndex1 * chunkSize + (chunkSize / 2);
@@ -510,8 +642,8 @@ public class MongoDataLoader implements Callable<Integer> {
             shardDistributionMap.put(id.hashCode(), value1);
             shardDistributionMap.put(-id.hashCode(), value2);
             
-            logger.debug("Simple mapping: Duplicate ID {} to shard keys {} and {}", 
-                id, value1, value2);
+            logger.debug("Simple mapping using {}: Duplicate ID {} to shard keys {} and {}", 
+                distType, id, value1, value2);
             
             index++;
         }
@@ -607,20 +739,21 @@ public class MongoDataLoader implements Callable<Integer> {
                         // Get the shard key for the second document
                         int shardKey2 = shardDistributionMap.getOrDefault(-duplicateId.hashCode(), random.nextInt());
                         
+                        // Second document with the same ID (will be on different shard)
+                        Document doc2 = generateDummyDocument(true, duplicateId);
+                        doc2.put("x", shardKey2); // Different shard key value
                         
-                            // Second document with the same ID (will be on different shard)
-                            Document doc2 = generateDummyDocument(true, duplicateId);
-                            doc2.put("x", shardKey2); // Different shard key value
-                            
-                            try {
-                                collection.insertOne(doc2);
-                                counter.incrementAndGet();
-                                logger.info("Successfully inserted duplicate _id: {}", duplicateId);
-                                successfulDuplicatesCounter.incrementAndGet();
-                            } catch (Exception e) {
-                                logger.warn("Duplicate _id rejected for: {} - {}", duplicateId, e.getMessage());
-                                // Don't increment counter for documents that weren't inserted
-                            }
+                        try {
+                            collection.insertOne(doc2);
+                            // This document has the same _id as one we already counted,
+                            // so we should NOT increment the counter here
+                            // counter.incrementAndGet(); -- Removed this increment
+                            logger.info("Successfully inserted duplicate _id: {}", duplicateId);
+                            successfulDuplicatesCounter.incrementAndGet();
+                        } catch (Exception e) {
+                            logger.warn("Duplicate _id rejected for: {} - {}", duplicateId, e.getMessage());
+                            // Don't increment counter for documents that weren't inserted
+                        }
                         
                     } catch (Exception e) {
                         logger.warn("Error inserting duplicate document: {}", e.getMessage());
