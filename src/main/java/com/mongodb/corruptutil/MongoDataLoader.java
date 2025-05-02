@@ -340,133 +340,154 @@ public class MongoDataLoader implements Callable<Integer> {
         logger.info("Setting up shard distribution map for duplicate documents");
         
         try {
-            // Get shard names
-            MongoDatabase adminDb = mongoClient.getDatabase("admin");
-            List<String> shardNames = new ArrayList<>();
-            
-            Document shardListResult = adminDb.runCommand(new Document("listShards", 1));
-            List<Document> shards = (List<Document>) shardListResult.get("shards");
-            
-            if (shards.size() < 2) {
-                logger.error("At least 2 shards are required for distributing duplicates");
-                return;
-            }
-            
-            for (Document shard : shards) {
-                shardNames.add(shard.getString("_id"));
-            }
-            
-            logger.info("Found {} shards for distributing duplicates: {}", shardNames.size(), shardNames);
-            
-            // Get current chunk distribution
+            // Get config database and fetch chunks information
             MongoDatabase configDb = mongoClient.getDatabase("config");
             MongoCollection<Document> collections = configDb.getCollection("collections");
             Document collectionsDoc = collections.find(eq("_id", databaseName + "." + collectionName)).first();
+            
+            if (collectionsDoc == null) {
+                logger.error("Cannot find collection in config database, falling back to simple distribution");
+                setupSimpleShardDistributionMap(duplicateCount);
+                return;
+            }
+            
             Object uuid = collectionsDoc.get("uuid");
             
+            // Get all chunks for this collection
             List<Document> chunks = new ArrayList<>();
             MongoCollection<Document> chunksColl = configDb.getCollection("chunks");
             chunksColl.find(eq("uuid", uuid)).into(chunks);
             
-            if (chunks == null || chunks.isEmpty()) {
-                logger.warn("No chunks found for collection. Make sure sharding is properly set up.");
+            if (chunks.isEmpty()) {
+                logger.warn("No chunks found, falling back to simple distribution");
+                setupSimpleShardDistributionMap(duplicateCount);
                 return;
             }
             
-            logger.info("Found {} chunks for collection {}.{}", chunks.size(), databaseName, collectionName);
-            
-            // Map chunks to their shards
-            Map<String, List<Document>> chunksByShards = new HashMap<>();
+            // Group chunks by shard
+            Map<String, List<Document>> chunksByShardName = new HashMap<>();
             for (Document chunk : chunks) {
                 String shardName = chunk.getString("shard");
-                chunksByShards.computeIfAbsent(shardName, k -> new ArrayList<>()).add(chunk);
+                if (!chunksByShardName.containsKey(shardName)) {
+                    chunksByShardName.put(shardName, new ArrayList<>());
+                }
+                chunksByShardName.get(shardName).add(chunk);
             }
             
-            // For each duplicate ID, assign shard keys that will place it on different shards
+            // We need at least 2 shards for this to work
+            if (chunksByShardName.size() < 2) {
+                logger.warn("Found only {} shard(s), need at least 2. Falling back to simple distribution", 
+                    chunksByShardName.size());
+                setupSimpleShardDistributionMap(duplicateCount);
+                return;
+            }
+            
+            // Get a list of distinct shard names
+            List<String> shardNames = new ArrayList<>(chunksByShardName.keySet());
+            
+            // For each duplicate ID, assign values from chunks on different shards
             int index = 0;
             for (ObjectId id : duplicateIds) {
-                // Select two different shards
+                // Pick two different shards in a deterministic way
                 String shard1 = shardNames.get(index % shardNames.size());
                 String shard2 = shardNames.get((index + 1) % shardNames.size());
                 
                 // Get chunks for these shards
-                List<Document> chunksOnShard1 = chunksByShards.getOrDefault(shard1, new ArrayList<>());
-                List<Document> chunksOnShard2 = chunksByShards.getOrDefault(shard2, new ArrayList<>());
+                List<Document> chunksForShard1 = chunksByShardName.get(shard1);
+                List<Document> chunksForShard2 = chunksByShardName.get(shard2);
                 
-                if (chunksOnShard1.isEmpty() || chunksOnShard2.isEmpty()) {
-                    // Fallback to simple distribution if chunk info is not available
-                    int chunkSize = Integer.MAX_VALUE / numShardChunks;
-                    int value1 = (index % numShardChunks) * chunkSize + (chunkSize / 2);
-                    int value2 = ((index + numShardChunks / 2) % numShardChunks) * chunkSize + (chunkSize / 2);
-                    
-                    shardDistributionMap.put(id.hashCode(), value1);
-                    shardDistributionMap.put(-id.hashCode(), value2);
-                    
-                    logger.debug("Fallback: Mapped duplicate ID {} to shard keys {} and {}", 
-                        id, value1, value2);
-                } else {
-                    // Get a chunk from each shard
-                    Document chunk1 = chunksOnShard1.get(index % chunksOnShard1.size());
-                    Document chunk2 = chunksOnShard2.get(index % chunksOnShard2.size());
-                    
-                    // Extract chunk boundaries
-                    Document min1 = (Document) chunk1.get("min");
-                    Document max1 = (Document) chunk1.get("max");
-                    Document min2 = (Document) chunk2.get("min");
-                    Document max2 = (Document) chunk2.get("max");
-                    
-                    // Choose shard key values in the middle of each chunk
-                    int value1 = calculateMiddleValue(min1, max1);
-                    int value2 = calculateMiddleValue(min2, max2);
-                    
-                    shardDistributionMap.put(id.hashCode(), value1);
-                    shardDistributionMap.put(-id.hashCode(), value2);
-                    
-                    logger.debug("Mapped duplicate ID {} to shard keys {} and {} on shards {} and {}", 
-                        id, value1, value2, shard1, shard2);
+                if (chunksForShard1.isEmpty() || chunksForShard2.isEmpty()) {
+                    // This shouldn't happen, but just in case
+                    logger.warn("No chunks found for one of the selected shards, using fallback for ID {}", id);
+                    setupSimpleDuplicateDistribution(id, index);
+                    continue;
                 }
+                
+                // Pick a chunk from each shard (round-robin)
+                Document chunkFromShard1 = chunksForShard1.get(index % chunksForShard1.size());
+                Document chunkFromShard2 = chunksForShard2.get(index % chunksForShard2.size());
+                
+                // Calculate values in the middle of each chunk's range
+                int value1 = calculateMiddleValueWithSafety(chunkFromShard1);
+                int value2 = calculateMiddleValueWithSafety(chunkFromShard2);
+                
+                // Store the mapping
+                shardDistributionMap.put(id.hashCode(), value1);
+                shardDistributionMap.put(-id.hashCode(), value2);
+                
+                logger.debug("Mapped duplicate ID {} to shard keys {} (shard {}) and {} (shard {})", 
+                    id, value1, shard1, value2, shard2);
                 
                 index++;
             }
             
-            logger.info("Created shard distribution map for {} duplicate IDs", duplicateIds.size());
+            logger.info("Created shard distribution map for {} duplicate IDs across {} shards", 
+                duplicateIds.size(), shardNames.size());
             
         } catch (Exception e) {
-            logger.error("Error setting up shard distribution map", e);
-            // Fall back to simple distribution method
+            logger.error("Error setting up shard distribution map: {}", e.getMessage(), e);
             setupSimpleShardDistributionMap(duplicateCount);
         }
     }
     
-    private int calculateMiddleValue(Document min, Document max) {
-        // Get the shard key field 'x' from min and max documents
-    	int minValue, maxValue;
-    	Object minObj = min.get("x");
-    	if (minObj instanceof Integer) {
-    		minValue = (Integer)minObj;
-    	} else if (minObj instanceof MinKey) {
-    		minValue = Integer.MIN_VALUE;
-    	} else {
-    		throw new IllegalArgumentException("Unexpected x minKey value, type is " + minObj.getClass().getName());
-    	}
-    	
-    	Object maxObj = max.get("x");
-    	if (maxObj instanceof Integer) {
-    		maxValue = (Integer)maxObj;
-    	} else if (maxObj instanceof MaxKey) {
-    		maxValue = Integer.MAX_VALUE;
-    	} else {
-    		throw new IllegalArgumentException("Unexpected x maxKey value, type is " + maxObj.getClass().getName());
-    	}
-         
-        // Choose a value in the middle of the range
-        if (maxValue == Integer.MAX_VALUE) {
-            // For the last chunk, don't use Integer.MAX_VALUE directly
-            return minValue + 1000000 + random.nextInt(1000000);
+    private int calculateMiddleValueWithSafety(Document chunk) {
+        try {
+            Document min = (Document) chunk.get("min");
+            Document max = (Document) chunk.get("max");
+            
+            // Handle MinKey and MaxKey properly
+            int minValue;
+            Object minObj = min.get("x");
+            if (minObj instanceof Integer) {
+                minValue = (Integer)minObj;
+            } else if (minObj instanceof MinKey) {
+                minValue = Integer.MIN_VALUE;
+            } else {
+                throw new IllegalArgumentException("Unexpected x minKey value, type is " + minObj.getClass().getName());
+            }
+            
+            int maxValue;
+            Object maxObj = max.get("x");
+            if (maxObj instanceof Integer) {
+                maxValue = (Integer)maxObj;
+            } else if (maxObj instanceof MaxKey) {
+                maxValue = Integer.MAX_VALUE;
+            } else {
+                throw new IllegalArgumentException("Unexpected x maxKey value, type is " + maxObj.getClass().getName());
+            }
+                
+            // Add some randomness to avoid hotspots
+            if (maxValue == Integer.MAX_VALUE) {
+                // For the last chunk, don't use Integer.MAX_VALUE directly
+                return minValue + 1000000 + random.nextInt(1000000);
+            }
+            
+            // Pick a point in the middle third of the range to avoid boundaries
+            int range = maxValue - minValue;
+            if (range <= 0) {
+                // Handle edge case of small or invalid range
+                return minValue + 1000 + random.nextInt(1000);
+            }
+            
+            int third = range / 3;
+            return minValue + third + random.nextInt(Math.max(1, third));
+        } catch (Exception e) {
+            // If anything goes wrong, return a random value
+            logger.warn("Error calculating middle value: {}", e.getMessage());
+            return random.nextInt();
         }
+    }
+    
+    // Helper method for fallback case
+    private void setupSimpleDuplicateDistribution(ObjectId id, int index) {
+        int rangeSize = Integer.MAX_VALUE / 10;
         
-        // For middle chunks, calculate middle with some randomness
-        return minValue + (maxValue - minValue) / 2 + random.nextInt(Math.max(1, (maxValue - minValue) / 10));
+        // Pick two values in different ranges
+        int value1 = (index % 10) * rangeSize + rangeSize/2;
+        int value2 = ((index + 5) % 10) * rangeSize + rangeSize/2;
+        
+        shardDistributionMap.put(id.hashCode(), value1);
+        shardDistributionMap.put(-id.hashCode(), value2);
     }
     
     private void setupSimpleShardDistributionMap(int duplicateCount) {
@@ -571,26 +592,33 @@ public class MongoDataLoader implements Callable<Integer> {
                 // Now insert duplicate documents
                 for (ObjectId duplicateId : pendingDuplicateIds) {
                     try {
-                        // First document with this ID
+                        // First document with this ID - use the pre-calculated shard key
+                        int shardKey1 = shardDistributionMap.getOrDefault(duplicateId.hashCode(), random.nextInt());
                         Document doc1 = generateDummyDocument(true, duplicateId);
+                        doc1.put("x", shardKey1); // Explicit shard key
                         collection.insertOne(doc1);
                         counter.incrementAndGet();
                         
                         // Log that we're trying to insert a duplicate intentionally
                         logger.debug("Attempting to insert duplicate _id: {}", duplicateId);
                         
-                        // Second document with the same ID (will be on different shard)
-                        Document doc2 = generateDummyDocument(true, duplicateId);
-                        // Use a negated hashcode to get different shard key for same ID
-                        doc2.put("x", shardDistributionMap.getOrDefault(-duplicateId.hashCode(), random.nextInt()));
+                        // Get the shard key for the second document
+                        int shardKey2 = shardDistributionMap.getOrDefault(-duplicateId.hashCode(), random.nextInt());
                         
-                        try {
-                            collection.insertOne(doc2);
-                            counter.incrementAndGet();
-                        } catch (Exception e) {
-                            logger.warn("Duplicate _id rejected for: {} - {}", duplicateId, e.getMessage());
-                            // Don't increment counter for documents that weren't inserted
-                        }
+                        
+                            // Second document with the same ID (will be on different shard)
+                            Document doc2 = generateDummyDocument(true, duplicateId);
+                            doc2.put("x", shardKey2); // Different shard key value
+                            
+                            try {
+                                collection.insertOne(doc2);
+                                counter.incrementAndGet();
+                                logger.info("Successfully inserted duplicate _id: {}", duplicateId);
+                            } catch (Exception e) {
+                                logger.warn("Duplicate _id rejected for: {} - {}", duplicateId, e.getMessage());
+                                // Don't increment counter for documents that weren't inserted
+                            }
+                        
                     } catch (Exception e) {
                         logger.warn("Error inserting duplicate document: {}", e.getMessage());
                     }
@@ -619,8 +647,12 @@ public class MongoDataLoader implements Callable<Integer> {
                 generatedIds.add(docId);
             }
             
+            // For regular documents, use a random shard key
+            int shardKey = random.nextInt();
+            
             Document doc = new Document()
                 .append("_id", docId)
+                .append("x", shardKey)    // Explicit shard key for all documents
                 .append("value", "test-value-" + docCounter)
                 .append("randomData", "Lorem ipsum dolor sit amet " + docCounter)
                 .append("isActive", docCounter % 2 == 0)
@@ -632,67 +664,6 @@ public class MongoDataLoader implements Callable<Integer> {
             
             return doc;
         }
-        
-        public void verifyShardPlacement(ObjectId id, int shardKey1, int shardKey2) {
-            try {
-                MongoDatabase adminDb = mongoClient.getDatabase("admin");
-                
-                // Find which shard contains the first document
-                Document explain1 = adminDb.runCommand(
-                    new Document("explain", 
-                        new Document("find", databaseName + "." + collectionName)
-                        .append("filter", new Document("_id", id).append("x", shardKey1))
-                    )
-                    .append("verbosity", "queryPlanner")
-                );
-                
-                // Find which shard contains the second document (should be a different shard)
-                Document explain2 = adminDb.runCommand(
-                    new Document("explain", 
-                        new Document("find", databaseName + "." + collectionName)
-                        .append("filter", new Document("_id", id).append("x", shardKey2))
-                    )
-                    .append("verbosity", "queryPlanner")
-                );
-                
-                // Extract shard information from explain output
-                String shard1 = extractShardFromExplain(explain1);
-                String shard2 = extractShardFromExplain(explain2);
-                
-                if (shard1 != null && shard2 != null) {
-                    if (shard1.equals(shard2)) {
-                        logger.error("PROBLEM: Both documents with _id {} landed on same shard {}", 
-                            id, shard1);
-                    } else {
-                        logger.info("SUCCESS: Documents with _id {} landed on different shards: {} and {}", 
-                            id, shard1, shard2);
-                    }
-                } else {
-                    logger.warn("Could not determine shard placement for one or both documents with _id {}", id);
-                }
-            } catch (Exception e) {
-                logger.error("Error verifying shard placement: {}", e.getMessage());
-            }
-        }
-        
-        private String extractShardFromExplain(Document explain) {
-            try {
-                if (explain.containsKey("queryPlanner")) {
-                    Document queryPlanner = (Document) explain.get("queryPlanner");
-                    if (queryPlanner.containsKey("winningPlan")) {
-                        Document winningPlan = (Document) queryPlanner.get("winningPlan");
-                        if (winningPlan.containsKey("shards")) {
-                            List<Document> shards = (List<Document>) winningPlan.get("shards");
-                            if (!shards.isEmpty()) {
-                                return shards.get(0).getString("shardName");
-                            }
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                logger.error("Error extracting shard from explain: {}", e.getMessage());
-            }
-            return null;
-        }
+      
     }
 }
