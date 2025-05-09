@@ -3,33 +3,49 @@ package com.mongodb.mongosync;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.bson.BsonDocument;
+import org.bson.BsonValue;
 import org.bson.Document;
+import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoException;
+import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.InsertManyOptions;
 import com.mongodb.client.model.Projections;
+import com.mongodb.client.model.Sorts;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.corruptutil.DupeUtil;
 import com.mongodb.dbhash.DbHashUtil;
 import com.mongodb.model.Namespace;
 import com.mongodb.model.Shard;
+import com.mongodb.shardbalancer.CountingMegachunk;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.shardsync.ShardConfigSync;
 import com.mongodb.shardsync.SyncConfiguration;
 import com.mongodb.util.ProcessUtils;
 import com.mongodb.util.ProcessUtils.ProcessInfo;
+import com.mongodb.util.bson.BsonValueConverter;
+import com.mongodb.util.bson.BsonValueWrapper;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -65,14 +81,14 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 
 	@Option(names = { "--buildIndexes" }, description = "Build indexes on target", required = false)
 	private boolean buildIndexes = true;
-	
+
 	@Option(names = { "--dupeCheck" }, description = "Check for duplicate _ids", required = false)
 	private boolean dupeCheck = true;
 
 	@Option(names = { "--drop" }, description = "Drop target db and mongosync internal db", required = false)
 	private boolean drop = false;
 
-	@Option(names = { "--includeNamespaces" }, description = "Namespaces to include", required = false, split=",")
+	@Option(names = { "--includeNamespaces" }, description = "Namespaces to include", required = false, split = ",")
 	private Set<String> includeNamespaceStrings;
 
 	@Option(names = { "--shardMap" }, description = "Shard map, ex: shA|sh0,shB|sh1", required = false)
@@ -80,15 +96,21 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 
 	@Option(names = { "--wiredTigerConfigString" }, description = "WiredTiger config string", required = false)
 	private String wiredTigerConfigString;
-	
-	@Option(names = { "--dupeCheckThreads" }, description = "# threads per collection to use for duplicate _id checking", required = false, defaultValue = "4")
+
+	@Option(names = {
+			"--dupeCheckThreads" }, description = "# threads per collection to use for duplicate _id checking", required = false, defaultValue = "4")
 	private int dupeCheckThreads;
-	
-	@Option(names = { "--archiveDbName" }, description = "database name that dupe checker uses to store found duplicates", required = false, defaultValue = "_dupesArchive")
+
+	@Option(names = {
+			"--archiveDbName" }, description = "database name that dupe checker uses to store found duplicates", required = false, defaultValue = "_dupesArchive")
 	private String archiveDbName;
+
+	@Option(names = {
+			"--targetShards" }, description = "Target shards to distribute chunks to", required = false, split = ",")
+	private Set<String> targetShards;
 	
-	@Option(names = { "--targetShards" }, description = "Target shards to distribute chunks to", required = false, split=",")
-    private Set<String> targetShards;
+	@Option(names = { "--syncStartDelay" }, description = "Avoid long wait when resuming mongosync (for testing only)", required = false)
+	private Integer syncStartDelay;
 
 	private ShardConfigSync shardConfigSync;
 	private SyncConfiguration shardConfigSyncConfig;
@@ -97,11 +119,17 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	private ShardClient destShardClient;
 	private DupeUtil dupeUtil;
 	
+	private final Map<String, RawBsonDocument> destChunksCache = new LinkedHashMap<>();
+	private final Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> destChunkMap = new HashMap<>();
+	private Map<String, Document> collectionsMap;
+
 	private List<Namespace> includeNamespaces = new ArrayList<>();
 
 	List<MongoSyncRunner> mongosyncRunners;
 
 	private AtomicInteger mongosyncRunnersPausedCount = new AtomicInteger(0);
+	
+	private Random random = new Random();
 
 	private void initialize() throws IOException {
 
@@ -111,7 +139,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		if (includeNamespaceStrings != null) {
 			shardConfigSyncConfig.setNamespaceFilters(includeNamespaceStrings.toArray(new String[0]));
 		}
-		
+
 		if (shardMap != null) {
 			shardConfigSyncConfig.setShardMap(shardMap.split(","));
 		}
@@ -119,10 +147,10 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		if (wiredTigerConfigString != null) {
 			shardConfigSyncConfig.setWiredTigerConfigString(wiredTigerConfigString);
 		}
-		
+
 		if (targetShards != null && !targetShards.isEmpty()) {
-	        shardConfigSyncConfig.setTargetShards(targetShards);
-	    }
+			shardConfigSyncConfig.setTargetShards(targetShards);
+		}
 
 		chunkManager = new ChunkManager(shardConfigSyncConfig);
 		chunkManager.initalize();
@@ -131,8 +159,11 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 
 		sourceShardClient.populateShardMongoClients();
 		sourceShardClient.populateCollectionsMap(includeNamespaceStrings);
+		
 		destShardClient.populateShardMongoClients();
 		destShardClient.stopBalancer();
+		
+		this.collectionsMap = sourceShardClient.getCollectionsMap();
 
 		shardConfigSync = new ShardConfigSync(shardConfigSyncConfig);
 		shardConfigSync.setChunkManager(chunkManager);
@@ -145,7 +176,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			} else {
 				destShardClient.dropDatabasesAndConfigMetadata(includes);
 			}
-			
+
 			MongoDatabase msyncInternal = destShardClient.getMongoClient()
 					.getDatabase("mongosync_reserved_for_internal_use");
 			if (msyncInternal != null) {
@@ -158,29 +189,29 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		if (logDir == null) {
 			logDir = new File(".");
 		}
-		
+
 		dupeUtil = new DupeUtil(sourceUri, destUri, archiveDbName, null);
 		dupeUtil.setThreads(dupeCheckThreads);
 		dupeUtil.addFilters(includeNamespaceStrings.toArray(new String[0]));
-		
+		dupeUtil.setDropArchiveDb(drop);
+		dupeUtil.initialize();
+
 		if (includeNamespaceStrings != null && !includeNamespaceStrings.isEmpty()) {
 			for (String ns : includeNamespaceStrings) {
 				includeNamespaces.add(new Namespace(ns));
 			}
 		}
-
+		
+		chunkManager.loadChunkMap(null, destChunksCache, destChunkMap);
+		
 	}
 
 	@Override
 	public Integer call() throws Exception {
 		initialize();
-		
+
 		if (dupeCheck) {
-			long dupeCount = dupeUtil.run();
-			
-			if (dupeCount > 0) {
-				deleteDuplicatesOnSource();
-			}
+			dupeUtil.run();
 		}
 
 		List<ProcessInfo> mongosyncsRunningAtStart = ProcessUtils.killAllProcesses("mongosync");
@@ -199,20 +230,21 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			mongosync.setMongosyncBinary(mongosyncBinary);
 			mongosync.setPort(port++);
 			mongosync.setLoadLevel(loadLevel);
+			mongosync.setSyncStartDelay(syncStartDelay);
 			mongosync.setBuildIndexes(buildIndexes);
 			mongosync.setLogDir(logDir);
 			mongosync.setIncludeNamespaces(includeNamespaces);
 			if (i == 0) {
 				mongosync.setCoordinator(true);
 			}
-			
+
 			String destShardId = chunkManager.getShardMapping(source.getId());
 			Shard dest = destShardClient.getShardsMap().get(destShardId);
 			if (dest != null) {
 				logger.debug(String.format("Creating MongoSyncRunner for %s ==> %s", source.getId(), dest.getId()));
 			}
 			mongosync.initialize();
-			
+
 			i++;
 		}
 
@@ -221,7 +253,6 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		// Start the first one (coordinator)
 		MongoSyncRunner coordinator = mongosyncRunners.get(0);
 		coordinator.start();
-		
 
 		while (true) {
 			Thread.sleep(30000);
@@ -245,111 +276,335 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			DbHashUtil dbHash = new DbHashUtil(chunkManager, includeNamespaceStrings);
 			dbHash.call();
 		} else {
-			logger.debug("skipping dbHash since targetShards were specified / shard alignment does not match, reverting to estimated document counts");
+			logger.debug(
+					"skipping dbHash since targetShards were specified / shard alignment does not match, reverting to estimated document counts");
+			restoreDuplicatesOnTarget();
 			compareCollectionCounts();
 		}
-		
+
 		return 0;
 	}
-	
+
+	private void restoreDuplicatesOnTarget() {
+		for (Namespace ns : includeNamespaces) {
+			Namespace archiveNs1 = new Namespace(archiveDbName, ns.getNamespace() + "_1");
+			Namespace archiveNs2 = new Namespace(archiveDbName, ns.getNamespace() + "_2");
+
+			// Archive is stored on the target side, but it's the "source" when copying the
+			// dupes back into the target
+			MongoCollection<Document> source1 = destShardClient.getCollection(archiveNs1);
+			MongoCollection<Document> source2 = destShardClient.getCollection(archiveNs2);
+			MongoCollection<Document> target = destShardClient.getCollection(ns);
+
+			// Process documents from source1
+			processSourceCollection(source1, target);
+
+			// Process documents from source2
+			processSourceCollection(source2, target);
+		}
+	}
+
+	/**
+	 * Processes a source collection and inserts documents into target in batches
+	 * 
+	 * @param sourceCollection The source collection to read from
+	 * @param targetCollection The target collection to insert into
+	 */
+	private void processSourceCollection(MongoCollection<Document> sourceCollection,
+			MongoCollection<Document> targetCollection) {
+		// Define batch size
+		final int BATCH_SIZE = 1000;
+		List<Document> batch = new ArrayList<>(BATCH_SIZE);
+
+		// Retrieve all documents from source
+		try (MongoCursor<Document> cursor = sourceCollection.find().iterator()) {
+			while (cursor.hasNext()) {
+				batch.add(cursor.next());
+
+				// When batch is full, insert it
+				if (batch.size() >= BATCH_SIZE) {
+					insertBatchWithDuplicateHandling(batch, targetCollection);
+					batch.clear();
+				}
+			}
+
+			// Insert any remaining documents
+			if (!batch.isEmpty()) {
+				insertBatchWithDuplicateHandling(batch, targetCollection);
+			}
+		}
+	}
+
+	/**
+	 * Inserts a batch of documents, handling duplicate key exceptions
+	 * 
+	 * @param batch            The batch of documents to insert
+	 * @param targetCollection The target collection to insert into
+	 */
+	private void insertBatchWithDuplicateHandling(List<Document> batch, MongoCollection<Document> targetCollection) {
+		try {
+			// Try bulk insert
+			targetCollection.insertMany(batch, new InsertManyOptions().ordered(false));
+		} catch (MongoBulkWriteException e) {
+			// Handle duplicate key exceptions
+			handleDuplicateKeyErrors(e, batch, targetCollection);
+		}
+	}
+
+	/**
+	 * Handles duplicate key exceptions during batch inserts
+	 * 
+	 * @param e                The exception that was thrown
+	 * @param batch            The batch that was being inserted
+	 * @param targetCollection The target collection
+	 */
+	private void handleDuplicateKeyErrors(MongoBulkWriteException e, List<Document> batch,
+			MongoCollection<Document> targetCollection) {
+		// Get the write errors from the exception
+		List<BulkWriteError> writeErrors = e.getWriteErrors();
+
+		// Log information about the errors
+		for (BulkWriteError error : writeErrors) {
+			if (error.getCode() == 11000) { // 11000 is the error code for duplicate key
+				// Log duplicate key error
+				logger.info("Duplicate key error for document with index: " + error.getIndex());
+
+				// Here you could implement special handling for duplicates if needed
+				// For example, you might want to update the existing document instead of
+				// inserting
+
+				// Example stub for future implementation:
+				// Document duplicateDoc = batch.get(error.getIndex());
+				// handleDuplicateDocument(duplicateDoc, targetCollection);
+			} else {
+				// Log other types of errors
+				logger.error("Non-duplicate error: " + error.getMessage());
+			}
+		}
+
+		// Log the successful insertions count
+		logger.info(
+				"Successfully inserted " + e.getWriteResult().getInsertedCount() + " documents out of " + batch.size());
+	}
+
+	/**
+	 * Future method to handle duplicate documents according to business rules
+	 * 
+	 * @param duplicateDoc     The document that caused a duplicate key error
+	 * @param targetCollection The target collection
+	 */
+	private void handleDuplicateDocument(Document duplicateDoc, MongoCollection<Document> targetCollection) {
+		// This method would be implemented according to specific business rules
+		// For example:
+		// 1. You might want to update the existing document
+		// 2. You might want to merge the duplicate with the existing document
+		// 3. You might want to rename and insert the duplicate
+		// 4. You might want to log it for manual review
+
+		// Stub implementation:
+		Object id = duplicateDoc.get("_id");
+		logger.info("Handling duplicate document with _id: " + id);
+
+		// Example of one approach: update the existing document if newer
+		// if (duplicateDoc.containsKey("lastModified")) {
+		// Date lastModified = duplicateDoc.getDate("lastModified");
+		// targetCollection.updateOne(
+		// Filters.and(
+		// Filters.eq("_id", id),
+		// Filters.lt("lastModified", lastModified)
+		// ),
+		// new Document("$set", duplicateDoc)
+		// );
+		// }
+	}
+
 	private void deleteDuplicatesOnSource() {
 		for (Namespace ns : includeNamespaces) {
 			Namespace archiveNs1 = new Namespace(archiveDbName, ns.getNamespace() + "_1");
-			//Namespace archiveNs2 = new Namespace(archiveDbName, ns.getNamespace() + "_2");
+			Namespace archiveNs2 = new Namespace(archiveDbName, ns.getNamespace() + "_2");
 			MongoCollection<Document> c1 = destShardClient.getCollection(archiveNs1);
-			//MongoCollection<Document> c2 = destShardClient.getCollection(archiveNs2);
-			
-			// we only have to delete from c1, since the duplicate delete will delete all for a given _id
-			deleteDuplicates(c1, ns);
+			MongoCollection<Document> c2 = destShardClient.getCollection(archiveNs2);
+
+			deleteDuplicates(c1, c2, ns);
 		}
 	}
+
+	private void deleteDuplicates(MongoCollection<Document> archive1, MongoCollection<Document> archive2, Namespace sourceNs) {
+		MongoCollection<Document> sourceColl = sourceShardClient.getCollection(sourceNs);
+
+		List<Object> idBatch = new ArrayList<>(1000);
+		int totalDeleted = 0;
+		int batchCount = 0;
+
+		logger.info("Starting deletion of duplicates from {} based on archive collection", sourceNs);
+
+		Document collMeta = collectionsMap.get(sourceNs.getNamespace());
+		
+		// if there's no collection metadata, it's most likely unsharded
+		if (collMeta == null) {
+			throw new IllegalArgumentException(String.format("collectionsMap does not contain namespace %s", sourceNs));
+		}
+		Document shardKeyMetaDoc = (Document)collMeta.get("key");
+		Set<String> shardKey = shardKeyMetaDoc.keySet();
+		
+		
+		Bson projection = Projections.fields(Projections.include("_id"));
+		for (String field : shardKey) {
+		    projection = Projections.fields(projection, Projections.include(field));
+		}
+		
+		FindIterable<Document> docs1 = archive1.find().projection(projection).sort(Sorts.ascending("_id"));
+		FindIterable<Document> docs2 = archive2.find().projection(projection).sort(Sorts.ascending("_id"));
+		MongoCursor<Document> docs2Cursor = docs2.iterator();
+
+		for (Document d : docs1) {
+			Document d2 = docs2Cursor.next();
+			
+			BsonValueWrapper w1 = getShardKeyWrapper(shardKey, d);
+			BsonValueWrapper w2 = getShardKeyWrapper(shardKey, d2);
+			NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = destChunkMap.get(sourceNs.getNamespace());
+			if (innerMap == null) {
+				logger.warn("innerMap was null");
+			}
+			
+			Map.Entry<BsonValueWrapper, CountingMegachunk> e1 = innerMap.floorEntry(w1);
+			Map.Entry<BsonValueWrapper, CountingMegachunk> e2 = innerMap.floorEntry(w2);
+			
+			CountingMegachunk c1 = e1.getValue();
+			CountingMegachunk c2 = e2.getValue();
+			
+			String s1 = c1.getShard();
+			String s2 = c2.getShard();
+			
+			
+			if (c1.equals(c2)) {
+				logger.error("Duplicates were found in the same chunk for _id: {} and _id: {}, ns: {}");
+				throw new RuntimeException("duplicates were found on the same chunk");
+			}
+			
+			if (s1.equals(s2)) {
+				logger.debug("duplicates are on the same shard, going to move chunk with min: {}, max: {}", c2.getMin(), c2.getMax());
+				
+				String newShard = getRandomShardExcept(s2);
+				destShardClient.moveChunk(sourceNs.getNamespace(), c2.getMin(), c2.getMax(), newShard);
+			}
+			
+			idBatch.add(d.get("_id"));
+
+			// When we reach 1000 ids, execute a batch delete
+			if (idBatch.size() >= 1000) {
+				int deleted = deleteIdsInBatchWithRetry(sourceColl, idBatch);
+				totalDeleted += deleted;
+				batchCount++;
+
+				logger.info("Batch #{}: Deleted {} documents from {}", batchCount, deleted, sourceNs);
+				idBatch.clear();
+			}
+		}
+
+		// Process any remaining ids
+		if (!idBatch.isEmpty()) {
+			int deleted = deleteIdsInBatchWithRetry(sourceColl, idBatch);
+			totalDeleted += deleted;
+			batchCount++;
+
+			logger.info("Final batch #{}: Deleted {} documents from {}", batchCount, deleted, sourceNs);
+		}
+
+		logger.info("Completed deletion process. Total documents deleted: {} in {} batches", totalDeleted, batchCount);
+	}
 	
-	private void deleteDuplicates(MongoCollection<Document> archiveColl, Namespace sourceNs) {
-	    MongoCollection<Document> sourceColl = sourceShardClient.getCollection(sourceNs);
-	    
-	    List<Object> idBatch = new ArrayList<>(1000);
-	    int totalDeleted = 0;
-	    int batchCount = 0;
-	    
-	    logger.info("Starting deletion of duplicates from {} based on archive collection", sourceNs);
-	    
-	    // Project only the _id field in the find operation
-	    FindIterable<Document> idOnlyDocs = archiveColl.find().projection(Projections.include("_id"));
-	    
-	    for (Document d : idOnlyDocs) {
-	        idBatch.add(d.get("_id"));
-	        
-	        // When we reach 1000 ids, execute a batch delete
-	        if (idBatch.size() >= 1000) {
-	            int deleted = deleteIdsInBatchWithRetry(sourceColl, idBatch);
-	            totalDeleted += deleted;
-	            batchCount++;
-	            
-	            logger.info("Batch #{}: Deleted {} documents from {}", batchCount, deleted, sourceNs);
-	            idBatch.clear(); // Reset the batch
+	private String getRandomShardExcept(String s2) {
+	    // Create a list from the set, excluding s2
+	    List<String> availableShards = new ArrayList<>();
+	    for (String shard : targetShards) {
+	        if (!shard.equals(s2)) {
+	            availableShards.add(shard);
 	        }
 	    }
 	    
-	    // Don't forget to process any remaining ids (less than 1000)
-	    if (!idBatch.isEmpty()) {
-	        int deleted = deleteIdsInBatchWithRetry(sourceColl, idBatch);
-	        totalDeleted += deleted;
-	        batchCount++;
-	        
-	        logger.info("Final batch #{}: Deleted {} documents from {}", batchCount, deleted, sourceNs);
+	    // Check if we have any shards left after exclusion
+	    if (availableShards.isEmpty()) {
+	        return null; // or throw an exception
 	    }
 	    
-	    logger.info("Completed deletion process. Total documents deleted: {} in {} batches", totalDeleted, batchCount);
+	    int randomIndex = random.nextInt(availableShards.size());
+	    return availableShards.get(randomIndex);
+	}
+	
+	private static BsonValueWrapper getShardKeyWrapper(Set<String> shardKey, Document d) {
+	    // Handle both single field and compound shard keys
+	    BsonValueWrapper shardKeyWrapper;
+	    if (shardKey.size() == 1) {
+	        // Single field shard key
+	        String keyField = shardKey.iterator().next();
+	        Object keyValue = d.get(keyField);
+	        
+	        // Convert the value to a BsonValue
+	        BsonValue bsonValue = BsonValueConverter.convertToBsonValue(keyValue);
+	        shardKeyWrapper = new BsonValueWrapper(bsonValue);
+	    } else {
+	        // Compound shard key - create a BsonDocument with all shard key fields
+	        BsonDocument shardKeyDoc = new BsonDocument();
+	        
+	        for (String keyField : shardKey) {
+	            Object keyValue = d.get(keyField);
+	            BsonValue bsonValue = BsonValueConverter.convertToBsonValue(keyValue);
+	            shardKeyDoc.append(keyField, bsonValue);
+	        }
+	        shardKeyWrapper = new BsonValueWrapper(shardKeyDoc);
+	    }
+	    return shardKeyWrapper;
 	}
 
 	private int deleteIdsInBatchWithRetry(MongoCollection<Document> collection, List<Object> ids) {
-	    final int MAX_RETRIES = 3;
-	    final int RETRY_DELAY_MS = 1000; // Initial delay of 1 second
-	    
-	    int retryCount = 0;
-	    Exception lastException = null;
-	    
-	    while (retryCount < MAX_RETRIES) {
-	        try {
-	            return deleteIdsInBatch(collection, new ArrayList<>(ids)); // Create a defensive copy
-	        } catch (MongoException e) {
-	            lastException = e;
-	            retryCount++;
-	            
-	            if (retryCount >= MAX_RETRIES) {
-	                logger.error("Failed to delete batch after {} retries", MAX_RETRIES, e);
-	                break;
-	            }
-	            
-	            // Exponential backoff
-	            int delayMs = RETRY_DELAY_MS * (int) Math.pow(2, retryCount - 1);
-	            logger.warn("Batch deletion failed (attempt {}/{}). Retrying in {} ms. Error: {}", 
-	                       retryCount, MAX_RETRIES, delayMs, e.getMessage());
-	            
-	            try {
-	                Thread.sleep(delayMs);
-	            } catch (InterruptedException ie) {
-	                Thread.currentThread().interrupt();
-	                throw new RuntimeException("Interrupted during retry delay", ie);
-	            }
-	        }
-	    }
-	    
-	    // If we've exhausted retries, throw the last exception
-	    if (lastException != null) {
-	        throw new RuntimeException("Failed to delete batch after exhausting retries", lastException);
-	    }
-	    
-	    return 0; // Should never reach here
+		final int MAX_RETRIES = 3;
+		final int RETRY_DELAY_MS = 1000; // Initial delay of 1 second
+
+		int retryCount = 0;
+		Exception lastException = null;
+
+		while (retryCount < MAX_RETRIES) {
+			try {
+				return deleteIdsInBatch(collection, new ArrayList<>(ids)); // Create a defensive copy
+			} catch (MongoException e) {
+				lastException = e;
+				retryCount++;
+
+				if (retryCount >= MAX_RETRIES) {
+					logger.error("Failed to delete batch after {} retries", MAX_RETRIES, e);
+					break;
+				}
+
+				// Exponential backoff
+				int delayMs = RETRY_DELAY_MS * (int) Math.pow(2, retryCount - 1);
+				logger.warn("Batch deletion failed (attempt {}/{}). Retrying in {} ms. Error: {}", retryCount,
+						MAX_RETRIES, delayMs, e.getMessage());
+
+				try {
+					Thread.sleep(delayMs);
+				} catch (InterruptedException ie) {
+					Thread.currentThread().interrupt();
+					throw new RuntimeException("Interrupted during retry delay", ie);
+				}
+			}
+		}
+
+		// If we've exhausted retries, throw the last exception
+		if (lastException != null) {
+			throw new RuntimeException("Failed to delete batch after exhausting retries", lastException);
+		}
+
+		return 0; // Should never reach here
 	}
 
 	// Original helper to perform the actual deletion
 	private int deleteIdsInBatch(MongoCollection<Document> collection, List<Object> ids) {
-	    Bson filter = Filters.in("_id", ids);
-	    DeleteResult result = collection.deleteMany(filter);
-	    return (int) result.getDeletedCount();
+		Bson filter = Filters.in("_id", ids);
+		DeleteResult result = collection.deleteMany(filter);
+		return (int) result.getDeletedCount();
 	}
-	
+
 	private void compareCollectionCounts() {
 		for (Namespace ns : includeNamespaces) {
 			Number sourceCount = sourceShardClient.getFastCollectionCount(ns.getDatabaseName(), ns.getCollectionName());
@@ -357,7 +612,8 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			if (sourceCount.equals(destCount)) {
 				logger.debug("    ns: {}, sourceCount and destCount match {} -- ✅ PASS", ns, sourceCount);
 			} else {
-				logger.debug("    ns: {}, sourceCount and destCount differ, sourceCount: {}, destCount: {} -- ❌ FAIL", ns, sourceCount, destCount);
+				logger.debug("    ns: {}, sourceCount and destCount differ, sourceCount: {}, destCount: {} -- ❌ FAIL",
+						ns, sourceCount, destCount);
 			}
 		}
 	}
@@ -426,11 +682,12 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 				logger.debug("includeNamespaces: {}", includeNamespaceStrings);
 
 				shardConfigSync.syncMetadataOptimized();
+				deleteDuplicatesOnSource();
 
 			} catch (Exception e) {
 				logger.warn("error in chunk init", e);
 			}
-			
+
 			logger.debug("Starting mongosync followers");
 			for (MongoSyncRunner mongosync : mongosyncRunners) {
 				if (mongosync.equals(runner)) {
@@ -443,8 +700,8 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 					mongosync.start();
 				}
 			}
-			
-			//MongoSyncStatus status = runner.checkStatus();
+
+			// MongoSyncStatus status = runner.checkStatus();
 			runner.resume();
 			runner.waitForRunningState();
 

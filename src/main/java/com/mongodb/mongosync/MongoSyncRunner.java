@@ -64,6 +64,8 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 	private Logger logger;
 
 	private HttpUtils httpUtils;
+	
+	private Integer syncStartDelay;
 
 
 	private DefaultExecutor executor;
@@ -94,6 +96,9 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 		addArg("port", port);
 		addArg("loadLevel", loadLevel);
 		addArg("id", id);
+		if (syncStartDelay != null) {
+			addArg("syncStartDelay", syncStartDelay);
+		}
 
 		MongoSyncLogHandler logHandler = new MongoSyncLogHandler(this, id, logDir);
 		PumpStreamHandler psh = new PumpStreamHandler(logHandler);
@@ -442,5 +447,9 @@ public class MongoSyncRunner implements MongoSyncEventListener {
 
 	public void setCoordinator(boolean coordinator) {
 		this.coordinator = coordinator;
+	}
+
+	public void setSyncStartDelay(Integer syncStartDelay) {
+		this.syncStartDelay = syncStartDelay;
 	}
 }

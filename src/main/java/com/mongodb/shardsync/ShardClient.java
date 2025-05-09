@@ -1554,16 +1554,20 @@ public class ShardClient {
 		}
 	}
 	
-	public boolean moveChunk(RawBsonDocument chunk, String moveToShard, 
+	public boolean moveChunk(BsonDocument chunk, String moveToShard, 
 			boolean ignoreMissing, boolean secondaryThrottle, boolean waitForDelete) {
-		RawBsonDocument min = (RawBsonDocument) chunk.get("min");
-		RawBsonDocument max = (RawBsonDocument) chunk.get("max");
+		BsonDocument min = (BsonDocument) chunk.get("min");
+		BsonDocument max = (BsonDocument) chunk.get("max");
 		String ns = chunk.getString("ns").getValue();
 		return moveChunk(ns, min, max, moveToShard, ignoreMissing, secondaryThrottle, waitForDelete, false);
 	}
 
-	public boolean moveChunk(RawBsonDocument chunk, String moveToShard, boolean ignoreMissing) {
+	public boolean moveChunk(BsonDocument chunk, String moveToShard, boolean ignoreMissing) {
 		return moveChunk(chunk, moveToShard, ignoreMissing, false, false);
+	}
+	
+	public boolean moveChunk(String namespace, BsonDocument min, BsonDocument max, String moveToShard) {
+		return moveChunk(namespace, min, max, moveToShard, false, false, false, false, false);
 	}
 	
 	public boolean moveChunk(String namespace, BsonDocument min, BsonDocument max, String moveToShard, 
@@ -1576,11 +1580,13 @@ public class ShardClient {
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
 		moveChunkCmd.append("to", moveToShard);
-		if (version.startsWith("4.4")) {
-			moveChunkCmd.append("forceJumbo", true);
-		}
+		//if (version.startsWith("4.4")) {
+		//	moveChunkCmd.append("forceJumbo", true);
+		//}
 		if (secondaryThrottle) {
 			moveChunkCmd.append("_secondaryThrottle", secondaryThrottle);
+		}
+		if (majorityWrite) {
 			moveChunkCmd.append("writeConcern", WriteConcern.MAJORITY.asDocument());
 		}
 		if (waitForDelete) {

@@ -143,99 +143,10 @@ public class Balancer implements Callable<Integer> {
 		chunkManager.initializeSourceChunkQuery();
 		chunkMap = new HashMap<>();
 		sourceChunksCache = new LinkedHashMap<>();
-		loadChunkMap(null);
-	}
-	
-	private void loadChunkMap(String namespace) {
-		
-		logger.debug("Starting loadChunkMap, size: {}, ns: {}", chunkMap.size(), namespace);
-		BsonDocument chunkQuery = null;
-		
-		if (namespace == null) {
-			chunkQuery = chunkManager.getSourceChunkQuery();
-		} else {
-			chunkQuery = chunkManager.newChunkQuery(sourceShardClient, namespace);
-		}
-		sourceShardClient.loadChunksCache(chunkQuery, sourceChunksCache);
-		
-		int uberThreshold = (sourceChunksCache.size() >= 1000) ? 300 : 100;
-
-		int uberId = 0;
-		int i = 0;
-		for (RawBsonDocument chunkDoc : sourceChunksCache.values()) {
-
-			if (i++ % uberThreshold == 0) {
-				uberId++;
-			}
-
-			CountingMegachunk mega = new CountingMegachunk();
-			mega.setUberId(uberId);
-			
-			String ns = null;
-			if (chunkDoc.containsKey("ns")) {
-				ns = chunkDoc.getString("ns").getValue();
-			} else {
-				BsonBinary buuid = chunkDoc.getBinary("uuid");
-				UUID uuid = BsonUuidUtil.convertBsonBinaryToUuid(buuid);
-				ns = sourceShardClient.getCollectionsUuidMap().get(uuid);
-			}
-			
-			Document collMeta = this.sourceShardClient.getCollectionsMap().get(ns);
-			Document shardKeysDoc = (Document) collMeta.get("key");
-			Set<String> shardKeys = shardKeysDoc.keySet();
-			
-			mega.setNs(ns);
-			mega.setShard(chunkDoc.getString("shard").getValue());
-
-			NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
-			if (innerMap == null) {
-				innerMap = new TreeMap<>();
-				chunkMap.put(ns, innerMap);
-			}
-
-			// Document collDoc = this.sourceShardClient.getCollectionsMap().get(ns);
-
-			BsonDocument min = chunkDoc.getDocument("min");
-			mega.setMin(min);
-
-			BsonValue max = chunkDoc.get("max");
-			if (max instanceof BsonMaxKey) {
-				logger.warn("*** BsonMaxKey not handled");
-			} else if (max instanceof BsonDocument) {
-				mega.setMax((BsonDocument) max);
-			} else {
-				logger.error("unexpected max type: {}", max);
-			}
-
-			BsonValue val = null;
-			if (shardKeys.size() == 1) {
-				val = min.get(min.getFirstKey());
-			} else {
-				//logger.warn("compound - experimental support");
-				val = min;
-			}
-			 
-			if (val == null) {
-				logger.error("could not get shard key from chunk: {}", mega);
-				continue;
-			}
-			
-			if (val instanceof BsonMinKey) {
-				//innerMap.put("\u0000", mega);
-				innerMap.put(new BsonValueWrapper(val), mega);
-			} else if (val instanceof BsonString) {
-				//innerMap.put(((BsonString) val).getValue(), mega);
-				innerMap.put(new BsonValueWrapper(val), mega);
-			} else {
-				//logger.debug("chunkDoc min._id was unexepected type: {}, chunk: {}", val.getClass().getName(), mega);
-				innerMap.put(new BsonValueWrapper(val), mega);
-			}
-			//logger.debug("{}: innerMap size: {}, val: {}", ns, innerMap.size(), val);
-		}
+		chunkManager.loadChunkMap(null, sourceChunksCache, chunkMap);
 		balancerConfig.setChunkMap(chunkMap);
 	}
-
-
+	
 	private void backoffSleep() {
 		if (backoffSleepMinutes == 0) {
 			backoffSleepMinutes = 5;
@@ -358,11 +269,11 @@ public class Balancer implements Callable<Integer> {
 								if (mce.getMessage().contains("ChunkTooBig")) {
 									logger.debug("Split then retry due to ChunkTooBig..., try {}", _try);
 					                splitChunk(ns, mega.getMin());
-					                this.loadChunkMap(ns);
+					                chunkManager.loadChunkMap(ns, sourceChunksCache, chunkMap);
 								}
 								
 								if (mce.getMessage().contains("no chunk found")) {
-									this.loadChunkMap(ns);
+									chunkManager.loadChunkMap(ns, sourceChunksCache, chunkMap);
 								}
 								
 							}

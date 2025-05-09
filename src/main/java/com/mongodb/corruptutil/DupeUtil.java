@@ -98,11 +98,9 @@ public class DupeUtil implements Callable<Integer> {
         this.destUriStr = destUriStr;
         this.archiveDbName = archiveDbName;
         this.startIdStr = startIdStr;
-        
-        initialize();
     }
     
-    private void initialize() {
+    public void initialize() {
     	ConnectionString connectionString = new ConnectionString(sourceUriStr);
         MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString)
@@ -133,7 +131,9 @@ public class DupeUtil implements Callable<Integer> {
             startId = Integer.parseInt(startIdStr);
         }
         
-        addFilters(filters);
+        if (filters != null) {
+        	addFilters(filters);
+        }
         
         populateCollectionNames(startingCollectionNames);
     }
@@ -197,27 +197,34 @@ public class DupeUtil implements Callable<Integer> {
     public long run() throws InterruptedException {
         logger.debug("DupeUtil starting");
         executor = Executors.newFixedThreadPool(threads);
-        MongoIterable<String> dbNames = sourceClient.listDatabaseNames();
-        for (String dbName : dbNames) {
-            if (! databasesExcludeList.contains(dbName)) {
-                MongoDatabase db = sourceClient.getDatabase(dbName);
-                MongoIterable<String> collectionNames = db.listCollectionNames();
-                for (String collectionName : collectionNames) {
-                    if (collectionsExcludeList.contains(collectionName)) {
-                        continue;
+        //if (includeNamespaces == null || includeNamespaces.isEmpty()) {
+        	MongoIterable<String> dbNames = sourceClient.listDatabaseNames();
+            for (String dbName : dbNames) {
+                if (! databasesExcludeList.contains(dbName)) {
+                    MongoDatabase db = sourceClient.getDatabase(dbName);
+                    MongoIterable<String> collectionNames = db.listCollectionNames();
+                    for (String collectionName : collectionNames) {
+                        if (collectionsExcludeList.contains(collectionName)) {
+                            continue;
+                        }
+                        Namespace ns = new Namespace(dbName, collectionName);
+                        if (filtered && !includeNamespaces.contains(ns)) {
+                            continue;
+                        }
+                        
+                        MongoCollection<RawBsonDocument> coll = db.getCollection(collectionName, RawBsonDocument.class);
+                        DupeIdCollectionWorker worker = new DupeIdCollectionWorker(coll, archiveDb, threads);
+                        workers.add(worker);
+                        executor.execute(worker);
                     }
-                    Namespace ns = new Namespace(dbName, collectionName);
-                    if (filtered && !includeNamespaces.contains(ns)) {
-                        continue;
-                    }
-                    
-                    MongoCollection<RawBsonDocument> coll = db.getCollection(collectionName, RawBsonDocument.class);
-                    DupeIdCollectionWorker worker = new DupeIdCollectionWorker(coll, archiveDb, threads);
-                    workers.add(worker);
-                    executor.execute(worker);
                 }
             }
-        }
+//        } else {
+//        	for (Namespace ns : includeNamespaces) {
+//        		
+//        	}
+//        }
+        
         
         executor.shutdown();
         while (!executor.isTerminated()) {
@@ -372,5 +379,9 @@ public class DupeUtil implements Callable<Integer> {
 
 	public Set<String> getNewArchiveCollectionNames() {
 		return newArchiveCollectionNames;
+	}
+
+	public void setDropArchiveDb(boolean dropArchiveDb) {
+		this.dropArchiveDb = dropArchiveDb;
 	}
 }

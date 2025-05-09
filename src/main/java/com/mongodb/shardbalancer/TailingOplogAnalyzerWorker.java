@@ -19,7 +19,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
-import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
@@ -28,7 +27,6 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.CursorType;
 import com.mongodb.MongoBulkWriteException;
-import com.mongodb.MongoException;
 import com.mongodb.MongoInterruptedException;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoClient;
@@ -37,6 +35,7 @@ import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.WriteModel;
+import com.mongodb.oplog.OplogUtil;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.bson.BsonValueWrapper;
 
@@ -157,8 +156,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 				Set<String> shardKey = shardKeyDoc.keySet();
 				
 	            
-	            //BsonString id = (BsonString)getIdForOperation(doc);
-				BsonValueWrapper id = getIdForOperation(doc, shardKey);
+				BsonValueWrapper id = OplogUtil.getIdForOperation(doc, shardKey, shardId);
 	            
 	            if (id == null) {
 	            	logger.debug("id for operation was null: {}", doc);
@@ -239,46 +237,4 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		return ts;
 	}
 	
-	private BsonValueWrapper getIdForOperation(BsonDocument operation, Set<String> shardKey) throws MongoException {
-		String opType = operation.getString("op").getValue();
-		switch (opType) {
-		case "u":
-			BsonDocument o2 = operation.getDocument("o2");
-			if (o2 != null) {
-				if (shardKey.size() == 1) {
-					String key = shardKey.iterator().next();
-					BsonValue id = o2.get(key);
-					if (id != null) {
-						return new BsonValueWrapper(id);
-					} else {
-						logger.warn("{}: did not find o2._id field for update oplog entry: {}", shardId, operation);
-					}
-				} else if (shardKey.size() == o2.size()) {
-					System.out.println();
-					return new BsonValueWrapper(o2);
-				}
-				
-			} else {
-				logger.error("{}: did not find o2 field for update oplog entry: {}", shardId, operation);
-				return null;
-			}
-			break;
-		case "i":
-		case "d":
-			BsonDocument oDoc = operation.getDocument("o");
-			if (oDoc != null) {
-				BsonValue id = oDoc.get("_id");
-				if (id != null) {
-					return new BsonValueWrapper(id);
-				} else {
-					logger.warn("{}: did not find o._id field for insert/delete oplog entry: {}", shardId, operation);
-				}
-			} else {
-				logger.error("{}: did not find o field for insert/delete oplog entry: {}", shardId, operation);
-			}
-			break;
-		}
-		return null;
-	}
-
 }
