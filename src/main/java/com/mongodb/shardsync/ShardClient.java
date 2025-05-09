@@ -1526,6 +1526,31 @@ public class ShardClient {
 		}
 	}
 	
+    public boolean splitChunk(String namespace, Document min, Document max, Document middle) {
+        try {
+            // Create the split command
+            Document splitCmd = new Document("split", namespace)
+                .append("find", middle)
+                .append("bounds", Arrays.asList(min, max));
+            
+            // Execute the command
+            Document result = adminCommand(splitCmd);
+            
+            // Check if the command was successful
+            boolean success = result.getBoolean("ok", false);
+            if (!success) {
+                logger.error("Failed to split chunk for namespace {}: {}", namespace, result);
+            } else {
+                logger.info("Successfully split chunk at {} for namespace {}", middle, namespace);
+            }
+            
+            return success;
+        } catch (Exception e) {
+            logger.error("Error while splitting chunk for namespace {}: {}", namespace, e.getMessage(), e);
+            return false;
+        }
+    }
+	
 	public Document splitFind(String ns, BsonDocument find, boolean logErrors) {
 		Document splitCommand = new Document("split", ns);
 		splitCommand.put("find", find);
