@@ -1526,7 +1526,7 @@ public class ShardClient {
 		}
 	}
 	
-    public boolean splitChunk(String namespace, Document min, Document max, Document middle) {
+    public boolean splitChunk(String namespace, BsonDocument min, BsonDocument max, Document middle) {
         try {
             // Create the split command
             Document splitCmd = new Document("split", namespace)

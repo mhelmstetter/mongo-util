@@ -286,6 +286,9 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	}
 
 	private void restoreDuplicatesOnTarget() {
+		
+		handleDuplicatesBeforeRestore();
+		
 		for (Namespace ns : includeNamespaces) {
 			Namespace archiveNs1 = new Namespace(archiveDbName, ns.getNamespace() + "_1");
 			Namespace archiveNs2 = new Namespace(archiveDbName, ns.getNamespace() + "_2");
@@ -603,6 +606,67 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		Bson filter = Filters.in("_id", ids);
 		DeleteResult result = collection.deleteMany(filter);
 		return (int) result.getDeletedCount();
+	}
+	
+	// Add this to your MongoSync class
+
+	private void handleDuplicatesBeforeRestore() {
+	    // Initialize the duplicate resolver
+	    DuplicateResolver resolver = new DuplicateResolver(destShardClient);
+	    
+	    // For each namespace with duplicates
+	    for (Namespace ns : includeNamespaces) {
+	        Namespace archiveNs1 = new Namespace(archiveDbName, ns.getNamespace() + "_1");
+	        Namespace archiveNs2 = new Namespace(archiveDbName, ns.getNamespace() + "_2");
+
+	        // Get the MongoDB collections
+	        MongoCollection<Document> archive1 = destShardClient.getCollection(archiveNs1);
+	        MongoCollection<Document> archive2 = destShardClient.getCollection(archiveNs2);
+	        
+	        // Get the shard key for this namespace
+	        Document collMeta = collectionsMap.get(ns.getNamespace());
+	        if (collMeta == null) {
+	            logger.warn("No collection metadata found for {}, skipping duplicate handling", ns);
+	            continue;
+	        }
+	        
+	        Document shardKeyMetaDoc = (Document)collMeta.get("key");
+	        Set<String> shardKey = shardKeyMetaDoc.keySet();
+	        
+	        // Load the duplicates
+	        List<Document> duplicates1 = new ArrayList<>();
+	        List<Document> duplicates2 = new ArrayList<>();
+	        
+	        // Create projections to get _id and shard key fields
+	        Bson projection = Projections.fields(Projections.include("_id"));
+	        for (String field : shardKey) {
+	            projection = Projections.fields(projection, Projections.include(field));
+	        }
+	        
+	        // Load documents from archive collections
+	        archive1.find().projection(projection).into(duplicates1);
+	        archive2.find().projection(projection).into(duplicates2);
+	        
+	        logger.info("Found {} and {} duplicates in archive collections for {}", 
+	                  duplicates1.size(), duplicates2.size(), ns);
+	        
+	        // Get the chunk map for this namespace
+	        NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap = destChunkMap.get(ns.getNamespace());
+	        if (chunkMap == null) {
+	            logger.warn("No chunk map found for {}, skipping duplicate handling", ns);
+	            continue;
+	        }
+	        
+	        // Build the duplicate mappings
+	        resolver.buildDuplicateMapping(ns.getNamespace(), duplicates1, chunkMap, shardKey);
+	        resolver.buildDuplicateMapping(ns.getNamespace(), duplicates2, chunkMap, shardKey);
+	        
+	        // Determine split points based on duplicate distribution
+	        resolver.determineSplitPoints(ns.getNamespace());
+	    }
+	    
+	    // Execute the splits and migrations
+	    resolver.executeSplitsAndMigrations();
 	}
 
 	private void compareCollectionCounts() {
