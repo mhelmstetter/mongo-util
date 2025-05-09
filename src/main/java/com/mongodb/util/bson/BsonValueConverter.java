@@ -1,5 +1,9 @@
 package com.mongodb.util.bson;
 
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
@@ -36,4 +40,45 @@ public class BsonValueConverter {
         
         throw new IllegalArgumentException("Unsupported type: " + value.getClass().getName());
     }
+    
+    public static Object convertBsonValueToObject(BsonValue value) {
+		if (value == null) return null;
+		
+		switch (value.getBsonType()) {
+			case DOCUMENT:
+				Document doc = new Document();
+				BsonDocument bsonDoc = value.asDocument();
+				for (String key : bsonDoc.keySet()) {
+					doc.put(key, convertBsonValueToObject(bsonDoc.get(key)));
+				}
+				return doc;
+			case ARRAY:
+				List<Object> list = new ArrayList<>();
+				for (BsonValue item : value.asArray()) {
+					list.add(convertBsonValueToObject(item));
+				}
+				return list;
+			case OBJECT_ID:
+				return value.asObjectId().getValue();
+			case STRING:
+				return value.asString().getValue();
+			case BOOLEAN:
+				return value.asBoolean().getValue();
+			case INT32:
+				return value.asInt32().getValue();
+			case INT64:
+				return value.asInt64().getValue();
+			case DOUBLE:
+				return value.asDouble().getValue();
+			case DECIMAL128:
+				return value.asDecimal128().getValue();
+			case DATE_TIME:
+				return new Date(value.asDateTime().getValue());
+			case NULL:
+				return null;
+			// Add other types as needed
+			default:
+				return value.toString();
+		}
+	}
 }

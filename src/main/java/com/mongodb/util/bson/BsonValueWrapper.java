@@ -1,10 +1,12 @@
 package com.mongodb.util.bson;
 
 import java.util.Objects;
+import java.util.Set;
 
 import org.bson.BsonDocument;
 import org.bson.BsonType;
 import org.bson.BsonValue;
+import org.bson.Document;
 
 public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
 
@@ -60,6 +62,29 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
 		
 		//System.out.println("compare: " + x + " --> " + y + " **result: " + result);
 		return result;
+	}
+	
+	private Document bsonValueWrapperToDocument(BsonValueWrapper wrapper, Set<String> fieldNames) {
+		BsonValue bsonValue = wrapper.getValue();
+		
+		if (bsonValue instanceof BsonDocument) {
+			// For compound shard keys
+			BsonDocument doc = (BsonDocument) bsonValue;
+			Document result = new Document();
+			
+			for (String key : doc.keySet()) {
+				result.put(key, BsonValueConverter.convertBsonValueToObject(doc.get(key)));
+			}
+			
+			return result;
+		} else if (fieldNames.size() == 1) {
+			// For single-field shard key
+			String fieldName = fieldNames.iterator().next();
+			return new Document(fieldName, BsonValueConverter.convertBsonValueToObject(bsonValue));
+		} else {
+			throw new IllegalArgumentException(
+				"Cannot convert non-document BsonValue to Document with multiple field names");
+		}
 	}
 
 	public BsonValue getValue() {
