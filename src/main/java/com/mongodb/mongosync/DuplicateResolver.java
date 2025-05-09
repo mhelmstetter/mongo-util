@@ -41,47 +41,82 @@ public class DuplicateResolver {
 		this.destShardClient = destShardClient;
 	}
 
-	/**
-	 * Execute the splits and migrations
-	 */
 	public void executeSplitsAndMigrations() {
-		
-		logger.debug("executeSplitsAndMigrations");
-		
-		// Process each namespace
-		for (String namespace : idToChunksMap.keySet()) {
-			// First identify duplicate IDs that need to be separated
-			Map<Object, List<CountingMegachunk>> duplicatesMap = idToChunksMap.get(namespace);
+	    logger.debug("executeSplitsAndMigrations");
+	    
+	    // Log duplicate mappings size
+	    logger.debug("Processing {} namespaces with duplicate mappings", idToChunksMap.keySet().size());
+	    
+	    // Process each namespace
+	    for (String namespace : idToChunksMap.keySet()) {
+	        // First identify duplicate IDs that need to be separated
+	        Map<Object, List<CountingMegachunk>> duplicatesMap = idToChunksMap.get(namespace);
+	        logger.debug("Namespace: {} has {} duplicate IDs to process", namespace, duplicatesMap.size());
+	        
+	        int dupeCount = 0;
+	        // For each duplicate ID
+	        for (Map.Entry<Object, List<CountingMegachunk>> entry : duplicatesMap.entrySet()) {
+	            Object id = entry.getKey();
+	            List<CountingMegachunk> chunks = entry.getValue();
 
-			// For each duplicate ID
-			for (Map.Entry<Object, List<CountingMegachunk>> entry : duplicatesMap.entrySet()) {
-				Object id = entry.getKey();
-				List<CountingMegachunk> chunks = entry.getValue();
+	            // Skip if this ID is only in one chunk
+	            if (chunks.size() <= 1)
+	                continue;
+	            
+	            dupeCount++;
+	            if (dupeCount <= 5) {  // Log first 5 duplicates for diagnostics
+	                logger.debug("Duplicate _id: {} appears in {} chunks", id, chunks.size());
+	                for (CountingMegachunk chunk : chunks) {
+	                    logger.debug("  - Chunk on shard: {}, min: {}, max: {}", 
+	                                chunk.getShard(), chunk.getMin(), chunk.getMax());
+	                }
+	            }
 
-				// Skip if this ID is only in one chunk
-				if (chunks.size() <= 1)
-					continue;
+	            // Group chunks by shard
+	            Map<String, List<CountingMegachunk>> chunksByShardMap = new HashMap<>();
+	            for (CountingMegachunk chunk : chunks) {
+	                String shardId = chunk.getShard();
+	                chunksByShardMap.computeIfAbsent(shardId, k -> new ArrayList<>()).add(chunk);
+	            }
+	            
+	            // Log chunk distribution across shards
+	            if (dupeCount <= 5) {
+	                logger.debug("Duplicate _id: {} distribution across shards:", id);
+	                for (Map.Entry<String, List<CountingMegachunk>> shardEntry : chunksByShardMap.entrySet()) {
+	                    logger.debug("  - Shard: {} has {} chunks with this _id", 
+	                                shardEntry.getKey(), shardEntry.getValue().size());
+	                }
+	            }
 
-				// Group chunks by shard
-				Map<String, List<CountingMegachunk>> chunksByShardMap = new HashMap<>();
-				for (CountingMegachunk chunk : chunks) {
-					String shardId = chunk.getShard();
-					chunksByShardMap.computeIfAbsent(shardId, k -> new ArrayList<>()).add(chunk);
-				}
+	            // For each shard that has multiple chunks with this duplicate
+	            for (Map.Entry<String, List<CountingMegachunk>> shardEntry : chunksByShardMap.entrySet()) {
+	                String shardId = shardEntry.getKey();
+	                List<CountingMegachunk> chunksInShard = shardEntry.getValue();
 
-				// For each shard that has multiple chunks with this duplicate
-				for (Map.Entry<String, List<CountingMegachunk>> shardEntry : chunksByShardMap.entrySet()) {
-					String shardId = shardEntry.getKey();
-					List<CountingMegachunk> chunksInShard = shardEntry.getValue();
-
-					// If there's more than one chunk with this duplicate in the same shard
-					if (chunksInShard.size() > 1) {
-						// We need to migrate at least one of these chunks to a different shard
-						handleChunksInSameShard(namespace, id, shardId, chunksInShard);
-					}
-				}
-			}
-		}
+	                // If there's more than one chunk with this duplicate in the same shard
+	                if (chunksInShard.size() > 1) {
+	                    // We need to migrate at least one of these chunks to a different shard
+	                    handleChunksInSameShard(namespace, id, shardId, chunksInShard);
+	                }
+	            }
+	        }
+	        logger.debug("Total of {} duplicate IDs processed for namespace {}", dupeCount, namespace);
+	    }
+	}
+	
+	/**
+	 * Check if a chunk truly contains a document based on its shard key
+	 */
+	private boolean chunkContainsDocument(CountingMegachunk chunk, Document doc, Set<String> shardKey) {
+	    BsonValueWrapper docValue = getShardKeyWrapper(shardKey, doc);
+	    BsonValueWrapper minValue = new BsonValueWrapper(chunk.getMin());
+	    BsonValueWrapper maxValue = new BsonValueWrapper(chunk.getMax());
+	    
+	    // Check if docValue is within the chunk's range (inclusive of min, exclusive of max)
+	    boolean result = (docValue.compareTo(minValue) >= 0 && docValue.compareTo(maxValue) < 0);
+	    logger.debug("Checking if document with _id={} is in chunk: min={}, max={}. Result: {}", 
+	                doc.get("_id"), minValue, maxValue, result);
+	    return result;
 	}
 
 	private void handleChunksInSameShard(String namespace, Object id, String sourceShardId,
@@ -124,32 +159,40 @@ public class DuplicateResolver {
 	}
 
 	private void splitChunkForMultipleDuplicates(String namespace, CountingMegachunk chunk, Set<Object> duplicateIds) {
-		// Convert duplicate IDs to a sorted list
-		List<Object> sortedIds = new ArrayList<>(duplicateIds);
-		Collections.sort(sortedIds, (a, b) -> a.toString().compareTo(b.toString()));
+	    // Convert duplicate IDs to a sorted list
+	    List<Object> sortedIds = new ArrayList<>(duplicateIds);
+	    Collections.sort(sortedIds, (a, b) -> a.toString().compareTo(b.toString()));
 
-		logger.info("Preparing to split chunk for namespace {} with {} duplicate IDs", namespace, sortedIds.size());
+	    logger.info("Preparing to split chunk for namespace {} with {} duplicate IDs", namespace, sortedIds.size());
+	    logger.debug("Chunk details: shard={}, min={}, max={}", chunk.getShard(), chunk.getMin(), chunk.getMax());
+	    
+	    // Log the first few IDs
+	    for (int i = 0; i < Math.min(sortedIds.size(), 5); i++) {
+	        logger.debug("Sample duplicate ID {}: {}", i, sortedIds.get(i));
+	    }
 
-		// We'll split at every nth duplicate ID to keep the number of splits manageable
-		int splitInterval = Math.max(1, sortedIds.size() / 3); // Don't create too many splits
+	    // We'll split at every nth duplicate ID to keep the number of splits manageable
+	    int splitInterval = Math.max(1, sortedIds.size() / 3); // Don't create too many splits
+	    logger.debug("Using split interval of {} (will create approximately {} splits)", 
+	                splitInterval, sortedIds.size() / splitInterval);
 
-		for (int i = splitInterval; i < sortedIds.size(); i += splitInterval) {
-			Object splitPointId = sortedIds.get(i);
+	    for (int i = splitInterval; i < sortedIds.size(); i += splitInterval) {
+	        Object splitPointId = sortedIds.get(i);
 
-			// Create a document for the split point
-			Document splitPoint = new Document("_id", splitPointId);
+	        // Create a document for the split point
+	        Document splitPoint = new Document("_id", splitPointId);
 
-			logger.info("Attempting to split chunk at _id: {} for namespace {}", splitPointId, namespace);
+	        logger.info("Attempting to split chunk at _id: {} for namespace {}", splitPointId, namespace);
 
-			// Call the split command
-			boolean success = destShardClient.splitChunk(namespace, chunk.getMin(), chunk.getMax(), splitPoint);
+	        // Call the split command
+	        boolean success = destShardClient.splitChunk(namespace, chunk.getMin(), chunk.getMax(), splitPoint);
 
-			if (success) {
-				logger.info("Successfully split chunk at _id: {}", splitPointId);
-			} else {
-				logger.warn("Failed to split chunk at _id: {}", splitPointId);
-			}
-		}
+	        if (success) {
+	            logger.info("Successfully split chunk at _id: {}", splitPointId);
+	        } else {
+	            logger.warn("Failed to split chunk at _id: {}", splitPointId);
+	        }
+	    }
 	}
 
 	private String findDifferentShard(String currentShardId) {
@@ -174,30 +217,90 @@ public class DuplicateResolver {
 	}
 
 	public void buildDuplicateMapping(String namespace, List<Document> duplicates,
-			NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap, Set<String> shardKey) {
-		// Initialize maps for this namespace if not exists
-		idToChunksMap.putIfAbsent(namespace, new HashMap<>());
-		chunkToDuplicateIdsMap.putIfAbsent(namespace, new HashMap<>());
+	        NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap, Set<String> shardKey) {
+	    // Initialize maps for this namespace if not exists
+	    idToChunksMap.putIfAbsent(namespace, new HashMap<>());
+	    chunkToDuplicateIdsMap.putIfAbsent(namespace, new HashMap<>());
+	    
+	    logger.debug("Building duplicate mapping for {} with {} duplicate documents", 
+	                namespace, duplicates.size());
+	    logger.debug("Chunk map contains {} chunks", chunkMap.size());
+	    
+	    // Log first few chunks for reference
+	    int chunkCount = 0;
+	    for (Map.Entry<BsonValueWrapper, CountingMegachunk> entry : chunkMap.entrySet()) {
+	        if (chunkCount++ < 3) {
+	            CountingMegachunk chunk = entry.getValue();
+	            logger.debug("Chunk sample: shard={}, min={}, max={}", 
+	                        chunk.getShard(), chunk.getMin(), chunk.getMax());
+	        } else {
+	            break;
+	        }
+	    }
 
-		// Process each duplicate document
-		for (Document doc : duplicates) {
-			Object id = doc.get("_id");
-			BsonValueWrapper shardKeyValue = getShardKeyWrapper(shardKey, doc);
+	    int processedCount = 0;
+	    int errorCount = 0;
+	    
+	    // Process each duplicate document
+	    for (Document doc : duplicates) {
+	        Object id = doc.get("_id");
+	        BsonValueWrapper shardKeyValue = getShardKeyWrapper(shardKey, doc);
+	        
+	        processedCount++;
+	        if (processedCount <= 5) {
+	            logger.debug("Processing duplicate document _id: {}, shardKey: {}", id, shardKeyValue);
+	        }
 
-			// Find which chunk this document belongs to
-			Map.Entry<BsonValueWrapper, CountingMegachunk> entry = chunkMap.floorEntry(shardKeyValue);
-			if (entry == null)
-				continue;
+	        // Find which chunk this document belongs to
+	        Map.Entry<BsonValueWrapper, CountingMegachunk> entry = chunkMap.floorEntry(shardKeyValue);
+	        if (entry == null) {
+	            errorCount++;
+	            if (errorCount <= 5) {
+	                logger.warn("Could not find chunk for document with _id: {}, shardKey: {}", id, shardKeyValue);
+	            }
+	            continue;
+	        }
 
-			CountingMegachunk chunk = entry.getValue();
+	        CountingMegachunk chunk = entry.getValue();
+	        BsonValueWrapper min = new BsonValueWrapper(chunk.getMin());
+	        BsonValueWrapper max = new BsonValueWrapper(chunk.getMax());
 
-			// Update id -> chunks mapping
-			idToChunksMap.get(namespace).computeIfAbsent(id, k -> new ArrayList<>()).add(chunk);
+	        // Add verification check
+	        if (processedCount <= 5) {
+	            // Verify the chunk really contains this document
+	            boolean containsDoc = shardKeyValue.compareTo(min) >= 0 && 
+	                                 shardKeyValue.compareTo(max) < 0;
+	            logger.debug("Document _id: {} is in chunk: shard={}, min={}, max={}. Verified: {}", 
+	                        id, chunk.getShard(), chunk.getMin(), chunk.getMax(), containsDoc);
+	            
+	            if (!containsDoc) {
+	                logger.warn("Document with shardKey {} appears to be outside chunk bounds: [{}, {})",
+	                           shardKeyValue, chunk.getMin(), chunk.getMax());
+	            }
+	        }
 
-			// Update chunk -> duplicate ids mapping
-			chunkToDuplicateIdsMap.get(namespace).computeIfAbsent(chunk, k -> new HashSet<>()).add(id);
-		}
+	        // Update id -> chunks mapping
+	        idToChunksMap.get(namespace).computeIfAbsent(id, k -> new ArrayList<>()).add(chunk);
+
+	        // Update chunk -> duplicate ids mapping
+	        chunkToDuplicateIdsMap.get(namespace).computeIfAbsent(chunk, k -> new HashSet<>()).add(id);
+	    }
+	    
+	    logger.debug("Finished building duplicate mapping. Processed {} documents, encountered {} errors.",
+	                processedCount, errorCount);
+	                
+	    // Log some stats about the mappings
+	    int idsWithMultipleChunks = 0;
+	    for (Map.Entry<Object, List<CountingMegachunk>> entry : idToChunksMap.get(namespace).entrySet()) {
+	        if (entry.getValue().size() > 1) {
+	            idsWithMultipleChunks++;
+	        }
+	    }
+	    logger.debug("Found {} IDs that appear in multiple chunks", idsWithMultipleChunks);
+	    
+	    logger.debug("Chunks with duplicate IDs: {}", chunkToDuplicateIdsMap.get(namespace).size());
 	}
+	
 	
 	/**
 	 * Extracts the shard key value from a document and wraps it in a BsonValueWrapper
