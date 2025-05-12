@@ -582,7 +582,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	
 	private void handleDuplicatesBeforeRestore() {
 	    // Initialize the duplicate resolver
-	    DuplicateResolver resolver = new DuplicateResolver(destShardClient);
+	    DuplicateResolver resolver = new DuplicateResolver(destShardClient, chunkManager);
 	    
 	    // For each namespace with duplicates
 	    for (Namespace ns : includeNamespaces) {
