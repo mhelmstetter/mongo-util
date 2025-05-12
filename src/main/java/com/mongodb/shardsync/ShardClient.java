@@ -1530,8 +1530,8 @@ public class ShardClient {
         try {
             // Create the split command
             Document splitCmd = new Document("split", namespace)
-                .append("find", middle)
-                .append("bounds", Arrays.asList(min, max));
+                .append("find", middle);
+                //.append("bounds", Arrays.asList(min, max));
             
             // Execute the command
             Document result = adminCommand(splitCmd);

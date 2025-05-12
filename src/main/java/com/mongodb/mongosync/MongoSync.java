@@ -153,6 +153,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		}
 
 		chunkManager = new ChunkManager(shardConfigSyncConfig);
+		chunkManager.setWaitForDelete(true);
 		chunkManager.initalize();
 		this.sourceShardClient = shardConfigSyncConfig.getSourceShardClient();
 		this.destShardClient = shardConfigSyncConfig.getDestShardClient();
@@ -201,9 +202,6 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 				includeNamespaces.add(new Namespace(ns));
 			}
 		}
-		
-		chunkManager.loadChunkMap(null, destChunksCache, destChunkMap);
-		
 	}
 
 	@Override
@@ -463,34 +461,33 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		for (Document d : docs1) {
 			Document d2 = docs2Cursor.next();
 			
-			BsonValueWrapper w1 = getShardKeyWrapper(shardKey, d);
-			BsonValueWrapper w2 = getShardKeyWrapper(shardKey, d2);
-			NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = destChunkMap.get(sourceNs.getNamespace());
-			if (innerMap == null) {
-				logger.warn("innerMap was null");
-			}
-			
-			Map.Entry<BsonValueWrapper, CountingMegachunk> e1 = innerMap.floorEntry(w1);
-			Map.Entry<BsonValueWrapper, CountingMegachunk> e2 = innerMap.floorEntry(w2);
-			
-			CountingMegachunk c1 = e1.getValue();
-			CountingMegachunk c2 = e2.getValue();
-			
-			String s1 = c1.getShard();
-			String s2 = c2.getShard();
-			
-			
-			if (c1.equals(c2)) {
-				logger.error("Duplicates were found in the same chunk for _id: {} and _id: {}, ns: {}");
-				throw new RuntimeException("duplicates were found on the same chunk");
-			}
-			
-			if (s1.equals(s2)) {
-				logger.debug("duplicates are on the same shard, going to move chunk with min: {}, max: {}", c2.getMin(), c2.getMax());
-				
-				String newShard = getRandomShardExcept(s2);
-				destShardClient.moveChunk(sourceNs.getNamespace(), c2.getMin(), c2.getMax(), newShard);
-			}
+//			BsonValueWrapper w1 = getShardKeyWrapper(shardKey, d);
+//			BsonValueWrapper w2 = getShardKeyWrapper(shardKey, d2);
+//			NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = destChunkMap.get(sourceNs.getNamespace());
+//			if (innerMap == null) {
+//				logger.warn("innerMap was null");
+//			}
+//			
+//			Map.Entry<BsonValueWrapper, CountingMegachunk> e1 = innerMap.floorEntry(w1);
+//			Map.Entry<BsonValueWrapper, CountingMegachunk> e2 = innerMap.floorEntry(w2);
+//			
+//			CountingMegachunk c1 = e1.getValue();
+//			CountingMegachunk c2 = e2.getValue();
+//			
+//			String s1 = c1.getShard();
+//			String s2 = c2.getShard();
+//			
+//			
+//			if (c1.equals(c2)) {
+//				logger.error("Duplicates were found in the same chunk for _id: {} and _id: {}, ns: {}");
+//				throw new RuntimeException("duplicates were found on the same chunk");
+//			}
+//			
+//			if (s1.equals(s2)) {
+//				String newShard = getRandomShardExcept(s2);
+//				logger.debug("duplicates are on the same shard, going to move chunk with min: {}, max: {}, from: {}, to: {}", c2.getMin(), c2.getMax(), s1, newShard);
+//				destShardClient.moveChunk(sourceNs.getNamespace(), c2.getMin(), c2.getMax(), newShard, false, false, true, false);
+//			}
 			
 			idBatch.add(d.get("_id"));
 
@@ -746,6 +743,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 				logger.debug("includeNamespaces: {}", includeNamespaceStrings);
 
 				shardConfigSync.syncMetadataOptimized();
+				chunkManager.loadChunkMap(destShardClient, null, destChunksCache, destChunkMap);
 				deleteDuplicatesOnSource();
 
 			} catch (Exception e) {

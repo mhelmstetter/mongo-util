@@ -57,6 +57,8 @@ public class ChunkManager {
 	
 	private BaseConfiguration config;
 	
+	private boolean waitForDelete;
+	
 	private Set<String> targetShards;
 	private Iterator<String> targetShardIterator;
 	
@@ -183,92 +185,90 @@ public class ChunkManager {
 		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
 	}
 	
-	public void loadChunkMap(String namespace, Map<String, RawBsonDocument> sourceChunksCache, Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
-		
-		logger.debug("Starting loadChunkMap, size: {}, ns: {}", chunkMap.size(), namespace);
-		BsonDocument chunkQuery = null;
-		
-		if (namespace == null) {
-			chunkQuery = sourceChunkQuery;
-		} else {
-			chunkQuery = newChunkQuery(sourceShardClient, namespace);
-		}
-		sourceShardClient.loadChunksCache(chunkQuery, sourceChunksCache);
-		
-		int uberThreshold = (sourceChunksCache.size() >= 1000) ? 300 : 100;
+	public void loadChunkMap(ShardClient shardClient, String namespace, Map<String, RawBsonDocument> chunksCache, Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
+	    logger.debug("Starting loadChunkMap with specified ShardClient, size: {}, ns: {}", chunkMap.size(), namespace);
+	    BsonDocument chunkQuery = null;
+	    
+	    if (namespace == null) {
+	        // Use the appropriate chunk query based on which ShardClient is provided
+	        chunkQuery = (shardClient == sourceShardClient) ? sourceChunkQuery : destChunkQuery;
+	        
+	        // If destChunkQuery hasn't been initialized yet, do it now
+	        if (shardClient == destShardClient && destChunkQuery == null) {
+	            destChunkQuery = newChunkQuery(destShardClient);
+	        }
+	    } else {
+	        chunkQuery = newChunkQuery(shardClient, namespace);
+	    }
+	    
+	    // Load chunks using the specified ShardClient
+	    shardClient.loadChunksCache(chunkQuery, chunksCache);
+	    
+	    int uberThreshold = (chunksCache.size() >= 1000) ? 300 : 100;
 
-		int uberId = 0;
-		int i = 0;
-		for (RawBsonDocument chunkDoc : sourceChunksCache.values()) {
+	    int uberId = 0;
+	    int i = 0;
+	    for (RawBsonDocument chunkDoc : chunksCache.values()) {
+	        if (i++ % uberThreshold == 0) {
+	            uberId++;
+	        }
 
-			if (i++ % uberThreshold == 0) {
-				uberId++;
-			}
+	        CountingMegachunk mega = new CountingMegachunk();
+	        mega.setUberId(uberId);
+	        
+	        String ns = null;
+	        if (chunkDoc.containsKey("ns")) {
+	            ns = chunkDoc.getString("ns").getValue();
+	        } else {
+	            BsonBinary buuid = chunkDoc.getBinary("uuid");
+	            UUID uuid = BsonUuidUtil.convertBsonBinaryToUuid(buuid);
+	            ns = shardClient.getCollectionsUuidMap().get(uuid);
+	        }
+	        
+	        Document collMeta = shardClient.getCollectionsMap().get(ns);
+	        Document shardKeysDoc = (Document) collMeta.get("key");
+	        Set<String> shardKeys = shardKeysDoc.keySet();
+	        
+	        mega.setNs(ns);
+	        mega.setShard(chunkDoc.getString("shard").getValue());
 
-			CountingMegachunk mega = new CountingMegachunk();
-			mega.setUberId(uberId);
-			
-			String ns = null;
-			if (chunkDoc.containsKey("ns")) {
-				ns = chunkDoc.getString("ns").getValue();
-			} else {
-				BsonBinary buuid = chunkDoc.getBinary("uuid");
-				UUID uuid = BsonUuidUtil.convertBsonBinaryToUuid(buuid);
-				ns = sourceShardClient.getCollectionsUuidMap().get(uuid);
-			}
-			
-			Document collMeta = this.sourceShardClient.getCollectionsMap().get(ns);
-			Document shardKeysDoc = (Document) collMeta.get("key");
-			Set<String> shardKeys = shardKeysDoc.keySet();
-			
-			mega.setNs(ns);
-			mega.setShard(chunkDoc.getString("shard").getValue());
+	        NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
+	        if (innerMap == null) {
+	            innerMap = new TreeMap<>();
+	            chunkMap.put(ns, innerMap);
+	        }
 
-			NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
-			if (innerMap == null) {
-				innerMap = new TreeMap<>();
-				chunkMap.put(ns, innerMap);
-			}
+	        BsonDocument min = chunkDoc.getDocument("min");
+	        mega.setMin(min);
 
-			// Document collDoc = this.sourceShardClient.getCollectionsMap().get(ns);
+	        BsonValue max = chunkDoc.get("max");
+	        if (max instanceof BsonMaxKey) {
+	            logger.warn("*** BsonMaxKey not handled");
+	        } else if (max instanceof BsonDocument) {
+	            mega.setMax((BsonDocument) max);
+	        } else {
+	            logger.error("unexpected max type: {}", max);
+	        }
 
-			BsonDocument min = chunkDoc.getDocument("min");
-			mega.setMin(min);
+	        BsonValue val = null;
+	        if (shardKeys.size() == 1) {
+	            val = min.get(min.getFirstKey());
+	        } else {
+	            val = min;
+	        }
+	        
+	        if (val == null) {
+	            logger.error("could not get shard key from chunk: {}", mega);
+	            continue;
+	        }
+	        
+	        innerMap.put(new BsonValueWrapper(val), mega);
+	    }
+	}
 
-			BsonValue max = chunkDoc.get("max");
-			if (max instanceof BsonMaxKey) {
-				logger.warn("*** BsonMaxKey not handled");
-			} else if (max instanceof BsonDocument) {
-				mega.setMax((BsonDocument) max);
-			} else {
-				logger.error("unexpected max type: {}", max);
-			}
-
-			BsonValue val = null;
-			if (shardKeys.size() == 1) {
-				val = min.get(min.getFirstKey());
-			} else {
-				//logger.warn("compound - experimental support");
-				val = min;
-			}
-			 
-			if (val == null) {
-				logger.error("could not get shard key from chunk: {}", mega);
-				continue;
-			}
-			
-			if (val instanceof BsonMinKey) {
-				//innerMap.put("\u0000", mega);
-				innerMap.put(new BsonValueWrapper(val), mega);
-			} else if (val instanceof BsonString) {
-				//innerMap.put(((BsonString) val).getValue(), mega);
-				innerMap.put(new BsonValueWrapper(val), mega);
-			} else {
-				//logger.debug("chunkDoc min._id was unexepected type: {}, chunk: {}", val.getClass().getName(), mega);
-				innerMap.put(new BsonValueWrapper(val), mega);
-			}
-			//logger.debug("{}: innerMap size: {}, val: {}", ns, innerMap.size(), val);
-		}
+	// Then, keep the existing method as a convenience wrapper that uses sourceShardClient by default
+	public void loadChunkMap(String namespace, Map<String, RawBsonDocument> chunksCache, Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
+	    loadChunkMap(sourceShardClient, namespace, chunksCache, chunkMap);
 	}
 	
 	public void validateTargetShards() {
@@ -433,7 +433,7 @@ public class ChunkManager {
 
 	        if (doMove && destShard != null && !mappedShard.equals(destShard)) {
 	            boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), 
-	                    (RawBsonDocument)mega2.getMax(), mappedShard, false, false, false, false);
+	                    (RawBsonDocument)mega2.getMax(), mappedShard, false, false, waitForDelete, false);
 	            if (!moveSuccess) {
 	                errorCount++;
 	            }
@@ -834,5 +834,9 @@ public class ChunkManager {
 
 	public Map<String, String> getSourceToDestShardMap() {
 		return sourceToDestShardMap;
+	}
+
+	public void setWaitForDelete(boolean waitForDelete) {
+		this.waitForDelete = waitForDelete;
 	}
 }

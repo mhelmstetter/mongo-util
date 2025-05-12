@@ -36,9 +36,13 @@ public class DuplicateResolver {
 
 	// Maps shard -> List of chunks that need splitting
 	private Map<String, List<ChunkSplitInfo>> shardToSplitInfoMap = new HashMap<>();
+	
+	// Map of namespace -> Collection info document -- "key" is shard key
+	private Map<String, Document> collectionsMap;
 
 	public DuplicateResolver(ShardClient destShardClient) {
 		this.destShardClient = destShardClient;
+		this.collectionsMap = destShardClient.getCollectionsMap();
 	}
 
 	public void executeSplitsAndMigrations() {
@@ -123,7 +127,7 @@ public class DuplicateResolver {
 			List<CountingMegachunk> chunksInShard) {
 		logger.info("Handling {} chunks in shard {} with duplicate _id: {}", chunksInShard.size(), sourceShardId, id);
 
-// For each chunk except the first one, try to move it to a different shard
+		// For each chunk except the first one, try to move it to a different shard
 		for (int i = 1; i < chunksInShard.size(); i++) {
 			CountingMegachunk chunk = chunksInShard.get(i);
 
@@ -145,7 +149,7 @@ public class DuplicateResolver {
 						sourceShardId, targetShardId);
 
 				// Use the existing moveChunk method
-				boolean success = destShardClient.moveChunk(namespace, chunk.getMin(), chunk.getMax(), targetShardId);
+				boolean success = destShardClient.moveChunk(namespace, chunk.getMin(), chunk.getMax(), targetShardId, false, false, true, false, false);
 
 				if (success) {
 					logger.info("Successfully moved chunk to shard {}", targetShardId);
