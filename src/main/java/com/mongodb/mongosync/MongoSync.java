@@ -531,31 +531,6 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	    int randomIndex = random.nextInt(availableShards.size());
 	    return availableShards.get(randomIndex);
 	}
-	
-	private static BsonValueWrapper getShardKeyWrapper(Set<String> shardKey, Document d) {
-	    // Handle both single field and compound shard keys
-	    BsonValueWrapper shardKeyWrapper;
-	    if (shardKey.size() == 1) {
-	        // Single field shard key
-	        String keyField = shardKey.iterator().next();
-	        Object keyValue = d.get(keyField);
-	        
-	        // Convert the value to a BsonValue
-	        BsonValue bsonValue = BsonValueConverter.convertToBsonValue(keyValue);
-	        shardKeyWrapper = new BsonValueWrapper(bsonValue);
-	    } else {
-	        // Compound shard key - create a BsonDocument with all shard key fields
-	        BsonDocument shardKeyDoc = new BsonDocument();
-	        
-	        for (String keyField : shardKey) {
-	            Object keyValue = d.get(keyField);
-	            BsonValue bsonValue = BsonValueConverter.convertToBsonValue(keyValue);
-	            shardKeyDoc.append(keyField, bsonValue);
-	        }
-	        shardKeyWrapper = new BsonValueWrapper(shardKeyDoc);
-	    }
-	    return shardKeyWrapper;
-	}
 
 	private int deleteIdsInBatchWithRetry(MongoCollection<Document> collection, List<Object> ids) {
 		final int MAX_RETRIES = 3;
@@ -605,8 +580,6 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 		return (int) result.getDeletedCount();
 	}
 	
-	// Add this to your MongoSync class
-
 	private void handleDuplicatesBeforeRestore() {
 	    // Initialize the duplicate resolver
 	    DuplicateResolver resolver = new DuplicateResolver(destShardClient);
@@ -654,7 +627,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	            continue;
 	        }
 	        
-	        // Build the duplicate mappings
+	        // Build the duplicate mappings using the actual shard key
 	        resolver.buildDuplicateMapping(ns.getNamespace(), duplicates1, chunkMap, shardKey);
 	        resolver.buildDuplicateMapping(ns.getNamespace(), duplicates2, chunkMap, shardKey);
 	        
