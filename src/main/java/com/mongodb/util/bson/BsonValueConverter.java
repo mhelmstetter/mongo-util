@@ -33,8 +33,8 @@ public class BsonValueConverter {
             return new BsonBoolean((Boolean) value);
         } else if (value instanceof ObjectId) {
             return new BsonObjectId((ObjectId) value);
-        } else if (value instanceof Document) {
-            return BsonDocument.parse(((Document) value).toJson());
+        } else if (value instanceof BsonDocument) {
+            return (BsonDocument)value;
         }
         // Add more types as needed
         

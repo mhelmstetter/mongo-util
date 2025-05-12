@@ -1537,7 +1537,13 @@ public class ShardClient {
             Document result = adminCommand(splitCmd);
             
             // Check if the command was successful
-            boolean success = result.getBoolean("ok", false);
+            boolean success = false;
+            Object successObj = result.get("ok");
+            if (successObj instanceof Double) {
+            	success = ((Double)successObj).equals(1.0);
+            } else if (successObj instanceof Boolean) {
+            	success = result.getBoolean("ok", false);
+            } 
             if (!success) {
                 logger.error("Failed to split chunk for namespace {}: {}", namespace, result);
             } else {
