@@ -109,8 +109,8 @@ public class DuplicateResolver {
 							chunk.getMax(), splitPoint);
 
 					if (success) {
-						logger.info("Successfully split chunk at split point: {} for namespace {}", splitPoint,
-								splitInfo.getNamespace());
+						logger.info("Successfully split chunk at split point: {} for namespace {}", splitPoint, splitInfo.getNamespace());
+						splitsPerformed = true;
 					} else {
 						logger.warn("Failed to split chunk at split point: {} for namespace {}", splitPoint,
 								splitInfo.getNamespace());
@@ -130,10 +130,12 @@ public class DuplicateResolver {
 	        
 	        // Allow a moment for the MongoDB metadata to propagate
 	        try {
-	            Thread.sleep(2000);
+	            Thread.sleep(60000);
 	        } catch (InterruptedException e) {
 	            Thread.currentThread().interrupt();
 	        }
+	    } else {
+	    	logger.debug("No splits performed, skipping refresh");
 	    }
 	    
 	    // Reset the processed chunks set before migrations
@@ -154,7 +156,7 @@ public class DuplicateResolver {
 	        Map<Object, List<Document>> duplicatesMap = duplicateIdToDocsMap.get(namespace);
 	        logger.debug("Namespace: {} has {} duplicate _id values to process", namespace, duplicatesMap.size());
 	        
-	        // NEW APPROACH: Group chunks by shard and process each chunk once
+	        // Group chunks by shard and process each chunk once
 	        
 	        // Maps shard -> (chunk -> list of duplicate IDs in that chunk)
 	        Map<String, Map<CountingMegachunk, Set<Object>>> shardToChunksMap = new HashMap<>();
@@ -252,9 +254,9 @@ public class DuplicateResolver {
 	                logger.info("Moving chunk with bounds min: {}, max: {} from shard {} to shard {}", 
 	                          chunkToMove.getMin(), chunkToMove.getMax(), shardId, targetShardId);
 	                
-	                // Migration logic with retries (similar to before)
 	                boolean success = false;
 	                int retryCount = 0;
+	                int sleep = 30000;
 	                final int MAX_RETRIES = 3;
 	                
 	                while (!success && retryCount < MAX_RETRIES) {
@@ -263,16 +265,22 @@ public class DuplicateResolver {
 	                                                          targetShardId, false, false, true, false, false);
 	                        
 	                        if (success) {
+	                        	Thread.sleep(1000);
 	                            logger.info("Successfully moved chunk to shard {}", targetShardId);
 	                            chunkToMove.setShard(targetShardId);
 	                            processedChunkIdentifiers.add(chunkId);
 	                        } else {
+	                        	Thread.sleep(sleep);
 	                            retryCount++;
-	                            // Retry logic (unchanged)...
+	                            sleep = sleep * retryCount;
 	                        }
 	                    } catch (Exception e) {
+	                    	try {
+								Thread.sleep(sleep);
+							} catch (InterruptedException e1) {
+							}
 	                        retryCount++;
-	                        // Exception handling (unchanged)...
+	                        sleep = sleep * retryCount;
 	                    }
 	                }
 	            }
@@ -584,12 +592,10 @@ public class DuplicateResolver {
 	    }
 	}
 
-	// Helper method to verify a chunk exists with the specified boundaries
 	private boolean chunkExistsWithBoundaries(String namespace, Object min, Object max) {
 	    try {
 	        NavigableMap<BsonValueWrapper, CountingMegachunk> namespaceChunkMap = destChunkMap.get(namespace);
 	        if (namespaceChunkMap == null) {
-	            logger.error("No chunk map found for namespace: {}", namespace);
 	            return false;
 	        }
 	        
@@ -597,7 +603,7 @@ public class DuplicateResolver {
 	        BsonValueWrapper minWrapper = new BsonValueWrapper(BsonValueConverter.convertToBsonValue(min));
 	        BsonValueWrapper maxWrapper = new BsonValueWrapper(BsonValueConverter.convertToBsonValue(max));
 	        
-	        // Find all chunks with matching boundaries
+	        // Find if chunk exists with matching boundaries
 	        for (CountingMegachunk chunk : namespaceChunkMap.values()) {
 	            BsonValueWrapper chunkMin = new BsonValueWrapper(BsonValueConverter.convertToBsonValue(chunk.getMin()));
 	            BsonValueWrapper chunkMax = new BsonValueWrapper(BsonValueConverter.convertToBsonValue(chunk.getMax()));
@@ -607,10 +613,9 @@ public class DuplicateResolver {
 	            }
 	        }
 	        
-	        logger.warn("No chunk found with min: {}, max: {} in namespace: {}", min, max, namespace);
 	        return false;
 	    } catch (Exception e) {
-	        logger.error("Error checking if chunk exists for namespace {}: {}", namespace, e.getMessage());
+	        logger.error("Error checking if chunk exists: {}", e.getMessage());
 	        return false;
 	    }
 	}

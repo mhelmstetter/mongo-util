@@ -368,7 +368,8 @@ public class MongoDataLoader implements Callable<Integer> {
                 // Create the moveChunk command
                 Document moveCmd = new Document("moveChunk", databaseName + "." + collectionName)
                     .append("find", new Document("x", midpoint))
-                    .append("to", targetShard);
+                    .append("to", targetShard)
+                    .append("_waitForDelete", true);
                 
                 try {
                     Document moveResult = adminDb.runCommand(moveCmd);
@@ -402,7 +403,8 @@ public class MongoDataLoader implements Callable<Integer> {
                 // Create the moveChunk command
                 Document moveCmd = new Document("moveChunk", databaseName + "." + collectionName)
                     .append("find", new Document("x", midpoint))
-                    .append("to", targetShard);
+                    .append("to", targetShard)
+                    .append("_waitForDelete", true);
                 
                 try {
                     Document moveResult = adminDb.runCommand(moveCmd);
