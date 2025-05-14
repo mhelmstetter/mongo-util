@@ -359,33 +359,116 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	 * @param batch            The batch that was being inserted
 	 * @param targetCollection The target collection
 	 */
+	/**
+	 * Handles duplicate key errors during batch inserts
+	 * 
+	 * @param e                The exception that was thrown
+	 * @param batch            The batch that was being inserted
+	 * @param targetCollection The target collection
+	 */
 	private void handleDuplicateKeyErrors(MongoBulkWriteException e, List<Document> batch,
-			MongoCollection<Document> targetCollection) {
-		// Get the write errors from the exception
-		List<BulkWriteError> writeErrors = e.getWriteErrors();
+	        MongoCollection<Document> targetCollection) {
+	    // Get the write errors from the exception
+	    List<BulkWriteError> writeErrors = e.getWriteErrors();
+	    
+	    // Get namespace and shard key information
+	    String namespace = targetCollection.getNamespace().getFullName();
+	    Document collMeta = collectionsMap.get(namespace);
+	    Set<String> shardKeyFields = null;
+	    if (collMeta != null && collMeta.containsKey("key")) {
+	        Document shardKeyDoc = (Document)collMeta.get("key");
+	        if (shardKeyDoc != null) {
+	            shardKeyFields = shardKeyDoc.keySet();
+	        }
+	    }
+	    
+	    // Process each error
+	    for (BulkWriteError error : writeErrors) {
+	        if (error.getCode() == 11000) { // 11000 is the error code for duplicate key
+	            int docIndex = error.getIndex();
+	            
+	            // Get the duplicate document
+	            Document duplicateDoc = (docIndex < batch.size()) ? batch.get(docIndex) : null;
+	            
+	            if (duplicateDoc != null) {
+	                Object id = duplicateDoc.get("_id");
+	                
+	                // Create log message with details
+	                StringBuilder logMessage = new StringBuilder();
+	                logMessage.append("Duplicate key error for document with _id: ").append(id);
+	                
+	                // Add shard key information
+	                if (shardKeyFields != null && !shardKeyFields.isEmpty()) {
+	                    String primaryShardKey = shardKeyFields.iterator().next();
+	                    Object shardKeyValue = duplicateDoc.get(primaryShardKey);
+	                    logMessage.append(", shard key: {").append(primaryShardKey).append(": ")
+	                             .append(shardKeyValue).append("}");
+	                    
+	                    // Try to find chunk information
+	                    try {
+	                        // Get the shard key value for looking up the chunk
+	                        if (shardKeyValue != null && destChunkMap.containsKey(namespace)) {
+	                            NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap = destChunkMap.get(namespace);
+	                            
+	                            // Convert shard key value to BsonValue for lookup
+	                            BsonValue bsonValue = BsonValueConverter.convertToBsonValue(shardKeyValue);
+	                            BsonValueWrapper wrapper = new BsonValueWrapper(bsonValue);
+	                            
+	                            // Find which chunk this document should belong to
+	                            Map.Entry<BsonValueWrapper, CountingMegachunk> entry = chunkMap.floorEntry(wrapper);
+	                            if (entry != null) {
+	                                CountingMegachunk chunk = entry.getValue();
+	                                logMessage.append(" in chunk: shard=").append(chunk.getShard())
+	                                        .append(", min=").append(chunk.getMin())
+	                                        .append(", max=").append(chunk.getMax());
+	                            }
+	                            
+	                            // Try to find the existing document with same _id
+	                            Document existingDoc = targetCollection.find(Filters.eq("_id", id)).first();
+	                            if (existingDoc != null) {
+	                                Object existingShardKeyValue = existingDoc.get(primaryShardKey);
+	                                logMessage.append(" - conflicting with existing doc with shard key {")
+	                                        .append(primaryShardKey).append(": ")
+	                                        .append(existingShardKeyValue).append("}");
+	                                
+	                                // Find chunk for existing document
+	                                if (existingShardKeyValue != null) {
+	                                    BsonValue existingBsonValue = BsonValueConverter.convertToBsonValue(existingShardKeyValue);
+	                                    BsonValueWrapper existingWrapper = new BsonValueWrapper(existingBsonValue);
+	                                    
+	                                    Map.Entry<BsonValueWrapper, CountingMegachunk> existingEntry = 
+	                                        chunkMap.floorEntry(existingWrapper);
+	                                    if (existingEntry != null) {
+	                                        CountingMegachunk existingChunk = existingEntry.getValue();
+	                                        logMessage.append(" in chunk: shard=").append(existingChunk.getShard())
+	                                                .append(", min=").append(existingChunk.getMin())
+	                                                .append(", max=").append(existingChunk.getMax());
+	                                    }
+	                                }
+	                            }
+	                        }
+	                    } catch (Exception ex) {
+	                        logger.warn("Error determining chunk information: {}", ex.getMessage());
+	                    }
+	                }
+	                
+	                // Log the detailed error information
+	                logger.info(logMessage.toString());
+	            } else {
+	                // Fallback to basic logging if we can't get the document
+	                logger.info("Duplicate key error for document with index: {}", docIndex);
+	            }
+	        } else {
+	            // Log other types of errors
+	            logger.error("Non-duplicate error: {} - {}", error.getCode(), error.getMessage());
+	        }
+	    }
 
-		// Log information about the errors
-		for (BulkWriteError error : writeErrors) {
-			if (error.getCode() == 11000) { // 11000 is the error code for duplicate key
-				// Log duplicate key error
-				logger.info("Duplicate key error for document with index: " + error.getIndex());
-
-				// Here you could implement special handling for duplicates if needed
-				// For example, you might want to update the existing document instead of
-				// inserting
-
-				// Example stub for future implementation:
-				// Document duplicateDoc = batch.get(error.getIndex());
-				// handleDuplicateDocument(duplicateDoc, targetCollection);
-			} else {
-				// Log other types of errors
-				logger.error("Non-duplicate error: " + error.getMessage());
-			}
-		}
-
-		// Log the successful insertions count
-		logger.info(
-				"Successfully inserted " + e.getWriteResult().getInsertedCount() + " documents out of " + batch.size());
+	    // Log the successful insertions count
+	    logger.info("Successfully inserted {} documents out of {} (skipped {} duplicates)", 
+	            e.getWriteResult().getInsertedCount(), 
+	            batch.size(),
+	            writeErrors.size());
 	}
 
 	/**
@@ -582,7 +665,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	
 	private void handleDuplicatesBeforeRestore() {
 	    // Initialize the duplicate resolver
-	    DuplicateResolver resolver = new DuplicateResolver(destShardClient, chunkManager);
+	    DuplicateResolver resolver = new DuplicateResolver(destShardClient, chunkManager, archiveDbName);
 	    
 	    // For each namespace with duplicates
 	    for (Namespace ns : includeNamespaces) {
