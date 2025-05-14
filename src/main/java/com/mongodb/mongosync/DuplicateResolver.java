@@ -12,6 +12,8 @@ import java.util.Random;
 import java.util.Set;
 
 import org.bson.BsonDocument;
+import org.bson.BsonMaxKey;
+import org.bson.BsonMinKey;
 import org.bson.BsonNull;
 import org.bson.BsonValue;
 import org.bson.Document;
@@ -19,9 +21,6 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.MongoBulkWriteException;
-import com.mongodb.bulk.BulkWriteError;
-import com.mongodb.client.MongoCollection;
 import com.mongodb.model.Namespace;
 import com.mongodb.shardbalancer.CountingMegachunk;
 import com.mongodb.shardsync.ChunkManager;
@@ -524,16 +523,24 @@ public class DuplicateResolver {
 	                            
 	                            if (minDoc.containsKey(shardKeyField)) {
 	                                BsonValue minBson = minDoc.get(shardKeyField);
-	                                if (minBson.isNumber()) {
-	                                    minValue = minBson.asNumber().doubleValue();
+	                                if (minBson instanceof BsonMinKey) {
+	                                	minValue = Integer.MIN_VALUE;
+	                                } else {
+	                                	minValue = (Number)BsonValueConverter.convertBsonValueToObject(minBson);
 	                                }
+	                            } else {
+	                            	logger.warn("minDoc does not contain shardKeyField: {}", minDoc);
 	                            }
 	                            
 	                            if (maxDoc.containsKey(shardKeyField)) {
 	                                BsonValue maxBson = maxDoc.get(shardKeyField);
-	                                if (maxBson.isNumber()) {
-	                                    maxValue = maxBson.asNumber().doubleValue();
+	                                if (maxBson instanceof BsonMaxKey) {
+	                                	maxValue = Integer.MAX_VALUE;
+	                                } else {
+	                                	maxValue = (Number)BsonValueConverter.convertBsonValueToObject(maxBson);
 	                                }
+	                            } else {
+	                            	logger.warn("maxDoc does not contain shardKeyField: {}", maxDoc);
 	                            }
 	                            
 	                            if (minValue != null && maxValue != null) {
@@ -541,7 +548,11 @@ public class DuplicateResolver {
 	                                    splitValue.doubleValue() < maxValue.doubleValue()) {
 	                                    chunkToSplit = chunk;
 	                                    break;
+	                                } else {
+	                                	logger.warn("splitValue does not fall within max/max range, splitValue: {}, min: {}, max: {}", splitValue, minValue, maxValue);
 	                                }
+	                            } else {
+	                            	logger.warn("minValue or maxValue is null, minValue: {}, maxValue: {}", minValue, maxValue);
 	                            }
 	                        }
 	                    }
