@@ -3,6 +3,7 @@ package com.mongodb.util.bson;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
@@ -39,6 +40,24 @@ public class BsonValueConverter {
         // Add more types as needed
         
         throw new IllegalArgumentException("Unsupported type: " + value.getClass().getName());
+    }
+    
+    /**
+     * Converts a Document to a BsonDocument
+     * 
+     * @param doc The Document to convert
+     * @return The converted BsonDocument
+     */
+    public static BsonDocument convertToBsonDocument(Document doc) {
+        if (doc == null) return null;
+        
+        BsonDocument bsonDoc = new BsonDocument();
+        for (Map.Entry<String, Object> entry : doc.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            bsonDoc.append(key, convertToBsonValue(value));
+        }
+        return bsonDoc;
     }
     
     public static Object convertBsonValueToObject(BsonValue value) {
