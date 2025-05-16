@@ -1572,17 +1572,19 @@ public class ShardClient {
 		return null;
 	}
 
-	public void splitAt(String ns, BsonDocument middle, boolean logErrors) {
+	public Document splitAt(String ns, BsonDocument middle, boolean logErrors) {
 		Document splitCommand = new Document("split", ns);
 		splitCommand.put("middle", middle);
 
 		try {
-			adminCommand(splitCommand);
+			Document result = adminCommand(splitCommand);
+			return result;
 		} catch (MongoCommandException mce) {
 			if (logErrors) {
 				logger.error("command splitAt error for namespace {}, message: {}", ns, mce.getMessage());
 			}
 		}
+		return null;
 	}
 	
 	public boolean moveChunk(BsonDocument chunk, String moveToShard, 

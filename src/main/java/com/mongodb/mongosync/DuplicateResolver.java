@@ -61,826 +61,458 @@ public class DuplicateResolver {
 		this.chunkManager = chunkManager;
 	}
 	
+
 	public void executeSplitsAndMigrations() {
-	    logger.debug("executeSplitsAndMigrations: processing {} namespaces with duplicate _id mappings", duplicateIdToDocsMap.keySet().size());
+	    logger.info("Starting iterative conflict resolution process");
 	    
-	    // Create a set to track which chunks we've already processed
-	    Set<String> processedChunkIdentifiers = new HashSet<>();
-	    
-	    boolean splitsPerformed = false;
-	    
-	    // First phase: Handle splits for chunks containing duplicates
-	    for (Map.Entry<String, List<ChunkSplitInfo>> entry : shardToSplitInfoMap.entrySet()) {
-	        String shardId = entry.getKey();
-	        List<ChunkSplitInfo> splitInfoList = entry.getValue();
-	        
-	        logger.info("Executing splits for shard {}, {} splits planned", shardId, splitInfoList.size());
-	        
-	        for (ChunkSplitInfo splitInfo : splitInfoList) {
-	            CountingMegachunk chunk = splitInfo.getChunk();
-	            String chunkId = chunk.getShard() + "_" + chunk.getMin() + "_" + chunk.getMax();
-
-	            // Skip if we've already processed this chunk
-	            if (processedChunkIdentifiers.contains(chunkId)) {
-	                logger.debug("Skipping already processed chunk: {}", chunkId);
-	                continue;
-	            }
-
-	            // Get the shard key fields for this namespace
-	            Document collMeta = collectionsMap.get(splitInfo.getNamespace());
-	            if (collMeta == null) {
-	                logger.error("No collection metadata found for namespace: {}", splitInfo.getNamespace());
-	                continue;
-	            }
-	            Document shardKeyDoc = (Document) collMeta.get("key");
-	            Set<String> shardKeyFields = shardKeyDoc.keySet();
-
-	            // Extract and sort shard key values from documents with duplicates
-	            List<BsonValueWrapper> shardKeyValues = new ArrayList<>();
-	            for (Document doc : splitInfo.getSplitDocs()) {
-	                shardKeyValues.add(getShardKeyWrapper(shardKeyFields, doc));
-	            }
-	            Collections.sort(shardKeyValues);
-
-	            // Calculate split points
-	            List<Document> splitPoints = calculateSplitPoints(splitInfo.getNamespace(), shardKeyFields,
-	                    shardKeyValues);
-
-	            logger.info("Executing {} splits for chunk {} in namespace {}", splitPoints.size(), chunkId,
-	                    splitInfo.getNamespace());
-
-	            // Execute each split
-	            for (Document splitPoint : splitPoints) {
-	                boolean success = destShardClient.splitChunk(splitInfo.getNamespace(), chunk.getMin(),
-	                        chunk.getMax(), splitPoint);
-
-	                if (success) {
-	                    logger.info("Successfully split chunk at split point: {} for namespace {}", splitPoint, splitInfo.getNamespace());
-	                    splitsPerformed = true;
-	                } else {
-	                    logger.warn("Failed to split chunk at split point: {} for namespace {}", splitPoint,
-	                            splitInfo.getNamespace());
-	                }
-	            }
-
-	            // Mark this chunk as processed
-	            processedChunkIdentifiers.add(chunkId);
-	        }
-	    }
-	    
-	    // If we performed any splits, refresh the chunk cache before migrations
-	    if (splitsPerformed) {
-	        for (String namespace : duplicateIdToDocsMap.keySet()) {
-	            refreshChunkCache(namespace);
-	        }
-	        
-	        // Allow a moment for the MongoDB metadata to propagate
-	        try {
-	            Thread.sleep(60000);
-	        } catch (InterruptedException e) {
-	            Thread.currentThread().interrupt();
-	        }
-	    } else {
-	        logger.debug("No splits performed, skipping refresh");
-	    }
-	    
-	    // Reset the processed chunks set before migrations
-	    processedChunkIdentifiers.clear();
-	    
-	    // Process migrations for each namespace with duplicates
+	    // Process each namespace with duplicates
 	    for (String namespace : duplicateIdToDocsMap.keySet()) {
-	        // Get the shard key fields for this namespace
+	        logger.info("Processing namespace: {}", namespace);
+	        
+	        // Get shard key information
 	        Document collMeta = collectionsMap.get(namespace);
 	        if (collMeta == null) {
 	            logger.error("No collection metadata found for namespace: {}", namespace);
 	            continue;
 	        }
+	        
 	        Document shardKeyDoc = (Document)collMeta.get("key");
 	        Set<String> shardKeyFields = shardKeyDoc.keySet();
+	        String primaryShardKey = shardKeyFields.iterator().next();
 	        
-	        // Map of _id -> list of chunks containing documents with that _id
-	        Map<Object, List<CountingMegachunk>> idToChunksMap = new HashMap<>();
+	        // Set of _ids that have been successfully resolved
+	        Set<Object> resolvedIds = new HashSet<>();
+	        // Maximum number of iterations to try
+	        final int MAX_ITERATIONS = 5;
 	        
-	        // For each duplicate _id, determine which chunks it's in
-	        Map<Object, List<Document>> duplicatesMap = duplicateIdToDocsMap.get(namespace);
-	        logger.debug("Namespace: {} has {} duplicate _id values to process", namespace, duplicatesMap.size());
-	        
-	        // Build the mapping of _id -> chunks
-	        for (Map.Entry<Object, List<Document>> entry : duplicatesMap.entrySet()) {
-	            Object id = entry.getKey();
-	            List<Document> docsWithSameId = entry.getValue();
+	        // Run multiple iterations of conflict resolution
+	        for (int iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
+	            logger.info("Starting iteration {} of conflict resolution", iteration);
 	            
-	            // Skip if not a duplicate
-	            if (docsWithSameId.size() <= 1) continue;
+	            // Map of document to its chunk
+	            Map<Document, CountingMegachunk> docToChunkMap = new HashMap<>();
+	            Map<Object, List<Document>> duplicatesMap = duplicateIdToDocsMap.get(namespace);
 	            
-	            // Since there are only 2 duplicates for each _id,
-	            // directly find the chunks for each document
-	            List<CountingMegachunk> chunksForId = new ArrayList<>(docsWithSameId.size());
-	            
-	            for (Document doc : docsWithSameId) {
-	                BsonValueWrapper shardKeyValue = getShardKeyWrapper(shardKeyFields, doc);
-	                
-	                NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap = destChunkMap.get(namespace);
-	                if (chunkMap == null) continue;
-	                
-	                Map.Entry<BsonValueWrapper, CountingMegachunk> chunkEntry = chunkMap.floorEntry(shardKeyValue);
-	                if (chunkEntry == null) continue;
-	                
-	                CountingMegachunk chunk = chunkEntry.getValue();
-	                chunksForId.add(chunk);
-	            }
-	            
-	            // Store the chunks for this _id
-	            idToChunksMap.put(id, chunksForId);
-	        }
-	        
-	        // Now process each _id and ensure its duplicates are on different shards
-	        int iteration = 0;
-	        int maxIterations = 3; // limit iterations to prevent infinite loops
-	        boolean movesPerformed;
-	        
-	        do {
-	            iteration++;
-	            movesPerformed = false;
-	            
-	            logger.info("Starting migration iteration {} for namespace {}", iteration, namespace);
-	            
-	            // Find _ids where both documents are on the same shard
-	            List<Map.Entry<Object, List<CountingMegachunk>>> conflictingEntries = new ArrayList<>();
-	            
-	            for (Map.Entry<Object, List<CountingMegachunk>> entry : idToChunksMap.entrySet()) {
+	            // For each duplicate _id
+	            for (Map.Entry<Object, List<Document>> entry : duplicatesMap.entrySet()) {
 	                Object id = entry.getKey();
-	                List<CountingMegachunk> chunks = entry.getValue();
+	                List<Document> docsWithSameId = entry.getValue();
 	                
-	                // Skip if there aren't exactly 2 chunks
-	                if (chunks.size() != 2) continue;
+	                // Skip if not a duplicate or already resolved
+	                if (docsWithSameId.size() <= 1 || resolvedIds.contains(id)) continue;
 	                
-	                // Check if both chunks are on the same shard
-	                if (chunks.get(0).getShard().equals(chunks.get(1).getShard())) {
-	                    conflictingEntries.add(entry);
+	                // For each document with this _id
+	                for (Document doc : docsWithSameId) {
+	                    // Get shard key value
+	                    Object shardKeyValue = doc.get(primaryShardKey);
+	                    if (shardKeyValue == null) continue;
+	                    
+	                    // Find which chunk this document belongs to
+	                    try {
+	                        BsonValueWrapper shardKeyWrapper = getShardKeyWrapper(shardKeyFields, doc);
+	                        NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap = destChunkMap.get(namespace);
+	                        if (chunkMap == null) continue;
+	                        
+	                        Map.Entry<BsonValueWrapper, CountingMegachunk> chunkEntry = chunkMap.floorEntry(shardKeyWrapper);
+	                        if (chunkEntry == null) continue;
+	                        
+	                        CountingMegachunk chunk = chunkEntry.getValue();
+	                        docToChunkMap.put(doc, chunk);
+	                    } catch (Exception e) {
+	                        logger.error("Error finding chunk for doc with _id {}: {}", id, e.getMessage());
+	                    }
 	                }
 	            }
 	            
-	            // If no conflicts, we're done
-	            if (conflictingEntries.isEmpty()) {
-	                logger.info("No conflicts found in iteration {}", iteration);
+	            // Analyze which _ids are in conflict (on same shard)
+	            Map<Object, Map<String, List<Document>>> conflictingIds = new HashMap<>();
+	            
+	            for (Map.Entry<Object, List<Document>> entry : duplicatesMap.entrySet()) {
+	                Object id = entry.getKey();
+	                List<Document> docsWithSameId = entry.getValue();
+	                
+	                // Skip if not a duplicate or already resolved
+	                if (docsWithSameId.size() <= 1 || resolvedIds.contains(id)) continue;
+	                
+	                // Group documents by shard
+	                Map<String, List<Document>> shardToDocsMap = new HashMap<>();
+	                
+	                for (Document doc : docsWithSameId) {
+	                    CountingMegachunk chunk = docToChunkMap.get(doc);
+	                    if (chunk == null) continue;
+	                    
+	                    String shardId = chunk.getShard();
+	                    shardToDocsMap.computeIfAbsent(shardId, k -> new ArrayList<>()).add(doc);
+	                }
+	                
+	                // If all docs are on the same shard, we have a conflict
+	                if (shardToDocsMap.size() == 1) {
+	                    conflictingIds.put(id, shardToDocsMap);
+	                    
+	                    // Log the conflict
+	                    String shard = shardToDocsMap.keySet().iterator().next();
+	                    logger.info("Conflict in iteration {}: _id {} has {} documents on shard {}",
+	                              iteration, id, shardToDocsMap.get(shard).size(), shard);
+	                    
+	                    // Log the documents
+	                    for (Document doc : shardToDocsMap.get(shard)) {
+	                        CountingMegachunk chunk = docToChunkMap.get(doc);
+	                        Object shardKeyValue = doc.get(primaryShardKey);
+	                        
+	                        logger.info("  Doc with _id {}, shardKey: {}, in chunk with bounds: min={}, max={}",
+	                                  id, shardKeyValue, chunk.getMin(), chunk.getMax());
+	                    }
+	                } else {
+	                    // This _id is resolved
+	                    resolvedIds.add(id);
+	                    logger.info("Already resolved in iteration {}: _id {} is on shards: {}",
+	                              iteration, id, shardToDocsMap.keySet());
+	                }
+	            }
+	            
+	            // If no conflicts left, we're done
+	            if (conflictingIds.isEmpty()) {
+	                logger.info("No conflicts remaining after iteration {}, breaking early", iteration);
 	                break;
 	            }
 	            
-	            logger.info("Found {} conflicting _ids in iteration {}", conflictingEntries.size(), iteration);
+	            logger.info("Found {} conflicting _ids in iteration {}", conflictingIds.size(), iteration);
 	            
-	            // Process each conflict
-	            for (Map.Entry<Object, List<CountingMegachunk>> entry : conflictingEntries) {
-	                Object id = entry.getKey();
-	                List<CountingMegachunk> chunks = entry.getValue();
+	            // Available shards
+	            Set<String> allShards = new HashSet<>();
+	            allShards.add("shA");
+	            allShards.add("shard_B");
+	            
+	            // Process conflicts by prioritizing:
+	            // 1. Conflicts that involve fewer other _ids when moved
+	            // 2. Conflicts where docs are in different chunks
+	            List<Object> sortedIds = new ArrayList<>(conflictingIds.keySet());
+	            
+	            // Sort by complexity (move simpler conflicts first)
+	            Collections.sort(sortedIds, (id1, id2) -> {
+	                Document doc1 = conflictingIds.get(id1).values().iterator().next().get(0);
+	                Document doc2 = conflictingIds.get(id2).values().iterator().next().get(0);
 	                
-	                String sourceShardId = chunks.get(0).getShard();
+	                CountingMegachunk chunk1 = docToChunkMap.get(doc1);
+	                CountingMegachunk chunk2 = docToChunkMap.get(doc2);
 	                
-	                // Always move the second chunk
-	                CountingMegachunk chunkToMove = chunks.get(1);
+	                // Count how many other _ids would be affected by moving each chunk
+	                int affected1 = countAffectedIds(chunk1, docToChunkMap, id1);
+	                int affected2 = countAffectedIds(chunk2, docToChunkMap, id2);
 	                
-	                String chunkId = chunkToMove.getShard() + "_" + chunkToMove.getMin() + "_" + chunkToMove.getMax();
+	                // Sort by fewer affected ids
+	                return Integer.compare(affected1, affected2);
+	            });
+	            
+	            // Track which chunks have been moved in this iteration
+	            Set<Integer> movedChunks = new HashSet<>();
+	            
+	            // Resolve conflicts
+	            for (Object id : sortedIds) {
+	                Map<String, List<Document>> shardToDocsMap = conflictingIds.get(id);
+	                String currentShard = shardToDocsMap.keySet().iterator().next();
+	                List<Document> docsOnShard = shardToDocsMap.get(currentShard);
 	                
-	                // Skip if already processed in this iteration
-	                if (processedChunkIdentifiers.contains(chunkId)) {
+	                // Need at least 2 docs to have a conflict
+	                if (docsOnShard.size() < 2) continue;
+	                
+	                // Find target shard
+	                String targetShard = null;
+	                for (String shard : allShards) {
+	                    if (!shard.equals(currentShard)) {
+	                        targetShard = shard;
+	                        break;
+	                    }
+	                }
+	                
+	                if (targetShard == null) {
+	                    logger.error("Could not find a target shard different from {}", currentShard);
 	                    continue;
 	                }
 	                
-	                // Skip if chunk no longer exists
-	                if (!chunkExistsWithBoundaries(namespace, chunkToMove.getMin(), chunkToMove.getMax())) {
-	                    logger.warn("Chunk with bounds min: {}, max: {} no longer exists, skipping migration", 
-	                               chunkToMove.getMin(), chunkToMove.getMax());
-	                    processedChunkIdentifiers.add(chunkId);
+	                // Get chunks for these documents
+	                List<CountingMegachunk> chunksForDocs = new ArrayList<>();
+	                for (Document doc : docsOnShard) {
+	                    chunksForDocs.add(docToChunkMap.get(doc));
+	                }
+	                
+	                // Ensure we have different chunks
+	                if (new HashSet<>(chunksForDocs).size() < 2) {
+	                    logger.warn("Docs with _id {} are all in the same chunk, can't separate", id);
 	                    continue;
 	                }
 	                
-	                // Find a different shard to move to
-	                String targetShardId = findDifferentShard(sourceShardId);
-	                if (targetShardId == null) {
-	                    logger.error("Could not find a different shard for chunk with _id {}", id);
-	                    continue;
-	                }
+	                // Choose which chunk to move - prefer the one that affects fewer other _ids
+	                CountingMegachunk bestChunkToMove = null;
+	                int minAffectedIds = Integer.MAX_VALUE;
 	                
-	                logger.info("Moving chunk with bounds min: {}, max: {} from shard {} to shard {}", 
-	                          chunkToMove.getMin(), chunkToMove.getMax(), sourceShardId, targetShardId);
-	                
-	                // Move the chunk
-	                boolean success = false;
-	                int retryCount = 0;
-	                int sleep = 5000; // Start with a shorter delay
-	                final int MAX_RETRIES = 3;
-	                
-	                while (!success && retryCount < MAX_RETRIES) {
-	                    try {
-	                        success = destShardClient.moveChunk(
-	                            namespace, chunkToMove.getMin(), chunkToMove.getMax(), 
-	                            targetShardId, false, false, true, false, false);
-	                        
-	                        if (success) {
-	                            try {
-	                                Thread.sleep(1000);
-	                            } catch (InterruptedException e) {
-	                                Thread.currentThread().interrupt();
-	                            }
-	                            logger.info("Successfully moved chunk to shard {}", targetShardId);
-	                            
-	                            // Mark as processed
-	                            processedChunkIdentifiers.add(chunkId);
-	                            
-	                            // Update our records
-	                            chunkToMove.setShard(targetShardId);
-	                            
-	                            movesPerformed = true;
+	                for (Document doc : docsOnShard) {
+	                    CountingMegachunk chunk = docToChunkMap.get(doc);
+	                    
+	                    // Skip if this chunk was already moved in this iteration
+	                    if (movedChunks.contains(chunk.hashCode())) continue;
+	                    
+	                    // Count how many other _ids would be affected
+	                    int affectedIds = countAffectedIds(chunk, docToChunkMap, id);
+	                    
+	                    // Check if this move would create new conflicts for already resolved IDs
+	                    boolean wouldCreateNewConflicts = false;
+	                    for (Object resolvedId : resolvedIds) {
+	                        if (wouldCreateConflictForId(resolvedId, chunk, docToChunkMap, targetShard)) {
+	                            wouldCreateNewConflicts = true;
 	                            break;
-	                        } else {
-	                            try {
-	                                Thread.sleep(sleep);
-	                            } catch (InterruptedException e) {
-	                                Thread.currentThread().interrupt();
-	                            }
-	                            retryCount++;
-	                            sleep = sleep * 2; // Exponential backoff
-	                        }
-	                    } catch (Exception e) {
-	                        logger.warn("Exception moving chunk: {}", e.getMessage());
-	                        try {
-	                            Thread.sleep(sleep);
-	                        } catch (InterruptedException e1) {
-	                            Thread.currentThread().interrupt();
-	                        }
-	                        retryCount++;
-	                        sleep = sleep * 2; // Exponential backoff
-	                    }
-	                }
-	            }
-	            
-	            // If we performed any moves, refresh the chunk cache
-	            if (movesPerformed) {
-	                refreshChunkCache(namespace);
-	                
-	                // Clear the processed set for the next iteration
-	                processedChunkIdentifiers.clear();
-	                
-	                // Wait a moment for metadata propagation
-	                try {
-	                    Thread.sleep(5000);
-	                } catch (InterruptedException e) {
-	                    Thread.currentThread().interrupt();
-	                }
-	            }
-	            
-	        } while (movesPerformed && iteration < maxIterations);
-	        
-	        // Final verification
-	        int conflictCount = 0;
-	        
-	        for (Map.Entry<Object, List<CountingMegachunk>> entry : idToChunksMap.entrySet()) {
-	            Object id = entry.getKey();
-	            List<CountingMegachunk> chunks = entry.getValue();
-	            
-	            // Skip if there aren't exactly 2 chunks
-	            if (chunks.size() != 2) continue;
-	            
-	            // Check if both chunks are on the same shard
-	            if (chunks.get(0).getShard().equals(chunks.get(1).getShard())) {
-	                String shardId = chunks.get(0).getShard();
-	                
-	                // Format chunk information for logging
-	                StringBuilder chunkInfo = new StringBuilder();
-	                for (CountingMegachunk chunk : chunks) {
-	                    if (chunkInfo.length() > 0) {
-	                        chunkInfo.append(", ");
-	                    }
-	                    chunkInfo.append(chunk.getMin()).append("-").append(chunk.getMax());
-	                }
-	                
-	                logger.warn("REMAINING CONFLICT: _id {} has {} chunks on shard {}: {}", 
-	                          id, chunks.size(), shardId, chunkInfo.toString());
-	                
-	                conflictCount++;
-	            }
-	        }
-	        
-	        if (conflictCount > 0) {
-	            logger.info("Detected cyclic dependencies. Attempting to split conflicting chunks for remaining {} conflicts", conflictCount);
-	            
-	            // Collect all conflicting _ids and their documents
-	            Map<Object, Map<String, List<Document>>> idToShardToDocsMap = new HashMap<>();
-	            
-	            // First build a mapping of _id -> shard -> documents with that _id on that shard
-	            for (Map.Entry<Object, List<CountingMegachunk>> entry : idToChunksMap.entrySet()) {
-	                Object id = entry.getKey();
-	                List<CountingMegachunk> chunks = entry.getValue();
-	                
-	                // Skip if there aren't exactly 2 chunks or if they're on different shards
-	                if (chunks.size() != 2 || !chunks.get(0).getShard().equals(chunks.get(1).getShard())) {
-	                    continue;
-	                }
-	                
-	                // Get the shard key fields
-	                collMeta = collectionsMap.get(namespace);
-	                if (collMeta == null) continue;
-	                
-	                shardKeyDoc = (Document)collMeta.get("key");
-	                if (shardKeyDoc == null) continue;
-	                
-	                shardKeyFields = shardKeyDoc.keySet();
-	                if (shardKeyFields.isEmpty()) continue;
-	                
-	                // Find all documents with this _id in the archive collections
-	                Namespace archiveNs1 = new Namespace(archiveDbName, namespace + "_1");
-	                Namespace archiveNs2 = new Namespace(archiveDbName, namespace + "_2");
-	                
-	                List<Document> docs = new ArrayList<>();
-	                
-	                // Build projection to include _id and shard key fields
-	                Document projection = new Document("_id", 1);
-	                for (String field : shardKeyFields) {
-	                    projection.append(field, 1);
-	                }
-	                
-	                // Find documents in both archive collections
-	                destShardClient.getCollection(archiveNs1).find(new Document("_id", id))
-	                    .projection(projection).into(docs);
-	                destShardClient.getCollection(archiveNs2).find(new Document("_id", id))
-	                    .projection(projection).into(docs);
-	                
-	                // Group documents by shard
-	                for (Document doc : docs) {
-	                    // Determine which shard this document belongs to
-	                    BsonValueWrapper shardKeyValue = getShardKeyWrapper(shardKeyFields, doc);
-	                    NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap = destChunkMap.get(namespace);
-	                    if (chunkMap == null) continue;
-	                    
-	                    Map.Entry<BsonValueWrapper, CountingMegachunk> chunkEntry = chunkMap.floorEntry(shardKeyValue);
-	                    if (chunkEntry == null) continue;
-	                    
-	                    CountingMegachunk chunk = chunkEntry.getValue();
-	                    String shardId = chunk.getShard();
-	                    
-	                    // Add this document to the map
-	                    idToShardToDocsMap
-	                        .computeIfAbsent(id, k -> new HashMap<>())
-	                        .computeIfAbsent(shardId, k -> new ArrayList<>())
-	                        .add(doc);
-	                }
-	            }
-	            
-	            // Now for each shard with conflicts, calculate split points
-	            Map<String, List<Document>> shardToSplitPointsMap = new HashMap<>();
-	            
-	            for (Map.Entry<Object, Map<String, List<Document>>> idEntry : idToShardToDocsMap.entrySet()) {
-	                for (Map.Entry<String, List<Document>> shardEntry : idEntry.getValue().entrySet()) {
-	                    String shardId = shardEntry.getKey();
-	                    List<Document> docsOnShard = shardEntry.getValue();
-	                    
-	                    if (docsOnShard.size() <= 1) continue; // No conflict on this shard
-	                    
-	                    // Get shard key fields
-	                    collMeta = collectionsMap.get(namespace);
-	                    if (collMeta == null) continue;
-	                    
-	                    shardKeyDoc = (Document)collMeta.get("key");
-	                    if (shardKeyDoc == null) continue;
-	                    
-	                    shardKeyFields = shardKeyDoc.keySet();
-	                    if (shardKeyFields.isEmpty()) continue;
-	                    
-	                    String shardKeyField = shardKeyFields.iterator().next();
-	                    
-	                    // For each document, create a split point in the middle of its shard key value
-	                    // and the next document's shard key value
-	                    docsOnShard.sort((a, b) -> {
-	                        Number valA = (Number) a.get(shardKeyField);
-	                        Number valB = (Number) b.get(shardKeyField);
-	                        return Integer.compare(valA.intValue(), valB.intValue());
-	                    });
-	                    
-	                    // Find chunks on this shard
-	                    List<CountingMegachunk> chunksOnShard = new ArrayList<>();
-	                    for (NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap : destChunkMap.values()) {
-	                        for (CountingMegachunk chunk : chunkMap.values()) {
-	                            if (chunk.getShard().equals(shardId)) {
-	                                chunksOnShard.add(chunk);
-	                            }
 	                        }
 	                    }
 	                    
-	                    for (int i = 0; i < docsOnShard.size() - 1; i++) {
-	                        Number val1 = (Number) docsOnShard.get(i).get(shardKeyField);
-	                        Number val2 = (Number) docsOnShard.get(i + 1).get(shardKeyField);
-	                        
-	                        // Calculate midpoint using integer math when possible to avoid precision loss
-	                        int splitValue;
-	                        
-	                        // Check if we're dealing with Integer values
-	                        boolean isInt = val1 instanceof Integer && val2 instanceof Integer;
-	                        
-	                        if (isInt) {
-	                            int intVal1 = val1.intValue();
-	                            int intVal2 = val2.intValue();
-	                            
-	                            // Handle potential overflow by using long for calculation
-	                            long midpointLong;
-	                            
-	                            // Check if values have different signs to avoid overflow
-	                            if ((intVal1 >= 0 && intVal2 < 0) || (intVal1 < 0 && intVal2 >= 0)) {
-	                                // For values with different signs, be careful with the sum
-	                                midpointLong = ((long)intVal1 / 2) + ((long)intVal2 / 2);
-	                            } else {
-	                                // For values with same sign, this approach is more numerically stable
-	                                midpointLong = (long)intVal1 + ((long)intVal2 - (long)intVal1) / 2;
-	                            }
-	                            
-	                            // Check for overflow before casting back to int
-	                            if (midpointLong > Integer.MAX_VALUE) {
-	                                splitValue = Integer.MAX_VALUE - 1; // Just below the max to stay within bounds
-	                                logger.warn("Midpoint calculation overflow: {} -> capped at {}", midpointLong, splitValue);
-	                            } else if (midpointLong < Integer.MIN_VALUE) {
-	                                splitValue = Integer.MIN_VALUE + 1; // Just above the min to stay within bounds
-	                                logger.warn("Midpoint calculation underflow: {} -> capped at {}", midpointLong, splitValue);
-	                            } else {
-	                                splitValue = (int)midpointLong;
-	                            }
-	                            
-	                            logger.debug("Integer midpoint calculation: {} between {} and {}", splitValue, intVal1, intVal2);
-	                        } else {
-	                            // Fallback to double calculation for non-integer types
-	                            double val1Double = val1.doubleValue();
-	                            double val2Double = val2.doubleValue();
-	                            double midpoint;
-	                            
-	                            if ((val1Double > 0 && val2Double < 0) || (val1Double < 0 && val2Double > 0)) {
-	                                midpoint = (val1Double / 2) + (val2Double / 2);
-	                            } else {
-	                                midpoint = val1Double + (val2Double - val1Double) / 2;
-	                            }
-	                            
-	                            splitValue = (int)midpoint;
-	                            logger.debug("Double midpoint calculation: {} between {} and {}", splitValue, val1Double, val2Double);
-	                        }
-	                        
-	                        // Create a split point document
-	                        Document splitPoint = new Document(shardKeyField, splitValue);
-	                        
-	                        // Add debug info
-	                        logger.debug("Calculated split point {} (midpoint between {} and {}) for _id: {} on shard: {}",
-	                            splitValue, val1, val2, docsOnShard.get(i).get("_id"), shardId);
-
-	                        // Validate split point against chunk boundaries before adding
-	                        boolean splitPointValid = false;
-	                        for (CountingMegachunk chunk : chunksOnShard) {
-	                            BsonDocument minDoc = chunk.getMin();
-	                            BsonDocument maxDoc = chunk.getMax();
-	                            
-	                            Number minValue = null;
-	                            Number maxValue = null;
-	                            
-	                            if (minDoc.containsKey(shardKeyField)) {
-	                                BsonValue minBson = minDoc.get(shardKeyField);
-	                                if (minBson instanceof BsonMinKey) {
-	                                    minValue = Integer.MIN_VALUE;
-	                                } else if (minBson.isInt32()) {
-	                                    // Directly use int value for better precision
-	                                    minValue = minBson.asInt32().getValue();
-	                                } else {
-	                                    minValue = (Number)BsonValueConverter.convertBsonValueToObject(minBson);
-	                                }
-	                            }
-	                            
-	                            if (maxDoc.containsKey(shardKeyField)) {
-	                                BsonValue maxBson = maxDoc.get(shardKeyField);
-	                                if (maxBson instanceof BsonMaxKey) {
-	                                    maxValue = Integer.MAX_VALUE;
-	                                } else if (maxBson.isInt32()) {
-	                                    // Directly use int value for better precision
-	                                    maxValue = maxBson.asInt32().getValue();
-	                                } else {
-	                                    maxValue = (Number)BsonValueConverter.convertBsonValueToObject(maxBson);
-	                                }
-	                            }
-	                            
-	                            if (minValue != null && maxValue != null) {
-	                                boolean isInRange;
-	                                
-	                                // Always use integer comparison for shard key bounds if possible
-	                                if (minValue instanceof Integer && maxValue instanceof Integer) {
-	                                    int minInt = minValue.intValue();
-	                                    int maxInt = maxValue.intValue();
-	                                    
-	                                    isInRange = splitValue >= minInt && splitValue < maxInt;
-	                                    
-	                                    if (isInRange) {
-	                                        logger.debug("Split point {} falls within chunk range [{}, {})", 
-	                                            splitValue, minInt, maxInt);
-	                                        splitPointValid = true;
-	                                        
-	                                        // Add to the map with chunk-specific information
-	                                        String chunkKey = shardId + "_" + chunk.getMin() + "_" + chunk.getMax();
-	                                        shardToSplitPointsMap
-	                                            .computeIfAbsent(chunkKey, k -> new ArrayList<>())
-	                                            .add(splitPoint);
-	                                        
-	                                        break;
-	                                    } else {
-	                                        logger.warn("splitValue does not fall within min/max range, splitValue: {}, min: {}, max: {}", 
-	                                            splitValue, minInt, maxInt);
-	                                    }
-	                                } else {
-	                                    // Fallback to double comparison
-	                                    double minDouble = minValue.doubleValue();
-	                                    double maxDouble = maxValue.doubleValue();
-	                                    
-	                                    isInRange = splitValue >= minDouble && splitValue < maxDouble;
-	                                    
-	                                    if (isInRange) {
-	                                        logger.debug("Split point {} falls within chunk range [{}, {})", 
-	                                            splitValue, minDouble, maxDouble);
-	                                        splitPointValid = true;
-	                                        
-	                                        // Add to the map with chunk-specific information
-	                                        String chunkKey = shardId + "_" + chunk.getMin() + "_" + chunk.getMax();
-	                                        shardToSplitPointsMap
-	                                            .computeIfAbsent(chunkKey, k -> new ArrayList<>())
-	                                            .add(splitPoint);
-	                                        
-	                                        break;
-	                                    } else {
-	                                        logger.warn("splitValue does not fall within min/max range, splitValue: {}, min: {}, max: {}", 
-	                                            splitValue, minDouble, maxDouble);
-	                                    }
-	                                }
-	                            }
-	                        }
-	                        
-	                        if (!splitPointValid) {
-	                            logger.warn("Calculated split point {} is not valid for any chunk on shard {}", 
-	                                splitValue, shardId);
-	                        }
+	                    // Skip if it would create new conflicts
+	                    if (wouldCreateNewConflicts) {
+	                        logger.info("Skipping move of chunk for _id {} as it would create new conflicts", id);
+	                        continue;
 	                    }
-	                }
-	            }
-	            
-	            // Now execute the splits
-	            for (Map.Entry<String, List<Document>> entry : shardToSplitPointsMap.entrySet()) {
-	                String shardId = entry.getKey();
-	                List<Document> splitPoints = entry.getValue();
-	                
-	                // Remove duplicates and sort the split points
-	                Set<Document> uniqueSplitPoints = new HashSet<>(splitPoints);
-	                List<Document> sortedSplitPoints = new ArrayList<>(uniqueSplitPoints);
-	                
-	                // Sort by the first shard key field
-	                String shardKeyField = collectionsMap.get(namespace).get("key", Document.class).keySet().iterator().next();
-	                sortedSplitPoints.sort((a, b) -> {
-	                    Number valA = (Number) a.get(shardKeyField);
-	                    Number valB = (Number) b.get(shardKeyField);
-	                    return Integer.compare(valA.intValue(), valB.intValue());
-	                });
-	                
-	                logger.info("Creating {} targeted split points on shard {} to resolve cyclic dependencies", 
-	                           sortedSplitPoints.size(), shardId);
-	                
-	                // Find chunks on this shard
-	                List<CountingMegachunk> chunksOnShard = new ArrayList<>();
-	                for (NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap : destChunkMap.values()) {
-	                    for (CountingMegachunk chunk : chunkMap.values()) {
-	                        if (chunk.getShard().equals(shardId)) {
-	                            chunksOnShard.add(chunk);
-	                        }
+	                    
+	                    // Choose this chunk if it affects fewer IDs
+	                    if (affectedIds < minAffectedIds) {
+	                        bestChunkToMove = chunk;
+	                        minAffectedIds = affectedIds;
 	                    }
 	                }
 	                
-	                // For each split point, find which chunk it belongs to and split it
-	                for (Document splitPoint : sortedSplitPoints) {
-	                    // Get the shard key value from the split point
-	                    Number splitValue = (Number) splitPoint.get(shardKeyField);
-	                    
-	                    // Find which chunk this split point belongs to
-	                    CountingMegachunk chunkToSplit = null;
-	                    
-	                    for (CountingMegachunk chunk : chunksOnShard) {
-	                        BsonDocument minDoc = chunk.getMin();
-	                        BsonDocument maxDoc = chunk.getMax();
-	                        
-	                        if (minDoc instanceof BsonDocument && maxDoc instanceof BsonDocument) {
-	                            Number minValue = null;
-	                            Number maxValue = null;
-	                            
-	                            if (minDoc.containsKey(shardKeyField)) {
-	                                BsonValue minBson = minDoc.get(shardKeyField);
-	                                if (minBson instanceof BsonMinKey) {
-	                                    minValue = Integer.MIN_VALUE;
-	                                } else if (minBson.isInt32()) {
-	                                    minValue = minBson.asInt32().getValue();
-	                                } else {
-	                                    minValue = (Number)BsonValueConverter.convertBsonValueToObject(minBson);
-	                                }
-	                            } else {
-	                                logger.warn("minDoc does not contain shardKeyField: {}", minDoc);
-	                            }
-	                            
-	                            if (maxDoc.containsKey(shardKeyField)) {
-	                                BsonValue maxBson = maxDoc.get(shardKeyField);
-	                                if (maxBson instanceof BsonMaxKey) {
-	                                    maxValue = Integer.MAX_VALUE;
-	                                } else if (maxBson.isInt32()) {
-	                                    maxValue = maxBson.asInt32().getValue();
-	                                } else {
-	                                    maxValue = (Number)BsonValueConverter.convertBsonValueToObject(maxBson);
-	                                }
-	                            } else {
-	                                logger.warn("maxDoc does not contain shardKeyField: {}", maxDoc);
-	                            }
-	                            
-	                            if (minValue != null && maxValue != null) {
-	                                // Use integer comparison when possible
-	                                if (minValue instanceof Integer && maxValue instanceof Integer && splitValue instanceof Integer) {
-	                                    int minInt = minValue.intValue();
-	                                    int maxInt = maxValue.intValue();
-	                                    int splitInt = splitValue.intValue();
-	                                    
-	                                    if (splitInt >= minInt && splitInt < maxInt) {
-	                                        chunkToSplit = chunk;
-	                                        break;
-	                                    } else {
-	                                        logger.warn("splitValue does not fall within max/max range, splitValue: {}, min: {}, max: {}", 
-	                                            splitInt, minInt, maxInt);
-	                                    }
-	                                } else {
-	                                    // Fallback to double comparison
-	                                    double splitDouble = splitValue.doubleValue();
-	                                    double minDouble = minValue.doubleValue();
-	                                    double maxDouble = maxValue.doubleValue();
-	                                    
-	                                    if (splitDouble >= minDouble && splitDouble < maxDouble) {
-	                                        chunkToSplit = chunk;
-	                                        break;
-	                                    } else {
-	                                        logger.warn("splitValue does not fall within max/max range, splitValue: {}, min: {}, max: {}", 
-	                                            splitDouble, minDouble, maxDouble);
-	                                    }
-	                                }
-	                            } else {
-	                                logger.warn("minValue or maxValue is null, minValue: {}, maxValue: {}", minValue, maxValue);
-	                            }
-	                        }
+	                // If we found a chunk to move
+	                if (bestChunkToMove != null) {
+	                    // Log affected IDs
+	                    if (minAffectedIds > 0) {
+	                        logger.info("Moving chunk will also affect {} other _ids", minAffectedIds);
 	                    }
 	                    
-	                    if (chunkToSplit != null) {
-	                        logger.info("Splitting chunk with bounds min: {}, max: {} at split point: {}", 
-	                                  chunkToSplit.getMin(), chunkToSplit.getMax(), splitPoint);
+	                    // Move the chunk
+	                    logger.info("Moving chunk with bounds min: {}, max: {} from shard {} to shard {} for _id {}",
+	                              bestChunkToMove.getMin(), bestChunkToMove.getMax(), 
+	                              currentShard, targetShard, id);
+	                    
+	                    boolean success = moveChunkWithRetry(namespace, bestChunkToMove, targetShard);
+	                    
+	                    if (success) {
+	                        logger.info("Successfully moved chunk to shard {}", targetShard);
 	                        
-	                        boolean success = destShardClient.splitChunk(
-	                            namespace, chunkToSplit.getMin(), chunkToSplit.getMax(), splitPoint);
+	                        // Update our records
+	                        bestChunkToMove.setShard(targetShard);
 	                        
-	                        if (success) {
-	                            logger.info("Successfully split chunk at targeted split point: {}", splitPoint);
-	                        } else {
-	                            logger.warn("Failed to split chunk at targeted split point: {}", splitPoint);
+	                        // Update all documents in this chunk
+	                        for (Map.Entry<Document, CountingMegachunk> entry : docToChunkMap.entrySet()) {
+	                            if (entry.getValue().equals(bestChunkToMove)) {
+	                                entry.setValue(bestChunkToMove);
+	                            }
 	                        }
+	                        
+	                        // Mark this chunk as moved
+	                        movedChunks.add(bestChunkToMove.hashCode());
+	                        
+	                        // Mark this _id as resolved
+	                        resolvedIds.add(id);
 	                    } else {
-	                        logger.warn("Could not find chunk for split point: {}", splitPoint);
+	                        logger.error("Failed to move chunk for _id {}", id);
 	                    }
-	                }
-	                
-	                // Refresh the chunk cache after
-	                // Refresh the chunk cache after splits
-	                refreshChunkCache(namespace);
-	                
-	                // Wait for metadata propagation
-	                try {
-	                    Thread.sleep(5000);
-	                } catch (InterruptedException e) {
-	                    Thread.currentThread().interrupt();
+	                } else {
+	                    logger.warn("Could not find a suitable chunk to move for _id {}", id);
 	                }
 	            }
 	            
-	            // After splitting, do one more round of migrations
-	            processedChunkIdentifiers.clear();
-	            
-	            // Perform one more migration iteration
-	            logger.info("Starting final migration iteration after targeted splits");
-	            
-	            // Find remaining _ids where both documents are on the same shard
-	            List<Map.Entry<Object, List<CountingMegachunk>>> conflictingEntries = new ArrayList<>();
-	            
-	            for (Map.Entry<Object, List<CountingMegachunk>> entry : idToChunksMap.entrySet()) {
-	                Object id = entry.getKey();
-	                List<CountingMegachunk> chunks = entry.getValue();
-	                
-	                // Skip if there aren't exactly 2 chunks
-	                if (chunks.size() != 2) continue;
-	                
-	                // Check if both chunks are on the same shard
-	                if (chunks.get(0).getShard().equals(chunks.get(1).getShard())) {
-	                    conflictingEntries.add(entry);
-	                }
-	            }
-	            
-	            logger.info("Found {} conflicting _ids after targeted splits", conflictingEntries.size());
-	            
-	            // Process each conflict
-	            for (Map.Entry<Object, List<CountingMegachunk>> entry : conflictingEntries) {
-	                Object id = entry.getKey();
-	                List<CountingMegachunk> chunks = entry.getValue();
-	                
-	                String sourceShardId = chunks.get(0).getShard();
-	                
-	                // Always move the second chunk
-	                CountingMegachunk chunkToMove = chunks.get(1);
-	                
-	                String chunkId = chunkToMove.getShard() + "_" + chunkToMove.getMin() + "_" + chunkToMove.getMax();
-	                
-	                // Skip if already processed
-	                if (processedChunkIdentifiers.contains(chunkId)) {
-	                    continue;
-	                }
-	                
-	                // Skip if chunk no longer exists
-	                if (!chunkExistsWithBoundaries(namespace, chunkToMove.getMin(), chunkToMove.getMax())) {
-	                    logger.warn("Chunk with bounds min: {}, max: {} no longer exists, skipping migration", 
-	                               chunkToMove.getMin(), chunkToMove.getMax());
-	                    processedChunkIdentifiers.add(chunkId);
-	                    continue;
-	                }
-	                
-	                // Find a different shard
-	                String targetShardId = findDifferentShard(sourceShardId);
-	                if (targetShardId == null) {
-	                    logger.error("Could not find a different shard for chunk with _id {}", id);
-	                    continue;
-	                }
-	                
-	                logger.info("Moving chunk for _id {} from shard {} to shard {}", 
-	                           id, sourceShardId, targetShardId);
-	                
-	                // Move the chunk
-	                boolean success = moveChunkWithRetry(namespace, chunkToMove, targetShardId);
-	                
-	                if (success) {
-	                    // Mark as processed
-	                    processedChunkIdentifiers.add(chunkId);
-	                    
-	                    // Update our records
-	                    chunkToMove.setShard(targetShardId);
-	                }
-	            }
-	            
-	            // Final verification
+	            // Refresh chunk cache for next iteration
 	            refreshChunkCache(namespace);
 	            
-	            // Count remaining conflicts after targeted splits
-	            conflictCount = 0;
-	            
-	            for (Map.Entry<Object, List<CountingMegachunk>> entry : idToChunksMap.entrySet()) {
-	                Object id = entry.getKey();
-	                List<CountingMegachunk> chunks = entry.getValue();
-	                
-	                // Skip if there aren't exactly 2 chunks
-	                if (chunks.size() != 2) continue;
-	                
-	                // Check if both chunks are on the same shard
-	                if (chunks.get(0).getShard().equals(chunks.get(1).getShard())) {
-	                    String shardId = chunks.get(0).getShard();
-	                    
-	                    // Format chunk information for logging
-	                    StringBuilder chunkInfo = new StringBuilder();
-	                    for (CountingMegachunk chunk : chunks) {
-	                        if (chunkInfo.length() > 0) {
-	                            chunkInfo.append(", ");
-	                        }
-	                        chunkInfo.append(chunk.getMin()).append("-").append(chunk.getMax());
-	                    }
-	                    
-	                    logger.warn("REMAINING CONFLICT AFTER TARGETED SPLITS: _id {} has {} chunks on shard {}: {}", 
-	                              id, chunks.size(), shardId, chunkInfo.toString());
-	                    
-	                    conflictCount++;
-	                }
-	            }
-	            
-	            if (conflictCount > 0) {
-	                logger.warn("Found {} remaining _id conflicts after targeted splits for namespace {}", conflictCount, namespace);
-	            } else {
-	                logger.info("No remaining _id conflicts after targeted splits for namespace {}", namespace);
+	            // Check if we made progress
+	            if (movedChunks.isEmpty()) {
+	                logger.info("No progress made in iteration {}, breaking early", iteration);
+	                break;
 	            }
 	        }
 	        
-	        if (conflictCount > 0) {
-	            logger.warn("Found {} remaining _id conflicts after migrations for namespace {}", conflictCount, namespace);
-	        } else {
-	            logger.info("No remaining _id conflicts after migrations for namespace {}", namespace);
-	        }
+	        // Final verification
+	        verifyDuplicateResolution(namespace, shardKeyFields);
+	    }
+	}
+
+	// Count how many _ids would be affected by moving this chunk
+	private int countAffectedIds(CountingMegachunk chunk, 
+	                           Map<Document, CountingMegachunk> docToChunkMap,
+	                           Object excludeId) {
+	    Set<Object> affectedIds = new HashSet<>();
+	    
+	    for (Map.Entry<Document, CountingMegachunk> entry : docToChunkMap.entrySet()) {
+	        Document doc = entry.getKey();
+	        CountingMegachunk docChunk = entry.getValue();
+	        Object docId = doc.get("_id");
 	        
-	        logger.debug("Completed processing chunks with duplicates for namespace {}", namespace);
+	        // If this doc is in the chunk and it's not our target id
+	        if (docChunk.equals(chunk) && !docId.equals(excludeId)) {
+	            affectedIds.add(docId);
+	        }
 	    }
 	    
-	    // Refresh the chunk cache after all migrations
-	    for (String namespace : duplicateIdToDocsMap.keySet()) {
-	        refreshChunkCache(namespace);
+	    return affectedIds.size();
+	}
+
+	// Check if moving this chunk would create a new conflict for a resolved ID
+	private boolean wouldCreateConflictForId(Object id, 
+	                                      CountingMegachunk chunkToMove,
+	                                      Map<Document, CountingMegachunk> docToChunkMap,
+	                                      String targetShard) {
+	    // Find all docs with this id
+	    List<Document> docsWithId = new ArrayList<>();
+	    List<CountingMegachunk> chunksWithId = new ArrayList<>();
+	    
+	    for (Map.Entry<Document, CountingMegachunk> entry : docToChunkMap.entrySet()) {
+	        Document doc = entry.getKey();
+	        if (doc.get("_id").equals(id)) {
+	            docsWithId.add(doc);
+	            chunksWithId.add(entry.getValue());
+	        }
 	    }
-	 }
+	    
+	    // Check if any of these docs are in the chunk we want to move
+	    boolean docInMovingChunk = false;
+	    for (CountingMegachunk chunk : chunksWithId) {
+	        if (chunk.equals(chunkToMove)) {
+	            docInMovingChunk = true;
+	            break;
+	        }
+	    }
+	    
+	    // If none of the docs for this ID are in the moving chunk, no conflict
+	    if (!docInMovingChunk) {
+	        return false;
+	    }
+	    
+	    // Check if any other docs with this ID are already on the target shard
+	    for (CountingMegachunk chunk : chunksWithId) {
+	        if (!chunk.equals(chunkToMove) && chunk.getShard().equals(targetShard)) {
+	            // Found a doc already on target shard, moving would create conflict
+	            return true;
+	        }
+	    }
+	    
+	    return false;
+	}
+
+	private void verifyDuplicateResolution(String namespace, Set<String> shardKeyFields) {
+	    String primaryShardKey = shardKeyFields.iterator().next();
+	    Map<Object, List<Document>> duplicatesMap = duplicateIdToDocsMap.get(namespace);
+	    int remainingConflicts = 0;
+	    
+	    logger.info("Verifying resolution for {} duplicate _ids in namespace {}", duplicatesMap.size(), namespace);
+	    
+	    for (Map.Entry<Object, List<Document>> entry : duplicatesMap.entrySet()) {
+	        Object id = entry.getKey();
+	        List<Document> docsWithSameId = entry.getValue();
+	        
+	        // Skip if not a duplicate
+	        if (docsWithSameId.size() <= 1) continue;
+	        
+	        // Find which shard each document is on
+	        Map<String, List<Document>> shardToDocsMap = new HashMap<>();
+	        
+	        for (Document doc : docsWithSameId) {
+	            BsonValueWrapper shardKeyValue = getShardKeyWrapper(shardKeyFields, doc);
+	            
+	            NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap = destChunkMap.get(namespace);
+	            if (chunkMap == null) continue;
+	            
+	            Map.Entry<BsonValueWrapper, CountingMegachunk> chunkEntry = chunkMap.floorEntry(shardKeyValue);
+	            if (chunkEntry == null) continue;
+	            
+	            CountingMegachunk chunk = chunkEntry.getValue();
+	            
+	            // Add document to list for this shard
+	            shardToDocsMap.computeIfAbsent(chunk.getShard(), k -> new ArrayList<>()).add(doc);
+	        }
+	        
+	        // Check if duplicates are on the same shard
+	        if (shardToDocsMap.size() == 1) {
+	            String shard = shardToDocsMap.keySet().iterator().next();
+	            List<Document> docsOnShard = shardToDocsMap.get(shard);
+	            
+	            if (docsOnShard.size() > 1) {
+	                StringBuilder details = new StringBuilder();
+	                for (Document doc : docsOnShard) {
+	                    if (details.length() > 0) details.append(", ");
+	                    details.append(primaryShardKey).append(": ").append(doc.get(primaryShardKey));
+	                }
+	                
+	                logger.warn("REMAINING CONFLICT: _id {} has {} documents on shard {}: {}", 
+	                          id, docsOnShard.size(), shard, details);
+	                
+	                remainingConflicts++;
+	            }
+	        } else {
+	            // Log successful resolution
+	            logger.info("Successfully resolved conflict for _id {}, documents are on shards: {}", 
+	                      id, shardToDocsMap.keySet());
+	        }
+	    }
+	    
+	    if (remainingConflicts > 0) {
+	        logger.warn("Found {} remaining _id conflicts after migrations for namespace {}", 
+	                  remainingConflicts, namespace);
+	    } else {
+	        logger.info("Successfully resolved all conflicts for namespace {}", namespace);
+	    }
+	}
+
+	/**
+	 * Find cycles in a dependency graph
+	 * 
+	 * @param graph Map representing the graph where key is node and value is set of nodes it points to
+	 * @return List of cycles found in the graph
+	 */
+	private List<List<Object>> findCycles(Map<Object, Set<Object>> graph) {
+	    List<List<Object>> cycles = new ArrayList<>();
+	    Set<Object> visited = new HashSet<>();
+	    Set<Object> onStack = new HashSet<>();
+	    Map<Object, Object> edgeTo = new HashMap<>();
+	    
+	    // For each node in the graph, if not visited, start DFS from it
+	    for (Object node : graph.keySet()) {
+	        if (!visited.contains(node)) {
+	            dfs(graph, node, visited, onStack, edgeTo, cycles);
+	        }
+	    }
+	    
+	    return cycles;
+	}
+
+	/**
+	 * Depth-first search to find cycles
+	 */
+	private void dfs(Map<Object, Set<Object>> graph, Object node, Set<Object> visited, 
+	                Set<Object> onStack, Map<Object, Object> edgeTo, List<List<Object>> cycles) {
+	    visited.add(node);
+	    onStack.add(node);
+	    
+	    // Visit all neighbors
+	    Set<Object> neighbors = graph.getOrDefault(node, Collections.emptySet());
+	    for (Object neighbor : neighbors) {
+	        // If we haven't visited this neighbor, visit it
+	        if (!visited.contains(neighbor)) {
+	            edgeTo.put(neighbor, node);
+	            dfs(graph, neighbor, visited, onStack, edgeTo, cycles);
+	        } 
+	        // If neighbor is on stack, we found a cycle
+	        else if (onStack.contains(neighbor)) {
+	            List<Object> cycle = new ArrayList<>();
+	            for (Object x = node; !x.equals(neighbor); x = edgeTo.get(x)) {
+	                cycle.add(x);
+	            }
+	            cycle.add(neighbor);
+	            cycle.add(node);
+	            Collections.reverse(cycle);
+	            cycles.add(cycle);
+	        }
+	    }
+	    
+	    onStack.remove(node);
+	}
+
+
 	
 	/**
 	 * Moves a chunk to a different shard with retry logic to handle transient failures
@@ -1112,90 +744,6 @@ public class DuplicateResolver {
 	    return splitPoints;
 	}
 
-	/**
-	 * Verify that a split point likely falls within valid chunk boundaries
-	 * This is a helper method that can provide an extra validation layer
-	 */
-	private boolean verifyRangeBoundaries(String namespace, Document splitPoint, Set<String> shardKeyFields) {
-	    try {
-	        // If there's only one field in the shard key, we can do a simple check
-	        if (shardKeyFields.size() == 1) {
-	            String keyField = shardKeyFields.iterator().next();
-	            Object value = splitPoint.get(keyField);
-	            
-	            // Skip validation for non-numeric values as they need different validation
-	            if (!(value instanceof Number)) {
-	                return true;
-	            }
-	            
-	            double numericalValue = ((Number)value).doubleValue();
-	            
-	            // Get the chunk map for this namespace
-	            NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap = destChunkMap.get(namespace);
-	            if (chunkMap == null) {
-	                logger.warn("No chunk map found for namespace: {}", namespace);
-	                return false;
-	            }
-	            
-	            // Find potential chunks that might contain this value
-	            boolean foundValidChunk = false;
-	            
-	            for (CountingMegachunk chunk : chunkMap.values()) {
-	                BsonDocument minDoc = chunk.getMin();
-	                BsonDocument maxDoc = chunk.getMax();
-	                
-	                if (minDoc.containsKey(keyField) && maxDoc.containsKey(keyField)) {
-	                    Number minValue = null;
-	                    Number maxValue = null;
-	                    
-	                    // Convert min value
-	                    BsonValue minBson = minDoc.get(keyField);
-	                    if (minBson instanceof BsonMinKey) {
-	                        minValue = Double.NEGATIVE_INFINITY;
-	                    } else if (minBson.isNumber()) {
-	                        minValue = BsonValueConverter.convertBsonValueToObject(minBson) instanceof Number ? 
-	                                  (Number)BsonValueConverter.convertBsonValueToObject(minBson) : null;
-	                    }
-	                    
-	                    // Convert max value
-	                    BsonValue maxBson = maxDoc.get(keyField);
-	                    if (maxBson instanceof BsonMaxKey) {
-	                        maxValue = Double.POSITIVE_INFINITY;
-	                    } else if (maxBson.isNumber()) {
-	                        maxValue = BsonValueConverter.convertBsonValueToObject(maxBson) instanceof Number ? 
-	                                  (Number)BsonValueConverter.convertBsonValueToObject(maxBson) : null;
-	                    }
-	                    
-	                    // Check if our split point falls within this chunk
-	                    if (minValue != null && maxValue != null) {
-	                        double min = minValue.doubleValue();
-	                        double max = maxValue.doubleValue();
-	                        
-	                        if (numericalValue >= min && numericalValue < max) {
-	                            logger.debug("Split point {} verified to be within chunk range [{}, {}) on shard {}", 
-	                                    value, min, max, chunk.getShard());
-	                            foundValidChunk = true;
-	                            break;
-	                        } else {
-	                        	logger.warn("Split point {} IS NOT within chunk range [{}, {}) on shard {}", 
-	                                    value, min, max, chunk.getShard());
-	                        }
-	                    }
-	                }
-	            }
-	            
-	            return foundValidChunk;
-	        }
-	        
-	        // For compound shard keys, validation is more complex
-	        return true;
-	        
-	    } catch (Exception e) {
-	        logger.warn("Error validating split point boundaries: {}", e.getMessage());
-	        return false;
-	    }
-	}
-
 	// Helper method to refresh the chunk cache
 	private void refreshChunkCache(String namespace) {
 	    try {
@@ -1214,55 +762,6 @@ public class DuplicateResolver {
 	    } catch (Exception e) {
 	        logger.error("Error refreshing chunk cache for namespace {}: {}", namespace, e.getMessage());
 	    }
-	}
-
-	private boolean chunkExistsWithBoundaries(String namespace, Object min, Object max) {
-	    try {
-	        NavigableMap<BsonValueWrapper, CountingMegachunk> namespaceChunkMap = destChunkMap.get(namespace);
-	        if (namespaceChunkMap == null) {
-	            return false;
-	        }
-	        
-	        // Convert min/max to BsonValueWrapper for comparison
-	        BsonValueWrapper minWrapper = new BsonValueWrapper(BsonValueConverter.convertToBsonValue(min));
-	        BsonValueWrapper maxWrapper = new BsonValueWrapper(BsonValueConverter.convertToBsonValue(max));
-	        
-	        // Find if chunk exists with matching boundaries
-	        for (CountingMegachunk chunk : namespaceChunkMap.values()) {
-	            BsonValueWrapper chunkMin = new BsonValueWrapper(BsonValueConverter.convertToBsonValue(chunk.getMin()));
-	            BsonValueWrapper chunkMax = new BsonValueWrapper(BsonValueConverter.convertToBsonValue(chunk.getMax()));
-	            
-	            if (minWrapper.equals(chunkMin) && maxWrapper.equals(chunkMax)) {
-	                return true;
-	            }
-	        }
-	        
-	        return false;
-	    } catch (Exception e) {
-	        logger.error("Error checking if chunk exists: {}", e.getMessage());
-	        return false;
-	    }
-	}
-
-	private String findDifferentShard(String currentShardId) {
-		// Get available target shards from your existing configuration
-		Set<String> targetShards = destShardClient.getShardsMap().keySet();
-
-		// Filter out the current shard
-		List<String> otherShards = new ArrayList<>();
-		for (String shardId : targetShards) {
-			if (!shardId.equals(currentShardId)) {
-				otherShards.add(shardId);
-			}
-		}
-
-		if (otherShards.isEmpty()) {
-			return null; // No other shards available
-		}
-
-		// Choose a random shard from the available ones
-		Random random = new Random();
-		return otherShards.get(random.nextInt(otherShards.size()));
 	}
 
 	public void buildDuplicateMapping(String namespace, List<Document> duplicates,
