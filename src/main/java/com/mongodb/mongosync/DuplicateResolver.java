@@ -456,6 +456,16 @@ public class DuplicateResolver {
 	                        return Double.compare(valA.doubleValue(), valB.doubleValue());
 	                    });
 	                    
+		                // Find chunks on this shard
+		                List<CountingMegachunk> chunksOnShard = new ArrayList<>();
+		                for (NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap : destChunkMap.values()) {
+		                    for (CountingMegachunk chunk : chunkMap.values()) {
+		                        if (chunk.getShard().equals(shardId)) {
+		                            chunksOnShard.add(chunk);
+		                        }
+		                    }
+		                }
+	                    
 	                    for (int i = 0; i < docsOnShard.size() - 1; i++) {
 	                        Number val1 = (Number) docsOnShard.get(i).get(shardKeyField);
 	                        Number val2 = (Number) docsOnShard.get(i + 1).get(shardKeyField);
@@ -466,6 +476,62 @@ public class DuplicateResolver {
 	                        
 	                        // Create a split point document
 	                        Document splitPoint = new Document(shardKeyField, splitValue);
+	                        
+	                     // Add debug info
+	                        logger.debug("Calculated split point {} (midpoint between {} and {}) for _id: {} on shard: {}",
+	                            splitValue, val1, val2, docsOnShard.get(i).get("_id"), shardId);
+
+	                        // Validate split point against chunk boundaries before adding
+	                        boolean splitPointValid = false;
+	                        for (CountingMegachunk chunk : chunksOnShard) {
+	                            BsonDocument minDoc = chunk.getMin();
+	                            BsonDocument maxDoc = chunk.getMax();
+	                            
+	                            Number minValue = null;
+	                            Number maxValue = null;
+	                            
+	                            if (minDoc.containsKey(shardKeyField)) {
+	                                BsonValue minBson = minDoc.get(shardKeyField);
+	                                if (minBson instanceof BsonMinKey) {
+	                                    minValue = Integer.MIN_VALUE;
+	                                } else {
+	                                    minValue = (Number)BsonValueConverter.convertBsonValueToObject(minBson);
+	                                }
+	                            }
+	                            
+	                            if (maxDoc.containsKey(shardKeyField)) {
+	                                BsonValue maxBson = maxDoc.get(shardKeyField);
+	                                if (maxBson instanceof BsonMaxKey) {
+	                                    maxValue = Integer.MAX_VALUE;
+	                                } else {
+	                                    maxValue = (Number)BsonValueConverter.convertBsonValueToObject(maxBson);
+	                                }
+	                            }
+	                            
+	                            if (minValue != null && maxValue != null) {
+	                                if (splitValue >= minValue.doubleValue() && splitValue < maxValue.doubleValue()) {
+	                                    logger.debug("Split point {} falls within chunk range [{}, {})", 
+	                                        splitValue, minValue, maxValue);
+	                                    splitPointValid = true;
+	                                    
+	                                    // Add to the map with chunk-specific information
+	                                    String chunkKey = shardId + "_" + chunk.getMin() + "_" + chunk.getMax();
+	                                    shardToSplitPointsMap
+	                                        .computeIfAbsent(chunkKey, k -> new ArrayList<>())
+	                                        .add(splitPoint);
+	                                    
+	                                    break;
+	                                } else {
+	                                	logger.warn("splitValue is not within min/max range");
+	                                }
+	                            }
+	                        }
+	                        
+	                        if (!splitPointValid) {
+	                            logger.warn("Calculated split point {} is not valid for any chunk on shard {}", 
+	                                splitValue, shardId);
+	                        }
+
 	                        
 	                        // Add to the map
 	                        shardToSplitPointsMap
