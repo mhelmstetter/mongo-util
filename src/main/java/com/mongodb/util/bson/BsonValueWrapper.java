@@ -22,32 +22,69 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
 	@Override
 	@SuppressWarnings({ "unchecked", "rawtypes" })
 	public int compareTo(BsonValueWrapper other) {
-		
-		BsonType thisType = this.value.getBsonType();
-		BsonType otherType = other.value.getBsonType();
+	    
+	    BsonType thisType = this.value.getBsonType();
+	    BsonType otherType = other.value.getBsonType();
 
-		if (thisType.equals(otherType)) {
+	    // Special case for numeric types to avoid precision issues
+	    if (isNumeric(this.value) && isNumeric(other.value)) {
+	        if (this.value.isInt32() && other.value.isInt32()) {
+	            // Compare as integers for better precision
+	            int thisInt = this.value.asInt32().getValue();
+	            int otherInt = other.value.asInt32().getValue();
+	            return Integer.compare(thisInt, otherInt);
+	        } else if (this.value.isInt64() && other.value.isInt64()) {
+	            // Compare as longs for better precision
+	            long thisLong = this.value.asInt64().getValue();
+	            long otherLong = other.value.asInt64().getValue();
+	            return Long.compare(thisLong, otherLong);
+	        } else {
+	            // Fallback to double comparison for mixed numeric types
+	            double thisDouble = getNumericValue(this.value);
+	            double otherDouble = getNumericValue(other.value);
+	            return Double.compare(thisDouble, otherDouble);
+	        }
+	    }
 
-			if (this.value instanceof Comparable) {
-				return ((Comparable) this.value).compareTo((Comparable) other.value);
-			}
+	    if (thisType.equals(otherType)) {
+	        if (this.value instanceof Comparable) {
+	            return ((Comparable) this.value).compareTo((Comparable) other.value);
+	        }
 
-			switch (thisType) {
-			case DOCUMENT:
-				return compareDocs((BsonDocument) this.value, (BsonDocument) other.value);
-			case MIN_KEY:
-				return 0;
-			default:
-				throw new IllegalArgumentException("BsonValueWrapper not implemented for type " + thisType.toString());
-			}
-		}
-		
-		if (otherType.equals(BsonType.MIN_KEY)) {
-			return 1;
-		} else {
-			//System.out.println("*** comparing " + thisType + " to " + otherType + " - " + this.getValue() + " to " + other.getValue());
-			return 0;
-		}
+	        switch (thisType) {
+	        case DOCUMENT:
+	            return compareDocs((BsonDocument) this.value, (BsonDocument) other.value);
+	        case MIN_KEY:
+	            return 0;
+	        default:
+	            throw new IllegalArgumentException("BsonValueWrapper not implemented for type " + thisType.toString());
+	        }
+	    }
+	    
+	    if (otherType.equals(BsonType.MIN_KEY)) {
+	        return 1;
+	    } else {
+	        return 0;
+	    }
+	}
+
+	// Helper method to check if a BsonValue is a numeric type
+	private boolean isNumeric(BsonValue value) {
+	    return value.isInt32() || value.isInt64() || value.isDouble() || value.isDecimal128();
+	}
+
+	// Helper method to extract a numeric value as double
+	private double getNumericValue(BsonValue value) {
+	    if (value.isInt32()) {
+	        return value.asInt32().getValue();
+	    } else if (value.isInt64()) {
+	        return value.asInt64().getValue();
+	    } else if (value.isDouble()) {
+	        return value.asDouble().getValue();
+	    } else if (value.isDecimal128()) {
+	        return value.asDecimal128().getValue().doubleValue();
+	    }
+	    throw new IllegalArgumentException("Not a numeric BsonValue: " + value.getBsonType());
 	}
 
 	public int compareDocs(BsonDocument x, BsonDocument y) {

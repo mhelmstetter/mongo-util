@@ -453,31 +453,77 @@ public class DuplicateResolver {
 	                    docsOnShard.sort((a, b) -> {
 	                        Number valA = (Number) a.get(shardKeyField);
 	                        Number valB = (Number) b.get(shardKeyField);
-	                        return Double.compare(valA.doubleValue(), valB.doubleValue());
+	                        return Integer.compare(valA.intValue(), valB.intValue());
 	                    });
 	                    
-		                // Find chunks on this shard
-		                List<CountingMegachunk> chunksOnShard = new ArrayList<>();
-		                for (NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap : destChunkMap.values()) {
-		                    for (CountingMegachunk chunk : chunkMap.values()) {
-		                        if (chunk.getShard().equals(shardId)) {
-		                            chunksOnShard.add(chunk);
-		                        }
-		                    }
-		                }
+	                    // Find chunks on this shard
+	                    List<CountingMegachunk> chunksOnShard = new ArrayList<>();
+	                    for (NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap : destChunkMap.values()) {
+	                        for (CountingMegachunk chunk : chunkMap.values()) {
+	                            if (chunk.getShard().equals(shardId)) {
+	                                chunksOnShard.add(chunk);
+	                            }
+	                        }
+	                    }
 	                    
 	                    for (int i = 0; i < docsOnShard.size() - 1; i++) {
 	                        Number val1 = (Number) docsOnShard.get(i).get(shardKeyField);
 	                        Number val2 = (Number) docsOnShard.get(i + 1).get(shardKeyField);
 	                        
-	                        // Calculate midpoint as split point
-	                        double midpoint = (val1.doubleValue() + val2.doubleValue()) / 2;
-	                        int splitValue = (int) midpoint;
+	                        // Calculate midpoint using integer math when possible to avoid precision loss
+	                        int splitValue;
+	                        
+	                        // Check if we're dealing with Integer values
+	                        boolean isInt = val1 instanceof Integer && val2 instanceof Integer;
+	                        
+	                        if (isInt) {
+	                            int intVal1 = val1.intValue();
+	                            int intVal2 = val2.intValue();
+	                            
+	                            // Handle potential overflow by using long for calculation
+	                            long midpointLong;
+	                            
+	                            // Check if values have different signs to avoid overflow
+	                            if ((intVal1 >= 0 && intVal2 < 0) || (intVal1 < 0 && intVal2 >= 0)) {
+	                                // For values with different signs, be careful with the sum
+	                                midpointLong = ((long)intVal1 / 2) + ((long)intVal2 / 2);
+	                            } else {
+	                                // For values with same sign, this approach is more numerically stable
+	                                midpointLong = (long)intVal1 + ((long)intVal2 - (long)intVal1) / 2;
+	                            }
+	                            
+	                            // Check for overflow before casting back to int
+	                            if (midpointLong > Integer.MAX_VALUE) {
+	                                splitValue = Integer.MAX_VALUE - 1; // Just below the max to stay within bounds
+	                                logger.warn("Midpoint calculation overflow: {} -> capped at {}", midpointLong, splitValue);
+	                            } else if (midpointLong < Integer.MIN_VALUE) {
+	                                splitValue = Integer.MIN_VALUE + 1; // Just above the min to stay within bounds
+	                                logger.warn("Midpoint calculation underflow: {} -> capped at {}", midpointLong, splitValue);
+	                            } else {
+	                                splitValue = (int)midpointLong;
+	                            }
+	                            
+	                            logger.debug("Integer midpoint calculation: {} between {} and {}", splitValue, intVal1, intVal2);
+	                        } else {
+	                            // Fallback to double calculation for non-integer types
+	                            double val1Double = val1.doubleValue();
+	                            double val2Double = val2.doubleValue();
+	                            double midpoint;
+	                            
+	                            if ((val1Double > 0 && val2Double < 0) || (val1Double < 0 && val2Double > 0)) {
+	                                midpoint = (val1Double / 2) + (val2Double / 2);
+	                            } else {
+	                                midpoint = val1Double + (val2Double - val1Double) / 2;
+	                            }
+	                            
+	                            splitValue = (int)midpoint;
+	                            logger.debug("Double midpoint calculation: {} between {} and {}", splitValue, val1Double, val2Double);
+	                        }
 	                        
 	                        // Create a split point document
 	                        Document splitPoint = new Document(shardKeyField, splitValue);
 	                        
-	                     // Add debug info
+	                        // Add debug info
 	                        logger.debug("Calculated split point {} (midpoint between {} and {}) for _id: {} on shard: {}",
 	                            splitValue, val1, val2, docsOnShard.get(i).get("_id"), shardId);
 
@@ -494,6 +540,9 @@ public class DuplicateResolver {
 	                                BsonValue minBson = minDoc.get(shardKeyField);
 	                                if (minBson instanceof BsonMinKey) {
 	                                    minValue = Integer.MIN_VALUE;
+	                                } else if (minBson.isInt32()) {
+	                                    // Directly use int value for better precision
+	                                    minValue = minBson.asInt32().getValue();
 	                                } else {
 	                                    minValue = (Number)BsonValueConverter.convertBsonValueToObject(minBson);
 	                                }
@@ -503,26 +552,63 @@ public class DuplicateResolver {
 	                                BsonValue maxBson = maxDoc.get(shardKeyField);
 	                                if (maxBson instanceof BsonMaxKey) {
 	                                    maxValue = Integer.MAX_VALUE;
+	                                } else if (maxBson.isInt32()) {
+	                                    // Directly use int value for better precision
+	                                    maxValue = maxBson.asInt32().getValue();
 	                                } else {
 	                                    maxValue = (Number)BsonValueConverter.convertBsonValueToObject(maxBson);
 	                                }
 	                            }
 	                            
 	                            if (minValue != null && maxValue != null) {
-	                                if (splitValue >= minValue.doubleValue() && splitValue < maxValue.doubleValue()) {
-	                                    logger.debug("Split point {} falls within chunk range [{}, {})", 
-	                                        splitValue, minValue, maxValue);
-	                                    splitPointValid = true;
+	                                boolean isInRange;
+	                                
+	                                // Always use integer comparison for shard key bounds if possible
+	                                if (minValue instanceof Integer && maxValue instanceof Integer) {
+	                                    int minInt = minValue.intValue();
+	                                    int maxInt = maxValue.intValue();
 	                                    
-	                                    // Add to the map with chunk-specific information
-	                                    String chunkKey = shardId + "_" + chunk.getMin() + "_" + chunk.getMax();
-	                                    shardToSplitPointsMap
-	                                        .computeIfAbsent(chunkKey, k -> new ArrayList<>())
-	                                        .add(splitPoint);
+	                                    isInRange = splitValue >= minInt && splitValue < maxInt;
 	                                    
-	                                    break;
+	                                    if (isInRange) {
+	                                        logger.debug("Split point {} falls within chunk range [{}, {})", 
+	                                            splitValue, minInt, maxInt);
+	                                        splitPointValid = true;
+	                                        
+	                                        // Add to the map with chunk-specific information
+	                                        String chunkKey = shardId + "_" + chunk.getMin() + "_" + chunk.getMax();
+	                                        shardToSplitPointsMap
+	                                            .computeIfAbsent(chunkKey, k -> new ArrayList<>())
+	                                            .add(splitPoint);
+	                                        
+	                                        break;
+	                                    } else {
+	                                        logger.warn("splitValue does not fall within min/max range, splitValue: {}, min: {}, max: {}", 
+	                                            splitValue, minInt, maxInt);
+	                                    }
 	                                } else {
-	                                	logger.warn("splitValue is not within min/max range");
+	                                    // Fallback to double comparison
+	                                    double minDouble = minValue.doubleValue();
+	                                    double maxDouble = maxValue.doubleValue();
+	                                    
+	                                    isInRange = splitValue >= minDouble && splitValue < maxDouble;
+	                                    
+	                                    if (isInRange) {
+	                                        logger.debug("Split point {} falls within chunk range [{}, {})", 
+	                                            splitValue, minDouble, maxDouble);
+	                                        splitPointValid = true;
+	                                        
+	                                        // Add to the map with chunk-specific information
+	                                        String chunkKey = shardId + "_" + chunk.getMin() + "_" + chunk.getMax();
+	                                        shardToSplitPointsMap
+	                                            .computeIfAbsent(chunkKey, k -> new ArrayList<>())
+	                                            .add(splitPoint);
+	                                        
+	                                        break;
+	                                    } else {
+	                                        logger.warn("splitValue does not fall within min/max range, splitValue: {}, min: {}, max: {}", 
+	                                            splitValue, minDouble, maxDouble);
+	                                    }
 	                                }
 	                            }
 	                        }
@@ -531,12 +617,6 @@ public class DuplicateResolver {
 	                            logger.warn("Calculated split point {} is not valid for any chunk on shard {}", 
 	                                splitValue, shardId);
 	                        }
-
-	                        
-	                        // Add to the map
-	                        shardToSplitPointsMap
-	                            .computeIfAbsent(shardId, k -> new ArrayList<>())
-	                            .add(splitPoint);
 	                    }
 	                }
 	            }
@@ -555,7 +635,7 @@ public class DuplicateResolver {
 	                sortedSplitPoints.sort((a, b) -> {
 	                    Number valA = (Number) a.get(shardKeyField);
 	                    Number valB = (Number) b.get(shardKeyField);
-	                    return Double.compare(valA.doubleValue(), valB.doubleValue());
+	                    return Integer.compare(valA.intValue(), valB.intValue());
 	                });
 	                
 	                logger.info("Creating {} targeted split points on shard {} to resolve cyclic dependencies", 
@@ -590,35 +670,59 @@ public class DuplicateResolver {
 	                            if (minDoc.containsKey(shardKeyField)) {
 	                                BsonValue minBson = minDoc.get(shardKeyField);
 	                                if (minBson instanceof BsonMinKey) {
-	                                	minValue = Integer.MIN_VALUE;
+	                                    minValue = Integer.MIN_VALUE;
+	                                } else if (minBson.isInt32()) {
+	                                    minValue = minBson.asInt32().getValue();
 	                                } else {
-	                                	minValue = (Number)BsonValueConverter.convertBsonValueToObject(minBson);
+	                                    minValue = (Number)BsonValueConverter.convertBsonValueToObject(minBson);
 	                                }
 	                            } else {
-	                            	logger.warn("minDoc does not contain shardKeyField: {}", minDoc);
+	                                logger.warn("minDoc does not contain shardKeyField: {}", minDoc);
 	                            }
 	                            
 	                            if (maxDoc.containsKey(shardKeyField)) {
 	                                BsonValue maxBson = maxDoc.get(shardKeyField);
 	                                if (maxBson instanceof BsonMaxKey) {
-	                                	maxValue = Integer.MAX_VALUE;
+	                                    maxValue = Integer.MAX_VALUE;
+	                                } else if (maxBson.isInt32()) {
+	                                    maxValue = maxBson.asInt32().getValue();
 	                                } else {
-	                                	maxValue = (Number)BsonValueConverter.convertBsonValueToObject(maxBson);
+	                                    maxValue = (Number)BsonValueConverter.convertBsonValueToObject(maxBson);
 	                                }
 	                            } else {
-	                            	logger.warn("maxDoc does not contain shardKeyField: {}", maxDoc);
+	                                logger.warn("maxDoc does not contain shardKeyField: {}", maxDoc);
 	                            }
 	                            
 	                            if (minValue != null && maxValue != null) {
-	                                if (splitValue.doubleValue() >= minValue.doubleValue() && 
-	                                    splitValue.doubleValue() < maxValue.doubleValue()) {
-	                                    chunkToSplit = chunk;
-	                                    break;
+	                                // Use integer comparison when possible
+	                                if (minValue instanceof Integer && maxValue instanceof Integer && splitValue instanceof Integer) {
+	                                    int minInt = minValue.intValue();
+	                                    int maxInt = maxValue.intValue();
+	                                    int splitInt = splitValue.intValue();
+	                                    
+	                                    if (splitInt >= minInt && splitInt < maxInt) {
+	                                        chunkToSplit = chunk;
+	                                        break;
+	                                    } else {
+	                                        logger.warn("splitValue does not fall within max/max range, splitValue: {}, min: {}, max: {}", 
+	                                            splitInt, minInt, maxInt);
+	                                    }
 	                                } else {
-	                                	logger.warn("splitValue does not fall within max/max range, splitValue: {}, min: {}, max: {}", splitValue, minValue, maxValue);
+	                                    // Fallback to double comparison
+	                                    double splitDouble = splitValue.doubleValue();
+	                                    double minDouble = minValue.doubleValue();
+	                                    double maxDouble = maxValue.doubleValue();
+	                                    
+	                                    if (splitDouble >= minDouble && splitDouble < maxDouble) {
+	                                        chunkToSplit = chunk;
+	                                        break;
+	                                    } else {
+	                                        logger.warn("splitValue does not fall within max/max range, splitValue: {}, min: {}, max: {}", 
+	                                            splitDouble, minDouble, maxDouble);
+	                                    }
 	                                }
 	                            } else {
-	                            	logger.warn("minValue or maxValue is null, minValue: {}, maxValue: {}", minValue, maxValue);
+	                                logger.warn("minValue or maxValue is null, minValue: {}, maxValue: {}", minValue, maxValue);
 	                            }
 	                        }
 	                    }
@@ -640,6 +744,7 @@ public class DuplicateResolver {
 	                    }
 	                }
 	                
+	                // Refresh the chunk cache after
 	                // Refresh the chunk cache after splits
 	                refreshChunkCache(namespace);
 	                
@@ -775,7 +880,7 @@ public class DuplicateResolver {
 	    for (String namespace : duplicateIdToDocsMap.keySet()) {
 	        refreshChunkCache(namespace);
 	    }
-	}
+	 }
 	
 	/**
 	 * Moves a chunk to a different shard with retry logic to handle transient failures
@@ -917,74 +1022,178 @@ public class DuplicateResolver {
 	}
 
 	private List<Document> calculateSplitPoints(String namespace, Set<String> shardKeyFields,
-			List<BsonValueWrapper> sortedShardKeyValues) {
-		List<Document> splitPoints = new ArrayList<>();
+	        List<BsonValueWrapper> sortedShardKeyValues) {
+	    List<Document> splitPoints = new ArrayList<>();
 
-		// Skip if not enough values to split
-		if (sortedShardKeyValues.size() <= 1) {
-			return splitPoints;
-		}
+	    // Skip if not enough values to split
+	    if (sortedShardKeyValues.size() <= 1) {
+	        logger.debug("Not enough shard key values to create split points for namespace: {}", namespace);
+	        return splitPoints;
+	    }
 
-		// We'll create splits at regular intervals
-		int splitInterval = Math.max(1, sortedShardKeyValues.size() / 3); // Don't create too many splits
+	    // Log the range of values we're working with for debugging
+	    logger.debug("Calculating split points for namespace: {} with shard key values range: min={}, max={}", 
+	             namespace, sortedShardKeyValues.get(0), sortedShardKeyValues.get(sortedShardKeyValues.size()-1));
 
-		for (int i = splitInterval; i < sortedShardKeyValues.size(); i += splitInterval) {
-			BsonValueWrapper splitPointValue = sortedShardKeyValues.get(i);
+	    // We'll create splits at regular intervals
+	    int splitInterval = Math.max(1, sortedShardKeyValues.size() / 3); // Don't create too many splits
+	    logger.debug("Using split interval of {} for {} shard key values", splitInterval, sortedShardKeyValues.size());
 
-			// Create a document for the split point
-			Document splitPoint = new Document();
+	    for (int i = splitInterval; i < sortedShardKeyValues.size(); i += splitInterval) {
+	        BsonValueWrapper splitPointValue = sortedShardKeyValues.get(i);
 
-			// If there's only one field in the shard key, it's simple
-			if (shardKeyFields.size() == 1) {
-				String keyField = shardKeyFields.iterator().next();
+	        // Create a document for the split point
+	        Document splitPoint = new Document();
 
-				// Extract the BSON value and convert it properly
-				BsonValue bsonValue = splitPointValue.getValue();
-				Object keyValue;
+	        // If there's only one field in the shard key, it's simple
+	        if (shardKeyFields.size() == 1) {
+	            String keyField = shardKeyFields.iterator().next();
 
-				// Handle different BSON types appropriately
-				if (bsonValue.isInt32()) {
-					keyValue = bsonValue.asInt32().getValue();
-				} else if (bsonValue.isInt64()) {
-					keyValue = bsonValue.asInt64().getValue();
-				} else if (bsonValue.isDouble()) {
-					keyValue = bsonValue.asDouble().getValue();
-				} else if (bsonValue.isString()) {
-					keyValue = bsonValue.asString().getValue();
-				} else if (bsonValue.isObjectId()) {
-					keyValue = bsonValue.asObjectId().getValue();
-				} else if (bsonValue.isBoolean()) {
-					keyValue = bsonValue.asBoolean().getValue();
-				} else {
-					// For other types, use a safe conversion
-					keyValue = BsonValueConverter.convertBsonValueToObject(bsonValue);
-				}
+	            // Extract the BSON value and convert it properly
+	            BsonValue bsonValue = splitPointValue.getValue();
+	            Object keyValue;
 
-				splitPoint.append(keyField, keyValue);
-			} else {
-				// Compound shard keys - create a BsonDocument with all shard key fields
-				if (splitPointValue.getValue() instanceof BsonDocument) {
-					BsonDocument bsonShardKey = (BsonDocument) splitPointValue.getValue();
-					for (String field : shardKeyFields) {
-						if (bsonShardKey.containsKey(field)) {
-							BsonValue fieldValue = bsonShardKey.get(field);
-							Object keyValue = BsonValueConverter.convertBsonValueToObject(fieldValue);
-							splitPoint.append(field, keyValue);
-						}
-					}
-				} else {
-					logger.warn("Cannot create split point for compound shard key from: {}", splitPointValue);
-					continue;
-				}
-			}
+	            // Handle different BSON types appropriately
+	            if (bsonValue.isInt32()) {
+	                keyValue = bsonValue.asInt32().getValue();
+	                logger.debug("Generated split point at index {}: key={}, value={} (int32)", 
+	                    i, keyField, keyValue);
+	            } else if (bsonValue.isInt64()) {
+	                keyValue = bsonValue.asInt64().getValue();
+	                logger.debug("Generated split point at index {}: key={}, value={} (int64)", 
+	                    i, keyField, keyValue);
+	            } else if (bsonValue.isDouble()) {
+	                keyValue = bsonValue.asDouble().getValue();
+	                logger.debug("Generated split point at index {}: key={}, value={} (double)", 
+	                    i, keyField, keyValue);
+	            } else if (bsonValue.isString()) {
+	                keyValue = bsonValue.asString().getValue();
+	                logger.debug("Generated split point at index {}: key={}, value={} (string)", 
+	                    i, keyField, keyValue);
+	            } else if (bsonValue.isObjectId()) {
+	                keyValue = bsonValue.asObjectId().getValue();
+	                logger.debug("Generated split point at index {}: key={}, value={} (objectId)", 
+	                    i, keyField, keyValue);
+	            } else if (bsonValue.isBoolean()) {
+	                keyValue = bsonValue.asBoolean().getValue();
+	                logger.debug("Generated split point at index {}: key={}, value={} (boolean)", 
+	                    i, keyField, keyValue);
+	            } else {
+	                // For other types, use a safe conversion
+	                keyValue = BsonValueConverter.convertBsonValueToObject(bsonValue);
+	                logger.debug("Generated split point at index {}: key={}, value={} (converted)", 
+	                    i, keyField, keyValue);
+	            }
 
-			// Log the split point for debugging
-			logger.debug("Created split point: {} for shard key value: {}", splitPoint, splitPointValue);
+	            splitPoint.append(keyField, keyValue);
+	        } else {
+	            // Compound shard keys - create a BsonDocument with all shard key fields
+	            if (splitPointValue.getValue() instanceof BsonDocument) {
+	                BsonDocument bsonShardKey = (BsonDocument) splitPointValue.getValue();
+	                for (String field : shardKeyFields) {
+	                    if (bsonShardKey.containsKey(field)) {
+	                        BsonValue fieldValue = bsonShardKey.get(field);
+	                        Object keyValue = BsonValueConverter.convertBsonValueToObject(fieldValue);
+	                        splitPoint.append(field, keyValue);
+	                    }
+	                }
+	                logger.debug("Generated compound key split point at index {}: fields={}, values={}",
+	                        i, shardKeyFields, splitPoint);
+	            } else {
+	                logger.warn("Cannot create split point for compound shard key from: {}", splitPointValue);
+	                continue;
+	            }
+	        }
 
-			splitPoints.add(splitPoint);
-		}
+	        splitPoints.add(splitPoint);
+	    }
 
-		return splitPoints;
+	    logger.debug("Created {} split points for namespace: {}", splitPoints.size(), namespace);
+	    return splitPoints;
+	}
+
+	/**
+	 * Verify that a split point likely falls within valid chunk boundaries
+	 * This is a helper method that can provide an extra validation layer
+	 */
+	private boolean verifyRangeBoundaries(String namespace, Document splitPoint, Set<String> shardKeyFields) {
+	    try {
+	        // If there's only one field in the shard key, we can do a simple check
+	        if (shardKeyFields.size() == 1) {
+	            String keyField = shardKeyFields.iterator().next();
+	            Object value = splitPoint.get(keyField);
+	            
+	            // Skip validation for non-numeric values as they need different validation
+	            if (!(value instanceof Number)) {
+	                return true;
+	            }
+	            
+	            double numericalValue = ((Number)value).doubleValue();
+	            
+	            // Get the chunk map for this namespace
+	            NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap = destChunkMap.get(namespace);
+	            if (chunkMap == null) {
+	                logger.warn("No chunk map found for namespace: {}", namespace);
+	                return false;
+	            }
+	            
+	            // Find potential chunks that might contain this value
+	            boolean foundValidChunk = false;
+	            
+	            for (CountingMegachunk chunk : chunkMap.values()) {
+	                BsonDocument minDoc = chunk.getMin();
+	                BsonDocument maxDoc = chunk.getMax();
+	                
+	                if (minDoc.containsKey(keyField) && maxDoc.containsKey(keyField)) {
+	                    Number minValue = null;
+	                    Number maxValue = null;
+	                    
+	                    // Convert min value
+	                    BsonValue minBson = minDoc.get(keyField);
+	                    if (minBson instanceof BsonMinKey) {
+	                        minValue = Double.NEGATIVE_INFINITY;
+	                    } else if (minBson.isNumber()) {
+	                        minValue = BsonValueConverter.convertBsonValueToObject(minBson) instanceof Number ? 
+	                                  (Number)BsonValueConverter.convertBsonValueToObject(minBson) : null;
+	                    }
+	                    
+	                    // Convert max value
+	                    BsonValue maxBson = maxDoc.get(keyField);
+	                    if (maxBson instanceof BsonMaxKey) {
+	                        maxValue = Double.POSITIVE_INFINITY;
+	                    } else if (maxBson.isNumber()) {
+	                        maxValue = BsonValueConverter.convertBsonValueToObject(maxBson) instanceof Number ? 
+	                                  (Number)BsonValueConverter.convertBsonValueToObject(maxBson) : null;
+	                    }
+	                    
+	                    // Check if our split point falls within this chunk
+	                    if (minValue != null && maxValue != null) {
+	                        double min = minValue.doubleValue();
+	                        double max = maxValue.doubleValue();
+	                        
+	                        if (numericalValue >= min && numericalValue < max) {
+	                            logger.debug("Split point {} verified to be within chunk range [{}, {}) on shard {}", 
+	                                    value, min, max, chunk.getShard());
+	                            foundValidChunk = true;
+	                            break;
+	                        } else {
+	                        	logger.warn("Split point {} IS NOT within chunk range [{}, {}) on shard {}", 
+	                                    value, min, max, chunk.getShard());
+	                        }
+	                    }
+	                }
+	            }
+	            
+	            return foundValidChunk;
+	        }
+	        
+	        // For compound shard keys, validation is more complex
+	        return true;
+	        
+	    } catch (Exception e) {
+	        logger.warn("Error validating split point boundaries: {}", e.getMessage());
+	        return false;
+	    }
 	}
 
 	// Helper method to refresh the chunk cache
