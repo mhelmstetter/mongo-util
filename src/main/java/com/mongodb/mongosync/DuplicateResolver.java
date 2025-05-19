@@ -8,12 +8,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.Random;
 import java.util.Set;
 
 import org.bson.BsonDocument;
-import org.bson.BsonMaxKey;
-import org.bson.BsonMinKey;
 import org.bson.BsonNull;
 import org.bson.BsonValue;
 import org.bson.Document;
@@ -21,7 +18,6 @@ import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.model.Namespace;
 import com.mongodb.shardbalancer.CountingMegachunk;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
@@ -54,16 +50,22 @@ public class DuplicateResolver {
 	private final Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> destChunkMap = new HashMap<>();
 
 	private ChunkManager chunkManager;
-	private String archiveDbName;
+	
+	private Set<String> targetShards;
 
 
-	public DuplicateResolver(ShardClient destShardClient, ChunkManager chunkManager, String archiveDbName) {
+	public DuplicateResolver(ShardClient destShardClient, ChunkManager chunkManager, Set<String> targetShards) {
 		this.destShardClient = destShardClient;
 		this.collectionsMap = destShardClient.getCollectionsMap();
-		this.archiveDbName = archiveDbName;
 
 		chunkManager.loadChunkMap(destShardClient, null, destChunksCache, destChunkMap);
 		this.chunkManager = chunkManager;
+		
+		if (targetShards != null && !targetShards.isEmpty()) {
+			this.targetShards = targetShards;
+		} else {
+			this.targetShards = destShardClient.getShardsMap().keySet();
+		}
 	}
 
 	/**
@@ -120,21 +122,16 @@ public class DuplicateResolver {
 	            continue;
 	        }
 
-	        Document shardKeyDoc = (Document) collMeta.get("key");
-	        Set<String> shardKeyFields = shardKeyDoc.keySet();
-	        String primaryShardKey = shardKeyFields.iterator().next();
 
 	        // Set of _ids that have been successfully resolved
-	        Set<Object> resolvedIds = new HashSet<>();
 	        Set<Object> manualInterventionIds = new HashSet<>();
 
 	        // For tracking persistent conflicts across iterations
 	        Set<Object> persistentConflicts = new HashSet<>();
 	        Set<Object> previouslyUnresolvedIds = new HashSet<>();
-	        boolean madeSomeProgress = false;
 
 	        // Maximum number of iterations to try
-	        final int MAX_ITERATIONS = 25;
+	        final int MAX_ITERATIONS = 100;
 	        
 	        // Statistics tracking for better observability
 	        int initialConflictCount = 0;
@@ -187,7 +184,6 @@ public class DuplicateResolver {
 	                    logger.info("Made progress: resolved {} previously unresolved IDs in iteration {}",
 	                            nowResolved.size(), iteration);
 	                    iterationMadeProgress = true;
-	                    madeSomeProgress = true;
 	                }
 	            }
 
@@ -242,7 +238,6 @@ public class DuplicateResolver {
 	                    
 	                    if (conflictingIds.containsKey(id)) {
 	                        cycleBreakingAttempts++;
-	                        logger.info("Cycle detected for _id: {}", id);
 	                        
 	                        // Try to break the cycle
 	                        boolean cycleHandled = breakCycleWithSplitFind(namespace, id, 
@@ -253,7 +248,6 @@ public class DuplicateResolver {
 	                            logger.info("Successfully broke cycle for _id: {}", id);
 	                            refreshChunkCache(namespace);
 	                            iterationMadeProgress = true;
-	                            madeSomeProgress = true;
 	                            cycleBreakingSuccesses++;
 	                        }
 	                    }
@@ -744,19 +738,19 @@ public class DuplicateResolver {
 	        logger.info("Found {} documents with _id {} on shard {}", docsOnShard.size(), id, shard);
 
 	        // Sort documents by shard key for more precise splitting
-	        docsOnShard.sort((a, b) -> {
-	            Object valA = a.get(primaryShardKey);
-	            Object valB = b.get(primaryShardKey);
-
-	            if (valA == null || valB == null)
-	                return 0;
-
-	            if (valA instanceof Number && valB instanceof Number) {
-	                return Double.compare(((Number) valA).doubleValue(), ((Number) valB).doubleValue());
-	            }
-
-	            return valA.toString().compareTo(valB.toString());
-	        });
+//	        docsOnShard.sort((a, b) -> {
+//	            Object valA = a.get(primaryShardKey);
+//	            Object valB = b.get(primaryShardKey);
+//
+//	            if (valA == null || valB == null)
+//	                return 0;
+//
+//	            if (valA instanceof Number && valB instanceof Number) {
+//	                return Double.compare(((Number) valA).doubleValue(), ((Number) valB).doubleValue());
+//	            }
+//
+//	            return valA.toString().compareTo(valB.toString());
+//	        });
 
 	        // Create splits for each document's exact shard key
 	        for (Document doc : docsOnShard) {
@@ -822,7 +816,7 @@ public class DuplicateResolver {
 	            }
 
 	            // Deterministically distribute documents across available shards
-	            String[] availableShards = {"shA", "shard_B"};  // Add all your shard names
+	            String[] availableShards = targetShards.toArray(new String[0]);
 	            
 	            int i = 0;
 	            boolean anyMoved = false;
@@ -988,205 +982,8 @@ public class DuplicateResolver {
 		return max - min;
 	}
 
-	/**
-	 * Implement a function to explicitly split chunks between two key ranges with
-	 * the same _id
-	 */
-	private boolean explicitSplitForKey(String namespace, Object id, Map<Document, CountingMegachunk> docToChunkMap,
-			String primaryShardKey) {
-		logger.info("Attempting explicit split for _id {}", id);
-
-		// Get all documents with this ID
-		Map<Object, List<Document>> duplicatesMap = duplicateIdToDocsMap.get(namespace);
-		List<Document> docsWithId = duplicatesMap.get(id);
-
-		if (docsWithId == null || docsWithId.size() <= 1)
-			return false;
-
-		// Group documents by shard
-		Map<String, List<Document>> shardToDocsMap = new HashMap<>();
-		for (Document doc : docsWithId) {
-			CountingMegachunk chunk = docToChunkMap.get(doc);
-			if (chunk == null)
-				continue;
-
-			String shardId = chunk.getShard();
-			shardToDocsMap.computeIfAbsent(shardId, k -> new ArrayList<>()).add(doc);
-		}
-
-		boolean anySuccess = false;
-
-		// For each shard with multiple docs with the same ID
-		for (Map.Entry<String, List<Document>> shardEntry : shardToDocsMap.entrySet()) {
-			if (shardEntry.getValue().size() <= 1)
-				continue;
-
-			String shard = shardEntry.getKey();
-			List<Document> docsOnShard = shardEntry.getValue();
-
-			// Sort documents by shard key
-			docsOnShard.sort((a, b) -> {
-				Object valA = a.get(primaryShardKey);
-				Object valB = b.get(primaryShardKey);
-
-				if (valA == null || valB == null)
-					return 0;
-
-				if (valA instanceof Number && valB instanceof Number) {
-					return Double.compare(((Number) valA).doubleValue(), ((Number) valB).doubleValue());
-				}
-
-				return valA.toString().compareTo(valB.toString());
-			});
-
-			// For each pair of documents, try to create split points in between
-			for (int i = 0; i < docsOnShard.size() - 1; i++) {
-				Document doc1 = docsOnShard.get(i);
-				Document doc2 = docsOnShard.get(i + 1);
-
-				CountingMegachunk chunk1 = docToChunkMap.get(doc1);
-				CountingMegachunk chunk2 = docToChunkMap.get(doc2);
-
-				// Skip if they're in the same chunk (would be handled by regular split)
-				if (chunk1.equals(chunk2))
-					continue;
-
-				// Check if they're in very different ranges (likely need multiple splits)
-				Object val1 = doc1.get(primaryShardKey);
-				Object val2 = doc2.get(primaryShardKey);
-
-				if (val1 instanceof Number && val2 instanceof Number) {
-					double num1 = ((Number) val1).doubleValue();
-					double num2 = ((Number) val2).doubleValue();
-
-					// If the values are very far apart, we need to create intermediate split points
-					double distance = Math.abs(num2 - num1);
-					int numSplits = (int) Math.min(5, Math.max(1, Math.floor(distance / 10000000)));
-
-					boolean splitsCreated = false;
-
-					for (int split = 1; split <= numSplits; split++) {
-						double splitPoint = num1 + (num2 - num1) * split / (numSplits + 1);
-
-						// Create a find document for the split
-						Document findDoc = new Document(primaryShardKey, splitPoint);
-						logger.info("Creating explicit split point at {} between {} and {}", splitPoint, num1, num2);
-
-						// Convert to BsonDocument
-						BsonDocument bsonFindDoc = BsonValueConverter.convertToBsonDocument(findDoc);
-
-						// Attempt the split
-						Document result = destShardClient.splitFind(namespace, bsonFindDoc, false);
-
-						if (result != null) {
-							logger.info("Successfully created explicit split at {}", splitPoint);
-							splitsCreated = true;
-							anySuccess = true;
-						}
-					}
-
-					// Important: Refresh the chunk cache after creating splits
-					if (splitsCreated) {
-						refreshChunkCache(namespace);
-
-						// Since we've refreshed the cache, we need to update our local chunk map too
-						// This will prevent errors when trying to move chunks with old boundaries
-						NavigableMap<BsonValueWrapper, CountingMegachunk> freshChunkMap = destChunkMap.get(namespace);
-
-						if (freshChunkMap != null) {
-							// Re-map the docs to their possibly new chunks
-							for (Document doc : docsWithId) {
-								Object shardKeyValue = doc.get(primaryShardKey);
-								if (shardKeyValue != null) {
-									try {
-										BsonValueWrapper shardKeyWrapper = getShardKeyWrapper(
-												Collections.singleton(primaryShardKey), doc);
-										Map.Entry<BsonValueWrapper, CountingMegachunk> entry = freshChunkMap
-												.floorEntry(shardKeyWrapper);
-										if (entry != null) {
-											docToChunkMap.put(doc, entry.getValue());
-										}
-									} catch (Exception e) {
-										logger.error("Error remapping doc to chunk after split: {}", e.getMessage());
-									}
-								}
-							}
-
-							// After refreshing, get the updated chunks
-							chunk1 = docToChunkMap.get(doc1);
-							chunk2 = docToChunkMap.get(doc2);
-						}
-					}
-
-					// After creating splits, try to move one of the chunks
-					if (splitsCreated) {
-						Set<String> allShards = new HashSet<>();
-						allShards.add("shA");
-						allShards.add("shard_B");
-
-						String targetShard = null;
-						for (String s : allShards) {
-							if (!s.equals(shard)) {
-								targetShard = s;
-								break;
-							}
-						}
-
-						if (targetShard != null && chunk1 != null) {
-							logger.info(
-									"Attempting to move chunk for doc1 to {} after explicit split, bounds: min={}, max={}",
-									targetShard, chunk1.getMin(), chunk1.getMax());
-
-							boolean success = moveChunkWithRetry(namespace, chunk1, targetShard);
-							if (success) {
-								logger.info("Successfully moved chunk for doc1 to {} after explicit split",
-										targetShard);
-								anySuccess = true;
-
-								// Refresh cache again after move
-								refreshChunkCache(namespace);
-								break;
-							} else if (chunk2 != null) {
-								logger.info(
-										"Attempting to move chunk for doc2 to {} after explicit split, bounds: min={}, max={}",
-										targetShard, chunk2.getMin(), chunk2.getMax());
-
-								success = moveChunkWithRetry(namespace, chunk2, targetShard);
-								if (success) {
-									logger.info("Successfully moved chunk for doc2 to {} after explicit split",
-											targetShard);
-									anySuccess = true;
-
-									// Refresh cache after move
-									refreshChunkCache(namespace);
-									break;
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		return anySuccess;
-	}
-
-	/**
-	 * Helper class to bundle chunk selection information with impact score
-	 */
-	private static class ChunkMoveCandidate {
-		final CountingMegachunk chunk;
-		final int impactScore;
-
-		ChunkMoveCandidate(CountingMegachunk chunk, int impactScore) {
-			this.chunk = chunk;
-			this.impactScore = impactScore;
-		}
-	}
 
 	private boolean moveChunkWithRetry(String namespace, CountingMegachunk chunk, String targetShardId) {
-	    // Static map to track chunk movement history (should be class member in real implementation)
-	    Map<String, List<String>> chunkMovementHistory = new HashMap<>();
 	    
 	    // Validate input parameters
 	    if (chunk == null) {
@@ -1198,40 +995,6 @@ public class DuplicateResolver {
 	    String chunkId = namespace + ":" + chunk.getMin() + "-" + chunk.getMax();
 	    String sourceShard = chunk.getShard();
 	    
-	    // Check move history to detect ping-ponging
-	    List<String> history = chunkMovementHistory.computeIfAbsent(chunkId, k -> new ArrayList<>());
-	    
-	    // If this chunk has moved too many times already, be cautious
-	    if (history.size() >= 4) {
-	        // Check the last few moves for ping-ponging pattern
-	        boolean isPingPong = false;
-	        if (history.size() >= 2) {
-	            // Look for A->B->A pattern
-	            if (history.get(history.size()-1).equals(sourceShard) && 
-	                history.get(history.size()-2).equals(targetShardId)) {
-	                isPingPong = true;
-	            }
-	            // Or look for multiple alternating moves
-	            else if (history.size() >= 4) {
-	                int alternatingCount = 0;
-	                for (int i = history.size() - 1; i >= 1; i--) {
-	                    if (history.get(i).equals(sourceShard) && history.get(i-1).equals(targetShardId) ||
-	                        history.get(i).equals(targetShardId) && history.get(i-1).equals(sourceShard)) {
-	                        alternatingCount++;
-	                    }
-	                }
-	                if (alternatingCount >= 2) {
-	                    isPingPong = true; 
-	                }
-	            }
-	        }
-	        
-	        if (isPingPong) {
-	            logger.warn("Detected ping-pong pattern for chunk {}. Avoiding further moves between {} and {}", 
-	                        chunkId, sourceShard, targetShardId);
-	            return false;
-	        }
-	    }
 	    
 	    // Skip known failed chunks to avoid repetitive failures
 	    if (failedChunkMoves.contains(chunkId)) {
@@ -1252,210 +1015,12 @@ public class DuplicateResolver {
 	        return true;
 	    }
 
-	    // Get collection metadata for potential split strategy
-	    Document collMeta = collectionsMap.get(namespace);
-	    if (collMeta == null) {
-	        logger.error("No collection metadata found for namespace: {}", namespace);
-	        return false;
-	    }
-	    Document shardKeyDoc = (Document) collMeta.get("key");
-	    Set<String> shardKeyFields = shardKeyDoc.keySet();
-	    String primaryShardKey = shardKeyFields.iterator().next();
-
-	    // Multiple strategies to try
-	    boolean success = false;
-	    int strategy = 1;
-	    int maxStrategies = 3;
-	    
-	    while (!success && strategy <= maxStrategies) {
-	        try {
-	            switch (strategy) {
-	                case 1: // Standard move
-	                    logger.info("Strategy 1: Standard chunk move for {}", chunkId);
-	                    success = destShardClient.moveChunk(namespace, chunk.getMin(), chunk.getMax(), 
-	                                                      targetShardId, false, false, true, false, false);
-	                    break;
-	                    
-	                case 2: // Force move
-	                    logger.info("Strategy 2: Forced chunk move for {}", chunkId);
-	                    success = destShardClient.moveChunk(namespace, chunk.getMin(), chunk.getMax(), 
-	                                                      targetShardId, true, false, true, false, false);
-	                    break;
-	                    
-	                case 3: // Split and move
-	                    logger.info("Strategy 3: Split-then-move for {}", chunkId);
-	                    // Try to split the chunk first
-	                    try {
-	                        // Get values to determine midpoint
-	                        BsonValue minVal = null;
-	                        BsonValue maxVal = null;
-	                        
-	                        // Extract values from chunk boundaries
-	                        if (chunk.getMin() instanceof BsonDocument) {
-	                            BsonDocument minDoc = (BsonDocument)chunk.getMin();
-	                            if (minDoc.containsKey(primaryShardKey)) {
-	                                minVal = minDoc.get(primaryShardKey);
-	                            }
-	                        }
-	                        
-	                        if (chunk.getMax() instanceof BsonDocument) {
-	                            BsonDocument maxDoc = (BsonDocument)chunk.getMax();
-	                            if (maxDoc.containsKey(primaryShardKey)) {
-	                                maxVal = maxDoc.get(primaryShardKey);
-	                            }
-	                        }
-	                        
-	                        // Calculate midpoint for numeric values
-	                        if (minVal != null && maxVal != null && 
-	                            minVal.isNumber() && maxVal.isNumber()) {
-	                            
-	                            double min = minVal.asNumber().doubleValue();
-	                            double max = maxVal.asNumber().doubleValue();
-	                            double midpoint = min + (max - min) / 2.0;
-	                            
-	                            // Create split document 
-	                            Document splitDoc = new Document(primaryShardKey, midpoint);
-	                            BsonDocument bsonSplitDoc = BsonValueConverter.convertToBsonDocument(splitDoc);
-	                            
-	                            logger.info("Attempting to split chunk at {} before move", midpoint);
-	                            Document splitResult = destShardClient.splitFind(namespace, bsonSplitDoc, true);
-	                            
-	                            if (splitResult != null) {
-	                                logger.info("Successfully split chunk, now attempting move");
-	                                Thread.sleep(3000); // Wait for split to propagate
-	                                refreshChunkCache(namespace);
-	                                
-	                                // Now try to move the resulting chunk containing our original min value
-	                                success = destShardClient.moveChunk(namespace, chunk.getMin(), null, 
-	                                                                 targetShardId, false, false, true, false, false);
-	                            }
-	                        } else {
-	                            logger.warn("Unable to calculate midpoint for split - missing or non-numeric values");
-	                            success = false;
-	                        }
-	                    } catch (Exception e) {
-	                        logger.warn("Error in split-then-move strategy: {}", e.getMessage());
-	                        success = false;
-	                    }
-	                    break;
-	            }
-	            
-	            // If strategy was successful, validate the move
-	            if (success) {
-	                // Update movement history
-	                history.add(targetShardId);
-	                
-	                // Wait longer to allow metadata propagation
-	                try {
-	                    logger.info("Chunk move operation reported success, waiting for metadata propagation...");
-	                    Thread.sleep(5000);  // Longer wait for metadata propagation
-	                } catch (InterruptedException e) {
-	                    Thread.currentThread().interrupt();
-	                }
-	                
-	                // Validate the move with more tolerance
-	                if (validateChunkMovedEnhanced(namespace, chunk, targetShardId)) {
-	                    logger.info("Successfully moved chunk to shard {} (validated)", targetShardId);
-	                    return true;
-	                } else {
-	                    logger.warn("Move validation failed for strategy {}", strategy);
-	                    success = false;
-	                }
-	            }
-	            
-	            // Move to next strategy if current one failed
-	            strategy++;
-	            
-	            // Add sleep between strategies
-	            if (!success && strategy <= maxStrategies) {
-	                try {
-	                    Thread.sleep(3000); // Wait before trying next strategy
-	                } catch (InterruptedException e) {
-	                    Thread.currentThread().interrupt();
-	                }
-	            }
-	            
-	        } catch (Exception e) {
-	            logger.warn("Exception in move strategy {}: {}", strategy, e.getMessage());
-	            strategy++;
-	        }
-	    }
-
-	    // All strategies failed
-	    if (!success) {
-	        logger.warn("All move strategies failed for chunk {}, adding to blocklist", chunkId);
-	        failedChunkMoves.add(chunkId);
-	    }
+	    boolean success = destShardClient.moveChunk(namespace, chunk.getMin(), chunk.getMax(), 
+                targetShardId, false, false, true, false, false);
 
 	    return success;
 	}
-	/**
-	 * Enhanced validation with multiple approaches to confirm a chunk move
-	 */
-	private boolean validateChunkMovedEnhanced(String namespace, CountingMegachunk chunk, String targetShardId) {
-	    logger.info("Validating chunk move with enhanced checks");
-	    
-	    try {
-	        // Force refresh to get latest chunk metadata
-	        refreshChunkCache(namespace);
-	        
-	        NavigableMap<BsonValueWrapper, CountingMegachunk> chunkMap = destChunkMap.get(namespace);
-	        if (chunkMap == null) {
-	            logger.warn("No chunk map found for namespace: {}", namespace);
-	            return false;
-	        }
-	        
-	        // Check 1: Look for exact chunk on target shard
-	        boolean foundExactMatch = false;
-	        boolean foundOnSourceShard = false;
-	        
-	        for (CountingMegachunk currentChunk : chunkMap.values()) {
-	            // Check if this is our original chunk (exact boundaries)
-	            if (currentChunk.getMin().equals(chunk.getMin()) && 
-	                currentChunk.getMax().equals(chunk.getMax())) {
-	                
-	                if (currentChunk.getShard().equals(targetShardId)) {
-	                    logger.info("Found exact chunk match on target shard {}", targetShardId);
-	                    return true; // Success case 1: Exact chunk now on target shard
-	                } else if (currentChunk.getShard().equals(chunk.getShard())) {
-	                    foundOnSourceShard = true;
-	                }
-	            }
-	        }
-	        
-	        // Check 2: If chunk was split, look for a chunk on target shard that contains 
-	        // our min key (indicating the relevant data was moved)
-	        BsonValueWrapper minKey = new BsonValueWrapper(chunk.getMin());
-	        for (Map.Entry<BsonValueWrapper, CountingMegachunk> entry : chunkMap.entrySet()) {
-	            CountingMegachunk currentChunk = entry.getValue();
-	            
-	            // Skip if not on target shard
-	            if (!currentChunk.getShard().equals(targetShardId)) continue;
-	            
-	            // Check if this chunk contains our min value
-	            BsonValueWrapper chunkMin = new BsonValueWrapper(currentChunk.getMin());
-	            BsonValueWrapper chunkMax = new BsonValueWrapper(currentChunk.getMax());
-	            
-	            if (minKey.compareTo(chunkMin) >= 0 && minKey.compareTo(chunkMax) < 0) {
-	                logger.info("Found chunk on target shard that contains our min key - likely successful split+move");
-	                return true; // Success case 2: Min key is now on target shard
-	            }
-	        }
-	        
-	        // Check 3: If the chunk is no longer on the source shard, consider it a success
-	        // (it might have been split and distributed)
-	        if (!foundOnSourceShard) {
-	            logger.info("Chunk is no longer on source shard - considering move successful");
-	            return true; // Success case 3: Chunk no longer on source shard
-	        }
-	        
-	        logger.warn("Chunk move validation failed - chunk still appears to be on source shard");
-	        return false;
-	    } catch (Exception e) {
-	        logger.error("Error validating chunk move: {}", e.getMessage());
-	        return false;
-	    }
-	}
+
 
 	/**
 	 * Validate that a chunk exists with the specified boundaries
