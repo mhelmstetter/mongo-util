@@ -79,8 +79,8 @@ public class DiffUtil {
 	long sourceTotal = 0;
 	long destTotal = 0;
 	long lastReport;
-	long sourceCount;
-	long destCount;
+	long sourceCount = 0;
+	long destCount = 0;
 
 	private Map<Namespace, Namespace> mappedNamespaces;
 	
@@ -347,8 +347,9 @@ public class DiffUtil {
 							RawBsonDocument.class);
 					MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName,
 							RawBsonDocument.class);
-					long sourceCount = 0;
-					long destCount = 0;
+					// Reset counts for each collection
+					sourceCount = 0;
+					destCount = 0;
 
 					MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(sort).iterator();
 					MongoCursor<RawBsonDocument> destCursor = destColl.find().sort(sort).iterator();
@@ -468,8 +469,9 @@ public class DiffUtil {
 					RawBsonDocument.class);
 			MongoCollection<RawBsonDocument> destColl = destDb.getCollection(destNs.getCollectionName(),
 					RawBsonDocument.class);
-			long sourceCount = 0;
-			long destCount = 0;
+			// Reset counts for each collection
+			sourceCount = 0;
+			destCount = 0;
 
 			MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(sort).projection(sort)
 					.iterator();
@@ -523,8 +525,9 @@ public class DiffUtil {
 							RawBsonDocument.class);
 					MongoCollection<RawBsonDocument> destColl = destDb.getCollection(collectionName,
 							RawBsonDocument.class);
-					long sourceCount = 0;
-					long destCount = 0;
+					// Reset counts for each collection
+					sourceCount = 0;
+					destCount = 0;
 
 					MongoCursor<RawBsonDocument> sourceCursor = sourceColl.find().sort(sort).projection(sort)
 							.iterator();

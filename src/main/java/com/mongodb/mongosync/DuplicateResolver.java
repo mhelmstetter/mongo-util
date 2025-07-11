@@ -11,6 +11,8 @@ import java.util.NavigableMap;
 import java.util.Set;
 
 import org.bson.BsonDocument;
+import org.bson.BsonMaxKey;
+import org.bson.BsonMinKey;
 import org.bson.BsonNull;
 import org.bson.BsonValue;
 import org.bson.Document;
@@ -664,11 +666,8 @@ public class DuplicateResolver {
 	        }
 	        
 	        // Check if any shard has multiple documents with this ID
-	        int conflictCount = 0;
 	        for (Map.Entry<String, List<Document>> shardEntry : shardToDocsMap.entrySet()) {
 	            if (shardEntry.getValue().size() > 1) {
-	                conflictCount++;
-	                
 	                String shardId = shardEntry.getKey();
 	                List<Document> conflictDocs = shardEntry.getValue();
 	                
@@ -702,6 +701,78 @@ public class DuplicateResolver {
 	    }
 	    
 	    return conflictingIds;
+	}
+	
+	public static Number getMaxValueForType(Number number) {
+	    if (number instanceof Integer) {
+	        return Integer.MAX_VALUE;
+	    } else if (number instanceof Long) {
+	        return Long.MAX_VALUE;
+	    } else if (number instanceof Float) {
+	        return Float.MAX_VALUE;
+	    } else if (number instanceof Double) {
+	        return Double.MAX_VALUE;
+	    } else if (number instanceof Short) {
+	        return Short.MAX_VALUE;
+	    } else if (number instanceof Byte) {
+	        return Byte.MAX_VALUE;
+	    }
+	    
+	    return Double.MAX_VALUE;
+	}
+	
+	public static Number getMinValueForType(Number number) {
+	    if (number instanceof Integer) {
+	        return Integer.MIN_VALUE;
+	    } else if (number instanceof Long) {
+	        return Long.MIN_VALUE;
+	    } else if (number instanceof Float) {
+	        return Float.MIN_VALUE;
+	    } else if (number instanceof Double) {
+	        return Double.MIN_VALUE;
+	    } else if (number instanceof Short) {
+	        return Short.MIN_VALUE;
+	    } else if (number instanceof Byte) {
+	        return Byte.MIN_VALUE;
+	    }
+	    
+	    return Double.MIN_VALUE;
+	}
+	
+	public static Number findMidpoint(Object min, Object max) {
+	    Number minNum = null;
+	    Number maxNum = null;
+
+	    if (min instanceof Number) {
+	        minNum = (Number)min;
+	    } else if (min instanceof BsonMinKey) {
+	        minNum = getMinValueForType((Number)max);
+	    } else {
+	        logger.warn("min unexpected type: {}", min.getClass().getName());
+	    }
+
+	    if (max instanceof Number) {
+	        maxNum = (Number)max;
+	    } else if (max instanceof BsonMaxKey) {
+	        maxNum = getMaxValueForType(minNum);
+	    } else {
+	        logger.warn("max unexpected type: {}", max);
+	    }
+
+	    // Handle integer types
+	    if (minNum instanceof Integer || maxNum instanceof Integer) {
+	        // Use formula that avoids overflow
+	        return minNum.intValue() + (maxNum.intValue() - minNum.intValue()) / 2;
+	    }
+	    // Handle long types
+	    else if (minNum instanceof Long || maxNum instanceof Long) {
+	        // Use formula that avoids overflow for longs as well
+	        return minNum.longValue() + (maxNum.longValue() - minNum.longValue()) / 2L;
+	    }
+	    // For mixed types or floating point numbers, use double
+	    else {
+	        return (minNum.doubleValue() + maxNum.doubleValue()) / 2.0;
+	    }
 	}
 
 	
@@ -761,25 +832,46 @@ public class DuplicateResolver {
 	            Object shardKeyValue = doc.get(primaryShardKey);
 	            if (shardKeyValue == null)
 	                continue;
+	            
+	            CountingMegachunk chunk = docToChunkMap.get(doc);
+	            
+	            BsonValue minVal = chunk.getMin().get(primaryShardKey);
+	            BsonValue maxVal = chunk.getMax().get(primaryShardKey);
 
 	            // Use the exact shard key value for the split
-	            Document splitDoc = new Document(primaryShardKey, shardKeyValue);
-	            logger.info("Using splitFind directly on shard key value: {} for _id: {}", shardKeyValue, id);
+	            BsonDocument splitDoc = new BsonDocument(primaryShardKey, BsonValueConverter.convertToBsonValue(shardKeyValue));
+	            logger.info("Using splitAt directly on shard key value: {} for _id: {}", shardKeyValue, id);
 
-	            // Convert to BsonDocument
-	            BsonDocument bsonSplitDoc = BsonValueConverter.convertToBsonDocument(splitDoc);
+	            Object min = BsonValueConverter.convertBsonValueToObject(minVal);
+	            Object max = BsonValueConverter.convertBsonValueToObject(maxVal);
+	            
+
+	            
+	            Number midPoint = findMidpoint(min, max);
+	            splitDoc = new BsonDocument(primaryShardKey, BsonValueConverter.convertToBsonValue(midPoint));
 
 	            // Attempt the split - using exact shard key as split point
 	            try {
-	                Document result = destShardClient.splitFind(namespace, bsonSplitDoc, true);
+	                Document result = destShardClient.splitAt(namespace, splitDoc, true);
 
 	                if (result != null) {
-	                    logger.info("Successfully executed splitFind at {}", shardKeyValue);
+	                    logger.info("Successfully executed splitAt at {}", shardKeyValue);
 	                    madeProgress = true;
 	                    splitCount++;
+	                } else {
+	                	Number midPoint2 = findMidpoint(min, midPoint);
+	                	splitDoc = new BsonDocument(primaryShardKey, BsonValueConverter.convertToBsonValue(midPoint2));
+	                	result = destShardClient.splitAt(namespace, splitDoc, true);
+	                	if (result != null) {
+	                		logger.info("2nd attempt - successfully executed splitAt at {}", midPoint2);
+	                		madeProgress = true;
+		                    splitCount++;
+	                	} else {
+	                		logger.warn("2nd attempt failed to splitAt at {}", midPoint2);
+	                	}
 	                }
 	            } catch (Exception e) {
-	                logger.warn("Error executing splitFind at {}: {}", shardKeyValue, e.getMessage());
+	                logger.warn("Error executing splitAt at {}: {}", shardKeyValue, e.getMessage());
 	            }
 	        }
 	        
@@ -895,18 +987,15 @@ public class DuplicateResolver {
 				String primaryShardKey = shardKeyDoc.keySet().iterator().next();
 
 				// Execute splits for this chunk
-				for (Document splitPoint : calculateSplitPoints(namespace, shardKeyDoc.keySet(),
+				for (BsonDocument splitPoint : calculateSplitPoints(namespace, shardKeyDoc.keySet(),
 						getShardKeyValuesForDocs(splitInfo.getSplitDocs(), primaryShardKey))) {
 					splitCount++;
-
-					// Convert to BsonDocument
-					BsonDocument bsonSplitPoint = BsonValueConverter.convertToBsonDocument(splitPoint);
 
 					// Execute the split
 					logger.info("Executing split at {} for chunk with bounds: min={}, max={} on shard {}", splitPoint,
 							chunk.getMin(), chunk.getMax(), shardId);
 
-					Document result = destShardClient.splitFind(namespace, bsonSplitPoint, true);
+					Document result = destShardClient.splitFind(namespace, splitPoint, true);
 
 					if (result != null) {
 						successCount++;
@@ -938,50 +1027,6 @@ public class DuplicateResolver {
 		return values;
 	}
 
-	/**
-	 * Find best candidates for splitting
-	 */
-	private List<Object> findBestSplitCandidates(String namespace,
-			Map<Object, Map<String, List<Document>>> conflictingIds, Map<Document, CountingMegachunk> docToChunkMap,
-			String primaryShardKey) {
-		// Return all IDs sorted by shard key difference
-		List<Object> candidates = new ArrayList<>(conflictingIds.keySet());
-
-		candidates.sort((id1, id2) -> {
-			// Calculate max shard key difference for each ID
-			double diff1 = calculateKeyDifference(id1, conflictingIds.get(id1), primaryShardKey);
-			double diff2 = calculateKeyDifference(id2, conflictingIds.get(id2), primaryShardKey);
-
-			// Sort by largest difference first (better candidates for splitting)
-			return Double.compare(diff2, diff1);
-		});
-
-		return candidates;
-	}
-
-	/**
-	 * Calculate maximum difference between shard key values for documents with the
-	 * same ID
-	 */
-	private double calculateKeyDifference(Object id, Map<String, List<Document>> shardToDocsMap,
-			String primaryShardKey) {
-		double min = Double.MAX_VALUE;
-		double max = Double.MIN_VALUE;
-
-		for (List<Document> docs : shardToDocsMap.values()) {
-			for (Document doc : docs) {
-				Object value = doc.get(primaryShardKey);
-				if (value instanceof Number) {
-					double numValue = ((Number) value).doubleValue();
-					min = Math.min(min, numValue);
-					max = Math.max(max, numValue);
-				}
-			}
-		}
-
-		return max - min;
-	}
-
 
 	private boolean moveChunkWithRetry(String namespace, CountingMegachunk chunk, String targetShardId) {
 	    
@@ -993,7 +1038,6 @@ public class DuplicateResolver {
 
 	    // Create chunk identifier for tracking
 	    String chunkId = namespace + ":" + chunk.getMin() + "-" + chunk.getMax();
-	    String sourceShard = chunk.getShard();
 	    
 	    
 	    // Skip known failed chunks to avoid repetitive failures
@@ -1131,7 +1175,7 @@ public class DuplicateResolver {
 					Collections.sort(shardKeyValues);
 
 					// Choose appropriate split points
-					List<Document> splitPoints = calculateSplitPoints(namespace, shardKeyFields, shardKeyValues);
+					List<BsonDocument> splitPoints = calculateSplitPoints(namespace, shardKeyFields, shardKeyValues);
 
 					// Record chunk split info if we have split points
 					if (!splitPoints.isEmpty()) {
@@ -1143,9 +1187,9 @@ public class DuplicateResolver {
 		}
 	}
 
-	private List<Document> calculateSplitPoints(String namespace, Set<String> shardKeyFields,
+	private List<BsonDocument> calculateSplitPoints(String namespace, Set<String> shardKeyFields,
 			List<BsonValueWrapper> sortedShardKeyValues) {
-		List<Document> splitPoints = new ArrayList<>();
+		List<BsonDocument> splitPoints = new ArrayList<>();
 
 		// Skip if not enough values to split
 		if (sortedShardKeyValues.size() <= 1) {
@@ -1159,51 +1203,21 @@ public class DuplicateResolver {
 
 		// We'll create splits at regular intervals
 		int splitInterval = Math.max(1, sortedShardKeyValues.size() / 3); // Don't create too many splits
+		
+		
 		logger.debug("Using split interval of {} for {} shard key values", splitInterval, sortedShardKeyValues.size());
 
 		for (int i = splitInterval; i < sortedShardKeyValues.size(); i += splitInterval) {
 			BsonValueWrapper splitPointValue = sortedShardKeyValues.get(i);
 
 			// Create a document for the split point
-			Document splitPoint = new Document();
+			BsonDocument splitPoint = new BsonDocument();
 
 			// If there's only one field in the shard key, it's simple
 			if (shardKeyFields.size() == 1) {
 				String keyField = shardKeyFields.iterator().next();
-
-				// Extract the BSON value and convert it properly
 				BsonValue bsonValue = splitPointValue.getValue();
-				Object keyValue;
-
-				// Handle different BSON types appropriately
-				if (bsonValue.isInt32()) {
-					keyValue = bsonValue.asInt32().getValue();
-					logger.debug("Generated split point at index {}: key={}, value={} (int32)", i, keyField, keyValue);
-				} else if (bsonValue.isInt64()) {
-					keyValue = bsonValue.asInt64().getValue();
-					logger.debug("Generated split point at index {}: key={}, value={} (int64)", i, keyField, keyValue);
-				} else if (bsonValue.isDouble()) {
-					keyValue = bsonValue.asDouble().getValue();
-					logger.debug("Generated split point at index {}: key={}, value={} (double)", i, keyField, keyValue);
-				} else if (bsonValue.isString()) {
-					keyValue = bsonValue.asString().getValue();
-					logger.debug("Generated split point at index {}: key={}, value={} (string)", i, keyField, keyValue);
-				} else if (bsonValue.isObjectId()) {
-					keyValue = bsonValue.asObjectId().getValue();
-					logger.debug("Generated split point at index {}: key={}, value={} (objectId)", i, keyField,
-							keyValue);
-				} else if (bsonValue.isBoolean()) {
-					keyValue = bsonValue.asBoolean().getValue();
-					logger.debug("Generated split point at index {}: key={}, value={} (boolean)", i, keyField,
-							keyValue);
-				} else {
-					// For other types, use a safe conversion
-					keyValue = BsonValueConverter.convertBsonValueToObject(bsonValue);
-					logger.debug("Generated split point at index {}: key={}, value={} (converted)", i, keyField,
-							keyValue);
-				}
-
-				splitPoint.append(keyField, keyValue);
+				splitPoint.append(keyField, bsonValue);
 			} else {
 				// Compound shard keys - create a BsonDocument with all shard key fields
 				if (splitPointValue.getValue() instanceof BsonDocument) {
@@ -1211,8 +1225,7 @@ public class DuplicateResolver {
 					for (String field : shardKeyFields) {
 						if (bsonShardKey.containsKey(field)) {
 							BsonValue fieldValue = bsonShardKey.get(field);
-							Object keyValue = BsonValueConverter.convertBsonValueToObject(fieldValue);
-							splitPoint.append(field, keyValue);
+							splitPoint.append(field, fieldValue);
 						}
 					}
 					logger.debug("Generated compound key split point at index {}: fields={}, values={}", i,

@@ -95,6 +95,9 @@ public class BsonValueConverter {
 				return new Date(value.asDateTime().getValue());
 			case NULL:
 				return null;
+			case MIN_KEY:
+			case MAX_KEY:
+				return value;
 			// Add other types as needed
 			default:
 				return value.toString();

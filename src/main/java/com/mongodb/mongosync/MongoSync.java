@@ -277,6 +277,7 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 			logger.debug(
 					"skipping dbHash since targetShards were specified / shard alignment does not match, reverting to estimated document counts");
 			restoreDuplicatesOnTarget();
+			restoreDuplicatesOnSource();
 			compareCollectionCounts();
 		}
 
@@ -284,18 +285,24 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 	}
 
 	private void restoreDuplicatesOnTarget() {
-		
 		handleDuplicatesBeforeRestore();
-		
+		restoreDuplicates(destShardClient);
+	}
+	
+	private void restoreDuplicatesOnSource() {
+		restoreDuplicates(sourceShardClient);
+	}
+	
+	private void restoreDuplicates(ShardClient shardClient) {
 		for (Namespace ns : includeNamespaces) {
 			Namespace archiveNs1 = new Namespace(archiveDbName, ns.getNamespace() + "_1");
 			Namespace archiveNs2 = new Namespace(archiveDbName, ns.getNamespace() + "_2");
 
 			// Archive is stored on the target side, but it's the "source" when copying the
 			// dupes back into the target
-			MongoCollection<Document> source1 = destShardClient.getCollection(archiveNs1);
-			MongoCollection<Document> source2 = destShardClient.getCollection(archiveNs2);
-			MongoCollection<Document> target = destShardClient.getCollection(ns);
+			MongoCollection<Document> source1 = shardClient.getCollection(archiveNs1);
+			MongoCollection<Document> source2 = shardClient.getCollection(archiveNs2);
+			MongoCollection<Document> target = shardClient.getCollection(ns);
 
 			// Process documents from source1
 			processSourceCollection(source1, target);
@@ -754,20 +761,25 @@ public class MongoSync implements Callable<Integer>, MongoSyncPauseListener {
 
 		int exitCode = 0;
 		try {
-			CommandLine cmd = new CommandLine(mongoSync);
-			ParseResult parseResult = cmd.parseArgs(args);
+			// First CommandLine instance: parse to extract config file
+			CommandLine tempCmd = new CommandLine(new MongoSync());
+			ParseResult tempResult = tempCmd.parseArgs(args);
 
 			File defaultsFile;
-			if (mongoSync.configFile != null) {
-				defaultsFile = mongoSync.configFile;
+			MongoSync tempMongoSync = tempResult.commandSpec().commandLine().getCommand();
+			if (tempMongoSync.configFile != null) {
+				defaultsFile = tempMongoSync.configFile;
 			} else {
 				defaultsFile = new File("mongosync.properties");
 			}
 
+			// Second CommandLine instance: parse with defaults loaded
+			CommandLine cmd = new CommandLine(mongoSync);
 			if (defaultsFile.exists()) {
 				cmd.setDefaultValueProvider(new PropertiesDefaultProvider(defaultsFile));
 			}
-			parseResult = cmd.parseArgs(args);
+			
+			ParseResult parseResult = cmd.parseArgs(args);
 
 			if (!CommandLine.printHelpIfRequested(parseResult)) {
 				exitCode = mongoSync.call();
