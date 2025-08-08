@@ -359,14 +359,20 @@ public class ChunkManager {
 	 * Create chunks and move them, using the "optimized" method to reduce the total
 	 * number of chunk moves required.
 	 */
-	public void createAndMoveChunks() {
+	public void createAndMoveChunks(boolean consolidateAdjacentChunks) {
 		boolean doMove = true;
 
 		logger.debug("createAndMoveChunks (optimized) started");
 		//logger.debug("chunkQuery: {}", chunkQuery);
 
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(sourceChunkQuery);
-		Set<String> destMins = getChunkMins(sourceChunkQuery);
+		
+		// Initialize destination chunk query if not already done
+		if (destChunkQuery == null) {
+			initializeDestChunkQuery();
+		}
+		
+		Set<String> destMins = getChunkMins(destChunkQuery);
 		
 		double totalChunks = (double)sourceChunksCache.size();
 
@@ -375,7 +381,7 @@ public class ChunkManager {
 		List<Megachunk> optimizedChunks = getMegaChunks(sourceChunksCache, sourceShardClient);
 		logger.debug(String.format("optimized chunk count: %s", optimizedChunks.size()));
 		
-		int chunkCount = optimizedChunks.size() / 2;
+		int chunkCount = 0;
 		
 		long ts;
 		long startTsSeconds = Instant.now().getEpochSecond();
@@ -400,15 +406,12 @@ public class ChunkManager {
 			}
 		}
 		
-		logger.debug("phase 2 complete, {} optimized chunks created", chunkCount);
-		
-		initializeDestChunkQuery();
+		logger.debug("phase 2 complete, {} megachunk boundaries created", chunkCount);
 		
 		// get current locations of megachunks on destination
 		Map<String, String> destChunkToShardMap = readDestinationChunks();
 		destMins = getChunkMins(destChunkQuery);
 
-		int errorCount = 0;
 		int moveCount = 0;
 		startTsSeconds = Instant.now().getEpochSecond();
 
@@ -430,15 +433,15 @@ public class ChunkManager {
 	        }
 
 	        String destShard = destChunkToShardMap.get(mega2.getId());
-
+	        int errorCount = 0;
 	        if (doMove && destShard != null && !mappedShard.equals(destShard)) {
 	            boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), 
 	                    (RawBsonDocument)mega2.getMax(), mappedShard, false, false, waitForDelete, false);
 	            if (!moveSuccess) {
-	                errorCount++;
+					errorCount++;
 	            }
+	            moveCount++;
 	        }
-	        moveCount++;
 	        
 			ts = Instant.now().getEpochSecond();
 			long secondsSinceLastLog = ts - startTsSeconds;
@@ -451,25 +454,36 @@ public class ChunkManager {
 		logger.debug("phase 3 complete, {} chunks moved", moveCount);
 
 		// step 4: split megachunks into final chunks
+		chunkCount = 0; // Reset to count actual chunks created
 		startTsSeconds = Instant.now().getEpochSecond();
-		
-		for (Megachunk mega2 : optimizedChunks) {
-			for (BsonDocument mid : mega2.getMids()) {
-				//getChunkMinKey
-				String midHash = ((RawBsonDocument) mid).toJson();
-				String midId = String.format("%s_%s", mega2.getNs(), midHash);
-				if (! destMins.contains(midId)) {
-					destShardClient.splitAt(mega2.getNs(), mid, true);
-				}
+		if (consolidateAdjacentChunks) {
+			logger.debug("Adjacent chunks will remain consolidated, total chunk count should be reduced on target");
+		} else {
+			logger.debug("Splitting megachunks to mirror source chunks");
+			for (Megachunk mega2 : optimizedChunks) {
+				// Each megachunk represents at least one chunk (from last mid/min to max)
 				chunkCount++;
-				ts = Instant.now().getEpochSecond();
-				long secondsSinceLastLog = ts - startTsSeconds;
-				if (secondsSinceLastLog >= 60) {
-					printChunkStatus(chunkCount, totalChunks, "chunks created");
-					startTsSeconds = ts;
+				
+				for (BsonDocument mid : mega2.getMids()) {
+					//getChunkMinKey
+					String midHash = ((RawBsonDocument) mid).toJson();
+					String midId = String.format("%s_%s", mega2.getNs(), midHash);
+					if (! destMins.contains(midId)) {
+						destShardClient.splitAt(mega2.getNs(), mid, true);
+					}
+					chunkCount++;
+					ts = Instant.now().getEpochSecond();
+					long secondsSinceLastLog = ts - startTsSeconds;
+					if (secondsSinceLastLog >= 60) {
+						printChunkStatus(chunkCount, totalChunks, "chunks created");
+						startTsSeconds = ts;
+					}
 				}
 			}
 		}
+		
+		
+		
 		printChunkStatus(chunkCount, totalChunks, "chunks created");
 		logger.debug("createAndMoveChunks complete");
 	}
