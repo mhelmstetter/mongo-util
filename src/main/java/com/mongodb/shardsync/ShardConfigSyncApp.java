@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.shardsync.command.*;
+import com.mongodb.shardsync.command.AdvancedConnectionMixin;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -46,14 +47,6 @@ public class ShardConfigSyncApp implements Callable<Integer> {
     @Option(names = {"-d", "--" + DEST_URI}, description = "Destination cluster connection uri")
     private String destUri;
 
-    @Option(names = {"--sourceUriPattern"}, description = "Source cluster connection uri pattern")
-    private String sourceUriPattern;
-
-    @Option(names = {"--destUriPattern"}, description = "Destination cluster connection uri pattern")
-    private String destUriPattern;
-
-    @Option(names = {"--sourceRsSsl"}, description = "Use SSL for source replica set connections")
-    private Boolean sourceRsSsl;
 
     @Option(names = {"-m", "--shardMap"}, arity = "0..*", description = "Shard mapping")
     private String[] shardMap;
@@ -64,41 +57,18 @@ public class ShardConfigSyncApp implements Callable<Integer> {
     @Option(names = {"--nonPrivileged"}, description = "Non-privileged mode, create chunks using splitChunk")
     private boolean nonPrivileged;
 
-    @Option(names = {"--sslAllowInvalidHostnames"}, description = "ssl allow invalid hostnames")
+    @Option(names = {"--sslAllowInvalidHostnames"}, description = "ssl allow invalid hostnames (not implemented)", hidden = true)
     private boolean sslAllowInvalidHostnames;
 
-    @Option(names = {"--sslAllowInvalidCertificates"}, description = "ssl allow invalid certificates")
+    @Option(names = {"--sslAllowInvalidCertificates"}, description = "ssl allow invalid certificates (not implemented)", hidden = true)
     private boolean sslAllowInvalidCerts;
-
-    @Option(names = {"--skipFlushRouterConfig"}, description = "Skip the flushRouterConfig step")
-    private boolean skipFlushRouterConfig;
 
     @Option(names = {"--dryRun"}, description = "Dry run only")
     private boolean dryRun;
 
-    // Atlas API credentials - moved to AtlasOptionsMixin
-
-    // Replica set patterns
-    @Option(names = {"--sourceRsManual"}, arity = "0..*", description = "Manually specify source replica sets")
-    private String[] sourceRsManual;
-
-    @Option(names = {"--destRsManual"}, arity = "0..*", description = "Manually specify destination replica sets")
-    private String[] destRsManual;
-
-    @Option(names = {"--sourceRsRegex"}, description = "Source replica set regex pattern")
-    private String sourceRsRegex;
-
-    @Option(names = {"--destRsRegex"}, description = "Destination replica set regex pattern")
-    private String destRsRegex;
-
-    @Option(names = {"--destCsrs"}, description = "Destination config server replica set URI")
-    private String destCsrsUri;
-
-    @Option(names = {"--sourceRsPattern"}, description = "Source replica set pattern")
-    private String sourceRsPattern;
-
-    @Option(names = {"--destRsPattern"}, description = "Destination replica set pattern")
-    private String destRsPattern;
+    // Advanced connection options grouped in a mixin
+    @CommandLine.Mixin
+    private AdvancedConnectionMixin advancedConnection = new AdvancedConnectionMixin();
 
     // Keep only the constants that are used by other classes
     public final static String SOURCE_RS_MANUAL = "sourceRsManual";
@@ -121,11 +91,11 @@ public class ShardConfigSyncApp implements Callable<Integer> {
     private static final String DEFAULT_ERROR_REPORT_MAX = "25";
     private static final String DEFAULT_EMAIL_REPORT_MAX = "9999";
 
-    private SyncConfiguration createBaseConfiguration() {
+    public SyncConfiguration createBaseConfiguration() {
         return createBaseConfiguration(null);
     }
     
-    private SyncConfiguration createBaseConfiguration(AtlasOptionsMixin atlasOptions) {
+    public SyncConfiguration createBaseConfiguration(AtlasOptionsMixin atlasOptions) {
         SyncConfiguration config = new SyncConfiguration();
         config.setSourceClusterUri(sourceUri);
         config.setDestClusterUri(destUri);
@@ -137,21 +107,17 @@ public class ShardConfigSyncApp implements Callable<Integer> {
             config.setAtlasProjectId(atlasOptions.atlasProjectId);
         }
 
-        config.setSourceClusterPattern(sourceUriPattern);
-        config.setDestClusterPattern(destUriPattern);
-
-        config.setSourceRsSsl(sourceRsSsl);
-        
-        config.setSourceRsManual(sourceRsManual);
-        config.setDestRsManual(destRsManual);
-        
-        config.setSourceRsRegex(sourceRsRegex);
-        config.setDestRsRegex(destRsRegex);
-
-        config.setDestCsrsUri(destCsrsUri);
-
-        config.setSourceRsPattern(sourceRsPattern);
-        config.setDestRsPattern(destRsPattern);
+        // Set advanced connection options
+        config.setSourceClusterPattern(advancedConnection.sourceUriPattern);
+        config.setDestClusterPattern(advancedConnection.destUriPattern);
+        config.setSourceRsSsl(advancedConnection.sourceRsSsl);
+        config.setSourceRsManual(advancedConnection.sourceRsManual);
+        config.setDestRsManual(advancedConnection.destRsManual);
+        config.setSourceRsRegex(advancedConnection.sourceRsRegex);
+        config.setDestRsRegex(advancedConnection.destRsRegex);
+        config.setDestCsrsUri(advancedConnection.destCsrsUri);
+        config.setSourceRsPattern(advancedConnection.sourceRsPattern);
+        config.setDestRsPattern(advancedConnection.destRsPattern);
 
         if ((config.getSourceClusterUri() == null && config.getSourceClusterPattern() == null)
                 || (config.getDestClusterUri() == null && config.getDestClusterPattern() == null)) {
@@ -173,49 +139,9 @@ public class ShardConfigSyncApp implements Callable<Integer> {
         config.setSslAllowInvalidCertificates(sslAllowInvalidCerts);
         config.setSslAllowInvalidHostnames(sslAllowInvalidHostnames);
 
-        if (skipFlushRouterConfig) {
-            config.setSkipFlushRouterConfig(true);
-        }
-
         return config;
     }
 
-    public Integer executeSyncCommand(SyncCommand syncCmd) throws Exception {
-        SyncConfiguration config = createBaseConfiguration(syncCmd.getAtlasOptions());
-        
-        String usersInputCsvFinal = syncCmd.getUsersInputCsv() != null ? syncCmd.getUsersInputCsv() : "usersInput.csv";
-        String usersOutputCsvFinal = syncCmd.getUsersOutputCsv() != null ? syncCmd.getUsersOutputCsv() : "usersOutput.csv";
-        config.setUsersInputCsv(usersInputCsvFinal);
-        config.setUsersOutputCsv(usersOutputCsvFinal);
-        
-        config.setExtendTtl(syncCmd.isExtendTtl());
-
-        ShardConfigSync sync = new ShardConfigSync(config);
-        sync.initialize();
-        
-        if (syncCmd.isSyncMetadataLegacy()) {
-            sync.syncMetadataLegacy();
-        } else if (syncCmd.isSyncMetadataOptimized()) {
-            sync.syncMetadataOptimized();
-        } else if (syncCmd.isSyncMetadata()) {
-            sync.syncMetadata();
-        } else if (syncCmd.isSyncUsers()) {
-            sync.syncUsers();
-        } else if (syncCmd.isSyncRoles()) {
-            sync.syncRoles();
-        } else if (syncCmd.isSyncIndexes()) {
-            sync.syncIndexesShards(true, syncCmd.isExtendTtl(), syncCmd.getCollation(), syncCmd.isTtlOnly());
-        } else if (syncCmd.isCollModTtl()) {
-            exitCode = sync.compareIndexes(true);
-        } else if (syncCmd.isTestUsersAuth()) {
-            sync.testUsersAuth();
-        } else {
-            System.out.println("No sync action specified. Use --help to see available options.");
-            return 1;
-        }
-
-        return exitCode;
-    }
 
     public Integer executeCompareCommand(CompareCommand compareCmd) throws Exception {
         SyncConfiguration config = createBaseConfiguration(compareCmd.getAtlasOptions());
