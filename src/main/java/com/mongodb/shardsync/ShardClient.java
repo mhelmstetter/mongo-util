@@ -1012,6 +1012,13 @@ public class ShardClient {
 		return false;
 	}
 	
+	public boolean isVersion8OrLater() {
+		if (versionArray.get(0) >= 8) {
+			return true;
+		}
+		return false;
+	}
+
 	public boolean isAtlas() {
 		if (connectionString != null) {
 			List<String> hosts = connectionString.getHosts();
@@ -1417,16 +1424,21 @@ public class ShardClient {
 	}
 	
 	private MongoIterable<RawBsonDocument> getSourceChunks(Bson chunkQuery) {
+		if (chunkQuery == null) {
+			throw new IllegalArgumentException("chunkQuery cannot be null");
+		}
+		
 		MongoCollection<RawBsonDocument> chunksColl = getChunksCollectionRaw();
 
 		MongoIterable<RawBsonDocument> sourceChunks;
 		
 		if (this.isVersion5OrLater()) {
+			logger.debug("Building aggregation pipeline for version 5+");
 			sourceChunks = chunksColl.aggregate(Arrays.asList(
 		            match(chunkQuery),
 		            lookup("collections", "uuid", "uuid", "collectionData"),
 		            unwind("$collectionData"),
-		            addFields(new Field<>("ns", "$collectionData._id")),
+		            addFields(new Field<String>("ns", "$collectionData._id")),
 		            project(fields(
 		                excludeId(),
 		                exclude("history", "lastmodEpoch", "lastmod", "collectionData")

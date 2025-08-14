@@ -501,6 +501,13 @@ public class ChunkManager {
 		logger.debug("createDestChunksUsingSplitCommand started");
 		logger.debug("chunkQuery: {}", sourceChunkQuery);
 		
+		// Initialize destChunkQuery if not already done
+		if (destChunkQuery == null) {
+			logger.debug("destChunkQuery is null, initializing...");
+			initializeDestChunkQuery();
+			logger.debug("destChunkQuery after initialization: {}", destChunkQuery);
+		}
+		
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(sourceChunkQuery);
 		destShardClient.loadChunksCache(destChunkQuery);
 
@@ -729,6 +736,7 @@ public class ChunkManager {
     }
 	
 	public BsonDocument newChunkQuery(ShardClient shardClient, String namespace) {
+		logger.debug("newChunkQuery called with namespace: {}", namespace);
 		BsonDocument chunkQuery = new BsonDocument();
 		if (namespace != null) {
 			if (shardClient.isVersion5OrLater()) {
@@ -778,6 +786,7 @@ public class ChunkManager {
 				chunkQuery.append("ns", new BsonDocument("$ne", new BsonString("config.system.sessions")));
 			}
 		}
+		logger.debug("newChunkQuery returning: {}", chunkQuery);
 		return chunkQuery;
 	}
 

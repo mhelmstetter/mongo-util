@@ -772,9 +772,9 @@ public class ShardConfigSync implements Callable<Integer> {
         logger.debug(String.format("Starting metadata sync/migration, %s: %s",
                 ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
         
-        if (destShardClient.isVersion5OrLater()) {
-        	throw new IllegalArgumentException("syncMetadata no longer supported for > 5.x, please use syncMetadataOptimized");
-        }
+//        if (destShardClient.isVersion5OrLater()) {
+//        	throw new IllegalArgumentException("syncMetadata no longer supported for > 5.x, please use syncMetadataOptimized");
+//        }
 
         initChunkManager();
         stopBalancers();
