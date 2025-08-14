@@ -141,6 +141,7 @@ public class MongoMirrorRunner {
         addArg("noIndexRestore", noIndexRestore);
         addArg("collStatsThreshold", collStatsThreshold);
         addArg("stopWhenLagWithin", stopWhenLagWithin);
+        addArg("resumeDBFile", "mongomirror_resume_" + id + ".db");
 
         for (Namespace ns : includeNamespaces) {
             addArg("includeNamespace", ns.getNamespace());

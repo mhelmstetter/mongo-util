@@ -887,7 +887,7 @@ public class ShardConfigSync implements Callable<Integer> {
         atlasUtil.deleteRoles(config.atlasProjectId);
         AtlasServiceGenerator.shutdown();
     }
-    
+
     private void syncMetadataInitialization() {
         initChunkManager();
         stopBalancers();
