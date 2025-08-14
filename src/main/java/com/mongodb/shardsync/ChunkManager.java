@@ -486,14 +486,31 @@ public class ChunkManager {
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(sourceChunkQuery);
 		Set<String> destMins = getChunkMins(sourceChunkQuery);
 		
-		double totalChunks = (double)sourceChunksCache.size();
-
 		// step 1: build a list of "megachunks", each representing a range of consecutive chunks
 		// that reside on the same shard. See Megachunk inner class.
 		List<Megachunk> optimizedChunks = getMegaChunks(sourceChunksCache, sourceShardClient);
 		logger.debug(String.format("optimized chunk count: %s", optimizedChunks.size()));
 		
-		int chunkCount = optimizedChunks.size() / 2;
+		// Calculate total operations that will be performed:
+		// Phase 2: operations on megachunks (excluding last)
+		int megachunkOps = 0;
+		for (Megachunk mega : optimizedChunks) {
+			if (!mega.isLast()) {
+				megachunkOps++;
+			}
+		}
+		
+		// Phase 4: operations on all mids within all megachunks
+		int midOps = 0;
+		for (Megachunk mega : optimizedChunks) {
+			midOps += mega.getMids().size();
+		}
+		
+		double totalChunks = (double)(megachunkOps + midOps);
+		logger.debug("Total operations to perform: {} (megachunk ops: {}, mid ops: {})", 
+				(int)totalChunks, megachunkOps, midOps);
+		
+		int chunkCount = 0;
 		
 		long ts;
 		long startTsSeconds = Instant.now().getEpochSecond();
@@ -854,7 +871,6 @@ public class ChunkManager {
     }
 	
 	public BsonDocument newChunkQuery(ShardClient shardClient, String namespace) {
-		logger.debug("newChunkQuery called with namespace: {}", namespace);
 		BsonDocument chunkQuery = new BsonDocument();
 		if (namespace != null) {
 			if (shardClient.isVersion5OrLater()) {
@@ -904,7 +920,16 @@ public class ChunkManager {
 				chunkQuery.append("ns", new BsonDocument("$ne", new BsonString("config.system.sessions")));
 			}
 		}
-		logger.debug("newChunkQuery returning: {}", chunkQuery);
+		
+		// Log the result with context
+		if (namespace != null) {
+			logger.debug("Created chunk query for namespace '{}': {}", namespace, chunkQuery);
+		} else if (chunkQuery.isEmpty()) {
+			logger.debug("Created chunk query for all chunks (no namespace filter): {}", chunkQuery);
+		} else {
+			logger.debug("Created chunk query with filters: {}", chunkQuery);
+		}
+		
 		return chunkQuery;
 	}
 

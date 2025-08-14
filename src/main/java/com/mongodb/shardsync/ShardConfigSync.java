@@ -1479,6 +1479,7 @@ public class ShardConfigSync implements Callable<Integer> {
                 //throw mce;
             }
         }
+        logger.debug("Sharding result for {}: {}", sourceColl.get("_id"), result);
         
         if (destShardClient.isVersion8OrLater() && hashed && destShardClient.getShardsMap().size() > 1) {
         	String namespace = (String) sourceColl.get("_id");
@@ -1488,20 +1489,22 @@ public class ShardConfigSync implements Callable<Integer> {
         	logger.debug("MongoDB 8+ hashed collection detected: {}. Moving all chunks to shard: {}", 
         			namespace, firstShardId);
         	
-        	try {
-        		// Step 1: Move all chunks for this namespace to the first shard
-        		moveAllChunksForNamespace(namespace, firstShardId);
-        		
-        		// Step 2: Merge all chunks for this namespace into a single chunk
-        		mergeAllChunksForNamespace(namespace);
-        		
-        		logger.info("Successfully consolidated chunks for hashed collection {} on shard {}", 
-        				namespace, firstShardId);
-        	} catch (Exception e) {
-        		logger.warn("Failed to consolidate chunks for hashed collection {}: {}", 
-        				namespace, e.getMessage());
-        		// Don't throw - this is optimization, not critical for functionality
+        	// Collection should exist since we just sharded it above, but check collections map is current
+        	destShardClient.populateCollectionsMap(true);
+        	
+        	if (!destShardClient.getCollectionsMap().containsKey(namespace)) {
+        		logger.error("Collection {} not found in collections map after sharding - this should not happen", namespace);
+        		throw new IllegalStateException("Collection " + namespace + " not found after sharding");
         	}
+        	
+        	// Step 1: Move all chunks for this namespace to the first shard
+        	moveAllChunksForNamespace(namespace, firstShardId);
+        	
+        	// Step 2: Merge all chunks for this namespace into a single chunk
+        	mergeAllChunksForNamespace(namespace);
+        	
+        	logger.info("Successfully consolidated chunks for hashed collection {} on shard {}", 
+        			namespace, firstShardId);
         }
         
         return result;

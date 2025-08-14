@@ -416,7 +416,7 @@ public class ShardClient {
 		MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString)
                 .applyToSocketSettings(builder -> {
-                    builder.connectTimeout(5000, MILLISECONDS);
+                    builder.connectTimeout(15000, MILLISECONDS);
                   })
                 .build();
 		MongoClient tmp = MongoClients.create(mongoClientSettings);
@@ -977,7 +977,7 @@ public class ShardClient {
 				return result;
 			} catch (MongoSocketException mse) {
 				if (i == 0) {
-					logger.warn("Socket exception in runCommand(), first attempt will retry", mse);
+					logger.debug("Socket exception in runCommand(), retrying: {}", mse.getMessage());
 				} else {
 					logger.error("Socket exception in runCommand(), last attempt, no more retries", mse);
 				}
