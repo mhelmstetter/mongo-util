@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -185,90 +186,207 @@ public class ChunkManager {
 		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
 	}
 	
-	public void loadChunkMap(ShardClient shardClient, String namespace, Map<String, RawBsonDocument> chunksCache, Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
-	    logger.debug("Starting loadChunkMap with specified ShardClient, size: {}, ns: {}", chunkMap.size(), namespace);
-	    BsonDocument chunkQuery = null;
-	    
-	    if (namespace == null) {
-	        // Use the appropriate chunk query based on which ShardClient is provided
-	        chunkQuery = (shardClient == sourceShardClient) ? sourceChunkQuery : destChunkQuery;
-	        
-	        // If destChunkQuery hasn't been initialized yet, do it now
-	        if (shardClient == destShardClient && destChunkQuery == null) {
-	            destChunkQuery = newChunkQuery(destShardClient);
-	        }
-	    } else {
-	        chunkQuery = newChunkQuery(shardClient, namespace);
-	    }
-	    
-	    // Load chunks using the specified ShardClient
-	    shardClient.loadChunksCache(chunkQuery, chunksCache);
-	    
-	    int uberThreshold = (chunksCache.size() >= 1000) ? 300 : 100;
+	/**
+	 * Core method to process chunks from cache into the chunk map.
+	 * This is shared between full loading and namespace-specific reloading.
+	 * 
+	 * @param chunksToProcess The chunks to process into the map
+	 * @param chunkMap The map to populate
+	 * @param shardClient The shard client for metadata lookups
+	 * @param clearNamespace Optional namespace to clear from the map before processing
+	 */
+	private void processChunksIntoMap(Map<String, RawBsonDocument> chunksToProcess,
+			Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap,
+			ShardClient shardClient, String clearNamespace) {
+		
+		// Clear existing entries for the namespace if specified
+		if (clearNamespace != null) {
+			chunkMap.remove(clearNamespace);
+			logger.debug("Cleared chunk map entries for namespace: {}", clearNamespace);
+		}
+		
+		int uberThreshold = (chunksToProcess.size() >= 1000) ? 300 : 100;
+		int uberId = 0;
+		int i = 0;
+		
+		for (RawBsonDocument chunkDoc : chunksToProcess.values()) {
+			if (i++ % uberThreshold == 0) {
+				uberId++;
+			}
 
-	    int uberId = 0;
-	    int i = 0;
-	    for (RawBsonDocument chunkDoc : chunksCache.values()) {
-	        if (i++ % uberThreshold == 0) {
-	            uberId++;
-	        }
+			CountingMegachunk mega = new CountingMegachunk();
+			mega.setUberId(uberId);
+			
+			String ns = extractNamespaceFromChunk(chunkDoc, shardClient);
+			if (ns == null) {
+				logger.error("Could not determine namespace for chunk");
+				continue;
+			}
+			
+			Document collMeta = shardClient.getCollectionsMap().get(ns);
+			if (collMeta == null) {
+				logger.warn("No collection metadata found for namespace: {}", ns);
+				continue;
+			}
+			
+			Document shardKeysDoc = (Document) collMeta.get("key");
+			Set<String> shardKeys = shardKeysDoc.keySet();
+			
+			mega.setNs(ns);
+			mega.setShard(chunkDoc.getString("shard").getValue());
 
-	        CountingMegachunk mega = new CountingMegachunk();
-	        mega.setUberId(uberId);
-	        
-	        String ns = null;
-	        if (chunkDoc.containsKey("ns")) {
-	            ns = chunkDoc.getString("ns").getValue();
-	        } else {
-	            BsonBinary buuid = chunkDoc.getBinary("uuid");
-	            UUID uuid = BsonUuidUtil.convertBsonBinaryToUuid(buuid);
-	            ns = shardClient.getCollectionsUuidMap().get(uuid);
-	        }
-	        
-	        Document collMeta = shardClient.getCollectionsMap().get(ns);
-	        Document shardKeysDoc = (Document) collMeta.get("key");
-	        Set<String> shardKeys = shardKeysDoc.keySet();
-	        
-	        mega.setNs(ns);
-	        mega.setShard(chunkDoc.getString("shard").getValue());
+			NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
+			if (innerMap == null) {
+				innerMap = new TreeMap<>();
+				chunkMap.put(ns, innerMap);
+			}
 
-	        NavigableMap<BsonValueWrapper, CountingMegachunk> innerMap = chunkMap.get(ns);
-	        if (innerMap == null) {
-	            innerMap = new TreeMap<>();
-	            chunkMap.put(ns, innerMap);
-	        }
+			BsonDocument min = chunkDoc.getDocument("min");
+			mega.setMin(min);
 
-	        BsonDocument min = chunkDoc.getDocument("min");
-	        mega.setMin(min);
+			BsonValue max = chunkDoc.get("max");
+			if (max instanceof BsonMaxKey) {
+				logger.warn("*** BsonMaxKey not handled");
+			} else if (max instanceof BsonDocument) {
+				mega.setMax((BsonDocument) max);
+			} else {
+				logger.error("unexpected max type: {}", max);
+			}
 
-	        BsonValue max = chunkDoc.get("max");
-	        if (max instanceof BsonMaxKey) {
-	            logger.warn("*** BsonMaxKey not handled");
-	        } else if (max instanceof BsonDocument) {
-	            mega.setMax((BsonDocument) max);
-	        } else {
-	            logger.error("unexpected max type: {}", max);
-	        }
-
-	        BsonValue val = null;
-	        if (shardKeys.size() == 1) {
-	            val = min.get(min.getFirstKey());
-	        } else {
-	            val = min;
-	        }
-	        
-	        if (val == null) {
-	            logger.error("could not get shard key from chunk: {}", mega);
-	            continue;
-	        }
-	        
-	        innerMap.put(new BsonValueWrapper(val), mega);
-	    }
+			BsonValue val = null;
+			if (shardKeys.size() == 1) {
+				val = min.get(min.getFirstKey());
+			} else {
+				val = min;
+			}
+			
+			if (val == null) {
+				logger.error("could not get shard key from chunk: {}", mega);
+				continue;
+			}
+			
+			innerMap.put(new BsonValueWrapper(val), mega);
+		}
+	}
+	
+	/**
+	 * Extracts namespace from a chunk document.
+	 * Handles both direct namespace field and UUID-based lookups.
+	 * 
+	 * @param chunkDoc The chunk document
+	 * @param shardClient The shard client for UUID lookups
+	 * @return The namespace string, or null if not found
+	 */
+	private String extractNamespaceFromChunk(RawBsonDocument chunkDoc, ShardClient shardClient) {
+		if (chunkDoc.containsKey("ns")) {
+			return chunkDoc.getString("ns").getValue();
+		} else if (chunkDoc.containsKey("uuid")) {
+			BsonBinary buuid = chunkDoc.getBinary("uuid");
+			UUID uuid = BsonUuidUtil.convertBsonBinaryToUuid(buuid);
+			return shardClient.getCollectionsUuidMap().get(uuid);
+		}
+		return null;
+	}
+	
+	public void loadChunkMap(ShardClient shardClient, String namespace, Map<String, RawBsonDocument> chunksCache, 
+			Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
+		logger.debug("Starting loadChunkMap with specified ShardClient, size: {}, ns: {}", chunkMap.size(), namespace);
+		BsonDocument chunkQuery = null;
+		
+		if (namespace == null) {
+			// Use the appropriate chunk query based on which ShardClient is provided
+			chunkQuery = (shardClient == sourceShardClient) ? sourceChunkQuery : destChunkQuery;
+			
+			// If destChunkQuery hasn't been initialized yet, do it now
+			if (shardClient == destShardClient && destChunkQuery == null) {
+				destChunkQuery = newChunkQuery(destShardClient);
+			}
+		} else {
+			chunkQuery = newChunkQuery(shardClient, namespace);
+		}
+		
+		// Load chunks using the specified ShardClient
+		shardClient.loadChunksCache(chunkQuery, chunksCache);
+		
+		// Process all chunks into the map (no namespace clearing for full load)
+		processChunksIntoMap(chunksCache, chunkMap, shardClient, null);
+	}
+	
+	/**
+	 * Reloads the chunk map for a specific namespace.
+	 * This method:
+	 * 1. Reloads chunks for the namespace in the ShardClient's cache
+	 * 2. Clears the namespace's entries from the chunk map
+	 * 3. Rebuilds the chunk map entries for that namespace
+	 * 
+	 * @param shardClient The shard client to use
+	 * @param namespace The namespace to reload
+	 * @param chunksCache The chunks cache (will be updated)
+	 * @param chunkMap The chunk map to update
+	 */
+	public void reloadChunkMapForNamespace(ShardClient shardClient, String namespace,
+			Map<String, RawBsonDocument> chunksCache, 
+			Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
+		logger.debug("Reloading chunk map for namespace: {}", namespace);
+		
+		// First reload the chunks cache for this namespace
+		shardClient.reloadChunksCacheForNamespace(namespace);
+		
+		// Filter chunks for this namespace from the updated cache
+		Map<String, RawBsonDocument> namespaceChunks = new LinkedHashMap<>();
+		for (Map.Entry<String, RawBsonDocument> entry : chunksCache.entrySet()) {
+			RawBsonDocument chunk = entry.getValue();
+			String chunkNs = extractNamespaceFromChunk(chunk, shardClient);
+			if (namespace.equals(chunkNs)) {
+				namespaceChunks.put(entry.getKey(), chunk);
+			}
+		}
+		
+		// Process only the namespace chunks, clearing existing entries first
+		processChunksIntoMap(namespaceChunks, chunkMap, shardClient, namespace);
+		
+		logger.debug("Reloaded {} chunks for namespace {} into chunk map", namespaceChunks.size(), namespace);
 	}
 
-	// Then, keep the existing method as a convenience wrapper that uses sourceShardClient by default
-	public void loadChunkMap(String namespace, Map<String, RawBsonDocument> chunksCache, Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
-	    loadChunkMap(sourceShardClient, namespace, chunksCache, chunkMap);
+	// Keep the existing convenience wrapper
+	public void loadChunkMap(String namespace, Map<String, RawBsonDocument> chunksCache, 
+			Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
+		loadChunkMap(sourceShardClient, namespace, chunksCache, chunkMap);
+	}
+	
+	/**
+	 * Convenience method to reload both chunks cache and chunk map for a specific namespace.
+	 * This is the primary method to use when you need to refresh data for a single namespace.
+	 * 
+	 * @param namespace The namespace to reload
+	 * @param chunksCache The chunks cache to update
+	 * @param chunkMap The chunk map to update
+	 */
+	public void reloadNamespace(String namespace, Map<String, RawBsonDocument> chunksCache,
+			Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
+		reloadNamespace(sourceShardClient, namespace, chunksCache, chunkMap);
+	}
+	
+	/**
+	 * Convenience method to reload both chunks cache and chunk map for a specific namespace.
+	 * This is the primary method to use when you need to refresh data for a single namespace.
+	 * 
+	 * @param shardClient The shard client to use
+	 * @param namespace The namespace to reload
+	 * @param chunksCache The chunks cache to update
+	 * @param chunkMap The chunk map to update
+	 */
+	public void reloadNamespace(ShardClient shardClient, String namespace, 
+			Map<String, RawBsonDocument> chunksCache,
+			Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
+		logger.info("Reloading namespace '{}' in both chunks cache and chunk map", namespace);
+		long startTime = System.currentTimeMillis();
+		
+		// This method handles both cache reload and map rebuild
+		reloadChunkMapForNamespace(shardClient, namespace, chunksCache, chunkMap);
+		
+		long duration = System.currentTimeMillis() - startTime;
+		logger.info("Namespace '{}' reload completed in {} ms", namespace, duration);
 	}
 	
 	public void validateTargetShards() {
@@ -374,12 +492,31 @@ public class ChunkManager {
 		
 		Set<String> destMins = getChunkMins(destChunkQuery);
 		
-		double totalChunks = (double)sourceChunksCache.size();
-
 		// step 1: build a list of "megachunks", each representing a range of consecutive chunks
 		// that reside on the same shard. See Megachunk inner class.
 		List<Megachunk> optimizedChunks = getMegaChunks(sourceChunksCache, sourceShardClient);
 		logger.debug(String.format("optimized chunk count: %s", optimizedChunks.size()));
+		
+		// Calculate total operations that will be performed:
+		// Phase 2: operations on megachunks (excluding last)
+		int megachunkOps = 0;
+		for (Megachunk mega : optimizedChunks) {
+			if (!mega.isLast()) {
+				megachunkOps++;
+			}
+		}
+		
+		// Phase 4: operations on all mids within all megachunks (if not consolidating)
+		int midOps = 0;
+		if (!consolidateAdjacentChunks) {
+			for (Megachunk mega : optimizedChunks) {
+				midOps += mega.getMids().size();
+			}
+		}
+		
+		double totalChunks = (double)(megachunkOps + midOps);
+		logger.debug("Total operations to perform: {} (megachunk ops: {}, mid ops: {})", 
+				(int)totalChunks, megachunkOps, midOps);
 		
 		int chunkCount = 0;
 		
@@ -750,7 +887,6 @@ public class ChunkManager {
     }
 	
 	public BsonDocument newChunkQuery(ShardClient shardClient, String namespace) {
-		logger.debug("newChunkQuery called with namespace: {}", namespace);
 		BsonDocument chunkQuery = new BsonDocument();
 		if (namespace != null) {
 			if (shardClient.isVersion5OrLater()) {
@@ -800,7 +936,16 @@ public class ChunkManager {
 				chunkQuery.append("ns", new BsonDocument("$ne", new BsonString("config.system.sessions")));
 			}
 		}
-		logger.debug("newChunkQuery returning: {}", chunkQuery);
+		
+		// Log the result with context
+		if (namespace != null) {
+			logger.debug("Created chunk query for namespace '{}': {}", namespace, chunkQuery);
+		} else if (chunkQuery.isEmpty()) {
+			logger.debug("Created chunk query for all chunks (no namespace filter): {}", chunkQuery);
+		} else {
+			logger.debug("Created chunk query with filters: {}", chunkQuery);
+		}
+		
 		return chunkQuery;
 	}
 

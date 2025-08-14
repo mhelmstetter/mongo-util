@@ -6,6 +6,7 @@ import static com.mongodb.client.model.Aggregates.group;
 import static com.mongodb.client.model.Aggregates.lookup;
 import static com.mongodb.client.model.Aggregates.match;
 import static com.mongodb.client.model.Aggregates.project;
+import static com.mongodb.client.model.Aggregates.sort;
 import static com.mongodb.client.model.Aggregates.unwind;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
@@ -415,7 +416,7 @@ public class ShardClient {
 		MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString)
                 .applyToSocketSettings(builder -> {
-                    builder.connectTimeout(5000, MILLISECONDS);
+                    builder.connectTimeout(15000, MILLISECONDS);
                   })
                 .build();
 		MongoClient tmp = MongoClients.create(mongoClientSettings);
@@ -976,7 +977,7 @@ public class ShardClient {
 				return result;
 			} catch (MongoSocketException mse) {
 				if (i == 0) {
-					logger.warn("Socket exception in runCommand(), first attempt will retry", mse);
+					logger.debug("Socket exception in runCommand(), retrying: {}", mse.getMessage());
 				} else {
 					logger.error("Socket exception in runCommand(), last attempt, no more retries", mse);
 				}
@@ -1404,10 +1405,34 @@ public class ShardClient {
 		
 	}
 	
-	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery, Map<String, RawBsonDocument> cache) {
-
+	/**
+	 * Core method for loading chunks into a cache based on a query.
+	 * This method is used by both full loading and namespace-specific reloading.
+	 * 
+	 * @param chunkQuery The query to filter chunks
+	 * @param cache The cache to load chunks into
+	 * @param clearExisting If true, clears the cache before loading
+	 * @param namespaceFilter Optional namespace to filter existing entries when not clearing all
+	 * @return The updated cache
+	 */
+	private Map<String, RawBsonDocument> loadChunksCacheInternal(BsonDocument chunkQuery, 
+			Map<String, RawBsonDocument> cache, boolean clearExisting, String namespaceFilter) {
+		
+		// Clear existing entries if requested
+		if (clearExisting) {
+			if (namespaceFilter != null) {
+				// Remove only entries for the specific namespace
+				int removedCount = removeChunksForNamespace(cache, namespaceFilter);
+				logger.debug("Removed {} existing chunks for namespace {} from cache", removedCount, namespaceFilter);
+			} else {
+				// Clear entire cache for full reload
+				cache.clear();
+				logger.debug("Cleared entire chunks cache");
+			}
+		}
+		
+		// Load new chunks
 		MongoIterable<RawBsonDocument> sourceChunks = getSourceChunks(chunkQuery);
-
 		int count = 0;
 		for (Iterator<RawBsonDocument> sourceChunksIterator = sourceChunks.iterator(); sourceChunksIterator.hasNext();) {
 			RawBsonDocument chunk = sourceChunksIterator.next();
@@ -1415,12 +1440,102 @@ public class ShardClient {
 			cache.put(chunkId, chunk);
 			count++;
 		}
-		logger.debug("*** {}: loaded {} chunks into chunksCache", name, count);
+		
+		String logMessage = namespaceFilter != null ? 
+			String.format("*** %s: loaded %d chunks for namespace %s into chunksCache", name, count, namespaceFilter) :
+			String.format("*** %s: loaded %d chunks into chunksCache", name, count);
+		logger.debug(logMessage);
+		
 		return cache;
+	}
+	
+	/**
+	 * Removes chunks for a specific namespace from the cache.
+	 * 
+	 * @param cache The cache to remove chunks from
+	 * @param namespace The namespace to remove chunks for
+	 * @return The number of chunks removed
+	 */
+	private int removeChunksForNamespace(Map<String, RawBsonDocument> cache, String namespace) {
+		Iterator<Map.Entry<String, RawBsonDocument>> iterator = cache.entrySet().iterator();
+		int removedCount = 0;
+		while (iterator.hasNext()) {
+			Map.Entry<String, RawBsonDocument> entry = iterator.next();
+			RawBsonDocument chunk = entry.getValue();
+			String chunkNs = getNamespaceFromChunk(chunk);
+			if (namespace.equals(chunkNs)) {
+				iterator.remove();
+				removedCount++;
+			}
+		}
+		return removedCount;
+	}
+	
+	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery, Map<String, RawBsonDocument> cache) {
+		// Full load - no namespace filter, don't clear existing (backwards compatibility)
+		return loadChunksCacheInternal(chunkQuery, cache, false, null);
 	}
 
 	public Map<String, RawBsonDocument> loadChunksCache(BsonDocument chunkQuery) {
 		return loadChunksCache(chunkQuery, chunksCache);
+	}
+	
+	/**
+	 * Reloads chunks for a specific namespace into the chunks cache.
+	 * This method preserves the ordering of the existing cache by:
+	 * 1. Removing all existing chunks for the namespace
+	 * 2. Loading new chunks for the namespace
+	 * 3. Merging them back while maintaining LinkedHashMap ordering
+	 * 
+	 * @param namespace The namespace to reload chunks for
+	 * @return The updated chunks cache
+	 */
+	public Map<String, RawBsonDocument> reloadChunksCacheForNamespace(String namespace) {
+		logger.debug("Reloading chunks cache for namespace: {}", namespace);
+		
+		// Create query for specific namespace
+		BsonDocument namespaceQuery = createNamespaceChunkQuery(namespace);
+		
+		// Use the internal method with namespace-specific clearing
+		return loadChunksCacheInternal(namespaceQuery, chunksCache, true, namespace);
+	}
+	
+	/**
+	 * Creates a chunk query for a specific namespace.
+	 * Handles both version 5+ (UUID-based) and older (namespace-based) MongoDB versions.
+	 * 
+	 * @param namespace The namespace to create a query for
+	 * @return A BsonDocument query for chunks of the specified namespace
+	 */
+	private BsonDocument createNamespaceChunkQuery(String namespace) {
+		BsonDocument query = new BsonDocument();
+		if (this.isVersion5OrLater()) {
+			BsonBinary uuidBinary = getUuidForNamespace(namespace);
+			if (uuidBinary != null) {
+				query.append("uuid", new BsonDocument("$eq", uuidBinary));
+			}
+		} else {
+			query.append("ns", new BsonDocument("$eq", new BsonString(namespace)));
+		}
+		return query;
+	}
+	
+	/**
+	 * Extracts the namespace from a chunk document.
+	 * Handles both direct namespace field and UUID-based lookups for version 5+.
+	 * 
+	 * @param chunk The chunk document
+	 * @return The namespace string, or null if not found
+	 */
+	private String getNamespaceFromChunk(RawBsonDocument chunk) {
+		if (chunk.containsKey("ns")) {
+			return chunk.getString("ns").getValue();
+		} else if (chunk.containsKey("uuid")) {
+			BsonBinary bsonUuid = chunk.getBinary("uuid");
+			UUID uuid = BsonUuidUtil.convertBsonBinaryToUuid(bsonUuid);
+			return collectionsUuidMap.get(uuid);
+		}
+		return null;
 	}
 	
 	private MongoIterable<RawBsonDocument> getSourceChunks(Bson chunkQuery) {
@@ -1442,7 +1557,8 @@ public class ShardClient {
 		            project(fields(
 		                excludeId(),
 		                exclude("history", "lastmodEpoch", "lastmod", "collectionData")
-		            ))
+		            )),
+		            sort(getChunkSort())
 		        ));
 		} else {
 			sourceChunks = chunksColl.find(chunkQuery)
@@ -1650,6 +1766,66 @@ public class ShardClient {
 			return false;
 		}
 		return true;
+	}
+	
+	/**
+	 * Merges contiguous chunks in a sharded collection.
+	 * 
+	 * @param namespace The namespace (database.collection) to merge chunks in
+	 * @param min The lower bound of the chunk range to merge
+	 * @param max The upper bound of the chunk range to merge
+	 * @return The result document from the mergeChunks command, or null if an error occurred
+	 */
+	public Document mergeChunks(String namespace, BsonDocument min, BsonDocument max) {
+		return mergeChunks(namespace, min, max, true);
+	}
+	
+	/**
+	 * Merges contiguous chunks in a sharded collection.
+	 * 
+	 * @param namespace The namespace (database.collection) to merge chunks in
+	 * @param min The lower bound of the chunk range to merge
+	 * @param max The upper bound of the chunk range to merge
+	 * @param logErrors Whether to log errors that occur during the merge
+	 * @return The result document from the mergeChunks command, or null if an error occurred
+	 */
+	public Document mergeChunks(String namespace, BsonDocument min, BsonDocument max, boolean logErrors) {
+		Document mergeChunksCmd = new Document("mergeChunks", namespace);
+		mergeChunksCmd.append("bounds", Arrays.asList(min, max));
+		
+		try {
+			Document result = adminCommand(mergeChunksCmd);
+			return result;
+		} catch (MongoCommandException mce) {
+			if (logErrors) {
+				logger.error("mergeChunks error for namespace {}, message: {}", namespace, mce.getMessage());
+			}
+			return null;
+		}
+	}
+	
+	/**
+	 * Merges chunks based on a chunk document.
+	 * 
+	 * @param chunk The chunk document containing namespace, min and max bounds
+	 * @return The result document from the mergeChunks command, or null if an error occurred
+	 */
+	public Document mergeChunks(BsonDocument chunk) {
+		return mergeChunks(chunk, true);
+	}
+	
+	/**
+	 * Merges chunks based on a chunk document.
+	 * 
+	 * @param chunk The chunk document containing namespace, min and max bounds
+	 * @param logErrors Whether to log errors that occur during the merge
+	 * @return The result document from the mergeChunks command, or null if an error occurred
+	 */
+	public Document mergeChunks(BsonDocument chunk, boolean logErrors) {
+		BsonDocument min = (BsonDocument) chunk.get("min");
+		BsonDocument max = (BsonDocument) chunk.get("max");
+		String ns = chunk.getString("ns").getValue();
+		return mergeChunks(ns, min, max, logErrors);
 	}
 	
 	public List<Document> splitVector(Namespace ns, Document collectionMeta) {
