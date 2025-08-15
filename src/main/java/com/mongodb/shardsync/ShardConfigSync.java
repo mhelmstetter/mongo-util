@@ -1542,7 +1542,7 @@ public class ShardConfigSync implements Callable<Integer> {
             BsonDocument max = (BsonDocument) chunk.get("max");
             
             boolean moveSuccess = destShardClient.moveChunk(namespace, min, max, targetShardId, 
-                    false, false, false, false);
+                    false, false, true, false);
             
             if (moveSuccess) {
                 moveCount++;
