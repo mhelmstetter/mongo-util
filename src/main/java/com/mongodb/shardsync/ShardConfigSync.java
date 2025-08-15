@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -339,6 +340,63 @@ public class ShardConfigSync implements Callable<Integer> {
 
         return builder.build();
     }
+    
+    public boolean dropIndexes() {
+        logger.info("=== STARTING INDEX DROP ===");
+        logger.info("Dropping indexes on destination cluster");
+        
+        Map<Namespace, Set<IndexSpec>> destIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
+        int totalIndexCount = 0;
+        int droppedIndexCount = 0;
+        int errorCount = 0;
+        
+        for (Map.Entry<Namespace, Set<IndexSpec>> entry : destIndexSpecs.entrySet()) {
+            Namespace ns = entry.getKey();
+            Set<IndexSpec> destSpecs = entry.getValue();
+            totalIndexCount += destSpecs.size();
+            
+            logger.info("Processing namespace: {} ({} indexes)", ns, destSpecs.size());
+            
+            MongoCollection<Document> collection = destShardClient.getMongoClient()
+                    .getDatabase(ns.getDatabaseName())
+                    .getCollection(ns.getCollectionName());
+            
+            for (IndexSpec indexSpec : destSpecs) {
+                String indexName = indexSpec.getName();
+                
+                // Skip the default _id index
+                if ("_id_".equals(indexName)) {
+                    logger.debug("Skipping default _id index for {}", ns);
+                    continue;
+                }
+                
+                try {
+                    logger.debug("Dropping index: {} on {}", indexName, ns);
+                    collection.dropIndex(indexName);
+                    droppedIndexCount++;
+                    logger.info("✅ Dropped index: {} on {}", indexName, ns);
+                } catch (Exception e) {
+                    errorCount++;
+                    logger.error("❌ Failed to drop index: {} on {}: {}", indexName, ns, e.getMessage());
+                }
+            }
+        }
+        
+        boolean success = (errorCount == 0);
+        if (success) {
+            logger.info("✅ DROP INDEXES COMPLETE - SUCCESS");
+            logger.info("    Total indexes found: {}", totalIndexCount);
+            logger.info("    Indexes dropped: {}", droppedIndexCount);
+            logger.info("    Indexes skipped (_id): {}", totalIndexCount - droppedIndexCount - errorCount);
+        } else {
+            logger.error("❌ DROP INDEXES COMPLETE - FAILURE");
+            logger.error("    Total indexes found: {}", totalIndexCount);
+            logger.error("    Indexes dropped: {}", droppedIndexCount);
+            logger.error("    Errors encountered: {}", errorCount);
+        }
+        
+        return success;
+    }
 
     private Map<Namespace, Set<IndexSpec>> getIndexSpecs(MongoClient client, Set<String> filterSet) {
         Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = new LinkedHashMap<>();
@@ -382,8 +440,16 @@ public class ShardConfigSync implements Callable<Integer> {
         return indexSpecs;
     }
 
-    public void syncIndexesShards(boolean createMissing, boolean extendTtl, String collationStr) {
-        logger.debug(String.format("Starting syncIndexes: extendTtl: %s", extendTtl));
+    public void syncIndexesShards(boolean createMissing, boolean extendTtl, String collationStr, boolean ttlOnly) {
+        logger.info("=== STARTING INDEX SYNC ===");
+        logger.info("Mode: createMissing={}, extendTtl={}, ttlOnly={}", createMissing, extendTtl, ttlOnly);
+        if (ttlOnly) {
+            logger.info("TTL-only mode: Will only sync indexes with TTL (expireAfterSeconds)");
+            if (extendTtl) {
+                logger.info("TTL extension enabled: TTL indexes will be extended to 50 years");
+            }
+        }
+        logger.debug(String.format("Starting syncIndexes: extendTtl: %s, ttlOnly: %s", extendTtl, ttlOnly));
 
         Document collation = null;
         if (collationStr != null) {
@@ -396,56 +462,253 @@ public class ShardConfigSync implements Callable<Integer> {
 
         //Map<Namespace, Set<IndexSpec>> destShardIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
 
+        int totalNamespaces = sourceIndexSpecs.size();
+        int processedNamespaces = 0;
+        int totalIndexesCreated = 0;
+        int totalIndexesSkipped = 0;
+        
         for (Map.Entry<Namespace, Set<IndexSpec>> sourceEntry : sourceIndexSpecs.entrySet()) {
             Namespace ns = sourceEntry.getKey();
             Set<IndexSpec> sourceSpecs = sourceEntry.getValue();
+            processedNamespaces++;
+            
+            logger.info("Processing namespace {}/{}: {}", processedNamespaces, totalNamespaces, ns);
 
-            //Set<IndexSpec> destSpecs = destShardIndexSpecs.get(ns);
-
-            if (createMissing) {
-                //logger.debug(String.format("%s - missing dest indexes %s missing, creating", ns, diff));
-                destShardClient.createIndexes(ns, sourceSpecs, extendTtl, collation);
+            // Filter indexes if ttlOnly is enabled
+            Set<IndexSpec> specsToSync = sourceSpecs;
+            if (ttlOnly) {
+                specsToSync = sourceSpecs.stream()
+                    .filter(spec -> spec.getExpireAfterSeconds() != null)
+                    .collect(java.util.stream.Collectors.toSet());
+                
+                if (specsToSync.size() < sourceSpecs.size()) {
+                    logger.info("  📋 TTL-only filter: {} total indexes → {} TTL indexes", 
+                               sourceSpecs.size(), specsToSync.size());
+                }
             }
+
+            if (createMissing && !specsToSync.isEmpty()) {
+                logger.info("  🔨 Creating {} indexes for {}", specsToSync.size(), ns);
+                destShardClient.createIndexes(ns, specsToSync, extendTtl, collation);
+                totalIndexesCreated += specsToSync.size();
+            } else if (createMissing && specsToSync.isEmpty()) {
+                logger.info("  ⏭️  Skipping {} - no indexes to create after filtering", ns);
+                totalIndexesSkipped++;
+            }
+        }
+        
+        logger.info("=== INDEX SYNC COMPLETE ===");
+        logger.info("✅ Summary:");
+        logger.info("    Namespaces processed: {}", processedNamespaces);
+        logger.info("    Indexes created: {}", totalIndexesCreated);
+        if (totalIndexesSkipped > 0) {
+            logger.info("    Namespaces skipped: {}", totalIndexesSkipped);
         }
     }
 
-    public void compareIndexes(boolean collModTtl) {
+    public int compareIndexes(boolean collModTtl) {
+        return compareIndexes(collModTtl, false);
+    }
+    
+    public int compareIndexes(boolean collModTtl, boolean ttlOnly) {
+        logger.info("=== STARTING INDEX COMPARISON ===");
+        logger.info("Comparing indexes between source and destination clusters");
+        if (ttlOnly) {
+            logger.info("⏱️ TTL-only mode: Will only compare indexes with TTL (expireAfterSeconds)");
+        }
+        if (collModTtl) {
+            logger.info("🔧 collModTtl enabled - will attempt to fix TTL differences");
+            if (config.extendTtl) {
+                logger.info("⏰ extendTtl enabled - TTL indexes will be extended to 50 years");
+            }
+        }
         logger.debug("Starting compareIndexes");
         Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
         Map<Namespace, Set<IndexSpec>> destIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
         int diffCount = 0;
         int indexCount = 0;
         int modifiedCount = 0;
+        int missingNamespaces = 0;
+        int missingIndexesCount = 0;
         //MapDifference<Namespace, Set<IndexSpec>> diff = Maps.difference(sourceIndexSpecs, destIndexSpecs);
 
+        int totalNamespaces = sourceIndexSpecs.size();
+        int processedNamespaces = 0;
+        
         for (Map.Entry<Namespace, Set<IndexSpec>> entry : sourceIndexSpecs.entrySet()) {
             Namespace ns = entry.getKey();
             Set<IndexSpec> sourceSpecs = entry.getValue();
-            indexCount += sourceSpecs.size();
+            processedNamespaces++;
+            
+            // Filter for TTL indexes if ttlOnly is enabled
+            Set<IndexSpec> specsToCompare = sourceSpecs;
+            if (ttlOnly) {
+                specsToCompare = sourceSpecs.stream()
+                    .filter(spec -> spec.getExpireAfterSeconds() != null)
+                    .collect(java.util.stream.Collectors.toSet());
+                if (specsToCompare.isEmpty()) {
+                    // Skip namespace if no TTL indexes
+                    continue;
+                }
+            }
+            
+            indexCount += specsToCompare.size();
+            
+            if (ttlOnly && specsToCompare.size() < sourceSpecs.size()) {
+                logger.info("Checking namespace {}/{}: {} ({} TTL indexes out of {} total)", 
+                           processedNamespaces, totalNamespaces, ns, specsToCompare.size(), sourceSpecs.size());
+            } else {
+                logger.info("Checking namespace {}/{}: {} ({} indexes)", 
+                           processedNamespaces, totalNamespaces, ns, specsToCompare.size());
+            }
+            
             Set<IndexSpec> destSpecs = destIndexSpecs.get(ns);
             if (destSpecs == null || destSpecs.isEmpty()) {
-                logger.warn("Destination indexes not found for ns: {}", ns);
+                logger.warn("  ⚠️  Destination indexes not found for ns: {}", ns);
+                missingNamespaces++;
+                missingIndexesCount += specsToCompare.size();
+                diffCount += specsToCompare.size();  // Count missing indexes as differences
                 continue;
             }
-            Set<IndexSpec> diff = Sets.difference(sourceSpecs, destSpecs);
+            
+            // Filter destination specs for TTL if ttlOnly is enabled
+            Set<IndexSpec> destSpecsToCompare = destSpecs;
+            if (ttlOnly) {
+                destSpecsToCompare = destSpecs.stream()
+                    .filter(spec -> spec.getExpireAfterSeconds() != null)
+                    .collect(java.util.stream.Collectors.toSet());
+            }
+            
+            Set<IndexSpec> diff = Sets.difference(specsToCompare, destSpecsToCompare);
 
             if (!diff.isEmpty()) {
-                logger.debug("Indexes differ for ns: {}, diff: {}", ns, diff);
+                logger.warn("  ❌ INDEX DIFFERENCES FOUND for namespace: {}", ns);
+                logger.warn("     {} index(es) differ between source and destination:", diff.size());
+                for (IndexSpec sourceIndex : diff) {
+                    // Find the corresponding destination index
+                    IndexSpec destIndex = findDestinationIndex(destSpecs, sourceIndex);
+                    
+                    logger.warn("     📍 Index: {} (key: {})", sourceIndex.getName(), sourceIndex.getKey());
+                    
+                    // Compare TTL
+                    if (sourceIndex.getExpireAfterSeconds() != null || (destIndex != null && destIndex.getExpireAfterSeconds() != null)) {
+                        Number sourceTtl = sourceIndex.getExpireAfterSeconds();
+                        Number destTtl = destIndex != null ? destIndex.getExpireAfterSeconds() : null;
+                        
+                        if (sourceTtl != null && destTtl != null) {
+                            double sourceDays = sourceTtl.doubleValue() / 86400.0;
+                            double destDays = destTtl.doubleValue() / 86400.0;
+                            logger.warn("        ⏱️  TTL DIFFERENCE:");
+                            logger.warn("           Source: {} seconds ({} days)", sourceTtl, String.format("%.1f", sourceDays));
+                            logger.warn("           Dest:   {} seconds ({} days)", destTtl, String.format("%.1f", destDays));
+                        } else if (sourceTtl != null) {
+                            double sourceDays = sourceTtl.doubleValue() / 86400.0;
+                            logger.warn("        ⏱️  TTL DIFFERENCE:");
+                            logger.warn("           Source: {} seconds ({} days)", sourceTtl, String.format("%.1f", sourceDays));
+                            logger.warn("           Dest:   NO TTL");
+                        } else if (destTtl != null) {
+                            double destDays = destTtl.doubleValue() / 86400.0;
+                            logger.warn("        ⏱️  TTL DIFFERENCE:");
+                            logger.warn("           Source: NO TTL");
+                            logger.warn("           Dest:   {} seconds ({} days)", destTtl, String.format("%.1f", destDays));
+                        }
+                    }
+                    
+                    // Compare other properties
+                    if (destIndex != null) {
+                        if (sourceIndex.isUnique() != destIndex.isUnique()) {
+                            logger.warn("        🔑 UNIQUE DIFFERENCE: Source={}, Dest={}", sourceIndex.isUnique(), destIndex.isUnique());
+                        }
+                        if (sourceIndex.isSparse() != destIndex.isSparse()) {
+                            logger.warn("        🌐 SPARSE DIFFERENCE: Source={}, Dest={}", sourceIndex.isSparse(), destIndex.isSparse());
+                        }
+                    } else {
+                        logger.warn("        ❗ INDEX MISSING ON DESTINATION");
+                    }
+                }
+                logger.debug("Full diff details: {}", diff);
                 diffCount += diff.size();
                 if (collModTtl) {
-                    modifiedCount += collModTtl(sourceIndexSpecs, diff);
+                    int modified = collModTtl(sourceIndexSpecs, diff);
+                    if (modified > 0) {
+                        logger.info("  ✅ Successfully modified {} index(es) via collMod", modified);
+                    }
+                    modifiedCount += modified;
                 }
-            } else if (config.extendTtl) {
+            } else {
+                logger.info("  ✅ All {} indexes match", specsToCompare.size());
+            }
+            
+            if (diff.isEmpty() && config.extendTtl) {
                 logger.debug("collModTtl with extendTtl");
-                modifiedCount += collModTtl(sourceIndexSpecs, sourceSpecs);
+                modifiedCount += collModTtl(sourceIndexSpecs, specsToCompare);
             }
         }
         if (collModTtl) {
-            logger.debug("collModTtl {} indexes modified", modifiedCount);
+            logger.info("=== INDEX COMPARISON WITH collModTtl COMPLETE ===");
+            logger.info("📊 Summary:");
+            logger.info("    Total namespaces checked: {}", processedNamespaces);
+            logger.info("    Total indexes checked: {}", indexCount);
+            
+            if (missingNamespaces > 0) {
+                logger.warn("    ⚠️  Missing collections: {} (containing {} indexes)", missingNamespaces, missingIndexesCount);
+            }
+            
+            int actualDiffs = diffCount - missingIndexesCount;  // Subtract missing indexes from diff count
+            if (actualDiffs > 0) {
+                logger.info("    Indexes with differences: {}", actualDiffs);
+                logger.info("    Indexes successfully modified: {}", modifiedCount);
+            }
+            
+            // Return failure if there were unresolved differences
+            int unresolvedDiffs = diffCount - modifiedCount - missingIndexesCount;
+            if (missingNamespaces > 0) {
+                logger.warn("❌ WARNING: {} collections are missing on destination (cannot be fixed with collModTtl)", missingNamespaces);
+                return 1;
+            } else if (unresolvedDiffs > 0) {
+                logger.warn("❌ WARNING: {} index differences could not be resolved", unresolvedDiffs);
+                return 1; // Exit code 1 for unresolved differences
+            } else if (actualDiffs > 0) {
+                logger.info("✅ All {} index differences were successfully resolved", actualDiffs);
+            } else {
+                logger.info("✅ No index differences found - clusters are in sync");
+            }
+            return 0; // Exit code 0 if all differences were resolved or none found
         } else {
-            logger.debug("Checked {} indexes, {} indexes failed", indexCount, diffCount);
+            logger.info("=== INDEX COMPARISON COMPLETE ===");
+            logger.info("📊 Summary:");
+            logger.info("    Total namespaces checked: {}", processedNamespaces);
+            logger.info("    Total indexes checked: {}", indexCount);
+            
+            if (missingNamespaces > 0) {
+                logger.warn("    ❌ Missing collections: {} (containing {} indexes)", missingNamespaces, missingIndexesCount);
+            }
+            
+            int actualDiffs = diffCount - missingIndexesCount;  // Subtract missing indexes from diff count
+            if (actualDiffs > 0) {
+                logger.warn("    ❌ Index differences found: {}", actualDiffs);
+            }
+            
+            if (diffCount > 0) {
+                logger.warn("❌ Total issues found: {} (run with --collModTtl to fix TTL differences)", diffCount);
+                return 1; // Exit code 1 when differences found but not fixed
+            } else {
+                logger.info("✅ No differences found - all {} indexes match!", indexCount);
+            }
+            return 0; // Exit code 0 when no differences found
         }
 
+    }
+
+    private IndexSpec findDestinationIndex(Set<IndexSpec> destSpecs, IndexSpec sourceIndex) {
+        // Find destination index with same name and key pattern
+        for (IndexSpec destSpec : destSpecs) {
+            if (sourceIndex.getName().equals(destSpec.getName()) && 
+                sourceIndex.getKey().equals(destSpec.getKey())) {
+                return destSpec;
+            }
+        }
+        return null;
     }
 
     public void checkShardedIndexes() {
@@ -494,32 +757,51 @@ public class ShardConfigSync implements Callable<Integer> {
 
     private int collModTtl(Map<Namespace, Set<IndexSpec>> sourceIndexSpecsMap, Set<IndexSpec> diff) {
         int modifiedCount = 0;
+        logger.debug("Starting collModTtl for {} indexes", diff.size());
+        
         for (IndexSpec spec : diff) {
             if (spec.getExpireAfterSeconds() != null) {
                 Namespace ns = spec.getNamespace();
 
-                Document indexInfo = spec.getSourceSpec().decode(codec);
-                indexInfo.remove("v");
+                Document sourceIndexInfo = spec.getSourceSpec().decode(codec);
+                
+                // Create collMod command with correct format
                 Document collMod = new Document("collMod", ns.getCollectionName());
-                collMod.append("index", indexInfo);
+                Document indexMod = new Document();
+                
+                // Use keyPattern instead of passing entire index document
+                indexMod.put("keyPattern", sourceIndexInfo.get("key"));
 
                 if (config.extendTtl) {
-                    Number expireAfterSeconds = (Number) indexInfo.get("expireAfterSeconds");
-                    indexInfo.put("expireAfterSeconds", 50 * ShardConfigSync.SECONDS_IN_YEAR);
-                    logger.debug(String.format("Extending TTL for %s %s from %s to %s", ns, indexInfo.get("name"),
-                            expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
+                    Number expireAfterSeconds = (Number) sourceIndexInfo.get("expireAfterSeconds");
+                    int extendedTtl = 50 * ShardConfigSync.SECONDS_IN_YEAR;
+                    indexMod.put("expireAfterSeconds", extendedTtl);
+                    logger.debug(String.format("Extending TTL for %s %s from %s to %s", ns, sourceIndexInfo.get("name"),
+                            expireAfterSeconds, extendedTtl));
+                } else {
+                    // Set TTL to match source
+                    Number expireAfterSeconds = (Number) sourceIndexInfo.get("expireAfterSeconds");
+                    indexMod.put("expireAfterSeconds", expireAfterSeconds);
+                    logger.debug(String.format("Setting TTL for %s %s to %s", ns, sourceIndexInfo.get("name"), expireAfterSeconds));
                 }
 
-                logger.debug(String.format("%s collMod: %s", ns, collMod));
+                collMod.append("index", indexMod);
+                logger.debug(String.format("%s executing collMod command: %s", ns, collMod));
                 try {
                     Document result = destShardClient.runCommand(collMod, ns.getDatabaseName());
-                    logger.debug(String.format("%s collMod result: %s", ns, result));
+                    logger.info(String.format("%s collMod successful, result: %s", ns, result));
                     modifiedCount++;
                 } catch (MongoCommandException mce) {
-                    logger.error(String.format("%s createIndexes failed: %s", ns, mce.getMessage()));
+                    logger.error(String.format("%s collMod failed: %s (error code: %d)", ns, mce.getMessage(), mce.getCode()));
+                } catch (Exception e) {
+                    logger.error(String.format("%s collMod failed with unexpected error: %s", ns, e.getMessage()), e);
                 }
+            } else {
+                logger.debug("Skipping index {} - no expireAfterSeconds field", spec.getName());
             }
         }
+        
+        logger.debug("collModTtl completed: {} out of {} indexes modified", modifiedCount, diff.size());
         return modifiedCount;
     }
 
@@ -768,49 +1050,183 @@ public class ShardConfigSync implements Callable<Integer> {
         AtlasServiceGenerator.shutdown();
     }
 
-
-    public void syncMetadata() throws InterruptedException {
-        logger.debug(String.format("Starting metadata sync/migration, %s: %s",
-                ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
-        
-//        if (destShardClient.isVersion5OrLater()) {
-//        	throw new IllegalArgumentException("syncMetadata no longer supported for > 5.x, please use syncMetadataOptimized");
-//        }
-
+    private boolean syncMetadataInitialization() {
+        return syncMetadataInitialization(false);
+    }
+    
+    private boolean syncMetadataInitialization(boolean force) {
         initChunkManager();
+        
+        // Perform preflight check to ensure destination is empty (unless forced)
+        if (!force && !performPreflightCheck()) {
+            return false; // Exit early if preflight check fails
+        } else if (force) {
+            logger.warn("⚠️  FORCE MODE: Skipping preflight checks - will not check for non-empty destination");
+        }
+        
         stopBalancers();
-        //checkAutosplit();
         createCollections(config);
         enableDestinationSharding();
-
         sourceShardClient.populateCollectionsMap();
         shardDestinationCollections();
         destShardClient.populateCollectionsMap();
+        return true;
+    }
+    
+    /**
+     * Performs a comprehensive preflight check to verify the destination cluster is empty.
+     * This should be called after initChunkManager() to ensure chunk data is available.
+     * 
+     * @return true if preflight check passes, false if destination is not empty
+     */
+    private boolean performPreflightCheck() {
+        logger.info("=== STARTING PREFLIGHT CHECK ===");
+        logger.info("Verifying destination cluster is empty...");
+        
+        boolean isEmpty = true;
+        List<String> issues = new ArrayList<>();
+        
+        // Check 1: Database check (handled by ShardClient)
+        try {
+            destShardClient.preflightCheckEmptyDestination();
+        } catch (RuntimeException e) {
+            isEmpty = false;
+            issues.add("Database check failed: " + e.getMessage());
+        }
+        
+        // Check 2: Verify no sharded collections exist using destination chunksCache
+        try {
+            // Get the chunksCache from destination client (should be populated after initChunkManager)
+            Map<String, RawBsonDocument> destChunksCache = destShardClient.getChunksCache(new BsonDocument());
+            
+            if (destChunksCache != null && !destChunksCache.isEmpty()) {
+                // Count chunks for non-system databases
+                Map<String, Integer> namespaceCounts = new HashMap<>();
+                int nonSystemChunkCount = 0;
+                
+                for (Map.Entry<String, RawBsonDocument> entry : destChunksCache.entrySet()) {
+                    RawBsonDocument chunk = entry.getValue();
+                    String ns = chunk.getString("ns").getValue();
+                    String dbName = ns.split("\\.")[0];
+                    
+                    // Skip system databases
+                    if (!ShardClient.excludedSystemDbs.contains(dbName)) {
+                        nonSystemChunkCount++;
+                        namespaceCounts.merge(ns, 1, Integer::sum);
+                    }
+                }
+                
+                if (nonSystemChunkCount > 0) {
+                    isEmpty = false;
+                    logger.error("❌ Found {} chunk(s) for non-system sharded collections", nonSystemChunkCount);
+                    
+                    for (Map.Entry<String, Integer> nsEntry : namespaceCounts.entrySet()) {
+                        String ns = nsEntry.getKey();
+                        int chunkCount = nsEntry.getValue();
+                        logger.error("   🔗 Sharded collection: {} ({} chunks)", ns, chunkCount);
+                        issues.add(String.format("Sharded collection '%s' has %d chunks", ns, chunkCount));
+                    }
+                    logger.info("Added {} sharded collection issues to the list", namespaceCounts.size());
+                } else {
+                    logger.info("✅ No non-system sharded collections found");
+                }
+            } else {
+                logger.info("✅ No chunks found in destination chunksCache (empty cluster)");
+            }
+        } catch (Exception e) {
+            logger.warn("⚠️ Could not check chunksCache for sharded collections: {}", e.getMessage());
+            logger.info("✅ Assuming no sharded collections (check failed)");
+            // Don't mark as failed if we can't check - this is just a safety check
+        }
+        
+        // Summary
+        logger.debug("Preflight check complete: isEmpty={}, issues.size()={}", isEmpty, issues.size());
+        if (isEmpty) {
+            logger.info("=== PREFLIGHT CHECK PASSED ===");
+            logger.info("✅ Destination cluster is empty and ready for sync");
+            return true;
+        } else {
+            logger.error("=== PREFLIGHT CHECK FAILED ===");
+            logger.error("❌ Destination cluster is not empty:");
+            if (issues.isEmpty()) {
+                logger.error("   • Issues were detected but not properly captured in the issues list");
+            } else {
+                for (String issue : issues) {
+                    logger.error("   • {}", issue);
+                }
+            }
+            logger.error("🛑 Please ensure the destination cluster is completely empty before running sync operations");
+            logger.error("💡 Suggestion: Use 'shardSync drop databases' to clean the destination cluster");
+            
+            return false;
+        }
+    }
+
+
+    public boolean syncMetadataLegacy() throws InterruptedException {
+        return syncMetadataLegacy(false);
+    }
+    
+    public boolean syncMetadataLegacy(boolean force) throws InterruptedException {
+        logger.debug(String.format("Starting legacy metadata sync/migration, %s: %s",
+                ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
+        
+        if (destShardClient.isVersion5OrLater()) {
+        	logger.warn("syncMetadata legacy is slower, please consider syncMetadataOptimized");
+        }
+
+
+        if (!syncMetadataInitialization(force)) {
+            return false; // Preflight check failed
+        }
         chunkManager.createDestChunksUsingSplitCommand();
         chunkManager.compareAndMoveChunks(true, false);
 
         if (!config.skipFlushRouterConfig) {
             destShardClient.flushRouterConfig();
         }
+        return true;
     }
-
-    public void syncMetadataOptimized() {
-        logger.debug(String.format("Starting optimized metadata sync/migration, %s: %s",
+    
+    public boolean syncMetadata() {
+        return syncMetadata(false);
+    }
+    
+    public boolean syncMetadata(boolean force) {
+        logger.debug(String.format("Starting metadata sync/migration, %s: %s",
                 ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
 
-        initChunkManager();
-        stopBalancers();
-        createCollections(config);
-        enableDestinationSharding();
-        sourceShardClient.populateCollectionsMap();
-        shardDestinationCollections();
-        destShardClient.populateCollectionsMap();
+        if (!syncMetadataInitialization(force)) {
+            return false; // Preflight check failed
+        }
 
-        chunkManager.createAndMoveChunks();
+        boolean success = chunkManager.createAndMoveChunks(false);
 
         if (!config.skipFlushRouterConfig) {
             destShardClient.flushRouterConfig();
         }
+        
+        return success;
+    }
+    
+    public boolean syncMetadataOptimized() {
+        return syncMetadataOptimized(false);
+    }
+    
+    public boolean syncMetadataOptimized(boolean force) {
+        logger.debug(String.format("Starting optimized metadata sync/migration, %s: %s",
+                ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
+        
+        if (!syncMetadataInitialization(force)) {
+            return false; // Preflight check failed
+        }
+        
+        boolean success = chunkManager.createAndMoveChunks(true);
+        if (!config.skipFlushRouterConfig) {
+            destShardClient.flushRouterConfig();
+        }
+        
+        return success;
     }
 
     private void stopBalancers() {
@@ -853,19 +1269,19 @@ public class ShardConfigSync implements Callable<Integer> {
     }
 
 
-    public void compareChunksEquivalent() {
+    public boolean compareChunksEquivalent() {
         initChunkManager();
-        chunkManager.compareChunksEquivalent();
+        return chunkManager.compareChunksEquivalent();
     }
 
-    public void compareChunks() {
+    public boolean compareChunks() {
         initChunkManager();
-        chunkManager.compareAndMoveChunks(false, false);
+        return chunkManager.compareAndMoveChunks(false, false);
     }
 
-    public void compareAndMoveChunks(boolean doMove, boolean ignoreMissing) {
+    public boolean compareAndMoveChunks(boolean doMove, boolean ignoreMissing) {
         initChunkManager();
-        chunkManager.compareAndMoveChunks(doMove, ignoreMissing);
+        return chunkManager.compareAndMoveChunks(doMove, ignoreMissing);
     }
 
     @SuppressWarnings("unchecked")
@@ -873,9 +1289,8 @@ public class ShardConfigSync implements Callable<Integer> {
 
         logger.debug("Starting compareShardCounts mode");
 
-        Document listDatabases = new Document("listDatabases", 1);
-        Document sourceDatabases = sourceShardClient.adminCommand(listDatabases);
-        Document destDatabases = destShardClient.adminCommand(listDatabases);
+        Document sourceDatabases = sourceShardClient.listDatabases();
+        Document destDatabases = destShardClient.listDatabases();
 
         List<Document> sourceDatabaseInfo = (List<Document>) sourceDatabases.get("databases");
         List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
@@ -928,144 +1343,7 @@ public class ShardConfigSync implements Callable<Integer> {
         }
     }
 
-    public void cleanupPreviousShards(Set<String> shardNames) {
 
-        logger.debug("Starting cleanupPreviousShards: [{}]", StringUtils.join(shardNames, ", "));
-
-        Set<String> destShardNames = destShardClient.getShardsMap().keySet();
-        boolean fatal = false;
-        for (String shardName : shardNames) {
-            if (!destShardNames.contains(shardName)) {
-                logger.error("cleanupPreviousShards shardName {} not found on destination", shardName);
-                fatal = true;
-            }
-        }
-        if (fatal) {
-            throw new IllegalArgumentException("cleanupPreviousShards: one or more shard names provided were not found on dest");
-        }
-        if (destShardNames.size() < 2) {
-            throw new IllegalArgumentException("cleanupPreviousShards: 2 or more shards required on destination to use this option");
-        }
-        destShardClient.populateShardMongoClients();
-
-        Document listDatabases = new Document("listDatabases", 1);
-        Document destDatabases = destShardClient.adminCommand(listDatabases);
-
-        List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
-
-        populateDbMap(destDatabaseInfo, destDbInfoMap);
-
-        MongoCollection<RawBsonDocument> destChunksColl = destShardClient.getChunksCollectionRaw();
-
-        for (Document destInfo : destDatabaseInfo) {
-            String dbName = destInfo.getString("name");
-
-            MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(dbName);
-            List<String> destCollectionNames = new ArrayList<>();
-
-            destDb.listCollectionNames().into(destCollectionNames);
-            for (String collectionName : destCollectionNames) {
-                if (collectionName.startsWith("system.")) {
-                    continue;
-                }
-
-                Namespace ns = new Namespace(dbName, collectionName);
-                if (config.filterCheck(ns)) {
-                    continue;
-                }
-
-                for (String shardName : shardNames) {
-
-                    Set<String> t1 = new HashSet<>();
-                    t1.add(shardName);
-                    Set<String> otherShards = Sets.difference(destShardNames, t1);
-                    if (!otherShards.isEmpty()) {
-
-                        logger.debug("current shard: {}, otherShards: {}", shardName, otherShards);
-
-                    }
-
-                    MongoDatabase db = destShardClient.getShardMongoClient(shardName).getDatabase(dbName);
-
-                    // find the first chunk that is on the shard where we are about to drop
-                    RawBsonDocument firstChunk = destChunksColl.find(and(eq("ns", ns.getNamespace()), eq("shard", shardName))).first();
-
-                    if (firstChunk != null) {
-                        logger.debug("first chunk {}", firstChunk);
-                        logger.debug("dropping {} on shard {}", ns, shardName);
-
-                        String otherShard = otherShards.iterator().next();
-                        boolean firstMove = destShardClient.moveChunk(firstChunk, otherShard, false);
-
-                        if (firstMove) {
-                            logger.debug("firstMove done");
-                            db.getCollection(collectionName).drop();
-
-                            // now move it back so that we get the UUID created correctly
-                            destShardClient.moveChunk(firstChunk, shardName, false);
-                        }
-
-
-                    }
-
-
-                }
-
-
-            }
-        }
-        logger.debug("Finished cleanupPrevious");
-
-    }
-
-    public void cleanupPreviousAll() {
-
-        logger.debug("Starting cleanupPreviousAll");
-
-        Document listDatabases = new Document("listDatabases", 1);
-        Document destDatabases = destShardClient.adminCommand(listDatabases);
-
-        List<Document> destDatabaseInfo = (List<Document>) destDatabases.get("databases");
-
-        populateDbMap(destDatabaseInfo, destDbInfoMap);
-
-        Document nullFilter = new Document();
-
-        for (Document destInfo : destDatabaseInfo) {
-            String dbName = destInfo.getString("name");
-
-            MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(dbName);
-            List<String> destCollectionNames = new ArrayList<>();
-
-            destDb.listCollectionNames().into(destCollectionNames);
-            for (String collectionName : destCollectionNames) {
-                if (collectionName.startsWith("system.")) {
-                    continue;
-                }
-
-                Namespace ns = new Namespace(dbName, collectionName);
-                if (config.filterCheck(ns)) {
-                    continue;
-                }
-
-                DeleteResult deleteResult = null;
-                try {
-                    deleteResult = destDb.getCollection(collectionName).deleteMany(nullFilter);
-                } catch (MongoException me) {
-                    logger.error("{}: delete error: {}", ns, me.getMessage());
-                }
-
-                if (deleteResult != null) {
-                    long count = deleteResult.getDeletedCount();
-                    if (count > 0) {
-                        logger.debug("{}: deleted {} doucments on destination", ns, count);
-                    }
-                }
-
-            }
-        }
-        logger.debug("Finished cleanupPrevious");
-    }
 
     private long[] doCounts(MongoDatabase sourceDb, MongoDatabase destDb, String collectionName) {
         return doCounts(sourceDb, destDb, collectionName, null);
@@ -1479,7 +1757,6 @@ public class ShardConfigSync implements Callable<Integer> {
                 //throw mce;
             }
         }
-        logger.debug("Sharding result for {}: {}", sourceColl.get("_id"), result);
         
         if (destShardClient.isVersion8OrLater() && hashed && destShardClient.getShardsMap().size() > 1) {
         	String namespace = (String) sourceColl.get("_id");
