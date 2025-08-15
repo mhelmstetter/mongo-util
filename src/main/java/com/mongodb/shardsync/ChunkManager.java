@@ -626,7 +626,9 @@ public class ChunkManager {
 		boolean success = (totalErrorCount == 0);
 		if (success) {
 			logger.info("✅ createAndMoveChunks complete - SUCCESS");
-			logger.info("    Created {} megachunk boundaries, moved {} chunks", chunkCount, moveCount);
+			if (!consolidateAdjacentChunks) {
+				logger.info("    Created {} megachunk boundaries, moved {} chunks", chunkCount, moveCount);
+			}
 		} else {
 			logger.error("❌ createAndMoveChunks complete - FAILURE");
 			logger.error("    Errors encountered: {}", totalErrorCount);

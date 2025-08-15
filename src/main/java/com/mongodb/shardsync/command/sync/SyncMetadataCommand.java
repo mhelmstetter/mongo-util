@@ -29,6 +29,10 @@ public class SyncMetadataCommand implements Callable<Integer> {
             description = "Skip the flushRouterConfig step")
     private boolean skipFlushRouterConfig;
     
+    @Option(names = {"--force"}, 
+            description = "Skip preflight checks and force sync operation")
+    private boolean force;
+    
     @Override
     public Integer call() throws Exception {
         SyncConfiguration config = parent.createConfiguration();
@@ -39,12 +43,11 @@ public class SyncMetadataCommand implements Callable<Integer> {
         boolean success = true;
         
         if (legacy) {
-            sync.syncMetadataLegacy();
-            // Legacy method doesn't return status, assume success
+            success = sync.syncMetadataLegacy(force);
         } else if (optimized) {
-            success = sync.syncMetadataOptimized();
+            success = sync.syncMetadataOptimized(force);
         } else {
-            success = sync.syncMetadata();
+            success = sync.syncMetadata(force);
         }
         
         return success ? 0 : 1;

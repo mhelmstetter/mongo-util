@@ -40,7 +40,8 @@ public class SyncIndexesCommand implements Callable<Integer> {
         sync.initialize();
         
         if (collModTtl) {
-            return sync.compareIndexes(true);
+            // When using collModTtl, force ttlOnly=true since collMod can only modify TTL settings
+            return sync.compareIndexes(true, true);
         } else {
             sync.syncIndexesShards(true, extendTtl, collation, ttlOnly);
             return 0;
