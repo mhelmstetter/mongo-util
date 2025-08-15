@@ -13,6 +13,9 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.shardsync.command.*;
 import com.mongodb.shardsync.command.AdvancedConnectionMixin;
+import com.mongodb.shardsync.command.compare.CompareCommand;
+import com.mongodb.shardsync.command.drop.DropCommand;
+import com.mongodb.shardsync.command.sync.SyncCommand;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;

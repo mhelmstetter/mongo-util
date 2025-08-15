@@ -1,15 +1,16 @@
-package com.mongodb.shardsync.command;
+package com.mongodb.shardsync.command.drop;
 
 import com.mongodb.shardsync.ShardConfigSyncApp;
 import com.mongodb.shardsync.SyncConfiguration;
-import com.mongodb.shardsync.command.drop.*;
+import com.mongodb.shardsync.command.AtlasOptionsMixin;
+
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
 import java.util.concurrent.Callable;
 
 @Command(name = "drop", 
-         description = "Drop databases, collections, or indexes",
+         description = "Drop databases, indexes, or Atlas users",
          subcommands = {
              DropDatabasesCommand.class,
              DropUsersCommand.class,

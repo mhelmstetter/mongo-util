@@ -2,7 +2,7 @@ package com.mongodb.shardsync.command.compare;
 
 import com.mongodb.shardsync.ShardConfigSync;
 import com.mongodb.shardsync.SyncConfiguration;
-import com.mongodb.shardsync.command.CompareCommand;
+
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 

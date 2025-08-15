@@ -1548,7 +1548,6 @@ public class ShardClient {
 		MongoIterable<RawBsonDocument> sourceChunks;
 		
 		if (this.isVersion5OrLater()) {
-			logger.debug("Building aggregation pipeline for version 5+");
 			sourceChunks = chunksColl.aggregate(Arrays.asList(
 		            match(chunkQuery),
 		            lookup("collections", "uuid", "uuid", "collectionData"),

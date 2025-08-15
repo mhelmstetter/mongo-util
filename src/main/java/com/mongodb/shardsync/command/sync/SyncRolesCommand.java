@@ -2,7 +2,7 @@ package com.mongodb.shardsync.command.sync;
 
 import com.mongodb.shardsync.ShardConfigSync;
 import com.mongodb.shardsync.SyncConfiguration;
-import com.mongodb.shardsync.command.SyncCommand;
+
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 

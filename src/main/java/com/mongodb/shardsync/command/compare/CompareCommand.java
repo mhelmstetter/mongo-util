@@ -1,8 +1,9 @@
-package com.mongodb.shardsync.command;
+package com.mongodb.shardsync.command.compare;
 
 import com.mongodb.shardsync.ShardConfigSyncApp;
 import com.mongodb.shardsync.SyncConfiguration;
-import com.mongodb.shardsync.command.compare.*;
+import com.mongodb.shardsync.command.AtlasOptionsMixin;
+
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;

@@ -2,7 +2,7 @@ package com.mongodb.shardsync.command.drop;
 
 import com.mongodb.shardsync.ShardConfigSync;
 import com.mongodb.shardsync.SyncConfiguration;
-import com.mongodb.shardsync.command.DropCommand;
+
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
