@@ -2,7 +2,7 @@ package com.mongodb.shardsync.command.compare;
 
 import com.mongodb.shardsync.ShardConfigSync;
 import com.mongodb.shardsync.SyncConfiguration;
-import com.mongodb.shardsync.command.CompareCommand;
+
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -15,8 +15,8 @@ public class CompareUuidsCommand implements Callable<Integer> {
     @CommandLine.ParentCommand
     private CompareCommand parent;
     
-    @Option(names = {"--drop-empty-on-incorrect-shards"}, 
-            description = "Drop empty collections found on incorrect shards")
+    @Option(names = {"--dropEmptyOnIncorrectShards"}, 
+            description = "Drop empty collections having UUID mismatch")
     private boolean dropEmptyOnIncorrectShards;
     
     @Override

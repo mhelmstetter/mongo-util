@@ -2,7 +2,7 @@ package com.mongodb.shardsync.command.sync;
 
 import com.mongodb.shardsync.ShardConfigSync;
 import com.mongodb.shardsync.SyncConfiguration;
-import com.mongodb.shardsync.command.SyncCommand;
+
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -19,15 +19,15 @@ public class SyncIndexesCommand implements Callable<Integer> {
             description = "Collation to apply to index creation")
     private String collation;
     
-    @Option(names = {"--extend-ttl"}, 
+    @Option(names = {"--extendTtl"}, 
             description = "Extend TTL expiration")
     private boolean extendTtl;
     
-    @Option(names = {"--ttl-only"}, 
+    @Option(names = {"--ttlOnly"}, 
             description = "Only sync TTL indexes")
     private boolean ttlOnly;
     
-    @Option(names = {"--collmod-ttl"}, 
+    @Option(names = {"--collModTtl"}, 
             description = "Use collMod to update TTL indexes on destination based on source")
     private boolean collModTtl;
     

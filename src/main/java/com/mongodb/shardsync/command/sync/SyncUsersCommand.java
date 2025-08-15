@@ -2,7 +2,7 @@ package com.mongodb.shardsync.command.sync;
 
 import com.mongodb.shardsync.ShardConfigSync;
 import com.mongodb.shardsync.SyncConfiguration;
-import com.mongodb.shardsync.command.SyncCommand;
+
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -25,7 +25,7 @@ public class SyncUsersCommand implements Callable<Integer> {
             defaultValue = "usersOutput.csv")
     private String usersOutputCsv;
     
-    @Option(names = {"--test-auth"}, 
+    @Option(names = {"--testAuth"}, 
             description = "Test user authentications using credentials from input CSV")
     private boolean testAuth;
     

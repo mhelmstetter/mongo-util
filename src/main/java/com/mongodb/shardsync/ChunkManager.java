@@ -477,8 +477,9 @@ public class ChunkManager {
 	 * Create chunks and move them, using the "optimized" method to reduce the total
 	 * number of chunk moves required.
 	 */
-	public void createAndMoveChunks(boolean consolidateAdjacentChunks) {
+	public boolean createAndMoveChunks(boolean consolidateAdjacentChunks) {
 		boolean doMove = true;
+		int totalErrorCount = 0;
 
 		logger.debug("createAndMoveChunks (optimized) started");
 		//logger.debug("chunkQuery: {}", chunkQuery);
@@ -493,7 +494,7 @@ public class ChunkManager {
 		Set<String> destMins = getChunkMins(destChunkQuery);
 		
 		// step 1: build a list of "megachunks", each representing a range of consecutive chunks
-		// that reside on the same shard. See Megachunk inner class.
+		// that reside on the same shard. See Megachunk class.
 		List<Megachunk> optimizedChunks = getMegaChunks(sourceChunksCache, sourceShardClient);
 		logger.debug(String.format("optimized chunk count: %s", optimizedChunks.size()));
 		
@@ -508,11 +509,10 @@ public class ChunkManager {
 		
 		// Phase 4: operations on all mids within all megachunks (if not consolidating)
 		int midOps = 0;
-		if (!consolidateAdjacentChunks) {
-			for (Megachunk mega : optimizedChunks) {
-				midOps += mega.getMids().size();
-			}
+		for (Megachunk mega : optimizedChunks) {
+			midOps += mega.getMids().size();
 		}
+		
 		
 		double totalChunks = (double)(megachunkOps + midOps);
 		logger.debug("Total operations to perform: {} (megachunk ops: {}, mid ops: {})", 
@@ -570,12 +570,11 @@ public class ChunkManager {
 	        }
 
 	        String destShard = destChunkToShardMap.get(mega2.getId());
-	        int errorCount = 0;
 	        if (doMove && destShard != null && !mappedShard.equals(destShard)) {
 	            boolean moveSuccess = destShardClient.moveChunk(mega2.getNs(), (RawBsonDocument)mega2.getMin(), 
 	                    (RawBsonDocument)mega2.getMax(), mappedShard, false, false, waitForDelete, false);
 	            if (!moveSuccess) {
-					errorCount++;
+					totalErrorCount++;
 	            }
 	            moveCount++;
 	        }
@@ -591,38 +590,49 @@ public class ChunkManager {
 		logger.debug("phase 3 complete, {} chunks moved", moveCount);
 
 		// step 4: split megachunks into final chunks
-		chunkCount = 0; // Reset to count actual chunks created
-		startTsSeconds = Instant.now().getEpochSecond();
-		if (consolidateAdjacentChunks) {
-			logger.debug("Adjacent chunks will remain consolidated, total chunk count should be reduced on target");
-		} else {
-			logger.debug("Splitting megachunks to mirror source chunks");
-			for (Megachunk mega2 : optimizedChunks) {
-				// Each megachunk represents at least one chunk (from last mid/min to max)
-				chunkCount++;
-				
-				for (BsonDocument mid : mega2.getMids()) {
-					//getChunkMinKey
-					String midHash = ((RawBsonDocument) mid).toJson();
-					String midId = String.format("%s_%s", mega2.getNs(), midHash);
-					if (! destMins.contains(midId)) {
-						destShardClient.splitAt(mega2.getNs(), mid, true);
-					}
+		if (!consolidateAdjacentChunks) {
+			chunkCount = 0; // Reset to count actual chunks created
+			startTsSeconds = Instant.now().getEpochSecond();
+			if (consolidateAdjacentChunks) {
+				logger.debug("Adjacent chunks will remain consolidated, total chunk count should be reduced on target");
+			} else {
+				logger.debug("Splitting megachunks to mirror source chunks");
+				for (Megachunk mega2 : optimizedChunks) {
+					// Each megachunk represents at least one chunk (from last mid/min to max)
 					chunkCount++;
-					ts = Instant.now().getEpochSecond();
-					long secondsSinceLastLog = ts - startTsSeconds;
-					if (secondsSinceLastLog >= 60) {
-						printChunkStatus(chunkCount, totalChunks, "chunks created");
-						startTsSeconds = ts;
+					
+					for (BsonDocument mid : mega2.getMids()) {
+						//getChunkMinKey
+						String midHash = ((RawBsonDocument) mid).toJson();
+						String midId = String.format("%s_%s", mega2.getNs(), midHash);
+						if (! destMins.contains(midId)) {
+							destShardClient.splitAt(mega2.getNs(), mid, true);
+						}
+						chunkCount++;
+						ts = Instant.now().getEpochSecond();
+						long secondsSinceLastLog = ts - startTsSeconds;
+						if (secondsSinceLastLog >= 60) {
+							printChunkStatus(chunkCount, totalChunks, "chunks created");
+							startTsSeconds = ts;
+						}
 					}
 				}
 			}
+			printChunkStatus(chunkCount, totalChunks, "chunks created");
+		} else {
+			logger.debug("megachunks will not be split -- adjacent chunks have been consolidated");
 		}
 		
+		boolean success = (totalErrorCount == 0);
+		if (success) {
+			logger.info("✅ createAndMoveChunks complete - SUCCESS");
+			logger.info("    Created {} megachunk boundaries, moved {} chunks", chunkCount, moveCount);
+		} else {
+			logger.error("❌ createAndMoveChunks complete - FAILURE");
+			logger.error("    Errors encountered: {}", totalErrorCount);
+		}
 		
-		
-		printChunkStatus(chunkCount, totalChunks, "chunks created");
-		logger.debug("createAndMoveChunks complete");
+		return success;
 	}
 	
 	public String getNextTargetShard() {
@@ -685,7 +695,7 @@ public class ChunkManager {
 		logger.debug("createDestChunksUsingSplitCommand complete");
 	}
 	
-	public void compareAndMoveChunks(boolean doMove, boolean ignoreMissing) {
+	public boolean compareAndMoveChunks(boolean doMove, boolean ignoreMissing) {
 
 		if (destChunkQuery == null) {
 			initializeDestChunkQuery();
@@ -770,18 +780,37 @@ public class ChunkManager {
 		}
 		logger.debug(String.format("compareAndMoveChunks - %s - complete, compared %s chunks", lastNs, currentCount));
 
+		boolean success = (mismatchedCount == 0 && missingCount == 0 && errorCount == 0);
+		
 		if (doMove) {
-			logger.debug(String.format("compareAndMoveChunks complete, sourceCount: %s, destCount: %s",
-					sourceTotalCount, destChunkMap.size()));
+			if (success) {
+				logger.info(String.format("✅ compareAndMoveChunks complete, sourceCount: %s, destCount: %s, movedCount: %s",
+						sourceTotalCount, destChunkMap.size(), movedCount));
+			} else {
+				logger.error(String.format("❌ compareAndMoveChunks complete with errors, sourceCount: %s, destCount: %s, movedCount: %s, errorCount: %s",
+						sourceTotalCount, destChunkMap.size(), movedCount, errorCount));
+			}
 		} else {
-			logger.debug(String.format(
-					"compareAndMoveChunks complete, sourceCount: %s, destCount: %s, mismatchedCount: %s, missingCount: %s",
-					sourceTotalCount, destChunkMap.size(), mismatchedCount, missingCount));
+			if (success) {
+				logger.info(String.format(
+						"✅ compareAndMoveChunks complete, sourceCount: %s, destCount: %s, all chunks match",
+						sourceTotalCount, destChunkMap.size()));
+			} else {
+				logger.error(String.format(
+						"❌ compareAndMoveChunks complete, sourceCount: %s, destCount: %s, mismatchedCount: %s, missingCount: %s",
+						sourceTotalCount, destChunkMap.size(), mismatchedCount, missingCount));
+			}
 		}
-
+		
+		return success;
 	}
 	
-	public void compareChunksEquivalent() {
+	public boolean compareChunksEquivalent() {
+		// Initialize destChunkQuery if not already done
+		if (destChunkQuery == null) {
+			initializeDestChunkQuery();
+		}
+		
 		Map<String, RawBsonDocument> sourceChunksCache = sourceShardClient.loadChunksCache(sourceChunkQuery);
 		Map<String, RawBsonDocument> destChunksCache = destShardClient.loadChunksCache(destChunkQuery);
 		
@@ -800,10 +829,32 @@ public class ChunkManager {
 		List<Megachunk> diff2 = new ArrayList<>(Sets.difference(Sets.newHashSet(destMega), Sets.newHashSet(sourceMega)));
 		
 		
-		logger.debug("compareChunksEquivalent: source mega count: {}, dest mega count: {}", sourceMega.size(), destMega.size());
-		logger.debug("diff1: {}", diff1);
-		logger.debug("diff2: {}", diff2);
+		logger.info("Comparing chunk equivalence between source and destination clusters");
+		logger.info("Source megachunk count: {}, Destination megachunk count: {}", sourceMega.size(), destMega.size());
 		
+		boolean isEquivalent = diff1.isEmpty() && diff2.isEmpty();
+		
+		if (isEquivalent) {
+			logger.info("✅ SUCCESS: Chunks are equivalent between source and destination clusters");
+		} else {
+			logger.error("❌ FAILURE: Chunks are NOT equivalent between source and destination clusters");
+			
+			if (!diff1.isEmpty()) {
+				logger.error("Megachunks present in SOURCE but missing in DESTINATION:");
+				for (Megachunk chunk : diff1) {
+					logger.error("  - {}", chunk);
+				}
+			}
+			
+			if (!diff2.isEmpty()) {
+				logger.error("Megachunks present in DESTINATION but missing in SOURCE:");
+				for (Megachunk chunk : diff2) {
+					logger.error("  - {}", chunk);
+				}
+			}
+		}
+		
+		return isEquivalent;
 	}
 	
 	private Map<String, String> readDestinationChunks() {

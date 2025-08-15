@@ -2,7 +2,7 @@ package com.mongodb.shardsync.command.sync;
 
 import com.mongodb.shardsync.ShardConfigSync;
 import com.mongodb.shardsync.SyncConfiguration;
-import com.mongodb.shardsync.command.SyncCommand;
+
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -17,8 +17,7 @@ public class SyncMetadataCommand implements Callable<Integer> {
     
     @Option(names = {"--optimized"}, 
             description = "Combine adjacent chunks for optimization (default: true)", 
-            defaultValue = "true",
-            negatable = true)
+            defaultValue = "true")
     private boolean optimized = true;
     
     @Option(names = {"--legacy"}, 
@@ -26,7 +25,7 @@ public class SyncMetadataCommand implements Callable<Integer> {
             hidden = true)
     private boolean legacy;
     
-    @Option(names = {"--skip-flush-router-config"}, 
+    @Option(names = {"--skipFlushRouterConfig"}, 
             description = "Skip the flushRouterConfig step")
     private boolean skipFlushRouterConfig;
     
@@ -37,14 +36,17 @@ public class SyncMetadataCommand implements Callable<Integer> {
         ShardConfigSync sync = new ShardConfigSync(config);
         sync.initialize();
         
+        boolean success = true;
+        
         if (legacy) {
             sync.syncMetadataLegacy();
+            // Legacy method doesn't return status, assume success
         } else if (optimized) {
-            sync.syncMetadataOptimized();
+            success = sync.syncMetadataOptimized();
         } else {
-            sync.syncMetadata();
+            success = sync.syncMetadata();
         }
         
-        return 0;
+        return success ? 0 : 1;
     }
 }

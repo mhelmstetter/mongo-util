@@ -2,7 +2,7 @@ package com.mongodb.shardsync.command.compare;
 
 import com.mongodb.shardsync.ShardConfigSync;
 import com.mongodb.shardsync.SyncConfiguration;
-import com.mongodb.shardsync.command.CompareCommand;
+
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -35,14 +35,16 @@ public class CompareChunksCommand implements Callable<Integer> {
         
         if (counts) {
             sync.compareChunkCounts();
+            return 0;
         } else if (equivalent) {
-            sync.compareChunksEquivalent();
+            boolean isEquivalent = sync.compareChunksEquivalent();
+            return isEquivalent ? 0 : 1;  // Return 0 for success, 1 for failure
         } else if (move) {
-            sync.compareAndMoveChunks(true, false);
+            boolean success = sync.compareAndMoveChunks(true, false);
+            return success ? 0 : 1;  // Return 0 for success, 1 for failure
         } else {
-            sync.compareChunks();
+            boolean success = sync.compareChunks();
+            return success ? 0 : 1;  // Return 0 for success, 1 for failure
         }
-        
-        return 0;
     }
 }

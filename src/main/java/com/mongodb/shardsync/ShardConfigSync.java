@@ -339,6 +339,63 @@ public class ShardConfigSync implements Callable<Integer> {
 
         return builder.build();
     }
+    
+    public boolean dropIndexes() {
+        logger.info("=== STARTING INDEX DROP ===");
+        logger.info("Dropping indexes on destination cluster");
+        
+        Map<Namespace, Set<IndexSpec>> destIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
+        int totalIndexCount = 0;
+        int droppedIndexCount = 0;
+        int errorCount = 0;
+        
+        for (Map.Entry<Namespace, Set<IndexSpec>> entry : destIndexSpecs.entrySet()) {
+            Namespace ns = entry.getKey();
+            Set<IndexSpec> destSpecs = entry.getValue();
+            totalIndexCount += destSpecs.size();
+            
+            logger.info("Processing namespace: {} ({} indexes)", ns, destSpecs.size());
+            
+            MongoCollection<Document> collection = destShardClient.getMongoClient()
+                    .getDatabase(ns.getDatabaseName())
+                    .getCollection(ns.getCollectionName());
+            
+            for (IndexSpec indexSpec : destSpecs) {
+                String indexName = indexSpec.getName();
+                
+                // Skip the default _id index
+                if ("_id_".equals(indexName)) {
+                    logger.debug("Skipping default _id index for {}", ns);
+                    continue;
+                }
+                
+                try {
+                    logger.debug("Dropping index: {} on {}", indexName, ns);
+                    collection.dropIndex(indexName);
+                    droppedIndexCount++;
+                    logger.info("✅ Dropped index: {} on {}", indexName, ns);
+                } catch (Exception e) {
+                    errorCount++;
+                    logger.error("❌ Failed to drop index: {} on {}: {}", indexName, ns, e.getMessage());
+                }
+            }
+        }
+        
+        boolean success = (errorCount == 0);
+        if (success) {
+            logger.info("✅ DROP INDEXES COMPLETE - SUCCESS");
+            logger.info("    Total indexes found: {}", totalIndexCount);
+            logger.info("    Indexes dropped: {}", droppedIndexCount);
+            logger.info("    Indexes skipped (_id): {}", totalIndexCount - droppedIndexCount - errorCount);
+        } else {
+            logger.error("❌ DROP INDEXES COMPLETE - FAILURE");
+            logger.error("    Total indexes found: {}", totalIndexCount);
+            logger.error("    Indexes dropped: {}", droppedIndexCount);
+            logger.error("    Errors encountered: {}", errorCount);
+        }
+        
+        return success;
+    }
 
     private Map<Namespace, Set<IndexSpec>> getIndexSpecs(MongoClient client, Set<String> filterSet) {
         Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = new LinkedHashMap<>();
@@ -918,27 +975,31 @@ public class ShardConfigSync implements Callable<Integer> {
         }
     }
     
-    public void syncMetadata() {
+    public boolean syncMetadata() {
         logger.debug(String.format("Starting metadata sync/migration, %s: %s",
                 ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
 
         syncMetadataInitialization();
 
-        chunkManager.createAndMoveChunks(false);
+        boolean success = chunkManager.createAndMoveChunks(false);
 
         if (!config.skipFlushRouterConfig) {
             destShardClient.flushRouterConfig();
         }
+        
+        return success;
     }
     
-    public void syncMetadataOptimized() {
+    public boolean syncMetadataOptimized() {
         logger.debug(String.format("Starting optimized metadata sync/migration, %s: %s",
                 ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
         syncMetadataInitialization();
-        chunkManager.createAndMoveChunks(true);
+        boolean success = chunkManager.createAndMoveChunks(true);
         if (!config.skipFlushRouterConfig) {
             destShardClient.flushRouterConfig();
         }
+        
+        return success;
     }
 
     private void stopBalancers() {
@@ -981,19 +1042,19 @@ public class ShardConfigSync implements Callable<Integer> {
     }
 
 
-    public void compareChunksEquivalent() {
+    public boolean compareChunksEquivalent() {
         initChunkManager();
-        chunkManager.compareChunksEquivalent();
+        return chunkManager.compareChunksEquivalent();
     }
 
-    public void compareChunks() {
+    public boolean compareChunks() {
         initChunkManager();
-        chunkManager.compareAndMoveChunks(false, false);
+        return chunkManager.compareAndMoveChunks(false, false);
     }
 
-    public void compareAndMoveChunks(boolean doMove, boolean ignoreMissing) {
+    public boolean compareAndMoveChunks(boolean doMove, boolean ignoreMissing) {
         initChunkManager();
-        chunkManager.compareAndMoveChunks(doMove, ignoreMissing);
+        return chunkManager.compareAndMoveChunks(doMove, ignoreMissing);
     }
 
     @SuppressWarnings("unchecked")
@@ -1470,7 +1531,6 @@ public class ShardConfigSync implements Callable<Integer> {
                 //throw mce;
             }
         }
-        logger.debug("Sharding result for {}: {}", sourceColl.get("_id"), result);
         
         if (destShardClient.isVersion8OrLater() && hashed && destShardClient.getShardsMap().size() > 1) {
         	String namespace = (String) sourceColl.get("_id");

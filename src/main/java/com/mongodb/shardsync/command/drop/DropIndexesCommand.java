@@ -1,27 +1,27 @@
 package com.mongodb.shardsync.command.drop;
 
-import com.mongodb.shardsync.command.DropCommand;
+import com.mongodb.shardsync.ShardConfigSync;
+import com.mongodb.shardsync.SyncConfiguration;
+
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
 import java.util.concurrent.Callable;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-@Command(name = "indexes", description = "Drop indexes on destination")
+@Command(name = "indexes", description = "Drop indexes on destination cluster")
 public class DropIndexesCommand implements Callable<Integer> {
-    
-    private static Logger logger = LoggerFactory.getLogger(DropIndexesCommand.class);
     
     @CommandLine.ParentCommand
     private DropCommand parent;
     
     @Override
     public Integer call() throws Exception {
-        // TODO: Implement drop indexes functionality
-        logger.warn("Drop indexes functionality not yet implemented");
-        System.out.println("Drop indexes functionality is not yet implemented");
-        return 1;
+        SyncConfiguration config = parent.createConfiguration();
+        ShardConfigSync sync = new ShardConfigSync(config);
+        sync.initialize();
+        
+        boolean success = sync.dropIndexes();
+        
+        return success ? 0 : 1;
     }
 }
