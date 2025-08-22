@@ -77,8 +77,6 @@ public class ChunkManager {
 		String source = config.getSourceClusterUri() == null ? config.getSourceClusterPattern() : config.getSourceClusterUri();
 		String dest = config.getDestClusterUri() == null ? config.getDestClusterPattern() : config.getDestClusterUri();
 		
-		ShardClientType shardClientType = ShardClientType.SHARDED_NO_SRV;
-		
 		if (config.getShardMap() != null) {
 			// shardMap is for doing an uneven shard mapping, e.g. 10 shards on source
 			// down to 5 shards on destination
@@ -90,10 +88,9 @@ public class ChunkManager {
 				sourceToDestShardMap.put(mappings[0], mappings[1]);
 			}
 			
-			
-			sourceShardClient = new ShardClient("source", source, sourceToDestShardMap.keySet(), shardClientType);
+			sourceShardClient = new ShardClient("source", source, sourceToDestShardMap.keySet());
 			config.setSourceShardClient(sourceShardClient);
-			destShardClient = new ShardClient("dest", dest, sourceToDestShardMap.values(), shardClientType);
+			destShardClient = new ShardClient("dest", dest, sourceToDestShardMap.values());
 			config.setDestShardClient(destShardClient);
 			
 			sourceShardClient.setRsSsl(config.getSourceRsSsl());
@@ -111,9 +108,9 @@ public class ChunkManager {
 		} else {
 			logger.debug("Default 1:1 shard mapping");
 			
-			sourceShardClient = new ShardClient("source", source, null, shardClientType);
+			sourceShardClient = new ShardClient("source", source, null);
 			config.setSourceShardClient(sourceShardClient);
-			destShardClient = new ShardClient("dest", dest, null, shardClientType);
+			destShardClient = new ShardClient("dest", dest, null);
 			config.setDestShardClient(destShardClient);
 			sourceShardClient.setRsSsl(config.getSourceRsSsl());
 			sourceShardClient.setRsPattern(config.getSourceRsPattern());

@@ -77,8 +77,8 @@ public class OplogApplier {
 
 		sourceToDestShardMap.put(sourceShardId, destShardId);
 
-		sourceShardClient = new ShardClient("source", sourceClusterUri, sourceToDestShardMap.keySet(), null);
-		destShardClient = new ShardClient("dest", destClusterUri, sourceToDestShardMap.values(), null);
+		sourceShardClient = new ShardClient("source", sourceClusterUri, sourceToDestShardMap.keySet());
+		destShardClient = new ShardClient("dest", destClusterUri, sourceToDestShardMap.values());
 
 		sourceShardClient.init();
 		destShardClient.init();
@@ -143,7 +143,7 @@ public class OplogApplier {
 		//sourceToDestShardMap.put(sourceShardId, destShardId);
 
 		//sourceShardClient = new ShardClient("source", sourceClusterUri, sourceToDestShardMap.keySet());
-		destShardClient = new ShardClient("dest", destClusterUri, sourceToDestShardMap.values(), null);
+		destShardClient = new ShardClient("dest", destClusterUri, sourceToDestShardMap.values());
 
 		//sourceShardClient.init();
 		destShardClient.init();
