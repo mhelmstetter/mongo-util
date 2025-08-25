@@ -617,23 +617,9 @@ public class ShardConfigSync implements Callable<Integer> {
                         Number sourceTtl = sourceIndex.getExpireAfterSeconds();
                         Number destTtl = destIndex != null ? destIndex.getExpireAfterSeconds() : null;
                         
-                        if (sourceTtl != null && destTtl != null) {
-                            double sourceDays = sourceTtl.doubleValue() / 86400.0;
-                            double destDays = destTtl.doubleValue() / 86400.0;
-                            logger.warn("        ⏱️  TTL DIFFERENCE:");
-                            logger.warn("           Source: {} seconds ({} days)", sourceTtl, String.format("%.1f", sourceDays));
-                            logger.warn("           Dest:   {} seconds ({} days)", destTtl, String.format("%.1f", destDays));
-                        } else if (sourceTtl != null) {
-                            double sourceDays = sourceTtl.doubleValue() / 86400.0;
-                            logger.warn("        ⏱️  TTL DIFFERENCE:");
-                            logger.warn("           Source: {} seconds ({} days)", sourceTtl, String.format("%.1f", sourceDays));
-                            logger.warn("           Dest:   NO TTL");
-                        } else if (destTtl != null) {
-                            double destDays = destTtl.doubleValue() / 86400.0;
-                            logger.warn("        ⏱️  TTL DIFFERENCE:");
-                            logger.warn("           Source: NO TTL");
-                            logger.warn("           Dest:   {} seconds ({} days)", destTtl, String.format("%.1f", destDays));
-                        }
+                        logger.warn("        ⏱️  TTL DIFFERENCE:");
+                        logger.warn("           Source: {}", formatTtl(sourceTtl));
+                        logger.warn("           Dest:   {}", formatTtl(destTtl));
                     }
                     
                     // Compare other properties
@@ -681,7 +667,7 @@ public class ShardConfigSync implements Callable<Integer> {
             logger.info("    Total indexes checked: {}", indexCount);
             
             if (missingNamespaces > 0) {
-                logger.warn("    ⚠️  Missing collections: {} (containing {} indexes)", missingNamespaces, missingIndexesCount);
+                logger.warn("    📋 Summary: {} collections not found on destination ({} indexes affected)", missingNamespaces, missingIndexesCount);
             }
             
             int actualDiffs = diffCount - missingIndexesCount;  // Subtract missing indexes from diff count
@@ -697,7 +683,7 @@ public class ShardConfigSync implements Callable<Integer> {
             // Return failure if there were unresolved differences or collMod failures
             int unresolvedDiffs = diffCount - modifiedCount - missingIndexesCount;
             if (missingNamespaces > 0) {
-                logger.warn("❌ WARNING: {} collections are missing on destination (cannot be fixed with collModTtl)", missingNamespaces);
+                logger.warn("❌ WARNING: {} collections not found on destination (cannot be fixed with collModTtl)", missingNamespaces);
                 return 1;
             } else if (collModFailures > 0) {
                 logger.warn("❌ WARNING: {} collMod operations failed", collModFailures);
@@ -718,7 +704,7 @@ public class ShardConfigSync implements Callable<Integer> {
             logger.info("    Total indexes checked: {}", indexCount);
             
             if (missingNamespaces > 0) {
-                logger.warn("    ❌ Missing collections: {} (containing {} indexes)", missingNamespaces, missingIndexesCount);
+                logger.warn("    ❌ Collections not found on destination: {} (containing {} indexes)", missingNamespaces, missingIndexesCount);
             }
             
             int actualDiffs = diffCount - missingIndexesCount;  // Subtract missing indexes from diff count
@@ -848,6 +834,16 @@ public class ShardConfigSync implements Callable<Integer> {
         
         logger.debug("collModTtl completed: {} out of {} indexes modified, {} failures", modifiedCount, diff.size(), failureCount);
         return new int[]{modifiedCount, failureCount};
+    }
+    
+    private String formatTtl(Number ttlSeconds) {
+        if (ttlSeconds == null) {
+            return "NO TTL";
+        }
+        
+        long seconds = ttlSeconds.longValue();
+        java.time.Duration duration = java.time.Duration.ofSeconds(seconds);
+        return String.format("%d seconds (%s)", seconds, duration.toString());
     }
 
     public void diffRoles() {
