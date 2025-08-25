@@ -50,8 +50,10 @@ public class CompareCommand implements Callable<Integer> {
             return parent.executeCompareCommand(this);
         }
         
-        System.out.println("Please specify a compare subcommand: chunks, indexes, users, etc.");
-        System.out.println("Use --help to see available options");
+        CommandLine commandLine = new CommandLine(this);
+        String subcommands = String.join(", ", commandLine.getSubcommands().keySet());
+        System.out.println("Please specify a compare subcommand: " + subcommands);
+        System.out.println("Use 'compare --help' to see available options");
         return 1;
     }
     

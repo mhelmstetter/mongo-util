@@ -15,3 +15,5 @@ ss.props
 ss2.props
 exportToHTML
 *.jfr
+.DS_Store
+CLAUDE.md

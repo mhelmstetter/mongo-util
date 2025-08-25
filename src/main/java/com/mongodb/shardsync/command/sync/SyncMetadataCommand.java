@@ -15,10 +15,9 @@ public class SyncMetadataCommand implements Callable<Integer> {
     @CommandLine.ParentCommand
     private SyncCommand parent;
     
-    @Option(names = {"--optimized"}, 
-            description = "Combine adjacent chunks for optimization (default: true)", 
-            defaultValue = "true")
-    private boolean optimized = true;
+    @Option(names = {"--skipOptimizeAdjacent"}, 
+            description = "Skip optimization that will combine adjacent chunks")
+    private boolean skipOptimizeAdjacent;
     
     @Option(names = {"--legacy"}, 
             description = "Use legacy metadata sync method (slower)", 
@@ -44,10 +43,10 @@ public class SyncMetadataCommand implements Callable<Integer> {
         
         if (legacy) {
             success = sync.syncMetadataLegacy(force);
-        } else if (optimized) {
-            success = sync.syncMetadataOptimized(force);
+        } else if (skipOptimizeAdjacent) {
+        	success = sync.syncMetadata(force);
         } else {
-            success = sync.syncMetadata(force);
+        	success = sync.syncMetadataOptimized(force);
         }
         
         return success ? 0 : 1;

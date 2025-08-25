@@ -215,6 +215,12 @@ public class ShardConfigSync implements Callable<Integer> {
                     logger.warn("Skipping view: {}", ns);
                     continue;
                 }
+                
+                // Skip timeseries bucket collections - they are automatically created by MongoDB
+                if (collectionName.startsWith("system.buckets.")) {
+                    logger.debug("Skipping timeseries bucket collection: {}", ns);
+                    continue;
+                }
 
                 if (existingDestCollections.containsKey(ns.getNamespace())) {
                 	logger.debug("ns {} exists, won't create", ns);
@@ -440,22 +446,16 @@ public class ShardConfigSync implements Callable<Integer> {
         return indexSpecs;
     }
 
-    public void syncIndexesShards(boolean createMissing, boolean extendTtl, String collationStr, boolean ttlOnly) {
+    public void syncIndexesShards(boolean createMissing, boolean extendTtl, boolean ttlOnly) {
         logger.info("=== STARTING INDEX SYNC ===");
         logger.info("Mode: createMissing={}, extendTtl={}, ttlOnly={}", createMissing, extendTtl, ttlOnly);
         if (ttlOnly) {
             logger.info("TTL-only mode: Will only sync indexes with TTL (expireAfterSeconds)");
-            if (extendTtl) {
-                logger.info("TTL extension enabled: TTL indexes will be extended to 50 years");
-            }
         }
-        logger.debug(String.format("Starting syncIndexes: extendTtl: %s, ttlOnly: %s", extendTtl, ttlOnly));
-
-        Document collation = null;
-        if (collationStr != null) {
-            collation = Document.parse(collationStr);
+        if (extendTtl) {
+            logger.info("TTL extension enabled: TTL indexes will be extended to 50 years");
         }
-
+        logger.debug("Starting syncIndexes: extendTtl: {}, ttlOnly: {}", extendTtl, ttlOnly);
 
         //sourceShardClient.populateShardMongoClients();
         Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
@@ -489,7 +489,7 @@ public class ShardConfigSync implements Callable<Integer> {
 
             if (createMissing && !specsToSync.isEmpty()) {
                 logger.info("  🔨 Creating {} indexes for {}", specsToSync.size(), ns);
-                destShardClient.createIndexes(ns, specsToSync, extendTtl, collation);
+                destShardClient.createIndexes(ns, specsToSync, extendTtl);
                 totalIndexesCreated += specsToSync.size();
             } else if (createMissing && specsToSync.isEmpty()) {
                 logger.info("  ⏭️  Skipping {} - no indexes to create after filtering", ns);
@@ -1660,10 +1660,25 @@ public class ShardConfigSync implements Callable<Integer> {
             if (config.filterCheck(ns)) {
                 continue;
             }
-
-            // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
-            RawBsonDocument rawDoc = new RawBsonDocument(sourceColl, documentCodec);
-            destColls.replaceOne(new Document("_id", nsStr), rawDoc, options);
+            
+            // For timeseries bucket collections, create config entry for the view collection instead
+            if (ns.getCollectionName().startsWith("system.buckets.")) {
+                String viewCollectionName = ns.getCollectionName().substring("system.buckets.".length());
+                String viewNamespace = ns.getDatabaseName() + "." + viewCollectionName;
+                logger.debug("Converting bucket collection {} to view collection {} for config entry", ns, viewNamespace);
+                
+                // Create a modified collection document for the view collection
+                Document viewCollectionDoc = new Document(sourceColl);
+                viewCollectionDoc.put("_id", viewNamespace);
+                
+                // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
+                RawBsonDocument rawDoc = new RawBsonDocument(viewCollectionDoc, documentCodec);
+                destColls.replaceOne(new Document("_id", viewNamespace), rawDoc, options);
+            } else {
+                // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
+                RawBsonDocument rawDoc = new RawBsonDocument(sourceColl, documentCodec);
+                destColls.replaceOne(new Document("_id", nsStr), rawDoc, options);
+            }
         }
 
         logger.debug("shardDestinationCollectionsUsingInsert() complete");
@@ -1680,7 +1695,20 @@ public class ShardConfigSync implements Callable<Integer> {
             if (config.filterCheck(ns)) {
                 continue;
             }
-            shardCollection(sourceColl);
+            
+            // For timeseries bucket collections, shard the view collection instead
+            if (ns.getCollectionName().startsWith("system.buckets.")) {
+                String viewCollectionName = ns.getCollectionName().substring("system.buckets.".length());
+                String viewNamespace = ns.getDatabaseName() + "." + viewCollectionName;
+                logger.debug("Converting bucket collection {} to view collection {} for sharding", ns, viewNamespace);
+                
+                // Create a modified collection document for the view collection
+                Document viewCollectionDoc = new Document(sourceColl);
+                viewCollectionDoc.put("_id", viewNamespace);
+                shardCollection(viewCollectionDoc);
+            } else {
+                shardCollection(sourceColl);
+            }
 
             if ((boolean) sourceColl.get("noBalance", false)) {
                 // TODO there is no disableBalancing command so this is not
@@ -1900,8 +1928,16 @@ public class ShardConfigSync implements Callable<Integer> {
             if (config.filterCheck(ns)) {
                 continue;
             }
+            
+            // For timeseries bucket collections, compare with the view collection instead
+            String compareNamespace = nsStr;
+            if (ns.getCollectionName().startsWith("system.buckets.")) {
+                String viewCollectionName = ns.getCollectionName().substring("system.buckets.".length());
+                compareNamespace = ns.getDatabaseName() + "." + viewCollectionName;
+                logger.debug("Converting bucket collection {} to view collection {} for comparison", ns, compareNamespace);
+            }
 
-            Document destCollection = destShardClient.getCollectionsMap().get(sourceColl.get("_id"));
+            Document destCollection = destShardClient.getCollectionsMap().get(compareNamespace);
 
             if (destCollection == null) {
                 logger.debug("Destination collection not found: " + sourceColl.get("_id") + " sourceKey:"

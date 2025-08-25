@@ -26,8 +26,10 @@ public class DropCommand implements Callable<Integer> {
     
     @Override
     public Integer call() throws Exception {
-        System.out.println("Please specify a drop subcommand: databases, users, or indexes");
-        System.out.println("Use --help to see available options");
+        CommandLine commandLine = new CommandLine(this);
+        String subcommands = String.join(", ", commandLine.getSubcommands().keySet());
+        System.out.println("Please specify a drop subcommand: " + subcommands);
+        System.out.println("Use 'drop --help' to see available options");
         return 1;
     }
     

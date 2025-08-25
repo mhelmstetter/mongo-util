@@ -15,10 +15,6 @@ public class SyncIndexesCommand implements Callable<Integer> {
     @CommandLine.ParentCommand
     private SyncCommand parent;
     
-    @Option(names = {"--collation"}, 
-            description = "Collation to apply to index creation")
-    private String collation;
-    
     @Option(names = {"--extendTtl"}, 
             description = "Extend TTL expiration")
     private boolean extendTtl;
@@ -43,7 +39,7 @@ public class SyncIndexesCommand implements Callable<Integer> {
             // When using collModTtl, force ttlOnly=true since collMod can only modify TTL settings
             return sync.compareIndexes(true, true);
         } else {
-            sync.syncIndexesShards(true, extendTtl, collation, ttlOnly);
+            sync.syncIndexesShards(true, extendTtl, ttlOnly);
             return 0;
         }
     }

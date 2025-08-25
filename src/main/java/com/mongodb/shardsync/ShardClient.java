@@ -1316,7 +1316,7 @@ public class ShardClient {
 		return users;
 	}
 
-	public void createIndexes(Namespace ns, Set<IndexSpec> sourceSpecs, boolean extendTtl, Document collation) {
+	public void createIndexes(Namespace ns, Set<IndexSpec> sourceSpecs, boolean extendTtl) {
 		//MongoClient client = getShardMongoClient(shardName);
 		MongoDatabase db = mongoClient.getDatabase(ns.getDatabaseName());
 
@@ -1348,14 +1348,6 @@ public class ShardClient {
 				logger.debug(String.format("Extending TTL for %s %s from %s to %s", ns, indexInfo.get("name"),
 						expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
 
-			}
-			if (collation != null) {
-				
-				Document key = (Document)indexInfo.get("key");
-				if (key != null && !key.containsKey("_id")) {
-					indexInfo.put("collation", collation);
-				}
-				
 			}
 			indexes.add(indexInfo);
 		}
@@ -1972,8 +1964,16 @@ public class ShardClient {
 			if (excludedSystemDbs.contains(ns.getDatabaseName())) {
 				continue;
 			}
+			
+			// For timeseries bucket collections, calculate split vector for the view collection instead
+			String targetNamespace = nsStr;
+			if (ns.getCollectionName().startsWith("system.buckets.")) {
+				String viewCollectionName = ns.getCollectionName().substring("system.buckets.".length());
+				targetNamespace = ns.getDatabaseName() + "." + viewCollectionName;
+				logger.debug("Converting bucket collection {} to view collection {} for split vector", ns, targetNamespace);
+			}
 
-			Document splitVectorCmd = new Document("splitVector", nsStr);
+			Document splitVectorCmd = new Document("splitVector", targetNamespace);
 			Document keyPattern = (Document)sourceColl.get("key");
 			splitVectorCmd.append("keyPattern", keyPattern);
 			splitVectorCmd.append("maxChunkSizeBytes", ONE_GIGABYTE);
@@ -2011,7 +2011,7 @@ public class ShardClient {
 				}
 				logger.debug("{}: shard: {}, ns: {}, key: {}, splitCount: {}", name, shardId, nsStr, keyPattern, splitCount);
 			}
-			splitPoints.put(ns, splitKeysAll);
+			splitPoints.put(new Namespace(targetNamespace), splitKeysAll);
 
 		}
 		return splitPoints;

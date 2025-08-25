@@ -73,7 +73,7 @@ public class SyncIndexesIntegrationTest extends BaseIntegrationTest {
         shardConfigSync.initialize();
         
         // Execute: sync all indexes (ttlOnly=false)
-        shardConfigSync.syncIndexesShards(true, false, null, false);
+        shardConfigSync.syncIndexesShards(true, false, false);
         
         // Verify: all non-_id indexes should be synced to destination
         assertEquals(3, countNonIdIndexes(destClient, TEST_DB, TEST_COLLECTION), 
@@ -109,7 +109,7 @@ public class SyncIndexesIntegrationTest extends BaseIntegrationTest {
         shardConfigSync.initialize();
         
         // Execute: sync only TTL indexes (ttlOnly=true)
-        shardConfigSync.syncIndexesShards(true, false, null, true);
+        shardConfigSync.syncIndexesShards(true, false, true);
         
         // Verify: only TTL index should be synced
         assertEquals(1, countNonIdIndexes(destClient, TEST_DB, TEST_COLLECTION), 
@@ -144,7 +144,7 @@ public class SyncIndexesIntegrationTest extends BaseIntegrationTest {
         shardConfigSync.initialize();
         
         // Execute: sync only TTL indexes with extension (ttlOnly=true, extendTtl=true)
-        shardConfigSync.syncIndexesShards(true, true, null, true);
+        shardConfigSync.syncIndexesShards(true, true, true);
         
         // Verify: only TTL index should be synced
         assertEquals(1, countNonIdIndexes(destClient, TEST_DB, TEST_COLLECTION), 
@@ -174,13 +174,11 @@ public class SyncIndexesIntegrationTest extends BaseIntegrationTest {
         // Verify initial state
         verifyInitialState();
         
-        String collationJson = "{\"locale\": \"en\", \"strength\": 2}";
-        
         // Initialize ShardConfigSync properly for the test
         shardConfigSync.initialize();
         
         // Execute: sync with collation
-        shardConfigSync.syncIndexesShards(true, false, collationJson, false);
+        shardConfigSync.syncIndexesShards(true, false, false);
         
         // Verify: all indexes should be synced
         assertEquals(3, countNonIdIndexes(destClient, TEST_DB, TEST_COLLECTION), 
@@ -207,7 +205,7 @@ public class SyncIndexesIntegrationTest extends BaseIntegrationTest {
         shardConfigSync.initialize();
         
         // Execute: don't create missing indexes
-        shardConfigSync.syncIndexesShards(false, false, null, false);
+        shardConfigSync.syncIndexesShards(false, false, false);
         
         // Verify: no indexes should be created on destination
         assertEquals(0, countNonIdIndexes(destClient, TEST_DB, TEST_COLLECTION), 
@@ -243,7 +241,7 @@ public class SyncIndexesIntegrationTest extends BaseIntegrationTest {
         shardConfigSync.initialize();
         
         // Execute: sync only TTL indexes when none exist
-        shardConfigSync.syncIndexesShards(true, false, null, true);
+        shardConfigSync.syncIndexesShards(true, false, true);
         
         // Verify: no indexes should be synced since none are TTL
         assertEquals(0, countNonIdIndexes(destClient, TEST_DB, TEST_COLLECTION), 
