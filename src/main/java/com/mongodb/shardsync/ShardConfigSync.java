@@ -502,7 +502,7 @@ public class ShardConfigSync implements Callable<Integer> {
         logger.info("    Namespaces processed: {}", processedNamespaces);
         logger.info("    Indexes created: {}", totalIndexesCreated);
         if (totalIndexesSkipped > 0) {
-            logger.info("    Namespaces skipped: {}", totalIndexesSkipped);
+            logger.info("    Indexes skipped: {}", totalIndexesSkipped);
         }
     }
 
