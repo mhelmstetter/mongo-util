@@ -80,7 +80,9 @@ public class ShardConfigSyncApp implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        System.out.println("Please specify a sub-command: sync, compare, mongomirror, sharding, or drop");
+        CommandLine commandLine = new CommandLine(this);
+        String subcommands = String.join(", ", commandLine.getSubcommands().keySet());
+        System.out.println("Please specify a sub-command: " + subcommands);
         System.out.println("Use --help to see available options");
         return 1;
     }

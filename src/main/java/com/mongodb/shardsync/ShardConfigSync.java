@@ -492,7 +492,7 @@ public class ShardConfigSync implements Callable<Integer> {
                 destShardClient.createIndexes(ns, specsToSync, extendTtl);
                 totalIndexesCreated += specsToSync.size();
             } else if (createMissing && specsToSync.isEmpty()) {
-                logger.info("  ⏭️  Skipping {} - no indexes to create after filtering", ns);
+                logger.info("  ⏭️  Skipping {} - no indexes to create", ns);
                 totalIndexesSkipped++;
             }
         }
@@ -517,19 +517,35 @@ public class ShardConfigSync implements Callable<Integer> {
             logger.info("⏱️ TTL-only mode: Will only compare indexes with TTL (expireAfterSeconds)");
         }
         if (collModTtl) {
-            logger.info("🔧 collModTtl enabled - will attempt to fix TTL differences");
             if (config.extendTtl) {
-                logger.info("⏰ extendTtl enabled - TTL indexes will be extended to 50 years");
+                logger.info("🔧 collModTtl + extendTtl enabled - will modify TTL indexes to 50 years");
+            } else {
+                logger.info("🔧 collModTtl enabled - will synchronize TTL differences from source");
             }
         }
         logger.debug("Starting compareIndexes");
-        Map<Namespace, Set<IndexSpec>> sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
-        Map<Namespace, Set<IndexSpec>> destIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
+        Map<Namespace, Set<IndexSpec>> sourceIndexSpecs;
+        Map<Namespace, Set<IndexSpec>> destIndexSpecs;
+        
+        try {
+            sourceIndexSpecs = getIndexSpecs(sourceShardClient.getMongoClient(), null);
+        } catch (Exception e) {
+            logger.error("❌ Failed to retrieve source index specifications: {}", e.getMessage(), e);
+            return 1;
+        }
+        
+        try {
+            destIndexSpecs = getIndexSpecs(destShardClient.getMongoClient(), null);
+        } catch (Exception e) {
+            logger.error("❌ Failed to retrieve destination index specifications: {}", e.getMessage(), e);
+            return 1;
+        }
         int diffCount = 0;
         int indexCount = 0;
         int modifiedCount = 0;
         int missingNamespaces = 0;
         int missingIndexesCount = 0;
+        int collModFailures = 0;
         //MapDifference<Namespace, Set<IndexSpec>> diff = Maps.difference(sourceIndexSpecs, destIndexSpecs);
 
         int totalNamespaces = sourceIndexSpecs.size();
@@ -563,8 +579,14 @@ public class ShardConfigSync implements Callable<Integer> {
             }
             
             Set<IndexSpec> destSpecs = destIndexSpecs.get(ns);
-            if (destSpecs == null || destSpecs.isEmpty()) {
-                logger.warn("  ⚠️  Destination indexes not found for ns: {}", ns);
+            if (destSpecs == null) {
+                logger.warn("  ⚠️  Collection does not exist on destination: {}", ns);
+                missingNamespaces++;
+                missingIndexesCount += specsToCompare.size();
+                diffCount += specsToCompare.size();  // Count missing indexes as differences
+                continue;
+            } else if (destSpecs.isEmpty()) {
+                logger.warn("  ⚠️  Collection exists but has no indexes on destination: {}", ns);
                 missingNamespaces++;
                 missingIndexesCount += specsToCompare.size();
                 diffCount += specsToCompare.size();  // Count missing indexes as differences
@@ -629,11 +651,17 @@ public class ShardConfigSync implements Callable<Integer> {
                 logger.debug("Full diff details: {}", diff);
                 diffCount += diff.size();
                 if (collModTtl) {
-                    int modified = collModTtl(sourceIndexSpecs, diff);
+                    int[] result = collModTtlWithFailures(sourceIndexSpecs, diff);
+                    int modified = result[0];
+                    int failures = result[1];
                     if (modified > 0) {
                         logger.info("  ✅ Successfully modified {} index(es) via collMod", modified);
                     }
+                    if (failures > 0) {
+                        logger.warn("  ❌ Failed to modify {} index(es) via collMod", failures);
+                    }
                     modifiedCount += modified;
+                    collModFailures += failures;
                 }
             } else {
                 logger.info("  ✅ All {} indexes match", specsToCompare.size());
@@ -641,7 +669,9 @@ public class ShardConfigSync implements Callable<Integer> {
             
             if (diff.isEmpty() && config.extendTtl) {
                 logger.debug("collModTtl with extendTtl");
-                modifiedCount += collModTtl(sourceIndexSpecs, specsToCompare);
+                int[] result = collModTtlWithFailures(sourceIndexSpecs, specsToCompare);
+                modifiedCount += result[0];
+                collModFailures += result[1];
             }
         }
         if (collModTtl) {
@@ -660,11 +690,18 @@ public class ShardConfigSync implements Callable<Integer> {
                 logger.info("    Indexes successfully modified: {}", modifiedCount);
             }
             
-            // Return failure if there were unresolved differences
+            if (collModFailures > 0) {
+                logger.warn("    ❌ collMod failures: {}", collModFailures);
+            }
+            
+            // Return failure if there were unresolved differences or collMod failures
             int unresolvedDiffs = diffCount - modifiedCount - missingIndexesCount;
             if (missingNamespaces > 0) {
                 logger.warn("❌ WARNING: {} collections are missing on destination (cannot be fixed with collModTtl)", missingNamespaces);
                 return 1;
+            } else if (collModFailures > 0) {
+                logger.warn("❌ WARNING: {} collMod operations failed", collModFailures);
+                return 1; // Exit code 1 for collMod failures
             } else if (unresolvedDiffs > 0) {
                 logger.warn("❌ WARNING: {} index differences could not be resolved", unresolvedDiffs);
                 return 1; // Exit code 1 for unresolved differences
@@ -756,7 +793,13 @@ public class ShardConfigSync implements Callable<Integer> {
     }
 
     private int collModTtl(Map<Namespace, Set<IndexSpec>> sourceIndexSpecsMap, Set<IndexSpec> diff) {
+        int[] result = collModTtlWithFailures(sourceIndexSpecsMap, diff);
+        return result[0]; // Return only success count for backward compatibility
+    }
+    
+    private int[] collModTtlWithFailures(Map<Namespace, Set<IndexSpec>> sourceIndexSpecsMap, Set<IndexSpec> diff) {
         int modifiedCount = 0;
+        int failureCount = 0;
         logger.debug("Starting collModTtl for {} indexes", diff.size());
         
         for (IndexSpec spec : diff) {
@@ -776,33 +819,35 @@ public class ShardConfigSync implements Callable<Integer> {
                     Number expireAfterSeconds = (Number) sourceIndexInfo.get("expireAfterSeconds");
                     int extendedTtl = 50 * ShardConfigSync.SECONDS_IN_YEAR;
                     indexMod.put("expireAfterSeconds", extendedTtl);
-                    logger.debug(String.format("Extending TTL for %s %s from %s to %s", ns, sourceIndexInfo.get("name"),
-                            expireAfterSeconds, extendedTtl));
+                    logger.debug("Extending TTL for {} {} from {} to {}", ns, sourceIndexInfo.get("name"),
+                            expireAfterSeconds, extendedTtl);
                 } else {
                     // Set TTL to match source
                     Number expireAfterSeconds = (Number) sourceIndexInfo.get("expireAfterSeconds");
                     indexMod.put("expireAfterSeconds", expireAfterSeconds);
-                    logger.debug(String.format("Setting TTL for %s %s to %s", ns, sourceIndexInfo.get("name"), expireAfterSeconds));
+                    logger.debug("Setting TTL for {} {} to {}", ns, sourceIndexInfo.get("name"), expireAfterSeconds);
                 }
 
                 collMod.append("index", indexMod);
-                logger.debug(String.format("%s executing collMod command: %s", ns, collMod));
+                logger.debug("{} executing collMod command: {}", ns, collMod);
                 try {
                     Document result = destShardClient.runCommand(collMod, ns.getDatabaseName());
-                    logger.info(String.format("%s collMod successful, result: %s", ns, result));
+                    logger.info("{} collMod successful, result: {}", ns, result);
                     modifiedCount++;
                 } catch (MongoCommandException mce) {
-                    logger.error(String.format("%s collMod failed: %s (error code: %d)", ns, mce.getMessage(), mce.getCode()));
+                    logger.error("{} collMod failed: {} (error code: {})", ns, mce.getMessage(), mce.getCode());
+                    failureCount++;
                 } catch (Exception e) {
-                    logger.error(String.format("%s collMod failed with unexpected error: %s", ns, e.getMessage()), e);
+                    logger.error("{} collMod failed with unexpected error: {}", ns, e.getMessage(), e);
+                    failureCount++;
                 }
             } else {
                 logger.debug("Skipping index {} - no expireAfterSeconds field", spec.getName());
             }
         }
         
-        logger.debug("collModTtl completed: {} out of {} indexes modified", modifiedCount, diff.size());
-        return modifiedCount;
+        logger.debug("collModTtl completed: {} out of {} indexes modified, {} failures", modifiedCount, diff.size(), failureCount);
+        return new int[]{modifiedCount, failureCount};
     }
 
     public void diffRoles() {
