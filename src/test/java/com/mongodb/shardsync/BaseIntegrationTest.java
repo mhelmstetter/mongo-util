@@ -74,9 +74,9 @@ public abstract class BaseIntegrationTest {
      */
     protected SyncConfiguration loadConfiguration() throws IOException {
         Properties props = new Properties();
-        try (InputStream input = getClass().getClassLoader().getResourceAsStream("shard-sync.properties")) {
+        try (InputStream input = getClass().getClassLoader().getResourceAsStream(ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE)) {
             if (input == null) {
-                throw new IOException("Unable to find shard-sync.properties in test resources");
+                throw new IOException("Unable to find " + ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE + " in test resources");
             }
             props.load(input);
         }

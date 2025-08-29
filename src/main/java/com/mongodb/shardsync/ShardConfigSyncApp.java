@@ -37,11 +37,13 @@ import picocli.CommandLine.PropertiesDefaultProvider;
          })
 public class ShardConfigSyncApp implements Callable<Integer> {
     
+    public static final String SHARD_SYNC_PROPERTIES_FILE = "shard-sync.properties";
+    
     private int exitCode = 0;
     private static Logger logger = LoggerFactory.getLogger(ShardConfigSyncApp.class);
     
     // Global options shared across all sub-commands
-    @Option(names = {"-c", "--config"}, description = "Configuration properties file", defaultValue = "shard-sync.properties")
+    @Option(names = {"-c", "--config"}, description = "Configuration properties file", defaultValue = SHARD_SYNC_PROPERTIES_FILE)
     private File configFile;
 
     @Option(names = {"-s", "--" + SOURCE_URI}, description = "Source cluster connection uri")
@@ -189,7 +191,6 @@ public class ShardConfigSyncApp implements Callable<Integer> {
         SyncConfiguration config = createBaseConfiguration();
         
         String mongoMirrorPath = mongoCmd.getMongomirrorBinary();
-        boolean preserveUUIDs = mongoCmd.isPreserveUuids();
 
         if (mongoCmd.getCollStatsThreshold() != null) {
             Integer collStatsThresholdInt = Integer.parseInt(mongoCmd.getCollStatsThreshold());
@@ -211,7 +212,6 @@ public class ShardConfigSyncApp implements Callable<Integer> {
             return 1;
         }
         config.setMongomirrorBinary(mongoMirrorPath);
-        config.setPreserveUUIDs(preserveUUIDs);
         config.setNoIndexRestore(mongoCmd.isNoIndexRestore());
         config.setSleepMillis(mongoCmd.getSleepMillis());
         config.setNumParallelCollections(mongoCmd.getNumParallelCollections());
@@ -356,7 +356,7 @@ public class ShardConfigSyncApp implements Callable<Integer> {
             if (tempApp.configFile != null) {
                 defaultsFile = tempApp.configFile;
             } else {
-                defaultsFile = new File("shard-sync.properties");
+                defaultsFile = new File(SHARD_SYNC_PROPERTIES_FILE);
             }
 
             // Second CommandLine instance: parse with defaults loaded

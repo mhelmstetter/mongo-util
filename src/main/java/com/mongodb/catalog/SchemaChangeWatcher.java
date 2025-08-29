@@ -8,6 +8,8 @@ import static com.mongodb.util.ConfigUtils.getConfigValues;
 import java.io.File;
 import java.util.Timer;
 
+import com.mongodb.shardsync.ShardConfigSyncApp;
+
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
@@ -115,10 +117,10 @@ public class SchemaChangeWatcher {
         } else {
         	propsFile = new File("schema-change-watcher.properties");
             if (! propsFile.exists()) {
-            	propsFile = new File("shard-sync.properties");
+            	propsFile = new File(ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE);
             }
             if (!propsFile.exists()) {
-                logger.warn("Default config files diff-util.properties or shard-sync.properties, not found, using command line options only");
+                logger.warn("Default config files diff-util.properties or {}, not found, using command line options only", ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE);
                 return defaultConfig;
             }
         }

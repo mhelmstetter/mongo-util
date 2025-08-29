@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.diff3.partition.PartitionDiffUtil;
 import com.mongodb.diff3.shard.ShardDiffUtil;
+import com.mongodb.shardsync.ShardConfigSyncApp;
 
 public class DiffUtilApp {
 
@@ -132,10 +133,10 @@ public class DiffUtilApp {
         } else {
             propsFile = new File("diff-util.properties");
             if (!propsFile.exists()) {
-                propsFile = new File("shard-sync.properties");
+                propsFile = new File(ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE);
             }
             if (!propsFile.exists()) {
-                logger.warn("Default config files diff-util.properties or shard-sync.properties, not found, using command line options only");
+                logger.warn("Default config files diff-util.properties or {}, not found, using command line options only", ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE);
                 return defaultConfig;
             }
         }

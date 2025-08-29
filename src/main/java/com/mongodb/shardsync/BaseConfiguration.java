@@ -74,14 +74,17 @@ public class BaseConfiguration {
 		}
 		filtered = true;
 		for (String nsStr : namespaceFilterList) {
-			if (nsStr.contains(".")) {
+			int firstDot = nsStr.indexOf('.');
+			if (firstDot == -1) {
+				// No dot = database filter
+				includeDatabases.add(nsStr);
+				includeDatabasesAll.add(nsStr);
+			} else {
+				// Has dot = collection filter (use same logic as Namespace class)
 				includedNamespaceStrings.add(nsStr);
 				Namespace ns = new Namespace(nsStr);
 				includeNamespaces.add(ns);
 				includeDatabasesAll.add(ns.getDatabaseName());
-			} else {
-				includeDatabases.add(nsStr);
-				includeDatabasesAll.add(nsStr);
 			}
 		}
 	}

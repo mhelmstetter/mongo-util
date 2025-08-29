@@ -9,32 +9,45 @@ import java.util.UUID;
 
 import org.bson.BsonBinary;
 import org.bson.BsonBinarySubType;
+import org.bson.UuidRepresentation;
 
 public class BsonUuidUtil {
 	
 	public static UUID convertBsonBinaryToUuid(BsonBinary bsonBinary) {
         // Check if the BsonBinary is not null and has the correct length
         if (bsonBinary != null) {
-            // Extract the byte array from BsonBinary
-            byte[] byteArray = bsonBinary.getData();
-
-            // Convert the byte array to a ByteBuffer and then to a UUID
-            ByteBuffer buffer = ByteBuffer.wrap(byteArray);
-            long mostSignificantBits = buffer.getLong();
-            long leastSignificantBits = buffer.getLong();
-
-            return new UUID(mostSignificantBits, leastSignificantBits);
+            // Use MongoDB driver's built-in UUID conversion which handles all representations correctly
+            byte subtype = bsonBinary.getType();
+            
+            if (subtype == BsonBinarySubType.UUID_LEGACY.getValue()) {
+                // For legacy UUID (subtype 3), we need to determine which legacy format
+                // The MongoDB driver supports multiple legacy formats (Java, C#, Python)
+                // We'll use C# legacy as it's the most common for cross-platform scenarios
+                // If you need Java legacy, change to UuidRepresentation.JAVA_LEGACY
+                return bsonBinary.asUuid(UuidRepresentation.C_SHARP_LEGACY);
+            } else if (subtype == BsonBinarySubType.UUID_STANDARD.getValue()) {
+                // For standard UUID (subtype 4), use the standard representation
+                return bsonBinary.asUuid(UuidRepresentation.STANDARD);
+            } else {
+                // For other subtypes, try to use standard representation
+                // This will throw an exception if the binary is not a valid UUID
+                return bsonBinary.asUuid();
+            }
         } else {
-            // Handle the case where the BsonBinary is null or has an incorrect length
+            // Handle the case where the BsonBinary is null
             throw new IllegalArgumentException("Invalid BsonBinary value for UUID conversion");
         }
     }
 	
 	public static BsonBinary uuidToBsonBinary(UUID uuid) {
-        ByteBuffer byteBuffer = ByteBuffer.wrap(new byte[16]);
-        byteBuffer.putLong(uuid.getMostSignificantBits());
-        byteBuffer.putLong(uuid.getLeastSignificantBits());
-        return new BsonBinary(BsonBinarySubType.UUID_STANDARD, byteBuffer.array());
+        // Use MongoDB driver's built-in conversion to standard UUID (subtype 4)
+        return new BsonBinary(uuid);
+    }
+	
+	public static BsonBinary uuidToBsonBinaryLegacy(UUID uuid) {
+        // Convert UUID to legacy format (subtype 3) using C# legacy representation
+        // If you need Java legacy, change to UuidRepresentation.JAVA_LEGACY
+        return new BsonBinary(uuid, UuidRepresentation.C_SHARP_LEGACY);
     }
 	
 	public static long hashString(String input) {

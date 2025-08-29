@@ -16,9 +16,6 @@ public class MongomirrorCommand implements Callable<Integer> {
     @Option(names = {"--mongomirrorBinary"}, description = "Path to mongomirror binary")
     private String mongomirrorBinary;
     
-    @Option(names = {"--preserveUuids"}, description = "Preserve UUIDs during migration")
-    private boolean preserveUuids;
-    
     @Option(names = {"--shardToRs"}, description = "Migrate from sharded cluster to replica set")
     private boolean shardToRs;
     
@@ -99,7 +96,6 @@ public class MongomirrorCommand implements Callable<Integer> {
     
     // Getters for the parent class to access the fields
     public String getMongomirrorBinary() { return mongomirrorBinary; }
-    public boolean isPreserveUuids() { return preserveUuids; }
     public boolean isShardToRs() { return shardToRs; }
     public boolean isTailFromNow() { return tailFromNow; }
     public boolean isTailFromLatestOplogTs() { return tailFromLatestOplogTs; }
