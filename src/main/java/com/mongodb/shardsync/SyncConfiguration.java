@@ -26,7 +26,6 @@ public class SyncConfiguration extends BaseConfiguration {
 	public boolean dropDestDbsAndConfigMetadata;
 	public boolean nonPrivilegedMode;
 	public boolean doChunkCounts;
-	public boolean preserveUUIDs;
 	public String compressors;
 	public String oplogBasePath;
 	public String bookmarkFilePrefix;
@@ -134,14 +133,6 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setDoChunkCounts(boolean doChunkCounts) {
 		this.doChunkCounts = doChunkCounts;
-	}
-
-	public boolean isPreserveUUIDs() {
-		return preserveUUIDs;
-	}
-
-	public void setPreserveUUIDs(boolean preserveUUIDs) {
-		this.preserveUUIDs = preserveUUIDs;
 	}
 
 	public String getCompressors() {
