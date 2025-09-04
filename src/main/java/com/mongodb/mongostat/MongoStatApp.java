@@ -1,57 +1,60 @@
 package com.mongodb.mongostat;
 
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.CommandLineParser;
-import org.apache.commons.cli.GnuParser;
-import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.OptionBuilder;
-import org.apache.commons.cli.Options;
+import java.util.concurrent.Callable;
 
-public class MongoStatApp {
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
+import picocli.CommandLine.Parameters;
+
+@Command(name = "mongostat", 
+         mixinStandardHelpOptions = true,
+         description = "Enhanced MongoDB statistics monitor with WiredTiger cache and collection stats",
+         version = "1.1.0")
+public class MongoStatApp implements Callable<Integer> {
     
-    private static Options options;
+    private static Logger logger = LoggerFactory.getLogger(MongoStatApp.class);
+    
+    @Parameters(index = "0", description = "MongoDB connection URI", arity = "1")
+    private String uri;
+    
+    @Option(names = {"-j", "--json"}, description = "Output in JSON format")
+    private boolean jsonOutput = false;
+    
+    @Option(names = {"--no-wt"}, description = "Disable WiredTiger cache statistics (enabled by default)")
+    private boolean disableWiredTiger = false;
+    
+    @Option(names = {"--no-coll"}, description = "Disable collection statistics (enabled by default)")
+    private boolean disableCollections = false;
+    
+    @Option(names = {"--no-detail"}, description = "Disable detailed per-collection stats (enabled by default)")
+    private boolean disableDetail = false;
+    
+    @Option(names = {"-i", "--interval"}, description = "Interval between stats collection in seconds", defaultValue = "15")
+    private long intervalSecs = 15;
 
-    @SuppressWarnings("static-access")
-    private static CommandLine initializeAndParseCommandLineOptions(String[] args) {
-        options = new Options();
-        options.addOption(new Option("help", "print this message"));
-        options.addOption(OptionBuilder.withArgName("Connection uri(s)").hasArgs().withLongOpt("uri")
-                .isRequired(true).create("u"));
+    @Override
+    public Integer call() throws Exception {
+        MongoStatConfiguration config = new MongoStatConfiguration()
+                .jsonOutput(jsonOutput)
+                .includeWiredTigerStats(!disableWiredTiger)  // Default enabled, disable with --no-wt
+                .includeCollectionStats(!disableCollections)  // Default enabled, disable with --no-coll
+                .detailedOutput(!disableDetail)
+                .intervalMs(intervalSecs * 1000);
         
-
-        CommandLineParser parser = new GnuParser();
-        CommandLine line = null;
-        try {
-            line = parser.parse(options, args);
-            if (line.hasOption("help")) {
-                printHelpAndExit(options);
-            }
-        } catch (org.apache.commons.cli.ParseException e) {
-            System.out.println(e.getMessage());
-            printHelpAndExit(options);
-        } catch (Exception e) {
-            e.printStackTrace();
-            printHelpAndExit(options);
-        }
-
-        return line;
-    }
-
-    private static void printHelpAndExit(Options options) {
-        HelpFormatter formatter = new HelpFormatter();
-        formatter.printHelp("logParser", options);
-        System.exit(-1);
-    }
-
-    public static void main(String[] args) throws Exception {
-        CommandLine line = initializeAndParseCommandLineOptions(args);
-        MongoStat mongoStat = new MongoStat();
-        String[] uris = line.getOptionValues("u");
-        mongoStat.setUris(uris);
+        MongoStat mongoStat = MongoStat.create(uri, config);
         mongoStat.init();
         mongoStat.run();
-
+        
+        return 0;
+    }
+    
+    public static void main(String[] args) {
+        int exitCode = new CommandLine(new MongoStatApp()).execute(args);
+        System.exit(exitCode);
     }
 
 }
