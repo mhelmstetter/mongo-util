@@ -24,6 +24,7 @@ public class SyncConfiguration extends BaseConfiguration {
 	public boolean drop;
 	public boolean dropDestDbs;
 	public boolean dropDestDbsAndConfigMetadata;
+	public boolean overlappingOnly;
 	public boolean dryRun;
 	public boolean nonPrivilegedMode;
 	public boolean doChunkCounts;
@@ -115,6 +116,10 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setDropDestDbsAndConfigMetadata(boolean dropDestDbsAndConfigMetadata) {
 		this.dropDestDbsAndConfigMetadata = dropDestDbsAndConfigMetadata;
+	}
+	
+	public void setOverlappingOnly(boolean overlappingOnly) {
+		this.overlappingOnly = overlappingOnly;
 	}
 	
 	public void setDryRun(boolean dryRun) {

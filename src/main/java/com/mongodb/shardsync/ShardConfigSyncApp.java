@@ -149,6 +149,10 @@ public class ShardConfigSyncApp implements Callable<Integer> {
         return config;
     }
 
+    private void printMongomirrorPathHelp() {
+        System.err.println("  --mongomirrorBinary /path/to/mongomirror (command line)");
+        System.err.println("  mongomirrorBinary=/path/to/mongomirror (in " + SHARD_SYNC_PROPERTIES_FILE + ")");
+    }
 
     public Integer executeCompareCommand(CompareCommand compareCmd) throws Exception {
         SyncConfiguration config = createBaseConfiguration(compareCmd.getAtlasOptions());
@@ -216,15 +220,19 @@ public class ShardConfigSyncApp implements Callable<Integer> {
         File mongomirrorFile = new File(mongoMirrorPath);
         if (!mongomirrorFile.exists()) {
             System.err.println("Error: mongomirror binary not found at path: " + mongoMirrorPath);
+            printMongomirrorPathHelp();
             return 1;
         }
         if (!mongomirrorFile.isFile()) {
             System.err.println("Error: mongomirror path is not a file: " + mongoMirrorPath);
+            printMongomirrorPathHelp();
             return 1;
         }
         if (!mongomirrorFile.canExecute()) {
             System.err.println("Error: mongomirror binary is not executable: " + mongoMirrorPath);
             System.err.println("Try running: chmod +x " + mongoMirrorPath);
+            System.err.println("Or specify the correct executable path:");
+            printMongomirrorPathHelp();
             return 1;
         }
         config.setMongomirrorBinary(mongoMirrorPath);

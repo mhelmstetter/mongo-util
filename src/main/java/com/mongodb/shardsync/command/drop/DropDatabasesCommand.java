@@ -20,9 +20,14 @@ public class DropDatabasesCommand implements Callable<Integer> {
             hidden = true)
     private boolean shardDatabases;
     
+    @Option(names = {"--overlappingOnly"}, 
+            description = "Only drop databases that exist on both source and destination (default: drop all non-system databases on destination)")
+    private boolean overlappingOnly;
+    
     @Override
     public Integer call() throws Exception {
         SyncConfiguration config = parent.createConfiguration();
+        config.setOverlappingOnly(overlappingOnly);
         
         ShardConfigSync sync = new ShardConfigSync(config);
         sync.initialize();

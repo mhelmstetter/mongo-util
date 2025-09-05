@@ -2136,20 +2136,56 @@ public class ShardConfigSync implements Callable<Integer> {
     public void dropDestinationDatabases() {
         logger.debug("dropDestinationDatabases()");
         destShardClient.populateShardMongoClients();
-        MongoCollection<Document> databasesColl = sourceShardClient.getDatabasesCollection();
-        FindIterable<Document> databases = databasesColl.find();
+        
         List<String> databasesList = new ArrayList<String>();
+        
+        if (config.overlappingOnly) {
+            // Original behavior: only drop databases that exist on both source and destination
+            logger.debug("Using overlapping-only mode: dropping databases that exist on both source and destination");
+            MongoCollection<Document> sourceDatabasesColl = sourceShardClient.getDatabasesCollection();
+            FindIterable<Document> sourceDatabases = sourceDatabasesColl.find();
 
-        for (Document database : databases) {
-            String databaseName = database.getString("_id");
+            for (Document database : sourceDatabases) {
+                String databaseName = database.getString("_id");
 
-            if (config.filtered && !config.getIncludeDatabases().contains(databaseName)) {
-                logger.trace("Database " + databaseName + " filtered, not dropping on destination");
-                continue;
-            } else {
-                databasesList.add(databaseName);
+                if (config.filtered && !config.getIncludeDatabases().contains(databaseName)) {
+                    logger.trace("Database " + databaseName + " filtered, not dropping on destination");
+                    continue;
+                } else {
+                    databasesList.add(databaseName);
+                }
+            }
+        } else {
+            // New default behavior: drop all non-system databases on destination (or filtered subset)
+            logger.debug("Using default mode: dropping all non-system databases on destination" + 
+                        (config.filtered ? " (filtered)" : ""));
+            MongoCollection<Document> destDatabasesColl = destShardClient.getDatabasesCollection();
+            FindIterable<Document> destDatabases = destDatabasesColl.find();
+
+            for (Document database : destDatabases) {
+                String databaseName = database.getString("_id");
+                
+                // Skip system databases
+                if (isSystemDatabase(databaseName)) {
+                    logger.trace("Skipping system database: " + databaseName);
+                    continue;
+                }
+
+                if (config.filtered && !config.getIncludeDatabases().contains(databaseName)) {
+                    logger.trace("Database " + databaseName + " filtered, not dropping on destination");
+                    continue;
+                } else {
+                    databasesList.add(databaseName);
+                }
             }
         }
+        
+        if (databasesList.isEmpty()) {
+            logger.info("No databases to drop on destination");
+        } else {
+            logger.info("Dropping {} database(s) on destination: {}", databasesList.size(), databasesList);
+        }
+        
         destShardClient.dropDatabases(databasesList);
         logger.debug("dropDestinationDatabases() complete");
     }
@@ -2157,23 +2193,68 @@ public class ShardConfigSync implements Callable<Integer> {
     public void dropDestinationDatabasesAndConfigMetadata() {
         logger.debug("dropDestinationDatabasesAndConfigMetadata()");
         destShardClient.populateShardMongoClients();
-        MongoCollection<Document> databasesColl = sourceShardClient.getDatabasesCollection();
-        FindIterable<Document> databases = databasesColl.find();
+        
         List<String> databasesList = new ArrayList<String>();
+        
+        if (config.overlappingOnly) {
+            // Original behavior: only drop databases that exist on both source and destination
+            logger.debug("Using overlapping-only mode: dropping databases that exist on both source and destination");
+            MongoCollection<Document> sourceDatabasesColl = sourceShardClient.getDatabasesCollection();
+            FindIterable<Document> sourceDatabases = sourceDatabasesColl.find();
 
-        for (Document database : databases) {
-            String databaseName = database.getString("_id");
+            for (Document database : sourceDatabases) {
+                String databaseName = database.getString("_id");
 
-            if (config.filtered && !config.getIncludeDatabases().contains(databaseName)) {
-                logger.trace("Database " + databaseName + " filtered, not dropping on destination");
-                continue;
-            } else {
-                databasesList.add(databaseName);
+                if (config.filtered && !config.getIncludeDatabases().contains(databaseName)) {
+                    logger.trace("Database " + databaseName + " filtered, not dropping on destination");
+                    continue;
+                } else {
+                    databasesList.add(databaseName);
+                }
+            }
+        } else {
+            // New default behavior: drop all non-system databases on destination (or filtered subset)
+            logger.debug("Using default mode: dropping all non-system databases on destination" + 
+                        (config.filtered ? " (filtered)" : ""));
+            MongoCollection<Document> destDatabasesColl = destShardClient.getDatabasesCollection();
+            FindIterable<Document> destDatabases = destDatabasesColl.find();
+
+            for (Document database : destDatabases) {
+                String databaseName = database.getString("_id");
+                
+                // Skip system databases
+                if (isSystemDatabase(databaseName)) {
+                    logger.trace("Skipping system database: " + databaseName);
+                    continue;
+                }
+
+                if (config.filtered && !config.getIncludeDatabases().contains(databaseName)) {
+                    logger.trace("Database " + databaseName + " filtered, not dropping on destination");
+                    continue;
+                } else {
+                    databasesList.add(databaseName);
+                }
             }
         }
+        
+        if (databasesList.isEmpty()) {
+            logger.info("No databases to drop on destination");
+        } else {
+            logger.info("Dropping {} database(s) on destination: {}", databasesList.size(), databasesList);
+        }
+        
         destShardClient.dropDatabasesAndConfigMetadata(databasesList);
         logger.debug("dropDestinationDatabasesAndConfigMetadata() complete");
 
+    }
+    
+    /**
+     * Check if a database name is a system database that should not be dropped
+     */
+    private boolean isSystemDatabase(String databaseName) {
+        return databaseName.equals("admin") || 
+               databaseName.equals("config") || 
+               databaseName.equals("local");
     }
 
     public void cleanupOrphans() {

@@ -15,7 +15,7 @@ public class MongomirrorCommand implements Callable<Integer> {
     @CommandLine.ParentCommand
     private ShardConfigSyncApp parent;
     
-    @Option(names = {"--mongomirrorBinary"}, description = "Path to mongomirror binary", defaultValue = "mongomirror")
+    @Option(names = {"--mongomirrorBinary"}, description = "Path to mongomirror binary, default: ./mongomirror", defaultValue = "mongomirror")
     private String mongomirrorBinary;
     
     @Option(names = {"--shardToRs"}, description = "Migrate from sharded cluster to replica set")
