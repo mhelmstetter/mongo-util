@@ -46,7 +46,7 @@ dest=mongodb://localhost:27018/
 # Performance tuning (optional)
 # collStatsThreshold=10000
 # numParallelCollections=1
-# mongoMirrorStartPort=27500
+# mongoMirrorStartPort=9001
 
 # Compression settings (optional)  
 # compressors=zstd,zlib,snappy
