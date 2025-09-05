@@ -11,6 +11,7 @@ import picocli.CommandLine.Option;
 import java.util.concurrent.Callable;
 
 @Command(name = "compare", 
+         mixinStandardHelpOptions = true,
          description = "Compare source and destination clusters",
          subcommands = {
              CompareChunksCommand.class,

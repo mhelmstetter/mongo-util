@@ -9,7 +9,9 @@ import picocli.CommandLine.Option;
 
 import java.util.concurrent.Callable;
 
-@Command(name = "chunks", description = "Compare chunks between source and destination")
+@Command(name = "chunks", 
+         mixinStandardHelpOptions = true,
+         description = "Compare chunks between source and destination")
 public class CompareChunksCommand implements Callable<Integer> {
     
     @CommandLine.ParentCommand

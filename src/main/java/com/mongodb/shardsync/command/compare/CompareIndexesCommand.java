@@ -9,7 +9,9 @@ import picocli.CommandLine.Option;
 
 import java.util.concurrent.Callable;
 
-@Command(name = "indexes", description = "Compare indexes between source and destination")
+@Command(name = "indexes", 
+         mixinStandardHelpOptions = true,
+         description = "Compare indexes between source and destination")
 public class CompareIndexesCommand implements Callable<Integer> {
     
     @CommandLine.ParentCommand

@@ -111,6 +111,8 @@ public class ShardConfigSync implements Callable<Integer> {
     private final static int BATCH_SIZE = 512;
 
     public final static int SECONDS_IN_YEAR = 31536000;
+    public final static int EXTENDED_TTL_YEARS = 50;
+    public final static int EXTENDED_TTL_50_YEARS_IN_SECONDS = EXTENDED_TTL_YEARS * SECONDS_IN_YEAR;
 
     private final static Document LOCALE_SIMPLE = new Document("locale", "simple");
 
@@ -839,10 +841,9 @@ public class ShardConfigSync implements Callable<Integer> {
 
                 if (config.extendTtl) {
                     Number expireAfterSeconds = (Number) sourceIndexInfo.get("expireAfterSeconds");
-                    int extendedTtl = 50 * ShardConfigSync.SECONDS_IN_YEAR;
-                    indexMod.put("expireAfterSeconds", extendedTtl);
+                    indexMod.put("expireAfterSeconds", EXTENDED_TTL_50_YEARS_IN_SECONDS);
                     logger.debug("Extending TTL for {} {} from {} to {}", ns, sourceIndexInfo.get("name"),
-                            expireAfterSeconds, extendedTtl);
+                            expireAfterSeconds, EXTENDED_TTL_50_YEARS_IN_SECONDS);
                 } else {
                     // Set TTL to match source
                     Number expireAfterSeconds = (Number) sourceIndexInfo.get("expireAfterSeconds");
@@ -1128,17 +1129,28 @@ public class ShardConfigSync implements Callable<Integer> {
     }
 
     private boolean syncMetadataInitialization() {
-        return syncMetadataInitialization(false);
+        return syncMetadataInitialization(PreflightMode.ENFORCE_CHECKS);
     }
     
-    private boolean syncMetadataInitialization(boolean force) {
+    public enum PreflightMode {
+        ENFORCE_CHECKS,
+        IGNORE_FAILURES
+    }
+    
+    private boolean syncMetadataInitialization(PreflightMode preflightMode) {
         initChunkManager();
         
-        // Perform preflight check to ensure destination is empty (unless forced)
-        if (!force && !performPreflightCheck()) {
-            return false; // Exit early if preflight check fails
-        } else if (force) {
-            logger.warn("⚠️  FORCE MODE: Skipping preflight checks - will not check for non-empty destination");
+        // Always perform preflight check to gather destination cluster information
+        boolean preflightPassed = performPreflightCheck();
+        
+        if (preflightMode == PreflightMode.IGNORE_FAILURES) {
+            if (!preflightPassed) {
+                logger.warn("⚠️  FORCE MODE: Preflight check failed but proceeding anyway due to --force flag");
+                logger.warn("💀 WARNING: Destination cluster is not empty - sync may overwrite existing data");
+            }
+            // Continue execution regardless of preflight result
+        } else if (!preflightPassed) {
+            return false; // Exit early if preflight check fails and not in force mode
         }
         
         stopBalancers();
@@ -1253,7 +1265,7 @@ public class ShardConfigSync implements Callable<Integer> {
         }
 
 
-        if (!syncMetadataInitialization(force)) {
+        if (!syncMetadataInitialization(force ? PreflightMode.IGNORE_FAILURES : PreflightMode.ENFORCE_CHECKS)) {
             return false; // Preflight check failed
         }
         chunkManager.createDestChunksUsingSplitCommand();
@@ -1273,7 +1285,7 @@ public class ShardConfigSync implements Callable<Integer> {
         logger.debug(String.format("Starting metadata sync/migration, %s: %s",
                 ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
 
-        if (!syncMetadataInitialization(force)) {
+        if (!syncMetadataInitialization(force ? PreflightMode.IGNORE_FAILURES : PreflightMode.ENFORCE_CHECKS)) {
             return false; // Preflight check failed
         }
 
@@ -1294,7 +1306,7 @@ public class ShardConfigSync implements Callable<Integer> {
         logger.debug(String.format("Starting optimized metadata sync/migration, %s: %s",
                 ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
         
-        if (!syncMetadataInitialization(force)) {
+        if (!syncMetadataInitialization(force ? PreflightMode.IGNORE_FAILURES : PreflightMode.ENFORCE_CHECKS)) {
             return false; // Preflight check failed
         }
         

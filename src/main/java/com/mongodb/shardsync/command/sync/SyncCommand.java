@@ -10,6 +10,7 @@ import picocli.CommandLine.Command;
 import java.util.concurrent.Callable;
 
 @Command(name = "sync", 
+         mixinStandardHelpOptions = true,
          description = "Synchronize data between clusters",
          subcommands = {
              SyncMetadataCommand.class,

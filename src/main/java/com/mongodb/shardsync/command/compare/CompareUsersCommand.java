@@ -8,7 +8,9 @@ import picocli.CommandLine.Command;
 
 import java.util.concurrent.Callable;
 
-@Command(name = "users", description = "Show differences in users between clusters")
+@Command(name = "users", 
+         mixinStandardHelpOptions = true,
+         description = "Show differences in users between clusters")
 public class CompareUsersCommand implements Callable<Integer> {
     
     @CommandLine.ParentCommand

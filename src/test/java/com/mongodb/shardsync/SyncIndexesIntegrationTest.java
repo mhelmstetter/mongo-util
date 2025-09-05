@@ -56,10 +56,13 @@ public class SyncIndexesIntegrationTest extends BaseIntegrationTest {
     @AfterEach
     public void tearDown() {
         try {
+            // Clean up test databases BEFORE closing connections
             dropTestDatabase(TEST_DB);
         } catch (Exception e) {
             logger.warn("Error during cleanup", e);
         }
+        // Then close connections
+        super.baseTearDown();
     }
     
     @Test

@@ -76,7 +76,9 @@ public abstract class BaseIntegrationTest {
         Properties props = new Properties();
         try (InputStream input = getClass().getClassLoader().getResourceAsStream(ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE)) {
             if (input == null) {
-                throw new IOException("Unable to find " + ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE + " in test resources");
+                throw new IOException("Unable to find " + ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE + " in test resources.\n" +
+                        "Please copy src/test/resources/shard-sync.properties.example to src/test/resources/shard-sync.properties\n" +
+                        "and configure your MongoDB connection settings. See src/test/resources/README.md for details.");
             }
             props.load(input);
         }

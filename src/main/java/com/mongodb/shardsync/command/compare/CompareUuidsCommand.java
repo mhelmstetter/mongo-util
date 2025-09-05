@@ -9,7 +9,9 @@ import picocli.CommandLine.Option;
 
 import java.util.concurrent.Callable;
 
-@Command(name = "uuids", description = "Compare collection UUIDs between clusters")
+@Command(name = "uuids", 
+         mixinStandardHelpOptions = true,
+         description = "Compare collection UUIDs between clusters")
 public class CompareUuidsCommand implements Callable<Integer> {
     
     @CommandLine.ParentCommand
