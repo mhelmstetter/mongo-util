@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.model.Namespace;
+import com.mongodb.util.DatabaseUtil;
 
 public class BaseConfiguration {
 
@@ -59,7 +60,7 @@ public class BaseConfiguration {
 			logger.trace("Namespace " + ns + " filtered, skipping");
 			return true;
 		}
-		if (ns.getDatabaseName().equals("config") || ns.getDatabaseName().equals("admin") || ns.getDatabaseName().equals("local")) {
+		if (DatabaseUtil.isSystemDatabase(ns.getDatabaseName())) {
 			return true;
 		}
 		if (ns.getCollectionName().equals("system.profile") || ns.getCollectionName().equals("system.users")) {

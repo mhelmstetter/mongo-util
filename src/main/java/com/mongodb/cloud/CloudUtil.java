@@ -12,6 +12,8 @@ import org.bson.codecs.pojo.PojoCodecProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.util.DatabaseUtil;
+
 import com.mongodb.atlas.model.Database;
 import com.mongodb.atlas.model.DatabasesResult;
 import com.mongodb.atlas.model.DatabasesStats;
@@ -160,7 +162,7 @@ public class CloudUtil {
         DatabasesResult result = response.body();
         if (result != null) {
             for (Database db : result.getDatabases()) {
-                if (db.getDatabaseName().equals("local")) {
+                if (DatabaseUtil.isSystemDatabase(db.getDatabaseName())) {
                     continue;
                 }
                 //System.out.println("    " + db.getDatabaseName());

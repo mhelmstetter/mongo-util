@@ -22,6 +22,8 @@ import org.bson.io.ByteBufferBsonInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.util.DatabaseUtil;
+
 import com.mongodb.MongoCommandException;
 import com.mongodb.WriteConcern;
 import com.mongodb.client.MongoClient;
@@ -231,7 +233,7 @@ public class Replayer {
                 int flags = bsonInput.readInt32();
                 String collectionName = bsonInput.readCString();
                 databaseName = StringUtils.substringBefore(collectionName, ".$cmd");
-                if (databaseName.equals("local") || databaseName.equals("admin")) {
+                if (DatabaseUtil.isSystemDatabase(databaseName)) {
                     return null;
                 }
                 if (replayOptions.getIgnoredCollections().contains(collectionName)) {
@@ -248,7 +250,7 @@ public class Replayer {
             } else if (opcode == 2010) {
                 int p1 = bsonInput.getPosition();
                 databaseName = bsonInput.readCString();
-                if (databaseName.equals("local") || databaseName.equals("admin")) {
+                if (DatabaseUtil.isSystemDatabase(databaseName)) {
                     return null;
                 }
                 String command = bsonInput.readCString();
@@ -271,7 +273,7 @@ public class Replayer {
                         moreSections = messageLength > bsonInput.getPosition();
                         
                         databaseName = commandDoc.getString("$db");
-                        if (databaseName == null || databaseName.equals("local") || databaseName.equals("admin")) {
+                        if (databaseName == null || DatabaseUtil.isSystemDatabase(databaseName)) {
                             continue;
                         }
                         

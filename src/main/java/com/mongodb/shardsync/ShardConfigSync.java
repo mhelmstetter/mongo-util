@@ -48,6 +48,8 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.util.DatabaseUtil;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Sets;
 import com.mongodb.ConnectionString;
@@ -1387,7 +1389,7 @@ public class ShardConfigSync implements Callable<Integer> {
             String dbName = sourceInfo.getString("name");
 
             if (config.filtered && !config.getIncludeDatabasesAll().contains(dbName)
-                    || dbName.equals("config") || dbName.equals("local") || dbName.equals("admin")) {
+                    || DatabaseUtil.isSystemDatabase(dbName)) {
                 logger.debug("Ignore " + dbName + " for compare, filtered");
                 continue;
             }
@@ -1465,8 +1467,7 @@ public class ShardConfigSync implements Callable<Integer> {
         for (String databaseName : sourceShardClient.listDatabaseNames()) {
             MongoDatabase db = sourceShardClient.getMongoClient().getDatabase(databaseName);
 
-            if (databaseName.equals("admin") || databaseName.equals("config")
-                    || databaseName.contentEquals("local")) {
+            if (DatabaseUtil.isSystemDatabase(databaseName)) {
                 continue;
             }
 
@@ -1548,8 +1549,7 @@ public class ShardConfigSync implements Callable<Integer> {
             for (String databaseName : client.listDatabaseNames()) {
                 MongoDatabase db = client.getDatabase(databaseName);
 
-                if (databaseName.equals("admin") || databaseName.equals("config")
-                        || databaseName.contentEquals("local")) {
+                if (DatabaseUtil.isSystemDatabase(databaseName)) {
                     continue;
                 }
 
@@ -1684,7 +1684,7 @@ public class ShardConfigSync implements Callable<Integer> {
             db.listCollectionNames().into(collNames);
 
             if (config.filtered && !config.getIncludeDatabasesAll().contains(dbName)
-                    || dbName.equals("config") || dbName.equals("local") || dbName.equals("admin")) {
+                    || DatabaseUtil.isSystemDatabase(dbName)) {
                 logger.debug("Ignore " + dbName + " for compare, filtered");
                 continue;
             }
@@ -2063,8 +2063,7 @@ public class ShardConfigSync implements Callable<Integer> {
         databases.into(databasesList);
         for (Document database : databasesList) {
             String databaseName = database.getString("_id");
-            if (databaseName.equals("admin") || databaseName.equals("system") || databaseName.equals("local")
-                    || databaseName.contains("$")) {
+            if (DatabaseUtil.isSystemOrSpecialDatabase(databaseName)) {
                 continue;
             }
             if (config.filtered && !config.getIncludeDatabasesAll().contains(databaseName)) {
@@ -2166,7 +2165,7 @@ public class ShardConfigSync implements Callable<Integer> {
                 String databaseName = database.getString("_id");
                 
                 // Skip system databases
-                if (isSystemDatabase(databaseName)) {
+                if (DatabaseUtil.isSystemDatabase(databaseName)) {
                     logger.trace("Skipping system database: " + databaseName);
                     continue;
                 }
@@ -2223,7 +2222,7 @@ public class ShardConfigSync implements Callable<Integer> {
                 String databaseName = database.getString("_id");
                 
                 // Skip system databases
-                if (isSystemDatabase(databaseName)) {
+                if (DatabaseUtil.isSystemDatabase(databaseName)) {
                     logger.trace("Skipping system database: " + databaseName);
                     continue;
                 }
@@ -2248,14 +2247,6 @@ public class ShardConfigSync implements Callable<Integer> {
 
     }
     
-    /**
-     * Check if a database name is a system database that should not be dropped
-     */
-    private boolean isSystemDatabase(String databaseName) {
-        return databaseName.equals("admin") || 
-               databaseName.equals("config") || 
-               databaseName.equals("local");
-    }
 
     public void cleanupOrphans() {
         logger.debug("cleanupOrphans()");

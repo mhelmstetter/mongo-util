@@ -21,6 +21,8 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.util.DatabaseUtil;
+
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoClientSettings;
@@ -101,7 +103,7 @@ public class OplogReaderWriter {
 
 				String nsString = doc.getString("ns").getValue();
 				Namespace ns = new Namespace(nsString);
-				if (ns.getDatabaseName().equals("config") || ns.getDatabaseName().equals("admin")) {
+				if (DatabaseUtil.isSystemDatabase(ns.getDatabaseName()) && !ns.getDatabaseName().equals("local")) {
 					continue;
 				}
 

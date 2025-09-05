@@ -51,6 +51,8 @@ import org.bson.io.BasicOutputBuffer;
 import org.bson.io.ByteBufferBsonInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.mongodb.util.DatabaseUtil;
 import org.xerial.snappy.Snappy;
 
 import com.mongodb.MongoClientSettings;
@@ -217,7 +219,8 @@ public class MongoReplayFilter {
 					} else if (opcode == 2004) {
 						int flags = bsonInput.readInt32();
 						String collectionName = bsonInput.readCString();
-						if (collectionName.equals("admin.$cmd") || collectionName.equals("local.$cmd")) {
+						String dbName = collectionName.substring(0, collectionName.indexOf(".$cmd"));
+						if (DatabaseUtil.isSystemDatabase(dbName)) {
 							systemDatabasesSkippedCount++;
 							continue;
 						}
@@ -266,7 +269,7 @@ public class MongoReplayFilter {
 						header.put("opcode", 2004);
 						int p1 = bsonInput.getPosition();
 						String databaseName = bsonInput.readCString();
-						if (databaseName.equals("local") || databaseName.equals("admin")) {
+						if (DatabaseUtil.isSystemDatabase(databaseName)) {
 							String command = bsonInput.readCString();
 							systemDatabasesSkippedCount++;
 							continue;
@@ -416,8 +419,7 @@ public class MongoReplayFilter {
 				moreSections = messageLength > bsonInput.getPosition();
 
 				databaseName = commandDoc.getString("$db");
-				if (databaseName == null || databaseName.equals("local")
-						|| databaseName.equals("admin")
+				if (databaseName == null || DatabaseUtil.isSystemDatabase(databaseName)
 						|| commandDoc.containsKey("getMore") 
 						|| commandDoc.containsKey("ping")) {
 					return;
