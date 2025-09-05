@@ -51,8 +51,8 @@ public class MongomirrorCommand implements Callable<Integer> {
     @Option(names = {"--dryRun"}, description = "Dry run only")
     private boolean dryRun;
     
-    @Option(names = {"--sleepMillis"}, description = "Sleep duration in milliseconds between operations")
-    private Integer sleepMillis;
+    @Option(names = {"--sleepMillis"}, description = "Sleep duration in milliseconds between mongomirror process launches (ramp up)")
+    private Integer sleepMillis = 0;
     
     @Option(names = {"--numParallelCollections"}, description = "Number of collections to process in parallel")
     private String numParallelCollections;

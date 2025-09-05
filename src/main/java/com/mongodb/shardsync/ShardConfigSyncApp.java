@@ -211,6 +211,22 @@ public class ShardConfigSyncApp implements Callable<Integer> {
             System.out.println("mongomirrorBinary required");
             return 1;
         }
+        
+        // Validate mongomirror binary path
+        File mongomirrorFile = new File(mongoMirrorPath);
+        if (!mongomirrorFile.exists()) {
+            System.err.println("Error: mongomirror binary not found at path: " + mongoMirrorPath);
+            return 1;
+        }
+        if (!mongomirrorFile.isFile()) {
+            System.err.println("Error: mongomirror path is not a file: " + mongoMirrorPath);
+            return 1;
+        }
+        if (!mongomirrorFile.canExecute()) {
+            System.err.println("Error: mongomirror binary is not executable: " + mongoMirrorPath);
+            System.err.println("Try running: chmod +x " + mongoMirrorPath);
+            return 1;
+        }
         config.setMongomirrorBinary(mongoMirrorPath);
         config.setNoIndexRestore(mongoCmd.isNoIndexRestore());
         config.setSleepMillis(mongoCmd.getSleepMillis());
