@@ -541,6 +541,8 @@ public class ShardConfigSync implements Callable<Integer> {
             return 1;
         }
         int diffCount = 0;
+        int ttlOnlyDiffCount = 0;  // Track TTL-only differences
+        int otherDiffCount = 0;     // Track non-TTL differences
         int indexCount = 0;
         int modifiedCount = 0;
         int missingNamespaces = 0;
@@ -612,26 +614,49 @@ public class ShardConfigSync implements Callable<Integer> {
                     
                     logger.warn("     📍 Index: {} (key: {})", sourceIndex.getName(), sourceIndex.getKey());
                     
+                    boolean hasTtlDiff = false;
+                    boolean hasOtherDiff = false;
+                    
                     // Compare TTL
                     if (sourceIndex.getExpireAfterSeconds() != null || (destIndex != null && destIndex.getExpireAfterSeconds() != null)) {
                         Number sourceTtl = sourceIndex.getExpireAfterSeconds();
                         Number destTtl = destIndex != null ? destIndex.getExpireAfterSeconds() : null;
                         
-                        logger.warn("        ⏱️  TTL DIFFERENCE:");
-                        logger.warn("           Source: {}", formatTtl(sourceTtl));
-                        logger.warn("           Dest:   {}", formatTtl(destTtl));
+                        if (!java.util.Objects.equals(sourceTtl, destTtl)) {
+                            hasTtlDiff = true;
+                            logger.warn("        ⏱️  TTL DIFFERENCE:");
+                            logger.warn("           Source: {}", formatTtl(sourceTtl));
+                            logger.warn("           Dest:   {}", formatTtl(destTtl));
+                        }
                     }
                     
                     // Compare other properties
                     if (destIndex != null) {
                         if (sourceIndex.isUnique() != destIndex.isUnique()) {
+                            hasOtherDiff = true;
                             logger.warn("        🔑 UNIQUE DIFFERENCE: Source={}, Dest={}", sourceIndex.isUnique(), destIndex.isUnique());
                         }
                         if (sourceIndex.isSparse() != destIndex.isSparse()) {
+                            hasOtherDiff = true;
                             logger.warn("        🌐 SPARSE DIFFERENCE: Source={}, Dest={}", sourceIndex.isSparse(), destIndex.isSparse());
                         }
+                        // Check if there are other differences besides TTL, unique, and sparse
+                        if (!hasTtlDiff && !sourceIndex.isUnique() == destIndex.isUnique() 
+                            && sourceIndex.isSparse() == destIndex.isSparse() 
+                            && !sourceIndex.equals(destIndex)) {
+                            hasOtherDiff = true;
+                            logger.warn("        ⚠️  OTHER DIFFERENCES DETECTED");
+                        }
                     } else {
+                        hasOtherDiff = true;
                         logger.warn("        ❗ INDEX MISSING ON DESTINATION");
+                    }
+                    
+                    // Track the type of difference
+                    if (hasTtlDiff && !hasOtherDiff) {
+                        ttlOnlyDiffCount++;
+                    } else if (hasOtherDiff) {
+                        otherDiffCount++;
                     }
                 }
                 logger.debug("Full diff details: {}", diff);
@@ -713,10 +738,21 @@ public class ShardConfigSync implements Callable<Integer> {
             }
             
             if (diffCount > 0) {
-                logger.warn("❌ Total issues found: {} (run with --collModTtl to fix TTL differences)", diffCount);
+                if (ttlOnlyDiffCount > 0 && otherDiffCount == 0) {
+                    // Only TTL differences found
+                    logger.warn("⏱️  {} TTL difference(s) found - run with --collModTtl to synchronize TTL settings", ttlOnlyDiffCount);
+                } else if (ttlOnlyDiffCount > 0 && otherDiffCount > 0) {
+                    // Both TTL and other differences found
+                    logger.warn("❌ Total issues found: {}", diffCount);
+                    logger.warn("    - {} TTL difference(s) (run with --collModTtl to fix)", ttlOnlyDiffCount);
+                    logger.warn("    - {} non-TTL difference(s) requiring manual investigation", otherDiffCount);
+                } else {
+                    // Only non-TTL differences found
+                    logger.warn("❌ {} non-TTL index difference(s) found requiring manual investigation", otherDiffCount);
+                }
                 return 1; // Exit code 1 when differences found but not fixed
             } else {
-                logger.info("✅ No differences found - all {} indexes match!", indexCount);
+                logger.info("✅ All {} indexes match between source and destination", indexCount);
             }
             return 0; // Exit code 0 when no differences found
         }
