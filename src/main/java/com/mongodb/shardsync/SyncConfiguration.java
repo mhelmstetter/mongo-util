@@ -24,6 +24,7 @@ public class SyncConfiguration extends BaseConfiguration {
 	public boolean drop;
 	public boolean dropDestDbs;
 	public boolean dropDestDbsAndConfigMetadata;
+	public boolean dryRun;
 	public boolean nonPrivilegedMode;
 	public boolean doChunkCounts;
 	public String compressors;
@@ -32,7 +33,6 @@ public class SyncConfiguration extends BaseConfiguration {
 	public boolean reverseSync;
 	public boolean noIndexRestore;
 	public Integer collStatsThreshold;
-	public boolean dryRun;
 	public boolean extendTtl;
 	public File mongomirrorBinary;
 
@@ -56,8 +56,6 @@ public class SyncConfiguration extends BaseConfiguration {
 	public Long cleanupOrphansSleepMillis;
 	public String destVersion;
 	public List<Integer> destVersionArray;
-	public boolean sslAllowInvalidHostnames;
-	public boolean sslAllowInvalidCertificates;
 	public boolean skipFlushRouterConfig;
 	
 	private String usersInputCsv;
@@ -118,13 +116,9 @@ public class SyncConfiguration extends BaseConfiguration {
 	public void setDropDestDbsAndConfigMetadata(boolean dropDestDbsAndConfigMetadata) {
 		this.dropDestDbsAndConfigMetadata = dropDestDbsAndConfigMetadata;
 	}
-
-	public boolean isNonPrivilegedMode() {
-		return nonPrivilegedMode;
-	}
 	
-	public void setNonPrivilegedMode(boolean nonPrivilegedMode) {
-		this.nonPrivilegedMode = nonPrivilegedMode;
+	public void setDryRun(boolean dryRun) {
+		this.dryRun = dryRun;
 	}
 
 	public boolean isDoChunkCounts() {
@@ -181,14 +175,6 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setCollStatsThreshold(Integer collStatsThreshold) {
 		this.collStatsThreshold = collStatsThreshold;
-	}
-
-	public boolean isDryRun() {
-		return dryRun;
-	}
-
-	public void setDryRun(boolean dryRun) {
-		this.dryRun = dryRun;
 	}
 
 	public boolean isExtendTtl() {
@@ -265,22 +251,6 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setDestVersionArray(List<Integer> destVersionArray) {
 		this.destVersionArray = destVersionArray;
-	}
-
-	public boolean isSslAllowInvalidHostnames() {
-		return sslAllowInvalidHostnames;
-	}
-
-	public void setSslAllowInvalidHostnames(boolean sslAllowInvalidHostnames) {
-		this.sslAllowInvalidHostnames = sslAllowInvalidHostnames;
-	}
-
-	public boolean isSslAllowInvalidCertificates() {
-		return sslAllowInvalidCertificates;
-	}
-
-	public void setSslAllowInvalidCertificates(boolean sslAllowInvalidCertificates) {
-		this.sslAllowInvalidCertificates = sslAllowInvalidCertificates;
 	}
 
 	public boolean isSkipFlushRouterConfig() {

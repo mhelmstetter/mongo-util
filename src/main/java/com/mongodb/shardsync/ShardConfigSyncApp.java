@@ -43,7 +43,8 @@ public class ShardConfigSyncApp implements Callable<Integer> {
     private static Logger logger = LoggerFactory.getLogger(ShardConfigSyncApp.class);
     
     // Global options shared across all sub-commands
-    @Option(names = {"-c", "--config"}, description = "Configuration properties file", defaultValue = SHARD_SYNC_PROPERTIES_FILE)
+    @Option(names = {"-c", "--config"}, description = "Configuration properties file, default: " + SHARD_SYNC_PROPERTIES_FILE, 
+    		defaultValue = SHARD_SYNC_PROPERTIES_FILE)
     private File configFile;
 
     @Option(names = {"-s", "--" + SOURCE_URI}, description = "Source cluster connection uri")
@@ -63,9 +64,6 @@ public class ShardConfigSyncApp implements Callable<Integer> {
 
     @Option(names = {"-f", "--filter"}, arity = "0..*", description = "Namespace filter")
     private String[] filter;
-
-    @Option(names = {"--nonPrivileged"}, description = "Non-privileged mode, create chunks using splitChunk")
-    private boolean nonPrivileged;
 
     @Option(names = {"--sslAllowInvalidHostnames"}, description = "ssl allow invalid hostnames (not implemented)", hidden = true)
     private boolean sslAllowInvalidHostnames;
@@ -144,12 +142,9 @@ public class ShardConfigSyncApp implements Callable<Integer> {
         if (filter != null) {
             config.setNamespaceFilters(filter);
         }
-
-        config.setNonPrivilegedMode(nonPrivileged);
+        
+        // Set global dryRun option
         config.setDryRun(dryRun);
-
-        config.setSslAllowInvalidCertificates(sslAllowInvalidCerts);
-        config.setSslAllowInvalidHostnames(sslAllowInvalidHostnames);
 
         return config;
     }
@@ -221,6 +216,11 @@ public class ShardConfigSyncApp implements Callable<Integer> {
         config.setSleepMillis(mongoCmd.getSleepMillis());
         config.setNumParallelCollections(mongoCmd.getNumParallelCollections());
         config.setWriteConcern(mongoCmd.getWriteConcern());
+        
+        // Use mongomirror-specific dryRun if set, otherwise use global dryRun
+        if (mongoCmd.isDryRun()) {
+            config.setDryRun(true);
+        }
         
         if (mongoCmd.getStopWhenLagWithin() != null) {
             config.setStopWhenLagWithin(Integer.parseInt(mongoCmd.getStopWhenLagWithin()));

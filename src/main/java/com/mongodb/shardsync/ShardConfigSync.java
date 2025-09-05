@@ -34,7 +34,6 @@ import java.util.stream.Collectors;
 import org.apache.commons.collections4.SetUtils;
 import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.lang3.RandomStringUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.bson.BSONException;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -77,7 +76,6 @@ import com.mongodb.client.model.CreateCollectionOptions;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.ValidationOptions;
-import com.mongodb.client.result.DeleteResult;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
 import com.mongodb.model.IndexSpec;
@@ -107,8 +105,6 @@ public class ShardConfigSync implements Callable<Integer> {
     DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm_ss");
 
     private static Logger logger = LoggerFactory.getLogger(ShardConfigSync.class);
-
-    private final static int BATCH_SIZE = 512;
 
     public final static int SECONDS_IN_YEAR = 31536000;
     public final static int EXTENDED_TTL_YEARS = 50;

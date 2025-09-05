@@ -48,6 +48,9 @@ public class MongomirrorCommand implements Callable<Integer> {
     @Option(names = {"--noIndexRestore"}, description = "Skip index restoration")
     private boolean noIndexRestore;
     
+    @Option(names = {"--dryRun"}, description = "Dry run only")
+    private boolean dryRun;
+    
     @Option(names = {"--sleepMillis"}, description = "Sleep duration in milliseconds between operations")
     private Integer sleepMillis;
     
@@ -108,6 +111,7 @@ public class MongomirrorCommand implements Callable<Integer> {
     public String getOplogBasePath() { return oplogBasePath; }
     public String getBookmarkFilePrefix() { return bookmarkFilePrefix; }
     public boolean isNoIndexRestore() { return noIndexRestore; }
+    public boolean isDryRun() { return dryRun; }
     public Integer getSleepMillis() { return sleepMillis; }
     public String getNumParallelCollections() { return numParallelCollections; }
     public String getWriteConcern() { return writeConcern; }
