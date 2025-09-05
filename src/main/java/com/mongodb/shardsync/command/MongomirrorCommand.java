@@ -7,13 +7,15 @@ import picocli.CommandLine.Option;
 
 import java.util.concurrent.Callable;
 
-@Command(name = "mongomirror", description = "Run mongomirror operations")
+@Command(name = "mongomirror", 
+         mixinStandardHelpOptions = true,
+         description = "Run mongomirror operations")
 public class MongomirrorCommand implements Callable<Integer> {
     
     @CommandLine.ParentCommand
     private ShardConfigSyncApp parent;
     
-    @Option(names = {"--mongomirrorBinary"}, description = "Path to mongomirror binary")
+    @Option(names = {"--mongomirrorBinary"}, description = "Path to mongomirror binary", defaultValue = "mongomirror")
     private String mongomirrorBinary;
     
     @Option(names = {"--shardToRs"}, description = "Migrate from sharded cluster to replica set")

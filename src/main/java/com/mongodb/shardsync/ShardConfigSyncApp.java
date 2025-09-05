@@ -53,7 +53,12 @@ public class ShardConfigSyncApp implements Callable<Integer> {
     private String destUri;
 
 
-    @Option(names = {"-m", "--shardMap"}, arity = "0..*", description = "Shard mapping")
+    @Option(names = {"-m", "--shardMap"}, arity = "0..*", description = "Shard mapping, format: <sourceShard>|<destShard>,...\n" +
+    		"example: shard1|atlas-xd8hfg-shard-0,shard10|atlas-xd8hfg-shard-10\n" +
+    		"This will by default map the shards in db order,\n" + 
+    		"however if single digit numbers are used, the\n" + 
+    		"source and target numbers may not align and\n" +
+    		"shardMap is recommended for consistency")
     private String[] shardMap;
 
     @Option(names = {"-f", "--filter"}, arity = "0..*", description = "Namespace filter")
