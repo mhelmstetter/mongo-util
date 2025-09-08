@@ -904,6 +904,20 @@ public class ShardClient {
 		return this.mongoClient.getDatabase(dbName).runCommand(collStatsCommand(collName));
 	}
 	
+	public Document dataSize(String namespace, BsonDocument min, BsonDocument max) {
+		Document cmd = new Document("dataSize", namespace);
+		cmd.append("min", min);
+		cmd.append("max", max);
+		cmd.append("estimate", true);
+		Document result = null;
+		try {
+			result = adminCommand(cmd);
+		} catch (MongoCommandException mce) {
+			logger.warn("dataSize error ns: {}, message: {}", namespace, mce.getMessage());
+		}
+		return result;
+	}
+	
 	public void populateDatabaseCatalog() {
 		databaseCatalogProvider.populateDatabaseCatalog();
 	}

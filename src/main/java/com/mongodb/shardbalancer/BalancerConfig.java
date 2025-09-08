@@ -24,6 +24,8 @@ public class BalancerConfig extends BaseConfiguration {
 	
 	private int activeChunkThreshold;
 	
+	private long maxDocs = 250000; // Default value
+	
 	private Namespace balancerStateNamespace = new Namespace("mongoCustomBalancerStats", "balancerState");
 	
 	private Namespace statsNamespace = new Namespace("mongoCustomBalancerStats", "chunkStats");
@@ -174,6 +176,13 @@ public class BalancerConfig extends BaseConfiguration {
 		this.activeChunkThreshold = activeChunkThreshold;
 	}
 	
+	public long getMaxDocs() {
+		return maxDocs;
+	}
+	
+	public void setMaxDocs(long maxDocs) {
+		this.maxDocs = maxDocs;
+	}
 	
 
 }

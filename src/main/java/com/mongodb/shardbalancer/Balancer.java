@@ -82,6 +82,7 @@ public class Balancer implements Callable<Integer> {
 	private final static String DELTA_THRESHOLD_PERCENT = "deltaThresholdPercent";
 	private final static String MOVE_COUNT_BACKOFF_THRESHOLD = "moveCountBackoffThreshold";
 	private final static String ACTIVE_CHUNK_THRESHOLD = "activeChunkThreshold";
+	private final static String MAX_DOCS = "maxDocs";
 
 	private BalancerConfig balancerConfig;
 
@@ -253,33 +254,47 @@ public class Balancer implements Callable<Integer> {
 	
 						BsonValue id = chunkDoc.get("id");
 						CountingMegachunk mega = innerMap.get(new BsonValueWrapper(id));
+						BsonDocument min = mega.getMin();
+						BsonDocument max = mega.getMax();
 						
-	
-						for (int _try = 0;_try < 10; _try++) {
+						boolean success = false;
+						if (!balancerConfig.isDryRun()) {
 							
-							logger.debug("move chunk, try {} [ {} / {} ]: {}, _id: {}", _try, i++, hotChunks.size(), mega, chunkDoc.get("_id"));
-							
-							boolean success = false;
-							try {
-								
-								// TODO - need to loop multiple times here, because we could get ChunkToBig multiple times
-								
-								success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), to.getShard(), false, false, false, false, true);
-							} catch (MongoCommandException mce) {
-								if (mce.getMessage().contains("ChunkTooBig")) {
-									logger.debug("Split then retry due to ChunkTooBig..., try {}", _try);
-					                splitChunk(ns, mega.getMin());
-					                chunkManager.loadChunkMap(ns, sourceChunksCache, chunkMap);
+							// Pre-emptive chunk splitting before move
+							long maxDocs = balancerConfig.getMaxDocs();
+							Document dataSize = sourceShardClient.dataSize(ns, min, max);
+							if (dataSize != null) {
+								Number countNumber = dataSize.get("numObjects", Number.class);
+								if (countNumber != null) {
+									long count = countNumber.longValue();
+									
+									int splitIteration = 0;
+									while (count >= maxDocs) {
+										logger.debug("maxDocs: {}, chunk too big, splitting - iteration {}", maxDocs, splitIteration);
+										splitChunk(ns, min);
+										chunkManager.loadChunkMap(ns, sourceChunksCache, chunkMap);
+										
+										// Recalculate size after split
+										dataSize = sourceShardClient.dataSize(ns, min, max);
+										if (dataSize == null) break;
+										countNumber = dataSize.get("numObjects", Number.class);
+										if (countNumber == null) break;
+										count = countNumber.longValue();
+										splitIteration++;
+										
+										// Safety break to avoid infinite loop
+										if (splitIteration >= 10) {
+											logger.warn("Max split iterations reached for chunk {}", mega);
+											break;
+										}
+									}
 								}
-								
-								if (mce.getMessage().contains("no chunk found")) {
-									chunkManager.loadChunkMap(ns, sourceChunksCache, chunkMap);
-								}
-								
 							}
 							
+							logger.debug("about to move chunk [ {} / {} ]: {}, _id: {}", i++, hotChunks.size(), mega, chunkDoc.get("_id"));
+							success = moveChunkWithRetry(ns, mega, to.getShard(), 10);
+							
 							if (success) {
-								logger.debug("moveChunk success, try {}", _try);
 								moveCount++;
 								mega.setShard(to.getShard());
 								mega.updateLastMovedTime();
@@ -289,7 +304,6 @@ public class Balancer implements Callable<Integer> {
 											Updates.set("chunks.$.balanced", true),
 											Updates.inc("balancedChunks", 1)
 										));
-								continue;
 							}
 						}
 	
@@ -324,6 +338,52 @@ public class Balancer implements Callable<Integer> {
 //		}
 //		min = (BsonDocument) newChunk.get("min");
 //		max = (BsonDocument) newChunk.get("max");
+	}
+	
+	private boolean moveChunkWithRetry(String ns, CountingMegachunk mega, String toShard, int maxRetries) {
+		for (int retry = 0; retry < maxRetries; retry++) {
+			try {
+				boolean success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), toShard, false, false, false, false, true);
+				if (success) {
+					logger.debug("moveChunk success on retry {}", retry);
+					return true;
+				}
+			} catch (MongoCommandException mce) {
+				if (mce.getMessage().contains("ChunkTooBig")) {
+					// Extract maxDocs from error message using regex
+					String message = mce.getMessage();
+					java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("maximum number of documents for a chunk is (\\d+)");
+					java.util.regex.Matcher matcher = pattern.matcher(message);
+					
+					if (matcher.find()) {
+						long extractedMaxDocs = Long.parseLong(matcher.group(1));
+						logger.debug("ChunkTooBig error, extracted maxDocs: {}, splitting chunk", extractedMaxDocs);
+						
+						splitChunk(ns, mega.getMin());
+						chunkManager.loadChunkMap(ns, sourceChunksCache, chunkMap);
+						
+						// Continue to retry with split chunk
+						continue;
+					} else {
+						logger.warn("ChunkTooBig error but couldn't extract maxDocs from message: {}", message);
+						break;
+					}
+				} else if (mce.getMessage().contains("no chunk found")) {
+					logger.debug("No chunk found, reloading chunk map");
+					chunkManager.loadChunkMap(ns, sourceChunksCache, chunkMap);
+					continue;
+				} else {
+					logger.warn("Move chunk failed with error: {}", mce.getMessage());
+					break;
+				}
+			} catch (Exception e) {
+				logger.error("Unexpected error during moveChunk: {}", e.getMessage(), e);
+				break;
+			}
+		}
+		
+		logger.warn("Failed to move chunk {} after {} retries", mega, maxRetries);
+		return false;
 	}
 
 	private void updateChunkStats() {
@@ -449,6 +509,7 @@ public class Balancer implements Callable<Integer> {
 		balancerConfig.setDeltaThresholdPercent(config.getDouble(DELTA_THRESHOLD_PERCENT, 3.0));
 		balancerConfig.setMoveCountBackoffThreshold(config.getInt(MOVE_COUNT_BACKOFF_THRESHOLD, 10));
 		balancerConfig.setActiveChunkThreshold(config.getInt(ACTIVE_CHUNK_THRESHOLD, 10));
+		balancerConfig.setMaxDocs(config.getLong(MAX_DOCS, 250000L));
 	}
 
 	private Configuration readProperties() throws ConfigurationException {
