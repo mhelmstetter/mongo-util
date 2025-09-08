@@ -62,8 +62,14 @@ public class ShardConfigSyncApp implements Callable<Integer> {
     		"shardMap is recommended for consistency")
     private String[] shardMap;
 
-    @Option(names = {"-f", "--filter"}, arity = "0..*", description = "Namespace filter")
+    @Option(names = {"-f", "--filter"}, arity = "0..*", description = "Namespace filter (DEPRECATED: use --includeNamespace or --includeDB instead)", hidden = true)
     private String[] filter;
+    
+    @Option(names = {"--includeNamespace"}, arity = "0..*", description = "Include specific namespace(s) (format: db.collection)")
+    private String[] includeNamespace;
+    
+    @Option(names = {"--includeDB"}, arity = "0..*", description = "Include specific database(s)")
+    private String[] includeDB;
 
     @Option(names = {"--sslAllowInvalidHostnames"}, description = "ssl allow invalid hostnames (not implemented)", hidden = true)
     private boolean sslAllowInvalidHostnames;
@@ -139,8 +145,27 @@ public class ShardConfigSyncApp implements Callable<Integer> {
             config.setShardMap(shardMap);
         }
 
-        if (filter != null) {
+        // Handle filtering options with deprecation warning
+        if (filter != null && filter.length > 0) {
+            logger.warn("--filter option is DEPRECATED and will be removed in a future version. " +
+                       "Please use --includeNamespace for specific collections or --includeDB for entire databases.");
             config.setNamespaceFilters(filter);
+        }
+        
+        if (includeNamespace != null && includeNamespace.length > 0) {
+            if (filter != null && filter.length > 0) {
+                throw new IllegalArgumentException("Cannot use both --filter and --includeNamespace options. " +
+                    "Please use only --includeNamespace and --includeDB options.");
+            }
+            config.setIncludeNamespaces(includeNamespace);
+        }
+        
+        if (includeDB != null && includeDB.length > 0) {
+            if (filter != null && filter.length > 0) {
+                throw new IllegalArgumentException("Cannot use both --filter and --includeDB options. " +
+                    "Please use only --includeNamespace and --includeDB options.");
+            }
+            config.setIncludeDatabases(includeDB);
         }
         
         // Set global dryRun option
