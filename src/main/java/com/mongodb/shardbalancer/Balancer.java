@@ -83,7 +83,6 @@ public class Balancer implements Callable<Integer> {
 	private final static String DELTA_THRESHOLD_PERCENT = "deltaThresholdPercent";
 	private final static String MOVE_COUNT_BACKOFF_THRESHOLD = "moveCountBackoffThreshold";
 	private final static String ACTIVE_CHUNK_THRESHOLD = "activeChunkThreshold";
-	private final static String MAX_DOCS = "maxDocs";
 	private final static String DEST_SHARDS = "destShards";
 
 	private BalancerConfig balancerConfig;
@@ -268,38 +267,6 @@ public class Balancer implements Callable<Integer> {
 						
 						boolean success = false;
 						if (!balancerConfig.isDryRun()) {
-							
-							// Pre-emptive chunk splitting before move
-							long maxDocs = balancerConfig.getMaxDocs();
-							Document dataSize = sourceShardClient.dataSize(ns, min, max);
-							if (dataSize != null) {
-								Number countNumber = dataSize.get("numObjects", Number.class);
-								if (countNumber != null) {
-									long count = countNumber.longValue();
-									
-									int splitIteration = 0;
-									while (count >= maxDocs) {
-										logger.debug("maxDocs: {}, chunk too big, splitting - iteration {}", maxDocs, splitIteration);
-										splitChunk(ns, min);
-										chunkManager.loadChunkMap(ns, sourceChunksCache, chunkMap);
-										
-										// Recalculate size after split
-										dataSize = sourceShardClient.dataSize(ns, min, max);
-										if (dataSize == null) break;
-										countNumber = dataSize.get("numObjects", Number.class);
-										if (countNumber == null) break;
-										count = countNumber.longValue();
-										splitIteration++;
-										
-										// Safety break to avoid infinite loop
-										if (splitIteration >= 10) {
-											logger.warn("Max split iterations reached for chunk {}", mega);
-											break;
-										}
-									}
-								}
-							}
-							
 							logger.debug("about to move chunk [ {} / {} ]: {}, _id: {}", i++, hotChunks.size(), mega, chunkDoc.get("_id"));
 							success = moveChunkWithRetry(ns, mega, to.getShard(), 10);
 							
@@ -518,7 +485,6 @@ public class Balancer implements Callable<Integer> {
 		balancerConfig.setDeltaThresholdPercent(config.getDouble(DELTA_THRESHOLD_PERCENT, 3.0));
 		balancerConfig.setMoveCountBackoffThreshold(config.getInt(MOVE_COUNT_BACKOFF_THRESHOLD, 10));
 		balancerConfig.setActiveChunkThreshold(config.getInt(ACTIVE_CHUNK_THRESHOLD, 10));
-		balancerConfig.setMaxDocs(config.getLong(MAX_DOCS, 250000L));
 		
 		// Optional destShards configuration
 		String[] destShards = config.getStringArray(DEST_SHARDS);
