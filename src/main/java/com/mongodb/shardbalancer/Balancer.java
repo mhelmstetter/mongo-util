@@ -18,6 +18,7 @@ import static com.mongodb.client.model.Sorts.orderBy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,6 +84,7 @@ public class Balancer implements Callable<Integer> {
 	private final static String MOVE_COUNT_BACKOFF_THRESHOLD = "moveCountBackoffThreshold";
 	private final static String ACTIVE_CHUNK_THRESHOLD = "activeChunkThreshold";
 	private final static String MAX_DOCS = "maxDocs";
+	private final static String DEST_SHARDS = "destShards";
 
 	private BalancerConfig balancerConfig;
 
@@ -235,6 +237,13 @@ public class Balancer implements Callable<Integer> {
 					
 					if (!from.isAboveThreshold() || (!to.isAboveThreshold() && to.getTotalOps() > 0)) {
 						logger.debug("source and/or target shard is not above threshold, skipping. source: {}, target: {}", from.getShard(), to.getShard());
+						continue;
+					}
+					
+					// Check if destShards is configured and if target shard is allowed
+					Set<String> destShards = balancerConfig.getDestShards();
+					if (destShards != null && !destShards.isEmpty() && !destShards.contains(to.getShard())) {
+						logger.debug("Target shard {} not in destShards whitelist {}, skipping", to.getShard(), destShards);
 						continue;
 					}
 					
@@ -510,6 +519,13 @@ public class Balancer implements Callable<Integer> {
 		balancerConfig.setMoveCountBackoffThreshold(config.getInt(MOVE_COUNT_BACKOFF_THRESHOLD, 10));
 		balancerConfig.setActiveChunkThreshold(config.getInt(ACTIVE_CHUNK_THRESHOLD, 10));
 		balancerConfig.setMaxDocs(config.getLong(MAX_DOCS, 250000L));
+		
+		// Optional destShards configuration
+		String[] destShards = config.getStringArray(DEST_SHARDS);
+		if (destShards != null && destShards.length > 0) {
+			balancerConfig.setDestShards(new HashSet<>(Arrays.asList(destShards)));
+			logger.info("Restricting moves to destination shards: {}", Arrays.toString(destShards));
+		}
 	}
 
 	private Configuration readProperties() throws ConfigurationException {
