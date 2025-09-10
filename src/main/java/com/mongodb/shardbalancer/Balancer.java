@@ -87,9 +87,9 @@ public class Balancer implements Callable<Integer> {
 
 	private BalancerConfig balancerConfig;
 
-	private ShardClient sourceShardClient;
+	protected ShardClient sourceShardClient;
 	
-	private ChunkManager chunkManager;
+	protected ChunkManager chunkManager;
 
 	private TailingOplogAnalyzer oplogAnalyzer;
 
@@ -99,8 +99,8 @@ public class Balancer implements Callable<Integer> {
 
 	private ChunkStats chunkStats;
 
-	Map<String, RawBsonDocument> sourceChunksCache;
-	Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
+	protected Map<String, RawBsonDocument> sourceChunksCache;
+	protected Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
 	
 	private int backoffSleepMinutes = 0;
 	
@@ -300,7 +300,7 @@ public class Balancer implements Callable<Integer> {
 
 	}
 	
-	private void splitChunk(String ns, BsonDocument min) {
+	protected void splitChunk(String ns, BsonDocument min) {
 		Document result = sourceShardClient.splitFind(ns, min, true);
 		logger.debug("splitFind / split chunk result: {}", result);
 		
@@ -316,7 +316,7 @@ public class Balancer implements Callable<Integer> {
 //		max = (BsonDocument) newChunk.get("max");
 	}
 	
-	private boolean moveChunkWithRetry(String ns, CountingMegachunk mega, String toShard, int maxRetries) {
+	protected boolean moveChunkWithRetry(String ns, CountingMegachunk mega, String toShard, int maxRetries) {
 		for (int retry = 0; retry < maxRetries; retry++) {
 			try {
 				boolean success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), toShard, false, false, false, false, true);

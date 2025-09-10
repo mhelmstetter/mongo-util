@@ -1,6 +1,18 @@
 package com.mongodb.shardbalancer;
 
 import static com.mongodb.client.model.Filters.regex;
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.gte;
+import static com.mongodb.client.model.Filters.or;
+import static com.mongodb.client.model.Filters.exists;
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Updates.set;
+import static com.mongodb.client.model.Aggregates.match;
+import static com.mongodb.client.model.Aggregates.group;
+import static com.mongodb.client.model.Aggregates.sort;
+import static com.mongodb.client.model.Aggregates.limit;
+import static com.mongodb.client.model.Accumulators.sum;
+import static com.mongodb.client.model.Sorts.descending;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -20,6 +32,7 @@ import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.bson.BsonDocument;
 import org.bson.RawBsonDocument;
+import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,12 +40,16 @@ import com.mongodb.MongoBulkWriteException;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
+import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.InsertOneModel;
 import com.mongodb.client.model.WriteModel;
+import com.mongodb.client.model.UpdateOneModel;
+import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.bson.BsonValueWrapper;
+import com.mongodb.model.Namespace;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -40,7 +57,7 @@ import picocli.CommandLine.Option;
 
 @Command(name = "customAnalyzer", mixinStandardHelpOptions = true, version = "customAnalyzer 0.1", 
          description = "Custom document analyzer for specific shard and date patterns")
-public class CustomDocumentAnalyzer implements Callable<Integer> {
+public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer> {
 
     @Option(names = {"--config"}, required = false, defaultValue = "balancer.properties")
     private String configFile;
@@ -56,34 +73,46 @@ public class CustomDocumentAnalyzer implements Callable<Integer> {
     
     @Option(names = {"--init"}, description = "Run initialization phase")
     private boolean initMode = false;
+    
+    @Option(names = {"--balance"}, description = "Run balance phase")
+    private boolean balanceMode = false;
+    
+    @Option(names = {"--destShardIndex"}, description = "Destination shard indexes for balancing (comma-separated)")
+    private String destShardIndexes;
 
-    protected final Logger logger = LoggerFactory.getLogger(CustomDocumentAnalyzer.class);
+    private final Logger logger = LoggerFactory.getLogger(CustomDocumentAnalyzer.class);
     
     private final static String SOURCE_URI = "source";
     private final static int BATCH_SIZE = 1000;
     
     private BalancerConfig balancerConfig;
-    private ShardClient sourceShardClient;
-    private ChunkManager chunkManager;
-    private Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap;
-    private Map<String, RawBsonDocument> sourceChunksCache;
 
     @Override
     public Integer call() throws ConfigurationException {
         
-        if (!initMode) {
-            logger.error("Currently only --init mode is supported");
+        if (!initMode && !balanceMode) {
+            logger.error("Must specify either --init or --balance mode");
+            return 1;
+        }
+        
+        if (initMode && balanceMode) {
+            logger.error("Cannot specify both --init and --balance modes");
             return 1;
         }
         
         parseArgs();
         init();
-        runInitialization();
+        
+        if (initMode) {
+            runInitialization();
+        } else if (balanceMode) {
+            runBalance();
+        }
         
         return 0;
     }
     
-    private void parseArgs() throws ConfigurationException {
+    protected void parseArgs() throws ConfigurationException {
         Configuration config = readProperties();
         this.balancerConfig = new BalancerConfig();
         balancerConfig.setSourceClusterUri(config.getString(SOURCE_URI));
@@ -101,7 +130,7 @@ public class CustomDocumentAnalyzer implements Callable<Integer> {
         logger.info("Configuration: shardIndex={}, yearMonth={}, namespace={}", shardIndex, yearMonth, namespace);
     }
     
-    private void init() {
+    public void init() {
         sourceShardClient = new ShardClient("source", balancerConfig.getSourceClusterUri());
         sourceShardClient.init();
         sourceShardClient.populateShardMongoClients();
@@ -218,6 +247,138 @@ public class CustomDocumentAnalyzer implements Callable<Integer> {
             
             logger.info("Initialization phase completed. Total documents: {}, total BSON size: {} bytes, average size: {} bytes", 
                        totalDocuments, totalBsonSize, totalDocuments > 0 ? totalBsonSize / totalDocuments : 0);
+        }
+    }
+    
+    private void runBalance() {
+        // Parse namespace for moveChunk operations
+        String[] parts = namespace.split("\\\\.", 2);
+        String dbName = parts[0];
+        String collectionName = parts[1];
+        Namespace ns = new Namespace(dbName, collectionName);
+        
+        logger.info("Starting balance phase for namespace: {}", namespace);
+        
+        // Parse destination shard indexes if provided
+        List<Integer> destShardIndexList = new ArrayList<>();
+        boolean dryRun = (destShardIndexes == null || destShardIndexes.trim().isEmpty());
+        
+        if (!dryRun) {
+            try {
+                String[] indexes = destShardIndexes.split(",");
+                for (String index : indexes) {
+                    destShardIndexList.add(Integer.parseInt(index.trim()));
+                }
+                logger.info("Destination shard indexes: {}", destShardIndexList);
+            } catch (NumberFormatException e) {
+                logger.error("Invalid destination shard indexes: {}", destShardIndexes);
+                return;
+            }
+        } else {
+            logger.info("No destination shard indexes provided - running in dry run mode");
+        }
+        
+        // Get list of shards for validation
+        List<String> shardIds = new ArrayList<>(sourceShardClient.getShardsMap().keySet());
+        
+        // Validate destination shard indexes
+        if (!dryRun) {
+            for (Integer index : destShardIndexList) {
+                if (index >= shardIds.size()) {
+                    logger.error("Destination shard index {} is out of range. Available shards: {}", index, shardIds.size());
+                    return;
+                }
+            }
+        }
+        
+        // Build aggregation pipeline
+        List<org.bson.conversions.Bson> pipeline = new ArrayList<>();
+        
+        // Match documents with bsonSize >= 1000000 and (move:false OR move field doesn't exist)
+        pipeline.add(match(and(
+            gte("bsonSize", 1000000),
+            or(eq("move", false), exists("move", false))
+        )));
+        
+        // Group by chunkId and count
+        pipeline.add(group("$chunkId", sum("count", 1)));
+        
+        // Sort by count descending
+        pipeline.add(sort(descending("count")));
+        
+        // Limit to 100 for dry run
+        if (dryRun) {
+            pipeline.add(limit(100));
+        }
+        
+        MongoCollection<BsonDocument> statsCollection = balancerConfig.getStatsCollection();
+        AggregateIterable<Document> results = statsCollection.aggregate(pipeline, Document.class);
+        
+        int roundRobinIndex = 0;
+        int processedCount = 0;
+        
+        try (MongoCursor<Document> cursor = results.iterator()) {
+            while (cursor.hasNext()) {
+                Document result = cursor.next();
+                String chunkId = result.getString("_id");
+                int count = result.getInteger("count");
+                
+                if (dryRun) {
+                    logger.info("Chunk: {}, Count: {}", chunkId, count);
+                    processedCount++;
+                    continue;
+                }
+                
+                // Get destination shard
+                int destShardIndex = destShardIndexList.get(roundRobinIndex % destShardIndexList.size());
+                String destShardId = shardIds.get(destShardIndex);
+                
+                logger.info("Moving chunk {} (count: {}) to shard {} (index {})", chunkId, count, destShardId, destShardIndex);
+                
+                // Find the chunk in our chunk map to get the bounds
+                NavigableMap<BsonValueWrapper, CountingMegachunk> nsChunkMap = chunkMap.get(namespace);
+                CountingMegachunk chunk = null;
+                for (CountingMegachunk c : nsChunkMap.values()) {
+                    if (chunkId.equals(c.getId())) {
+                        chunk = c;
+                        break;
+                    }
+                }
+                
+                if (chunk == null) {
+                    logger.error("Could not find chunk {} in chunk map", chunkId);
+                    continue;
+                }
+                
+                // Perform moveChunk operation with retry logic
+                boolean success = moveChunkWithRetry(namespace, chunk, destShardId, 10);
+                
+                if (success) {
+                    logger.info("Successfully moved chunk {} to shard {}", chunkId, destShardId);
+                    
+                    // Update stats collection with move:true for this chunkId
+                    try {
+                        statsCollection.updateMany(
+                            eq("chunkId", chunkId),
+                            set("move", true)
+                        );
+                        logger.debug("Updated stats collection for chunk {}", chunkId);
+                    } catch (Exception e) {
+                        logger.warn("Failed to update stats collection for chunk {}: {}", chunkId, e.getMessage());
+                    }
+                } else {
+                    logger.error("Failed to move chunk {} to shard {}", chunkId, destShardId);
+                }
+                
+                roundRobinIndex++;
+                processedCount++;
+            }
+        }
+        
+        if (dryRun) {
+            logger.info("Dry run completed. Showed {} chunks that would be moved", processedCount);
+        } else {
+            logger.info("Balance phase completed. Processed {} chunks", processedCount);
         }
     }
     
