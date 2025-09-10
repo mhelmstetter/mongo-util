@@ -225,6 +225,12 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 if (chunkId != null) {
                     statsDoc.append("chunkId", new org.bson.BsonString(chunkId));
                 }
+                if (chunkEntry != null) {
+                    CountingMegachunk chunk = chunkEntry.getValue();
+                    // Store min/max bounds for efficient lookup during balance phase
+                    statsDoc.append("chunkMin", chunk.getMin());
+                    statsDoc.append("chunkMax", chunk.getMax());
+                }
                 
                 writeModels.add(new InsertOneModel<>(statsDoc));
                 totalDocuments++;
@@ -310,8 +316,8 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
             or(eq("move", false), exists("move", false))
         )));
         
-        // Group by chunkId and count
-        pipeline.add(group("$chunkId", sum("count", 1)));
+        // Group by chunkMin and count (using chunkMin as unique identifier)
+        pipeline.add(group("$chunkMin", sum("count", 1)));
         
         // Sort by count descending
         pipeline.add(sort(descending("count")));
@@ -330,11 +336,11 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
         try (MongoCursor<Document> cursor = results.iterator()) {
             while (cursor.hasNext()) {
                 Document result = cursor.next();
-                String chunkId = result.getString("_id");
+                BsonDocument chunkMin = (BsonDocument) result.get("_id");
                 int count = result.getInteger("count");
                 
                 if (isDryRun) {
-                    logger.info("Chunk: {}, Count: {}", chunkId, count);
+                    logger.info("Chunk min: {}, Count: {}", chunkMin, count);
                     processedCount++;
                     continue;
                 }
@@ -343,20 +349,29 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 int destShardIndex = destShardIndexList.get(roundRobinIndex % destShardIndexList.size());
                 String destShardId = shardIds.get(destShardIndex);
                 
-                logger.info("Moving chunk {} (count: {}) to shard {} (index {})", chunkId, count, destShardId, destShardIndex);
+                logger.info("Moving chunk with min {} (count: {}) to shard {} (index {})", chunkMin, count, destShardId, destShardIndex);
                 
-                // Find the chunk in our chunk map to get the bounds
+                // Efficiently find the chunk using the min bound as the key
                 NavigableMap<BsonValueWrapper, CountingMegachunk> nsChunkMap = chunkMap.get(namespace);
-                CountingMegachunk chunk = null;
-                for (CountingMegachunk c : nsChunkMap.values()) {
-                    if (chunkId.equals(c.getId())) {
-                        chunk = c;
-                        break;
+                if (nsChunkMap == null) {
+                    logger.error("No chunk map found for namespace: {}", namespace);
+                    continue;
+                }
+                
+                BsonValueWrapper minWrapper = new BsonValueWrapper(chunkMin);
+                CountingMegachunk chunk = nsChunkMap.get(minWrapper);
+                
+                if (chunk == null) {
+                    logger.warn("Could not find chunk with exact min {}, trying floorEntry", chunkMin);
+                    Map.Entry<BsonValueWrapper, CountingMegachunk> entry = nsChunkMap.floorEntry(minWrapper);
+                    if (entry != null) {
+                        chunk = entry.getValue();
+                        logger.debug("Found chunk via floorEntry: min={}, max={}", chunk.getMin(), chunk.getMax());
                     }
                 }
                 
                 if (chunk == null) {
-                    logger.error("Could not find chunk {} in chunk map", chunkId);
+                    logger.error("Could not find chunk with min {} in chunk map", chunkMin);
                     continue;
                 }
                 
@@ -364,20 +379,20 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 boolean success = moveChunkWithRetry(namespace, chunk, destShardId, 10);
                 
                 if (success) {
-                    logger.info("Successfully moved chunk {} to shard {}", chunkId, destShardId);
+                    logger.info("Successfully moved chunk with min {} to shard {}", chunkMin, destShardId);
                     
-                    // Update stats collection with move:true for this chunkId
+                    // Update stats collection with move:true for this chunkMin
                     try {
                         statsCollection.updateMany(
-                            eq("chunkId", chunkId),
+                            eq("chunkMin", chunkMin),
                             set("move", true)
                         );
-                        logger.debug("Updated stats collection for chunk {}", chunkId);
+                        logger.debug("Updated stats collection for chunk with min {}", chunkMin);
                     } catch (Exception e) {
-                        logger.warn("Failed to update stats collection for chunk {}: {}", chunkId, e.getMessage());
+                        logger.warn("Failed to update stats collection for chunk with min {}: {}", chunkMin, e.getMessage());
                     }
                 } else {
-                    logger.error("Failed to move chunk {} to shard {}", chunkId, destShardId);
+                    logger.error("Failed to move chunk with min {} to shard {}", chunkMin, destShardId);
                 }
                 
                 roundRobinIndex++;

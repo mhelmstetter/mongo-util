@@ -433,8 +433,25 @@ public class ChunkManager {
 					logger.debug("Retrieved split chunk {}: min={}, max={}", 
 							i+1, mega.getMin(), mega.getMax());
 					i++;
+				} else {
+					logger.warn("Could not find chunk in map with min: {}, trying floorEntry", chunkMin);
+					// Try floorEntry as fallback
+					Map.Entry<BsonValueWrapper, CountingMegachunk> entry = nsChunkMap.floorEntry(minWrapper);
+					if (entry != null) {
+						mega = entry.getValue();
+						splitChunks[i] = mega;
+						logger.debug("Retrieved split chunk {} via floorEntry: min={}, max={}", 
+								i+1, mega.getMin(), mega.getMax());
+						i++;
+					}
 				}
 			}
+		}
+		
+		// Ensure we have at least one chunk to return
+		if (splitChunks[0] == null && splitChunks[1] == null) {
+			logger.error("Failed to retrieve any split chunks from chunk map");
+			return null;
 		}
 		
 		logger.debug("Successfully reloaded 2 split chunks for namespace: {}", namespace);

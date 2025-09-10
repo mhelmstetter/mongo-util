@@ -342,10 +342,15 @@ public class Balancer implements Callable<Integer> {
 								sourceShardClient, ns, mega.getMin(), mega.getMax(), 
 								sourceChunksCache, chunkMap);
 						
-						if (splitChunks != null && splitChunks.length == 2) {
+						if (splitChunks != null && splitChunks.length == 2 && splitChunks[0] != null) {
 							// Choose the first chunk to retry (could be improved with heuristics)
 							mega = splitChunks[0];
 							logger.debug("Using first split chunk for retry: min={}, max={}", 
+									mega.getMin(), mega.getMax());
+						} else if (splitChunks != null && splitChunks.length == 2 && splitChunks[1] != null) {
+							// Use the second chunk if first is null
+							mega = splitChunks[1];
+							logger.debug("Using second split chunk for retry: min={}, max={}", 
 									mega.getMin(), mega.getMax());
 						} else {
 							logger.warn("Failed to reload split chunks, falling back to namespace reload");
