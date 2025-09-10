@@ -1,26 +1,40 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
-<!-- For assistance related to logback-translator or configuration  -->
-<!-- files in general, please contact the logback user mailing list -->
-<!-- at http://www.qos.ch/mailman/listinfo/logback-user             -->
-<!--                                                                -->
-<!-- For professional support please see                            -->
-<!--    http://www.qos.ch/shop/products/professionalSupport         -->
-<!--                                                                -->
 <configuration>
-  <appender name="A1" class="ch.qos.logback.core.ConsoleAppender">
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
     <encoder>
-      <pattern>%d [%t] %-5p %c - %m%n</pattern>
+      <pattern>%d %-5p %class{0} - %m%n</pattern>
     </encoder>
   </appender>
+
+  <logger name="com.mongodb.atlas" level="DEBUG"/>
+  <logger name="com.mongodb.catalog" level="DEBUG"/>
   <logger name="com.mongodb.diffutil" level="DEBUG"/>
+  <logger name="com.mongodb.diff3" level="DEBUG"/>
+  <logger name="com.mongodb.dbhash" level="DEBUG"/>
+  <logger name="com.mongodb.schema" level="DEBUG"/>
+  <logger name="com.mongodb.shard" level="DEBUG"/>
   <logger name="com.mongodb.shardsync" level="DEBUG" additivity="true"/>
+  <logger name="com.mongodb.shardbalancer" level="DEBUG"/>
+  <logger name="com.mongodb.shardsync.ShardClient" level="DEBUG" additivity="true"/>
+  <logger name="com.mongodb.mongosync" level="DEBUG" additivity="true"/>
+  <logger name="com.mongodb.corruptutil" level="DEBUG" additivity="true"/>
+  <logger name="com.mongodb.util" level="DEBUG" additivity="true"/>
+  <logger name="com.mongodb.oplog" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.mongostat" level="DEBUG" additivity="false"/>
-  <logger name="com.mongodb.mongomirror" level="DEBUG" additivity="false"/>
-  <logger name="com.mongodb.stats" level="DEBUG"/>
-  <logger name="org.mongodb" level="DEBUG" additivity="false"/>
+  <logger name="com.mongodb.cacheview" level="DEBUG" additivity="true"/>
+  <logger name="com.mongodb.mongomirror" level="DEBUG" additivity="true"/>
+  <logger name="com.mongodb.internal" level="ERROR"  additivity="false"/>
+  <logger name="com.mongodb.rollback" level="DEBUG" additivity="true"/>
   
-  <root level="ERROR">
-    <appender-ref ref="A1"/>
+  <logger name="com.mongodb.mongoreplay" level="DEBUG"/>
+  <logger name="org.mongodb" level="WARN"/>
+  <logger name="org.mongodb.driver" level="WARN"/>
+  <logger name="org.mongodb.driver.connection" level="WARN"/>
+  <logger name="org.mongodb.driver.cluster" level="WARN"/>
+  <logger name="org.mongodb.driver.protocol" level="WARN"/>
+
+  
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
   </root>
 </configuration>
