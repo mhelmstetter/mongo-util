@@ -247,7 +247,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                     writeModels.clear();
                 }
                 
-                if (totalDocuments % 10000 == 0) {
+                if (totalDocuments % 5000 == 0) {
                     logger.info("Processed {} documents, total BSON size: {} bytes", totalDocuments, totalBsonSize);
                 }
             }
@@ -475,7 +475,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                     bulkOps.clear();
                 }
                 
-                if (processedCount % 10000 == 0) {
+                if (processedCount % 5000 == 0) {
                     logger.info("Processed {} documents, migrated: {}, skipped: {}", 
                                processedCount, migratedCount, skippedCount);
                 }
