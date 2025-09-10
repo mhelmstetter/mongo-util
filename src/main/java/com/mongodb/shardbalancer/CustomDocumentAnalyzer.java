@@ -107,6 +107,9 @@ public class CustomDocumentAnalyzer implements Callable<Integer> {
         sourceShardClient.populateShardMongoClients();
         balancerConfig.setSourceShardClient(sourceShardClient);
         
+        // Initialize stats collection
+        balancerConfig.setStatsCollection(sourceShardClient.getCollectionBson(balancerConfig.getStatsNamespace()));
+        
         chunkManager = new ChunkManager(balancerConfig);
         chunkManager.setSourceShardClient(sourceShardClient);
         chunkManager.initializeSourceChunkQuery();
