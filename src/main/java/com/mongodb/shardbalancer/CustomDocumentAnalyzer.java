@@ -104,6 +104,7 @@ public class CustomDocumentAnalyzer implements Callable<Integer> {
     private void init() {
         sourceShardClient = new ShardClient("source", balancerConfig.getSourceClusterUri());
         sourceShardClient.init();
+        sourceShardClient.populateShardMongoClients();
         balancerConfig.setSourceShardClient(sourceShardClient);
         
         chunkManager = new ChunkManager(balancerConfig);
