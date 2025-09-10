@@ -76,6 +76,9 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
     
     @Option(names = {"--destShardIndex"}, description = "Destination shard indexes for balancing (comma-separated)")
     private String destShardIndexes;
+    
+    @Option(names = {"--dryRun"}, description = "Dry run mode - show what would be moved without actually moving")
+    private boolean dryRun = false;
 
     private final Logger logger = LoggerFactory.getLogger(CustomDocumentAnalyzer.class);
     
@@ -249,18 +252,28 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
     
     private void runBalance() {
         // Parse namespace for moveChunk operations
-        String[] parts = namespace.split("\\\\.", 2);
+        String[] parts = namespace.split("\\.", 2);
+        if (parts.length != 2) {
+            logger.error("Invalid namespace format: {}. Expected format: db.collection", namespace);
+            return;
+        }
         String dbName = parts[0];
         String collectionName = parts[1];
         Namespace ns = new Namespace(dbName, collectionName);
         
         logger.info("Starting balance phase for namespace: {}", namespace);
         
+        // Check if dry run mode
+        boolean isDryRun = dryRun || (destShardIndexes == null || destShardIndexes.trim().isEmpty());
+        
+        if (isDryRun && !dryRun && (destShardIndexes == null || destShardIndexes.trim().isEmpty())) {
+            logger.info("No --destShardIndex provided and --dryRun not specified. Running in dry run mode by default.");
+        }
+        
         // Parse destination shard indexes if provided
         List<Integer> destShardIndexList = new ArrayList<>();
-        boolean dryRun = (destShardIndexes == null || destShardIndexes.trim().isEmpty());
         
-        if (!dryRun) {
+        if (!isDryRun) {
             try {
                 String[] indexes = destShardIndexes.split(",");
                 for (String index : indexes) {
@@ -272,14 +285,14 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 return;
             }
         } else {
-            logger.info("No destination shard indexes provided - running in dry run mode");
+            logger.info("Running in dry run mode - no chunks will be moved");
         }
         
         // Get list of shards for validation
         List<String> shardIds = new ArrayList<>(sourceShardClient.getShardsMap().keySet());
         
         // Validate destination shard indexes
-        if (!dryRun) {
+        if (!isDryRun) {
             for (Integer index : destShardIndexList) {
                 if (index >= shardIds.size()) {
                     logger.error("Destination shard index {} is out of range. Available shards: {}", index, shardIds.size());
@@ -304,7 +317,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
         pipeline.add(sort(descending("count")));
         
         // Limit to 100 for dry run
-        if (dryRun) {
+        if (isDryRun) {
             pipeline.add(limit(100));
         }
         
@@ -320,7 +333,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 String chunkId = result.getString("_id");
                 int count = result.getInteger("count");
                 
-                if (dryRun) {
+                if (isDryRun) {
                     logger.info("Chunk: {}, Count: {}", chunkId, count);
                     processedCount++;
                     continue;
@@ -372,7 +385,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
             }
         }
         
-        if (dryRun) {
+        if (isDryRun) {
             logger.info("Dry run completed. Showed {} chunks that would be moved", processedCount);
         } else {
             logger.info("Balance phase completed. Processed {} chunks", processedCount);
