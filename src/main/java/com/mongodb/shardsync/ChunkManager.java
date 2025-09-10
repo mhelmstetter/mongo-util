@@ -345,6 +345,102 @@ public class ChunkManager {
 		logger.debug("Reloaded {} chunks for namespace {} into chunk map", namespaceChunks.size(), namespace);
 	}
 
+	/**
+	 * Efficiently reload only the 2 chunks that result from splitting a chunk.
+	 * When a chunk is split, it creates exactly 2 new chunks:
+	 * 1. One with originalMin -> splitPoint
+	 * 2. One with splitPoint -> originalMax
+	 * 
+	 * @param shardClient The shard client to use
+	 * @param namespace The namespace 
+	 * @param originalMin The min bound of the original chunk that was split
+	 * @param originalMax The max bound of the original chunk that was split
+	 * @param chunksCache The chunks cache to update
+	 * @param chunkMap The chunk map to update
+	 * @return The 2 new chunks that resulted from the split, or null if not found
+	 */
+	public CountingMegachunk[] reloadSplitChunks(ShardClient shardClient, String namespace, 
+			BsonDocument originalMin, BsonDocument originalMax,
+			Map<String, RawBsonDocument> chunksCache, 
+			Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
+		logger.debug("Reloading split chunks for namespace: {}, originalMin: {}, originalMax: {}", 
+				namespace, originalMin, originalMax);
+		
+		// Query for chunks that have either:
+		// 1. min = originalMin (first split chunk)
+		// 2. max = originalMax (second split chunk)
+		BsonBinary uuidBinary = shardClient.getUuidForNamespace(namespace);
+		if (uuidBinary == null) {
+			logger.warn("Could not find UUID for namespace: {}", namespace);
+			return null;
+		}
+		
+		// Build queries for the 2 expected chunks
+		BsonDocument query1 = new BsonDocument("uuid", uuidBinary).append("min", originalMin);
+		BsonDocument query2 = new BsonDocument("uuid", uuidBinary).append("max", originalMax);
+		
+		List<RawBsonDocument> foundChunks = new ArrayList<>();
+		
+		// Query for both chunks
+		MongoCollection<RawBsonDocument> configChunks = shardClient.getChunksCollectionRaw();
+		for (RawBsonDocument chunk : configChunks.find(query1)) {
+			foundChunks.add(chunk);
+			logger.debug("Found first split chunk with min = originalMin: {}", chunk.get("min"));
+		}
+		for (RawBsonDocument chunk : configChunks.find(query2)) {
+			foundChunks.add(chunk);
+			logger.debug("Found second split chunk with max = originalMax: {}", chunk.get("max"));
+		}
+		
+		if (foundChunks.size() != 2) {
+			logger.warn("Expected 2 chunks after split, but found: {}", foundChunks.size());
+			return null;
+		}
+		
+		// Remove the old chunk from the map first
+		NavigableMap<BsonValueWrapper, CountingMegachunk> nsChunkMap = chunkMap.get(namespace);
+		if (nsChunkMap != null) {
+			BsonValueWrapper originalMinWrapper = new BsonValueWrapper(originalMin);
+			nsChunkMap.remove(originalMinWrapper);
+			logger.debug("Removed old chunk with min: {}", originalMin);
+		}
+		
+		// Create a temporary map for the 2 new chunks
+		Map<String, RawBsonDocument> splitChunksMap = new LinkedHashMap<>();
+		for (RawBsonDocument chunk : foundChunks) {
+			// Generate a key for the chunk (using approach from existing code)
+			String key = chunk.get("_id").toString();
+			splitChunksMap.put(key, chunk);
+			
+			// Also add to main chunks cache
+			chunksCache.put(key, chunk);
+		}
+		
+		// Use existing processChunksIntoMap method to add the split chunks
+		processChunksIntoMap(splitChunksMap, chunkMap, shardClient, null);
+		
+		// Retrieve the 2 new chunks from the updated map to return them
+		CountingMegachunk[] splitChunks = new CountingMegachunk[2];
+		nsChunkMap = chunkMap.get(namespace);
+		if (nsChunkMap != null) {
+			int i = 0;
+			for (RawBsonDocument chunk : foundChunks) {
+				BsonDocument chunkMin = (BsonDocument) chunk.get("min");
+				BsonValueWrapper minWrapper = new BsonValueWrapper(chunkMin);
+				CountingMegachunk mega = nsChunkMap.get(minWrapper);
+				if (mega != null && i < 2) {
+					splitChunks[i] = mega;
+					logger.debug("Retrieved split chunk {}: min={}, max={}", 
+							i+1, mega.getMin(), mega.getMax());
+					i++;
+				}
+			}
+		}
+		
+		logger.debug("Successfully reloaded 2 split chunks for namespace: {}", namespace);
+		return splitChunks;
+	}
+
 	// Keep the existing convenience wrapper
 	public void loadChunkMap(String namespace, Map<String, RawBsonDocument> chunksCache, 
 			Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {

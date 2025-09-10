@@ -336,7 +336,21 @@ public class Balancer implements Callable<Integer> {
 						logger.debug("ChunkTooBig error, extracted maxDocs: {}, splitting chunk", extractedMaxDocs);
 						
 						splitChunk(ns, mega.getMin());
-						chunkManager.loadChunkMap(ns, sourceChunksCache, chunkMap);
+						
+						// Efficiently reload only the 2 chunks that resulted from the split
+						CountingMegachunk[] splitChunks = chunkManager.reloadSplitChunks(
+								sourceShardClient, ns, mega.getMin(), mega.getMax(), 
+								sourceChunksCache, chunkMap);
+						
+						if (splitChunks != null && splitChunks.length == 2) {
+							// Choose the first chunk to retry (could be improved with heuristics)
+							mega = splitChunks[0];
+							logger.debug("Using first split chunk for retry: min={}, max={}", 
+									mega.getMin(), mega.getMax());
+						} else {
+							logger.warn("Failed to reload split chunks, falling back to namespace reload");
+							chunkManager.reloadChunkMapForNamespace(sourceShardClient, ns, sourceChunksCache, chunkMap);
+						}
 						
 						// Continue to retry with split chunk
 						continue;
@@ -346,7 +360,7 @@ public class Balancer implements Callable<Integer> {
 					}
 				} else if (mce.getMessage().contains("no chunk found")) {
 					logger.debug("No chunk found, reloading chunk map");
-					chunkManager.loadChunkMap(ns, sourceChunksCache, chunkMap);
+					chunkManager.reloadChunkMapForNamespace(sourceShardClient, ns, sourceChunksCache, chunkMap);
 					continue;
 				} else {
 					logger.warn("Move chunk failed with error: {}", mce.getMessage());
