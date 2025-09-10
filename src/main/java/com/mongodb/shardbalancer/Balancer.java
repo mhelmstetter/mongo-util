@@ -68,7 +68,7 @@ import picocli.CommandLine.Option;
 public class Balancer implements Callable<Integer> {
 
 	@Option(names = { "--config" }, required = false, defaultValue = "balancer.properties")
-	private String configFile;
+	protected String configFile;
 
 	// @Option(names = { "-h", "--help", "-?", "-help"})
 	// private boolean help;

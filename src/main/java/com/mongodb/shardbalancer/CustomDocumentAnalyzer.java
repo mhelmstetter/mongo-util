@@ -58,9 +58,6 @@ import picocli.CommandLine.Option;
 @Command(name = "customAnalyzer", mixinStandardHelpOptions = true, version = "customAnalyzer 0.1", 
          description = "Custom document analyzer for specific shard and date patterns")
 public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer> {
-
-    @Option(names = {"--config"}, required = false, defaultValue = "balancer.properties")
-    private String configFile;
     
     @Option(names = {"--shardIndex"}, required = true, description = "Index of the shard to query (0-based)")
     private int shardIndex;
