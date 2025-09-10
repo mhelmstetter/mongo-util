@@ -79,6 +79,9 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
     
     @Option(names = {"--dryRun"}, description = "Dry run mode - show what would be moved without actually moving")
     private boolean dryRun = false;
+    
+    @Option(names = {"--migrate"}, description = "Migrate existing stats collection to add chunkMin/chunkMax fields")
+    private boolean migrateMode = false;
 
     private final Logger logger = LoggerFactory.getLogger(CustomDocumentAnalyzer.class);
     
@@ -90,13 +93,14 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
     @Override
     public Integer call() throws ConfigurationException {
         
-        if (!initMode && !balanceMode) {
-            logger.error("Must specify either --init or --balance mode");
+        if (!initMode && !balanceMode && !migrateMode) {
+            logger.error("Must specify one of: --init, --balance, or --migrate mode");
             return 1;
         }
         
-        if (initMode && balanceMode) {
-            logger.error("Cannot specify both --init and --balance modes");
+        int modeCount = (initMode ? 1 : 0) + (balanceMode ? 1 : 0) + (migrateMode ? 1 : 0);
+        if (modeCount > 1) {
+            logger.error("Cannot specify multiple modes. Choose one of: --init, --balance, or --migrate");
             return 1;
         }
         
@@ -107,6 +111,8 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
             runInitialization();
         } else if (balanceMode) {
             runBalance();
+        } else if (migrateMode) {
+            runMigration();
         }
         
         return 0;
@@ -404,6 +410,121 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
             logger.info("Dry run completed. Showed {} chunks that would be moved", processedCount);
         } else {
             logger.info("Balance phase completed. Processed {} chunks", processedCount);
+        }
+    }
+    
+    private void runMigration() {
+        logger.info("Starting migration of stats collection for namespace: {}", namespace);
+        
+        MongoCollection<BsonDocument> statsCollection = balancerConfig.getStatsCollection();
+        NavigableMap<BsonValueWrapper, CountingMegachunk> nsChunkMap = chunkMap.get(namespace);
+        
+        if (nsChunkMap == null) {
+            logger.error("No chunk map loaded for namespace: {}. Migration requires chunk data.", namespace);
+            return;
+        }
+        
+        // Find documents that need migration (have chunkId but missing chunkMin/chunkMax)
+        BsonDocument migrationQuery = new BsonDocument()
+            .append("namespace", new org.bson.BsonString(namespace))
+            .append("chunkId", new BsonDocument("$exists", new org.bson.BsonBoolean(true)))
+            .append("chunkMin", new BsonDocument("$exists", new org.bson.BsonBoolean(false)));
+        
+        logger.info("Querying for documents that need migration...");
+        long totalDocuments = statsCollection.countDocuments(migrationQuery);
+        logger.info("Found {} documents that need migration", totalDocuments);
+        
+        if (totalDocuments == 0) {
+            logger.info("No documents need migration. All documents already have chunkMin/chunkMax fields.");
+            return;
+        }
+        
+        List<WriteModel<BsonDocument>> bulkOps = new ArrayList<>();
+        long processedCount = 0;
+        long migratedCount = 0;
+        long skippedCount = 0;
+        
+        try (MongoCursor<BsonDocument> cursor = statsCollection.find(migrationQuery).iterator()) {
+            while (cursor.hasNext()) {
+                BsonDocument doc = cursor.next();
+                String chunkId = doc.getString("chunkId").getValue();
+                
+                // Find the chunk by its ID in our chunk map
+                CountingMegachunk chunk = findChunkById(nsChunkMap, chunkId);
+                
+                if (chunk != null) {
+                    // Create update operation to add chunkMin/chunkMax and remove chunkId
+                    BsonDocument filter = new BsonDocument("_id", doc.get("_id"));
+                    BsonDocument update = new BsonDocument("$set", new BsonDocument()
+                        .append("chunkMin", chunk.getMin())
+                        .append("chunkMax", chunk.getMax()))
+                        .append("$unset", new BsonDocument("chunkId", new org.bson.BsonString("")));
+                    
+                    bulkOps.add(new UpdateOneModel<>(filter, update));
+                    migratedCount++;
+                } else {
+                    logger.warn("Could not find chunk with ID: {} in chunk map. Skipping document.", chunkId);
+                    skippedCount++;
+                }
+                
+                processedCount++;
+                
+                // Execute batch when it reaches batch size
+                if (bulkOps.size() >= BATCH_SIZE) {
+                    executeMigrationBatch(statsCollection, bulkOps);
+                    bulkOps.clear();
+                }
+                
+                if (processedCount % 10000 == 0) {
+                    logger.info("Processed {} documents, migrated: {}, skipped: {}", 
+                               processedCount, migratedCount, skippedCount);
+                }
+            }
+            
+            // Execute remaining operations
+            if (!bulkOps.isEmpty()) {
+                executeMigrationBatch(statsCollection, bulkOps);
+            }
+        }
+        
+        logger.info("Migration completed. Processed: {}, migrated: {}, skipped: {}", 
+                   processedCount, migratedCount, skippedCount);
+        
+        // Verify migration
+        long remainingDocuments = statsCollection.countDocuments(migrationQuery);
+        logger.info("Verification: {} documents still need migration", remainingDocuments);
+        
+        if (remainingDocuments == 0) {
+            logger.info("✅ Migration successful! All documents now have chunkMin/chunkMax fields.");
+        } else {
+            logger.warn("⚠️ Migration incomplete. {} documents still need migration.", remainingDocuments);
+        }
+    }
+    
+    private CountingMegachunk findChunkById(NavigableMap<BsonValueWrapper, CountingMegachunk> nsChunkMap, String chunkId) {
+        // Search through the chunk map to find a chunk with matching ID
+        for (CountingMegachunk chunk : nsChunkMap.values()) {
+            if (chunkId.equals(chunk.getId())) {
+                return chunk;
+            }
+        }
+        return null;
+    }
+    
+    private void executeMigrationBatch(MongoCollection<BsonDocument> statsCollection, List<WriteModel<BsonDocument>> bulkOps) {
+        try {
+            BulkWriteResult result = statsCollection.bulkWrite(bulkOps, new BulkWriteOptions().ordered(false));
+            logger.debug("Migration batch completed. Modified: {}", result.getModifiedCount());
+        } catch (MongoBulkWriteException e) {
+            logger.warn("Migration batch partial failure. Modified: {}, errors: {}", 
+                       e.getWriteResult().getModifiedCount(), e.getWriteErrors().size());
+            // Log first few errors for debugging
+            for (int i = 0; i < Math.min(3, e.getWriteErrors().size()); i++) {
+                logger.warn("Migration error {}: {}", i + 1, e.getWriteErrors().get(i).getMessage());
+            }
+        } catch (Exception e) {
+            logger.error("Migration batch failed: {}", e.getMessage());
+            throw e;
         }
     }
     
