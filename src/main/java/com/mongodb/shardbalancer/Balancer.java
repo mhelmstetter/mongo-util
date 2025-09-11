@@ -357,11 +357,36 @@ public class Balancer implements Callable<Integer> {
 	}
 	
 	protected boolean moveChunkWithRetry(String ns, CountingMegachunk mega, String toShard, int maxRetries) {
+		return moveChunkRecursive(ns, mega, toShard, maxRetries, 0);
+	}
+	
+	/**
+	 * Recursively moves a chunk, splitting it if too big and processing all resulting split chunks.
+	 * This ensures no split chunks are abandoned and all large documents get moved.
+	 * 
+	 * @param ns namespace
+	 * @param mega chunk to move
+	 * @param toShard destination shard
+	 * @param maxRetries maximum retry attempts per chunk
+	 * @param splitDepth current recursion depth to prevent infinite splitting
+	 * @return true if all chunks (original and any splits) were moved successfully
+	 */
+	private boolean moveChunkRecursive(String ns, CountingMegachunk mega, String toShard, int maxRetries, int splitDepth) {
+		// Safety limit to prevent infinite splitting
+		if (splitDepth > 10) {
+			logger.error("Hit maximum split depth ({}) for chunk with min: {}, max: {}", 
+						splitDepth, mega.getMin(), mega.getMax());
+			return false;
+		}
+		
 		for (int retry = 0; retry < maxRetries; retry++) {
 			try {
 				boolean success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), toShard, false, false, false, false, true);
 				if (success) {
-					// moveChunk succeeded on retry
+					onChunkMoved(); // Hook for subclasses to track chunk moves
+					if (splitDepth > 0) {
+						logger.debug("Successfully moved split chunk (depth {}) with min: {}", splitDepth, mega.getMin());
+					}
 					return true;
 				}
 			} catch (MongoCommandException mce) {
@@ -373,50 +398,75 @@ public class Balancer implements Callable<Integer> {
 					
 					if (matcher.find()) {
 						long extractedMaxDocs = Long.parseLong(matcher.group(1));
-						logger.debug("ChunkTooBig error, extracted maxDocs: {}, splitting chunk intelligently", extractedMaxDocs);
+						logger.debug("ChunkTooBig error at depth {}, extracted maxDocs: {}, splitting chunk", splitDepth, extractedMaxDocs);
 						
 						splitChunkByDocCount(ns, mega.getMin(), mega.getMax(), extractedMaxDocs);
 						onChunkSplit(); // Hook for subclasses to track splits
 						
-						// Efficiently reload only the 2 chunks that resulted from the split
+						// Reload the 2 chunks that resulted from the split
 						CountingMegachunk[] splitChunks = chunkManager.reloadSplitChunks(
 								sourceShardClient, ns, mega.getMin(), mega.getMax(), 
 								sourceChunksCache, chunkMap);
 						
-						if (splitChunks != null && splitChunks.length == 2 && splitChunks[0] != null) {
-							// Choose the first chunk to retry (could be improved with heuristics)
-							mega = splitChunks[0];
-							// Using first split chunk for retry
-						} else if (splitChunks != null && splitChunks.length == 2 && splitChunks[1] != null) {
-							// Use the second chunk if first is null
-							mega = splitChunks[1];
-							// Using second split chunk for retry
+						if (splitChunks != null && splitChunks.length == 2) {
+							logger.debug("Processing {} split chunks at depth {}", splitChunks.length, splitDepth + 1);
+							
+							// Process ALL split chunks recursively
+							boolean allSuccess = true;
+							int processedSplits = 0;
+							
+							for (CountingMegachunk splitChunk : splitChunks) {
+								if (splitChunk != null) {
+									boolean splitSuccess = moveChunkRecursive(ns, splitChunk, toShard, maxRetries, splitDepth + 1);
+									allSuccess = allSuccess && splitSuccess;
+									processedSplits++;
+									
+									if (splitSuccess) {
+										logger.debug("Successfully processed split chunk {} of {} at depth {}", 
+													processedSplits, splitChunks.length, splitDepth + 1);
+									} else {
+										logger.warn("Failed to process split chunk {} of {} at depth {}", 
+												   processedSplits, splitChunks.length, splitDepth + 1);
+									}
+								}
+							}
+							
+							if (processedSplits == 0) {
+								logger.warn("No valid split chunks found after splitting at depth {}", splitDepth);
+								break;
+							}
+							
+							logger.debug("Completed processing {} split chunks at depth {}, overall success: {}", 
+										processedSplits, splitDepth + 1, allSuccess);
+							return allSuccess;
 						} else {
-							logger.warn("Failed to reload split chunks, falling back to namespace reload");
+							logger.warn("Failed to reload split chunks at depth {}, falling back to namespace reload", splitDepth);
 							chunkManager.reloadChunkMapForNamespace(sourceShardClient, ns, sourceChunksCache, chunkMap);
+							break;
 						}
-						
-						// Continue to retry with split chunk
-						continue;
 					} else {
 						logger.warn("ChunkTooBig error but couldn't extract maxDocs from message: {}", message);
 						break;
 					}
 				} else if (mce.getMessage().contains("no chunk found")) {
-					logger.debug("No chunk found, reloading chunk map");
+					logger.debug("No chunk found at depth {}, reloading chunk map", splitDepth);
 					chunkManager.reloadChunkMapForNamespace(sourceShardClient, ns, sourceChunksCache, chunkMap);
 					continue;
 				} else {
-					logger.warn("Move chunk failed with error: {}", mce.getMessage());
+					logger.warn("Move chunk failed at depth {} with error: {}", splitDepth, mce.getMessage());
 					break;
 				}
 			} catch (Exception e) {
-				logger.error("Unexpected error during moveChunk: {}", e.getMessage(), e);
+				logger.error("Unexpected error during moveChunk at depth {}: {}", splitDepth, e.getMessage(), e);
 				break;
 			}
 		}
 		
-		logger.warn("Failed to move chunk {} after {} retries", mega, maxRetries);
+		if (splitDepth == 0) {
+			logger.warn("Failed to move original chunk after {} retries: min={}, max={}", maxRetries, mega.getMin(), mega.getMax());
+		} else {
+			logger.warn("Failed to move split chunk at depth {} after {} retries: min={}, max={}", splitDepth, maxRetries, mega.getMin(), mega.getMax());
+		}
 		return false;
 	}
 
@@ -586,6 +636,10 @@ public class Balancer implements Callable<Integer> {
 	 * Hook method called when a chunk split occurs. Subclasses can override for tracking.
 	 */
 	protected void onChunkSplit() {
+		// Default implementation does nothing
+	}
+	
+	protected void onChunkMoved() {
 		// Default implementation does nothing
 	}
 

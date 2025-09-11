@@ -92,6 +92,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
     
     // Status tracking
     private int successfulMoves = 0;
+    private int totalChunksMoved = 0; // Tracks actual physical chunks moved (including all splits)
     private int splitOperations = 0;
     private int chunksProcessed = 0;
     private long startTime = 0;
@@ -106,9 +107,9 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
             long elapsedMinutes = (currentTime - startTime) / 60000;
             double movesPerMinute = elapsedMinutes > 0 ? (double) successfulMoves / elapsedMinutes : 0;
             
-            logger.info("📊 STATUS: {} chunks processed, {} successful moves, {} splits | " +
+            logger.info("📊 STATUS: {} chunks processed, {} successful moves ({} total chunks moved), {} splits | " +
                        "Runtime: {}m | Rate: {} moves/min", 
-                       chunksProcessed, successfulMoves, splitOperations, elapsedMinutes, 
+                       chunksProcessed, successfulMoves, totalChunksMoved, splitOperations, elapsedMinutes, 
                        String.format("%.1f", movesPerMinute));
             lastStatusReport = currentTime;
         }
@@ -117,6 +118,11 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
     @Override
     protected void onChunkSplit() {
         splitOperations++;
+    }
+    
+    @Override
+    protected void onChunkMoved() {
+        totalChunksMoved++;
     }
 
     @Override
@@ -308,6 +314,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
         startTime = System.currentTimeMillis();
         lastStatusReport = startTime;
         successfulMoves = 0;
+        totalChunksMoved = 0;
         splitOperations = 0;
         chunksProcessed = 0;
         
@@ -457,9 +464,9 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
             long totalElapsed = (System.currentTimeMillis() - startTime) / 60000;
             double finalRate = totalElapsed > 0 ? (double) successfulMoves / totalElapsed : 0;
             
-            logger.info("🏁 FINAL STATUS: {} chunks processed, {} successful moves, {} splits | " +
+            logger.info("🏁 FINAL STATUS: {} chunks processed, {} successful moves ({} total chunks moved), {} splits | " +
                        "Total runtime: {}m | Final rate: {} moves/min", 
-                       chunksProcessed, successfulMoves, splitOperations, totalElapsed, 
+                       chunksProcessed, successfulMoves, totalChunksMoved, splitOperations, totalElapsed, 
                        String.format("%.1f", finalRate));
         }
     }
