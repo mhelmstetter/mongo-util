@@ -19,11 +19,16 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
 
     @Override
     public int compareTo(BsonValueWrapper other) {
+        System.out.println("DEBUG BsonValueWrapper.compareTo: " + this.value + " vs " + other.value);
+        
         if (value == null && other.value == null) {
+            System.out.println("DEBUG: Both null, returning 0");
             return 0;
         } else if (value == null) {
+            System.out.println("DEBUG: This is null, returning -1");
             return -1;
         } else if (other.value == null) {
+            System.out.println("DEBUG: Other is null, returning 1");
             return 1;
         }
 
@@ -48,21 +53,33 @@ public class BsonValueWrapper implements Comparable<BsonValueWrapper> {
         }
 
         if (value.getClass() == other.value.getClass() && value instanceof Comparable<?> && other.value instanceof Comparable<?>) {
+            System.out.println("DEBUG: Using direct Comparable comparison");
             @SuppressWarnings("unchecked")
             Comparable<Object> comparableValue = (Comparable<Object>) value;
             @SuppressWarnings("unchecked")
             Comparable<Object> otherComparableValue = (Comparable<Object>) other.value;
-            return comparableValue.compareTo(otherComparableValue);
+            int result = comparableValue.compareTo(otherComparableValue);
+            System.out.println("DEBUG: Direct comparison result: " + result);
+            return result;
         } else {
-            return compareNonComparableValues(value, other.value);
+            System.out.println("DEBUG: Using compareNonComparableValues");
+            int result = compareNonComparableValues(value, other.value);
+            System.out.println("DEBUG: compareNonComparableValues result: " + result);
+            return result;
         }
     }
 
     private int compareNonComparableValues(BsonValue value1, BsonValue value2) {
+        System.out.println("DEBUG compareNonComparableValues: " + value1 + " vs " + value2);
+        System.out.println("DEBUG types: " + value1.getBsonType() + " vs " + value2.getBsonType());
+        
         if (value1.isDocument() && value2.isDocument()) {
+            System.out.println("DEBUG: Both are documents, using ComparableBsonDocument");
             BsonDocument doc1 = value1.asDocument();
             BsonDocument doc2 = value2.asDocument();
-            return new ComparableBsonDocument(doc1).compareTo(new ComparableBsonDocument(doc2));
+            int result = new ComparableBsonDocument(doc1).compareTo(new ComparableBsonDocument(doc2));
+            System.out.println("DEBUG: ComparableBsonDocument result: " + result);
+            return result;
         } else if (value1.isArray() && value2.isArray()) {
             return compareArrays(value1.asArray(), value2.asArray());
         } else if (value1.isNumber() && value2.isNumber()) {
