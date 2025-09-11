@@ -107,8 +107,9 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
             double movesPerMinute = elapsedMinutes > 0 ? (double) successfulMoves / elapsedMinutes : 0;
             
             logger.info("📊 STATUS: {} chunks processed, {} successful moves, {} splits | " +
-                       "Runtime: {}m | Rate: {:.1f} moves/min", 
-                       chunksProcessed, successfulMoves, splitOperations, elapsedMinutes, movesPerMinute);
+                       "Runtime: {}m | Rate: {} moves/min", 
+                       chunksProcessed, successfulMoves, splitOperations, elapsedMinutes, 
+                       String.format("%.1f", movesPerMinute));
             lastStatusReport = currentTime;
         }
     }
@@ -393,7 +394,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 String destShardId = shardIds.get(destShardIndex);
                 
                 chunksProcessed++;
-                logger.debug("Moving chunk with min {} (count: {}) to shard {}", chunkMinDoc, count, destShardId);
+                // Moving chunk to destination shard
                 reportStatus();
                 
                 // Efficiently find the chunk using the min bound as the key
@@ -457,8 +458,9 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
             double finalRate = totalElapsed > 0 ? (double) successfulMoves / totalElapsed : 0;
             
             logger.info("🏁 FINAL STATUS: {} chunks processed, {} successful moves, {} splits | " +
-                       "Total runtime: {}m | Final rate: {:.1f} moves/min", 
-                       chunksProcessed, successfulMoves, splitOperations, totalElapsed, finalRate);
+                       "Total runtime: {}m | Final rate: {} moves/min", 
+                       chunksProcessed, successfulMoves, splitOperations, totalElapsed, 
+                       String.format("%.1f", finalRate));
         }
     }
     

@@ -331,7 +331,7 @@ public class Balancer implements Callable<Integer> {
 				
 				// Calculate how much over the limit we are to determine if we should split more aggressively
 				double overage = (double) totalDocs / maxDocs;
-				logger.debug("Chunk is {:.2f}x over the maxDocs limit", overage);
+				// Chunk is over the limit
 				
 				if (overage >= 3.0) {
 					// For chunks that are 3x+ over limit, try two quick splits to break it down faster
@@ -361,7 +361,7 @@ public class Balancer implements Callable<Integer> {
 			try {
 				boolean success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), toShard, false, false, false, false, true);
 				if (success) {
-					logger.debug("moveChunk success on retry {}", retry);
+					// moveChunk succeeded on retry
 					return true;
 				}
 			} catch (MongoCommandException mce) {
@@ -386,13 +386,11 @@ public class Balancer implements Callable<Integer> {
 						if (splitChunks != null && splitChunks.length == 2 && splitChunks[0] != null) {
 							// Choose the first chunk to retry (could be improved with heuristics)
 							mega = splitChunks[0];
-							logger.debug("Using first split chunk for retry: min={}, max={}", 
-									mega.getMin(), mega.getMax());
+							// Using first split chunk for retry
 						} else if (splitChunks != null && splitChunks.length == 2 && splitChunks[1] != null) {
 							// Use the second chunk if first is null
 							mega = splitChunks[1];
-							logger.debug("Using second split chunk for retry: min={}, max={}", 
-									mega.getMin(), mega.getMax());
+							// Using second split chunk for retry
 						} else {
 							logger.warn("Failed to reload split chunks, falling back to namespace reload");
 							chunkManager.reloadChunkMapForNamespace(sourceShardClient, ns, sourceChunksCache, chunkMap);

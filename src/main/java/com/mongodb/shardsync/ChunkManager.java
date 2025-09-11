@@ -401,7 +401,7 @@ public class ChunkManager {
 		if (nsChunkMap != null) {
 			BsonValueWrapper originalMinWrapper = new BsonValueWrapper(originalMin);
 			nsChunkMap.remove(originalMinWrapper);
-			logger.debug("Removed old chunk with min: {}", originalMin);
+			// Removed old chunk from map
 		}
 		
 		// Create a temporary map for the 2 new chunks
