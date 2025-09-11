@@ -369,10 +369,23 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 
                 if (chunk == null) {
                     logger.warn("Could not find chunk with exact min {}, trying floorEntry", chunkMin);
+                    logger.debug("Looking for chunk with minWrapper: {}, total chunks in map: {}", minWrapper, nsChunkMap.size());
+                    
+                    // Debug: Show some neighboring entries
+                    Map.Entry<BsonValueWrapper, CountingMegachunk> lower = nsChunkMap.lowerEntry(minWrapper);
+                    Map.Entry<BsonValueWrapper, CountingMegachunk> higher = nsChunkMap.higherEntry(minWrapper);
+                    if (lower != null) {
+                        logger.debug("Lower entry: {}", lower.getValue().getMin());
+                    }
+                    if (higher != null) {
+                        logger.debug("Higher entry: {}", higher.getValue().getMin());
+                    }
+                    
                     Map.Entry<BsonValueWrapper, CountingMegachunk> entry = nsChunkMap.floorEntry(minWrapper);
                     if (entry != null) {
                         chunk = entry.getValue();
                         logger.debug("Found chunk via floorEntry: min={}, max={}", chunk.getMin(), chunk.getMax());
+                        logger.debug("FloorEntry wrapper compareTo minWrapper: {}", entry.getKey().compareTo(minWrapper));
                     }
                 }
                 
