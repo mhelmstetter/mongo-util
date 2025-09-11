@@ -68,6 +68,27 @@ The balance phase uses this aggregation pipeline against the `mongoCustomBalance
 db.chunkStats.aggregate([
   { 
     $match: { 
+      bsonSize: { $gte: 1000000 },
+      $or: [{ move: false }, { move: { $exists: false }}]
+    }
+  },
+  { 
+    $group: { 
+      _id: "$chunkMin", 
+      count: { $sum: 1 } 
+    }
+  },
+  { 
+    $sort: { count: -1 } 
+  }
+])
+```
+
+**Alternative Query (shows move status)**:
+```javascript
+db.chunkStats.aggregate([
+  { 
+    $match: { 
       bsonSize: { $gte: 1000000 }
     }
   },
@@ -89,19 +110,11 @@ db.chunkStats.aggregate([
 ```
 
 **Pipeline Breakdown**:
-1. **$match**: Finds all large documents (≥1MB BSON size)
-2. **$group**: Groups by chunk boundary (`chunkMin`) and calculates:
-   - `count`: Total large documents per chunk
-   - `movedCount`: Number of documents already moved (`move: true`)
+1. **$match**: Finds large documents (≥1MB BSON size) that haven't been moved yet
+2. **$group**: Groups by chunk boundary (`chunkMin`) and counts large documents per chunk  
 3. **$sort**: Orders chunks by document count (highest concentration first)
 
-**Output Example**:
-```javascript
-{ "_id": { "_id": "562134:201812" }, "count": 4097, "movedCount": 0 }
-{ "_id": { "_id": "594932:201512" }, "count": 1964, "movedCount": 1200 }
-```
-
-This shows both total large documents and how many have already been moved, allowing for informed balancing decisions.
+This identifies chunks with the most large documents, prioritizing those with the highest impact for balancing.
 
 **Balancing Workflow**:
 1. **Destination Setup**: Parse comma-separated destination shard indexes
