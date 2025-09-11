@@ -17,10 +17,12 @@ import static com.mongodb.client.model.Sorts.descending;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
 
@@ -30,7 +32,9 @@ import org.apache.commons.configuration2.builder.FileBasedConfigurationBuilder;
 import org.apache.commons.configuration2.builder.fluent.Parameters;
 import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
 import org.apache.commons.configuration2.ex.ConfigurationException;
+import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
+import org.bson.BsonInt32;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.Document;
@@ -40,8 +44,10 @@ import org.slf4j.LoggerFactory;
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.AggregateIterable;
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.InsertOneModel;
 import com.mongodb.client.model.WriteModel;
@@ -87,6 +93,9 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
     
     @Option(names = {"--chunkLimit"}, description = "Maximum number of chunks to move during balance phase (0 = no limit)")
     private int chunkLimit = 0;
+    
+    @Option(names = {"--clearStats"}, description = "Clear existing stats for this shard before initialization (use with --init)")
+    private boolean clearStats = false;
 
     private final Logger logger = LoggerFactory.getLogger(CustomDocumentAnalyzer.class);
     
@@ -135,6 +144,29 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
     @Override
     protected void onChunkMoved() {
         totalChunksMoved++;
+    }
+    
+    private void createIndexes(MongoCollection<BsonDocument> statsCollection) {
+        logger.info("Creating indexes on stats collection for optimal performance");
+        try {
+            // Index for balance queries: {move:1, bsonSize:-1}
+            statsCollection.createIndex(
+                new BsonDocument("move", new BsonInt32(1))
+                    .append("bsonSize", new BsonInt32(-1)),
+                new IndexOptions().name("move_bsonSize_idx")
+            );
+            logger.debug("Created index: move_bsonSize_idx");
+            
+            // Index for shard-based queries: {shardId:1}
+            statsCollection.createIndex(
+                new BsonDocument("shardId", new BsonInt32(1)),
+                new IndexOptions().name("shardId_idx")
+            );
+            logger.debug("Created index: shardId_idx");
+            
+        } catch (Exception e) {
+            logger.warn("Index creation failed (may already exist): {}", e.getMessage());
+        }
     }
 
     @Override
@@ -228,6 +260,24 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
         String targetShardId = shardIds.get(shardIndex);
         logger.info("Targeting shard: {} (index {})", targetShardId, shardIndex);
         
+        // Check for existing data for this shard
+        MongoCollection<BsonDocument> statsCollection = balancerConfig.getStatsCollection();
+        long existingCount = statsCollection.countDocuments(eq("shardId", targetShardId));
+        
+        if (existingCount > 0) {
+            if (clearStats) {
+                logger.info("Found {} existing documents for shard {}, clearing them due to --clearStats flag", existingCount, targetShardId);
+                long deletedCount = statsCollection.deleteMany(eq("shardId", targetShardId)).getDeletedCount();
+                logger.info("Deleted {} existing documents for shard {}", deletedCount, targetShardId);
+            } else {
+                logger.error("Found {} existing documents for shard {}. Use --clearStats flag to clear them or choose a different shard.", existingCount, targetShardId);
+                throw new IllegalStateException("Existing data found for shard " + targetShardId + ". Use --clearStats to overwrite.");
+            }
+        }
+        
+        // Create indexes for optimal performance
+        createIndexes(statsCollection);
+        
         // Get the specific shard's mongo client
         MongoCollection<RawBsonDocument> collection = sourceShardClient.getShardMongoClient(targetShardId)
                 .getDatabase(dbName)
@@ -275,6 +325,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 statsDoc.append("namespace", new org.bson.BsonString(namespace));
                 statsDoc.append("yearMonth", new org.bson.BsonString(yearMonth));
                 statsDoc.append("shardId", new org.bson.BsonString(targetShardId));
+                statsDoc.append("move", org.bson.BsonBoolean.FALSE); // Always initialize as not moved
                 if (chunkId != null) {
                     statsDoc.append("chunkId", new org.bson.BsonString(chunkId));
                 }
@@ -372,135 +423,143 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
             }
         }
         
-        // Build aggregation pipeline
-        List<org.bson.conversions.Bson> pipeline = new ArrayList<>();
-        
-        // Match documents with bsonSize >= 1000000 and (move:false OR move field doesn't exist)
-        pipeline.add(match(and(
-            gte("bsonSize", 1000000),
-            or(eq("move", false), exists("move", false))
-        )));
-        
-        // Group by chunkMin and count (using chunkMin as unique identifier)
-        pipeline.add(group("$chunkMin", sum("count", 1)));
-        
-        // Sort by count descending
-        pipeline.add(sort(descending("count")));
-        
-        // Limit to 100 for dry run
-        if (isDryRun) {
-            pipeline.add(limit(100));
-        }
-        
+        // Create indexes for optimal performance
         MongoCollection<BsonDocument> statsCollection = balancerConfig.getStatsCollection();
-        AggregateIterable<Document> results = statsCollection.aggregate(pipeline, Document.class);
+        createIndexes(statsCollection);
         
         int roundRobinIndex = 0;
         int processedCount = 0;
+        Set<BsonDocument> processedChunks = new HashSet<>(); // Track chunks we've already processed
         
-        try (MongoCursor<Document> cursor = results.iterator()) {
-            while (cursor.hasNext()) {
-                Document result = cursor.next();
-                BsonDocument chunkMinDoc = ((Document) result.get("_id")).toBsonDocument();
-                // Extract the _id value to match how chunk map keys are stored  
-                BsonValue chunkMinValue = chunkMinDoc.get("_id");
-                int count = result.getInteger("count");
-                
-                if (isDryRun) {
-                    logger.info("Chunk min: {}, Count: {}", chunkMinDoc, count);
-                    processedCount++;
-                    continue;
-                }
-                
-                // Get destination shard
-                int destShardIndex = destShardIndexList.get(roundRobinIndex % destShardIndexList.size());
-                String destShardId = shardIds.get(destShardIndex);
-                
-                chunksProcessed++;
-                // Moving chunk to destination shard
-                reportStatus();
-                
-                // Efficiently find the chunk using the min bound as the key
-                NavigableMap<BsonValueWrapper, CountingMegachunk> nsChunkMap = chunkMap.get(namespace);
-                if (nsChunkMap == null) {
-                    logger.error("No chunk map found for namespace: {}", namespace);
-                    continue;
-                }
-                
-                BsonValueWrapper minWrapper = new BsonValueWrapper(chunkMinValue);
-                CountingMegachunk chunk = nsChunkMap.get(minWrapper);
-                
-                if (chunk == null) {
-                    logger.warn("Could not find chunk with exact min {}, trying floorEntry", chunkMinValue);
-                    Map.Entry<BsonValueWrapper, CountingMegachunk> entry = nsChunkMap.floorEntry(minWrapper);
-                    if (entry != null) {
-                        chunk = entry.getValue();
-                        logger.debug("Found chunk via floorEntry: min={}, max={}", chunk.getMin(), chunk.getMax());
-                    }
-                }
-                
-                if (chunk == null) {
-                    logger.error("Could not find chunk with min {} in chunk map", chunkMinValue);
-                    continue;
-                }
-                
-                // Perform moveChunk operation with retry logic
-                boolean success = moveChunkWithRetry(namespace, chunk, destShardId, 10);
-                
-                if (success) {
-                    successfulMoves++;
-                    // Successfully moved chunk
-                    
-                    // Check if we've reached the chunk limit
-                    if (chunkLimit > 0 && successfulMoves >= chunkLimit) {
-                        logger.info("Reached chunk limit of {} successful moves, stopping balance phase", chunkLimit);
-                        break;
-                    }
-                    
-                    // Update stats collection with move:true for this chunkMin
-                    try {
-                        UpdateResult updateResult = statsCollection.updateMany(
-                            eq("chunkMin", chunkMinDoc),
-                            set("move", true)
-                        );
-                        if (updateResult.getMatchedCount() != updateResult.getModifiedCount()) {
-                            logger.warn("Stats update mismatch for chunk {}: matched={}, modified={}", 
-                                       chunkMinDoc, updateResult.getMatchedCount(), updateResult.getModifiedCount());
-                        }
-                    } catch (Exception e) {
-                        logger.warn("Failed to update stats collection for chunk with min {}: {}", chunkMinDoc, e.getMessage());
-                    }
-                } else {
-                    logger.error("Failed to move chunk with min {} to shard {}", chunkMinDoc, destShardId);
-                }
-                
-                roundRobinIndex++;
-                processedCount++;
-            }
-        }
-        
+        // For dry run, get a sample of documents to show
         if (isDryRun) {
-            logger.info("Dry run completed. Showed {} chunks that would be moved", processedCount);
-        } else {
-            // Final status report
-            long totalElapsed = (System.currentTimeMillis() - startTime) / 60000;
-            double finalRate = totalElapsed > 0 ? (double) successfulMoves / totalElapsed : 0;
-            
-            String finalStatusMessage;
-            if (chunkLimit > 0) {
-                String limitStatus = successfulMoves >= chunkLimit ? "LIMIT REACHED" : "INCOMPLETE";
-                finalStatusMessage = String.format("🏁 FINAL STATUS [%s]: %d chunks processed, %d/%d successful moves (%d total chunks moved), %d splits | " +
-                                   "Total runtime: %dm | Final rate: %s moves/min", 
-                                   limitStatus, chunksProcessed, successfulMoves, chunkLimit, totalChunksMoved, splitOperations, totalElapsed, 
-                                   String.format("%.1f", finalRate));
-            } else {
-                finalStatusMessage = String.format("🏁 FINAL STATUS: %d chunks processed, %d successful moves (%d total chunks moved), %d splits | " +
-                                   "Total runtime: %dm | Final rate: %s moves/min", 
-                                   chunksProcessed, successfulMoves, totalChunksMoved, splitOperations, totalElapsed, 
-                                   String.format("%.1f", finalRate));
+            FindIterable<BsonDocument> sampleResults = statsCollection.find(eq("move", false))
+                .sort(descending("bsonSize"))
+                .limit(100);
+                
+            for (BsonDocument doc : sampleResults) {
+                BsonDocument chunkMinDoc = doc.getDocument("chunkMin");
+                int bsonSize = doc.getInt32("bsonSize").getValue();
+                
+                if (!processedChunks.contains(chunkMinDoc)) {
+                    processedChunks.add(chunkMinDoc);
+                    logger.info("Document: {}, BSON size: {}MB, Chunk min: {}", 
+                               doc.get("_id"), bsonSize / 1024 / 1024, chunkMinDoc);
+                    processedCount++;
+                }
             }
-            logger.info(finalStatusMessage);
+            
+            logger.info("Dry run completed. Showed {} unique chunks that would be moved", processedCount);
+            return;
         }
+        
+        // Main processing loop - repeatedly find the next largest unprocessed document
+        while (true) {
+            // Find the next document to process (largest bsonSize, not yet moved)
+            BsonDocument nextDoc = statsCollection.find(eq("move", false))
+                .sort(descending("bsonSize"))
+                .first();
+            
+            if (nextDoc == null) {
+                logger.info("No more documents to process - all large documents have been moved");
+                break;
+            }
+            
+            BsonDocument chunkMinDoc = nextDoc.getDocument("chunkMin");
+            BsonValue chunkMinValue = chunkMinDoc.get("_id");
+            
+            // Skip if we've already processed this chunk in this session
+            if (processedChunks.contains(chunkMinDoc)) {
+                // Mark this individual document as processed to avoid infinite loop
+                statsCollection.updateOne(eq("_id", nextDoc.get("_id")), set("move", true));
+                continue;
+            }
+            
+            processedChunks.add(chunkMinDoc);
+            processedCount++;
+            
+            // Get destination shard
+            int destShardIndex = destShardIndexList.get(roundRobinIndex % destShardIndexList.size());
+            String destShardId = shardIds.get(destShardIndex);
+                
+            chunksProcessed++;
+            // Moving chunk to destination shard
+            reportStatus();
+            
+            // Efficiently find the chunk using the min bound as the key
+            NavigableMap<BsonValueWrapper, CountingMegachunk> nsChunkMap = chunkMap.get(namespace);
+            if (nsChunkMap == null) {
+                logger.error("No chunk map found for namespace: {}", namespace);
+                continue;
+            }
+            
+            BsonValueWrapper minWrapper = new BsonValueWrapper(chunkMinValue);
+            CountingMegachunk chunk = nsChunkMap.get(minWrapper);
+                
+            if (chunk == null) {
+                logger.warn("Could not find chunk with exact min {}, trying floorEntry", chunkMinValue);
+                Map.Entry<BsonValueWrapper, CountingMegachunk> entry = nsChunkMap.floorEntry(minWrapper);
+                if (entry != null) {
+                    chunk = entry.getValue();
+                    logger.debug("Found chunk via floorEntry: min={}, max={}", chunk.getMin(), chunk.getMax());
+                }
+            }
+                
+            if (chunk == null) {
+                logger.error("Could not find chunk with min {} in chunk map", chunkMinValue);
+                continue;
+            }
+                
+            // Perform moveChunk operation with recursive retry logic
+            boolean success = moveChunkWithRetry(namespace, chunk, destShardId, 10);
+                
+            if (success) {
+                successfulMoves++;
+                
+                // Check if we've reached the chunk limit
+                if (chunkLimit > 0 && successfulMoves >= chunkLimit) {
+                    logger.info("Reached chunk limit of {} successful moves, stopping balance phase", chunkLimit);
+                    break;
+                }
+                
+                // Update stats collection with move:true for this chunkMin
+                try {
+                    UpdateResult updateResult = statsCollection.updateMany(
+                        eq("chunkMin", chunkMinDoc),
+                        set("move", true)
+                    );
+                    if (updateResult.getMatchedCount() != updateResult.getModifiedCount()) {
+                        logger.warn("Stats update mismatch for chunk {}: matched={}, modified={}", 
+                                   chunkMinDoc, updateResult.getMatchedCount(), updateResult.getModifiedCount());
+                    }
+                } catch (Exception e) {
+                    logger.warn("Failed to update stats collection for chunk with min {}: {}", chunkMinDoc, e.getMessage());
+                }
+            } else {
+                logger.error("Failed to move chunk with min {} to shard {}", chunkMinDoc, destShardId);
+            }
+            
+            roundRobinIndex++;
+        }
+        
+        // Final status report
+        long totalElapsed = (System.currentTimeMillis() - startTime) / 60000;
+        double finalRate = totalElapsed > 0 ? (double) successfulMoves / totalElapsed : 0;
+        
+        String finalStatusMessage;
+        if (chunkLimit > 0) {
+            String limitStatus = successfulMoves >= chunkLimit ? "LIMIT REACHED" : "INCOMPLETE";
+            finalStatusMessage = String.format("🏁 FINAL STATUS [%s]: %d chunks processed, %d/%d successful moves (%d total chunks moved), %d splits | " +
+                               "Total runtime: %dm | Final rate: %s moves/min", 
+                               limitStatus, chunksProcessed, successfulMoves, chunkLimit, totalChunksMoved, splitOperations, totalElapsed, 
+                               String.format("%.1f", finalRate));
+        } else {
+            finalStatusMessage = String.format("🏁 FINAL STATUS: %d chunks processed, %d successful moves (%d total chunks moved), %d splits | " +
+                               "Total runtime: %dm | Final rate: %s moves/min", 
+                               chunksProcessed, successfulMoves, totalChunksMoved, splitOperations, totalElapsed, 
+                               String.format("%.1f", finalRate));
+        }
+        logger.info(finalStatusMessage);
     }
     
     private void runMigration() {
