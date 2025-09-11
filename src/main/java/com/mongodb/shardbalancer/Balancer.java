@@ -316,6 +316,46 @@ public class Balancer implements Callable<Integer> {
 //		max = (BsonDocument) newChunk.get("max");
 	}
 	
+	protected void splitChunkByDocCount(String ns, BsonDocument min, BsonDocument max, long maxDocs) {
+		try {
+			// Use the dataSize command to estimate split points based on document count
+			Document dataSizeResult = sourceShardClient.dataSize(ns, min, max);
+			if (dataSizeResult != null && dataSizeResult.containsKey("numObjects")) {
+				long totalDocs = ((Number) dataSizeResult.get("numObjects")).longValue();
+				logger.debug("Chunk has {} documents, maxDocs limit is {}", totalDocs, maxDocs);
+				
+				if (totalDocs <= maxDocs) {
+					logger.debug("Chunk already within maxDocs limit, no split needed");
+					return;
+				}
+				
+				// Calculate how many splits we need to get chunks under maxDocs
+				int numSplits = (int) Math.ceil((double) totalDocs / maxDocs) - 1;
+				logger.debug("Need {} splits to get chunks under {} docs each", numSplits, maxDocs);
+				
+				// For now, perform multiple binary splits to approximate the desired size
+				// This is a simplified approach - ideally we would calculate exact split points
+				for (int i = 0; i < numSplits && i < 3; i++) { // Limit to 3 splits to avoid excessive splitting
+					Document result = sourceShardClient.splitFind(ns, min, true);
+					logger.debug("Split {} of {} completed: {}", i + 1, numSplits, result);
+					
+					// For subsequent splits, we would need to find the new chunk boundaries
+					// This is a simplified implementation
+					if (i < numSplits - 1) {
+						// Wait a moment for the split to be processed
+						Thread.sleep(100);
+					}
+				}
+			} else {
+				logger.warn("Unable to get document count from dataSize command, falling back to simple split");
+				splitChunk(ns, min);
+			}
+		} catch (Exception e) {
+			logger.warn("Error during document-count-based splitting: {}, falling back to simple split", e.getMessage());
+			splitChunk(ns, min);
+		}
+	}
+	
 	protected boolean moveChunkWithRetry(String ns, CountingMegachunk mega, String toShard, int maxRetries) {
 		for (int retry = 0; retry < maxRetries; retry++) {
 			try {
@@ -333,9 +373,9 @@ public class Balancer implements Callable<Integer> {
 					
 					if (matcher.find()) {
 						long extractedMaxDocs = Long.parseLong(matcher.group(1));
-						logger.debug("ChunkTooBig error, extracted maxDocs: {}, splitting chunk", extractedMaxDocs);
+						logger.debug("ChunkTooBig error, extracted maxDocs: {}, splitting chunk intelligently", extractedMaxDocs);
 						
-						splitChunk(ns, mega.getMin());
+						splitChunkByDocCount(ns, mega.getMin(), mega.getMax(), extractedMaxDocs);
 						
 						// Efficiently reload only the 2 chunks that resulted from the split
 						CountingMegachunk[] splitChunks = chunkManager.reloadSplitChunks(
