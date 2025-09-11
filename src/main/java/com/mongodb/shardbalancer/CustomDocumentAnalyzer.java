@@ -342,7 +342,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
         try (MongoCursor<Document> cursor = results.iterator()) {
             while (cursor.hasNext()) {
                 Document result = cursor.next();
-                BsonDocument chunkMin = (BsonDocument) result.get("_id");
+                BsonDocument chunkMin = ((Document) result.get("_id")).toBsonDocument();
                 int count = result.getInteger("count");
                 
                 if (isDryRun) {
