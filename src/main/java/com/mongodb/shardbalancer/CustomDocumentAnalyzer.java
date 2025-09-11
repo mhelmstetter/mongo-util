@@ -90,7 +90,33 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
     private final static String SOURCE_URI = "source";
     private final static int BATCH_SIZE = 1000;
     
+    // Status tracking
+    private int successfulMoves = 0;
+    private int splitOperations = 0;
+    private int chunksProcessed = 0;
+    private long startTime = 0;
+    private long lastStatusReport = 0;
+    private final static int STATUS_REPORT_INTERVAL_MS = 60000; // Report every 60 seconds
+    
     private BalancerConfig balancerConfig;
+    
+    private void reportStatus() {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastStatusReport >= STATUS_REPORT_INTERVAL_MS) {
+            long elapsedMinutes = (currentTime - startTime) / 60000;
+            double movesPerMinute = elapsedMinutes > 0 ? (double) successfulMoves / elapsedMinutes : 0;
+            
+            logger.info("📊 STATUS: {} chunks processed, {} successful moves, {} splits | " +
+                       "Runtime: {}m | Rate: {:.1f} moves/min", 
+                       chunksProcessed, successfulMoves, splitOperations, elapsedMinutes, movesPerMinute);
+            lastStatusReport = currentTime;
+        }
+    }
+    
+    @Override
+    protected void onChunkSplit() {
+        splitOperations++;
+    }
 
     @Override
     public Integer call() throws ConfigurationException {
@@ -277,6 +303,13 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
         
         logger.info("Starting balance phase for namespace: {}", namespace);
         
+        // Initialize status tracking
+        startTime = System.currentTimeMillis();
+        lastStatusReport = startTime;
+        successfulMoves = 0;
+        splitOperations = 0;
+        chunksProcessed = 0;
+        
         // Check if dry run mode
         boolean isDryRun = dryRun || (destShardIndexes == null || destShardIndexes.trim().isEmpty());
         
@@ -359,7 +392,9 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 int destShardIndex = destShardIndexList.get(roundRobinIndex % destShardIndexList.size());
                 String destShardId = shardIds.get(destShardIndex);
                 
-                logger.info("Moving chunk with min {} (count: {}) to shard {} (index {})", chunkMinDoc, count, destShardId, destShardIndex);
+                chunksProcessed++;
+                logger.debug("Moving chunk with min {} (count: {}) to shard {}", chunkMinDoc, count, destShardId);
+                reportStatus();
                 
                 // Efficiently find the chunk using the min bound as the key
                 NavigableMap<BsonValueWrapper, CountingMegachunk> nsChunkMap = chunkMap.get(namespace);
@@ -389,7 +424,8 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 boolean success = moveChunkWithRetry(namespace, chunk, destShardId, 10);
                 
                 if (success) {
-                    logger.info("Successfully moved chunk with min {} to shard {}", chunkMinDoc, destShardId);
+                    successfulMoves++;
+                    logger.debug("Successfully moved chunk with min {} to shard {}", chunkMinDoc, destShardId);
                     
                     // Update stats collection with move:true for this chunkMin
                     try {
@@ -397,9 +433,10 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                             eq("chunkMin", chunkMinDoc),
                             set("move", true)
                         );
-                        logger.debug("Updated {} documents in stats collection for chunk with min {} (matched: {}, modified: {})", 
-                                   updateResult.getModifiedCount(), chunkMinDoc, updateResult.getMatchedCount(), updateResult.getModifiedCount());
-                        logger.debug("Updated stats collection for chunk with min {}", chunkMinDoc);
+                        if (updateResult.getMatchedCount() != updateResult.getModifiedCount()) {
+                            logger.warn("Stats update mismatch for chunk {}: matched={}, modified={}", 
+                                       chunkMinDoc, updateResult.getMatchedCount(), updateResult.getModifiedCount());
+                        }
                     } catch (Exception e) {
                         logger.warn("Failed to update stats collection for chunk with min {}: {}", chunkMinDoc, e.getMessage());
                     }
@@ -415,7 +452,13 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
         if (isDryRun) {
             logger.info("Dry run completed. Showed {} chunks that would be moved", processedCount);
         } else {
-            logger.info("Balance phase completed. Processed {} chunks", processedCount);
+            // Final status report
+            long totalElapsed = (System.currentTimeMillis() - startTime) / 60000;
+            double finalRate = totalElapsed > 0 ? (double) successfulMoves / totalElapsed : 0;
+            
+            logger.info("🏁 FINAL STATUS: {} chunks processed, {} successful moves, {} splits | " +
+                       "Total runtime: {}m | Final rate: {:.1f} moves/min", 
+                       chunksProcessed, successfulMoves, splitOperations, totalElapsed, finalRate);
         }
     }
     

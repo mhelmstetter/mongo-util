@@ -331,21 +331,19 @@ public class Balancer implements Callable<Integer> {
 				
 				// Calculate how much over the limit we are to determine if we should split more aggressively
 				double overage = (double) totalDocs / maxDocs;
-				logger.debug("Chunk is {:.2f}x over the maxDocs limit ({} / {})", overage, totalDocs, maxDocs);
+				logger.debug("Chunk is {:.2f}x over the maxDocs limit", overage);
 				
 				if (overage >= 3.0) {
 					// For chunks that are 3x+ over limit, try two quick splits to break it down faster
-					logger.debug("Chunk significantly over limit, performing two splits to break it down faster");
+					logger.debug("Performing two splits for chunk significantly over limit");
 					Document result1 = sourceShardClient.splitFind(ns, min, true);
-					logger.debug("First split completed: {}", result1);
-					// Brief pause to let the first split settle
 					Thread.sleep(50);
 					Document result2 = sourceShardClient.splitFind(ns, min, true);
-					logger.debug("Second split completed: {}", result2);
+					// Two splits completed
 				} else {
 					// For moderately oversized chunks, single split should be sufficient
 					Document result = sourceShardClient.splitFind(ns, min, true);
-					logger.debug("Single strategic split completed: {}", result);
+					// Split completed
 				}
 				
 			} else {
@@ -378,6 +376,7 @@ public class Balancer implements Callable<Integer> {
 						logger.debug("ChunkTooBig error, extracted maxDocs: {}, splitting chunk intelligently", extractedMaxDocs);
 						
 						splitChunkByDocCount(ns, mega.getMin(), mega.getMax(), extractedMaxDocs);
+						onChunkSplit(); // Hook for subclasses to track splits
 						
 						// Efficiently reload only the 2 chunks that resulted from the split
 						CountingMegachunk[] splitChunks = chunkManager.reloadSplitChunks(
@@ -583,6 +582,13 @@ public class Balancer implements Callable<Integer> {
 
 	protected void stop() {
 		logger.debug("**** SHUTDOWN *****");
+	}
+	
+	/**
+	 * Hook method called when a chunk split occurs. Subclasses can override for tracking.
+	 */
+	protected void onChunkSplit() {
+		// Default implementation does nothing
 	}
 
 }

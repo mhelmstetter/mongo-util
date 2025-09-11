@@ -363,8 +363,7 @@ public class ChunkManager {
 			BsonDocument originalMin, BsonDocument originalMax,
 			Map<String, RawBsonDocument> chunksCache, 
 			Map<String, NavigableMap<BsonValueWrapper, CountingMegachunk>> chunkMap) {
-		logger.debug("Reloading split chunks for namespace: {}, originalMin: {}, originalMax: {}", 
-				namespace, originalMin, originalMax);
+		// Reloading split chunks after chunk splitting
 		
 		// Query for chunks that have either:
 		// 1. min = originalMin (first split chunk)
@@ -385,11 +384,11 @@ public class ChunkManager {
 		MongoCollection<RawBsonDocument> configChunks = shardClient.getChunksCollectionRaw();
 		for (RawBsonDocument chunk : configChunks.find(query1)) {
 			foundChunks.add(chunk);
-			logger.debug("Found first split chunk with min = originalMin: {}", chunk.get("min"));
+			// Found first split chunk
 		}
 		for (RawBsonDocument chunk : configChunks.find(query2)) {
 			foundChunks.add(chunk);
-			logger.debug("Found second split chunk with max = originalMax: {}", chunk.get("max"));
+			// Found second split chunk
 		}
 		
 		if (foundChunks.size() != 2) {
@@ -432,8 +431,7 @@ public class ChunkManager {
 				CountingMegachunk mega = nsChunkMap.get(minWrapper);
 				if (mega != null && i < 2) {
 					splitChunks[i] = mega;
-					logger.debug("Retrieved split chunk {}: min={}, max={}", 
-							i+1, mega.getMin(), mega.getMax());
+					// Retrieved split chunk successfully
 					i++;
 				} else {
 					logger.warn("Could not find chunk in map with min: {}, trying floorEntry", chunkMinValue);
@@ -442,8 +440,7 @@ public class ChunkManager {
 					if (entry != null) {
 						mega = entry.getValue();
 						splitChunks[i] = mega;
-						logger.debug("Retrieved split chunk {} via floorEntry: min={}, max={}", 
-								i+1, mega.getMin(), mega.getMax());
+						// Retrieved split chunk via floorEntry
 						i++;
 					}
 				}
@@ -456,7 +453,7 @@ public class ChunkManager {
 			return null;
 		}
 		
-		logger.debug("Successfully reloaded 2 split chunks for namespace: {}", namespace);
+		// Successfully reloaded split chunks
 		return splitChunks;
 	}
 
