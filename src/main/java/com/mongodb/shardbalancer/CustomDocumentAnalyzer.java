@@ -31,6 +31,7 @@ import org.apache.commons.configuration2.builder.fluent.Parameters;
 import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.bson.BsonDocument;
+import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.Document;
 import org.slf4j.Logger;
@@ -342,11 +343,13 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
         try (MongoCursor<Document> cursor = results.iterator()) {
             while (cursor.hasNext()) {
                 Document result = cursor.next();
-                BsonDocument chunkMin = ((Document) result.get("_id")).toBsonDocument();
+                BsonDocument chunkMinDoc = ((Document) result.get("_id")).toBsonDocument();
+                // Extract the _id value to match how chunk map keys are stored  
+                BsonValue chunkMinValue = chunkMinDoc.get("_id");
                 int count = result.getInteger("count");
                 
                 if (isDryRun) {
-                    logger.info("Chunk min: {}, Count: {}", chunkMin, count);
+                    logger.info("Chunk min: {}, Count: {}", chunkMinDoc, count);
                     processedCount++;
                     continue;
                 }
@@ -355,7 +358,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 int destShardIndex = destShardIndexList.get(roundRobinIndex % destShardIndexList.size());
                 String destShardId = shardIds.get(destShardIndex);
                 
-                logger.info("Moving chunk with min {} (count: {}) to shard {} (index {})", chunkMin, count, destShardId, destShardIndex);
+                logger.info("Moving chunk with min {} (count: {}) to shard {} (index {})", chunkMinDoc, count, destShardId, destShardIndex);
                 
                 // Efficiently find the chunk using the min bound as the key
                 NavigableMap<BsonValueWrapper, CountingMegachunk> nsChunkMap = chunkMap.get(namespace);
@@ -364,11 +367,11 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                     continue;
                 }
                 
-                BsonValueWrapper minWrapper = new BsonValueWrapper(chunkMin);
+                BsonValueWrapper minWrapper = new BsonValueWrapper(chunkMinValue);
                 CountingMegachunk chunk = nsChunkMap.get(minWrapper);
                 
                 if (chunk == null) {
-                    logger.warn("Could not find chunk with exact min {}, trying floorEntry", chunkMin);
+                    logger.warn("Could not find chunk with exact min {}, trying floorEntry", chunkMinValue);
                     logger.debug("Looking for chunk with minWrapper: {}, total chunks in map: {}", minWrapper, nsChunkMap.size());
                     
                     // Debug: Show some neighboring entries
@@ -390,7 +393,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 }
                 
                 if (chunk == null) {
-                    logger.error("Could not find chunk with min {} in chunk map", chunkMin);
+                    logger.error("Could not find chunk with min {} in chunk map", chunkMinValue);
                     continue;
                 }
                 
@@ -398,20 +401,20 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 boolean success = moveChunkWithRetry(namespace, chunk, destShardId, 10);
                 
                 if (success) {
-                    logger.info("Successfully moved chunk with min {} to shard {}", chunkMin, destShardId);
+                    logger.info("Successfully moved chunk with min {} to shard {}", chunkMinDoc, destShardId);
                     
                     // Update stats collection with move:true for this chunkMin
                     try {
                         statsCollection.updateMany(
-                            eq("chunkMin", chunkMin),
+                            eq("chunkMin", chunkMinDoc),
                             set("move", true)
                         );
-                        logger.debug("Updated stats collection for chunk with min {}", chunkMin);
+                        logger.debug("Updated stats collection for chunk with min {}", chunkMinDoc);
                     } catch (Exception e) {
-                        logger.warn("Failed to update stats collection for chunk with min {}: {}", chunkMin, e.getMessage());
+                        logger.warn("Failed to update stats collection for chunk with min {}: {}", chunkMinDoc, e.getMessage());
                     }
                 } else {
-                    logger.error("Failed to move chunk with min {} to shard {}", chunkMin, destShardId);
+                    logger.error("Failed to move chunk with min {} to shard {}", chunkMinDoc, destShardId);
                 }
                 
                 roundRobinIndex++;
