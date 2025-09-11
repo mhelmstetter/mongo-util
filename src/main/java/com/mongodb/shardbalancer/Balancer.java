@@ -318,7 +318,7 @@ public class Balancer implements Callable<Integer> {
 	
 	protected void splitChunkByDocCount(String ns, BsonDocument min, BsonDocument max, long maxDocs) {
 		try {
-			// Use the dataSize command to estimate split points based on document count
+			// Use the dataSize command to get actual document count
 			Document dataSizeResult = sourceShardClient.dataSize(ns, min, max);
 			if (dataSizeResult != null && dataSizeResult.containsKey("numObjects")) {
 				long totalDocs = ((Number) dataSizeResult.get("numObjects")).longValue();
@@ -329,23 +329,25 @@ public class Balancer implements Callable<Integer> {
 					return;
 				}
 				
-				// Calculate how many splits we need to get chunks under maxDocs
-				int numSplits = (int) Math.ceil((double) totalDocs / maxDocs) - 1;
-				logger.debug("Need {} splits to get chunks under {} docs each", numSplits, maxDocs);
+				// Calculate how much over the limit we are to determine if we should split more aggressively
+				double overage = (double) totalDocs / maxDocs;
+				logger.debug("Chunk is {:.2f}x over the maxDocs limit ({} / {})", overage, totalDocs, maxDocs);
 				
-				// For now, perform multiple binary splits to approximate the desired size
-				// This is a simplified approach - ideally we would calculate exact split points
-				for (int i = 0; i < numSplits && i < 3; i++) { // Limit to 3 splits to avoid excessive splitting
+				if (overage >= 3.0) {
+					// For chunks that are 3x+ over limit, try two quick splits to break it down faster
+					logger.debug("Chunk significantly over limit, performing two splits to break it down faster");
+					Document result1 = sourceShardClient.splitFind(ns, min, true);
+					logger.debug("First split completed: {}", result1);
+					// Brief pause to let the first split settle
+					Thread.sleep(50);
+					Document result2 = sourceShardClient.splitFind(ns, min, true);
+					logger.debug("Second split completed: {}", result2);
+				} else {
+					// For moderately oversized chunks, single split should be sufficient
 					Document result = sourceShardClient.splitFind(ns, min, true);
-					logger.debug("Split {} of {} completed: {}", i + 1, numSplits, result);
-					
-					// For subsequent splits, we would need to find the new chunk boundaries
-					// This is a simplified implementation
-					if (i < numSplits - 1) {
-						// Wait a moment for the split to be processed
-						Thread.sleep(100);
-					}
+					logger.debug("Single strategic split completed: {}", result);
 				}
+				
 			} else {
 				logger.warn("Unable to get document count from dataSize command, falling back to simple split");
 				splitChunk(ns, min);
