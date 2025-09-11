@@ -425,8 +425,10 @@ public class ChunkManager {
 		if (nsChunkMap != null) {
 			int i = 0;
 			for (RawBsonDocument chunk : foundChunks) {
-				BsonDocument chunkMin = (BsonDocument) chunk.get("min");
-				BsonValueWrapper minWrapper = new BsonValueWrapper(chunkMin);
+				BsonDocument chunkMinDoc = (BsonDocument) chunk.get("min");
+				// Extract the _id value to match how chunk map keys are stored
+				BsonValue chunkMinValue = chunkMinDoc.get("_id");
+				BsonValueWrapper minWrapper = new BsonValueWrapper(chunkMinValue);
 				CountingMegachunk mega = nsChunkMap.get(minWrapper);
 				if (mega != null && i < 2) {
 					splitChunks[i] = mega;
@@ -434,7 +436,7 @@ public class ChunkManager {
 							i+1, mega.getMin(), mega.getMax());
 					i++;
 				} else {
-					logger.warn("Could not find chunk in map with min: {}, trying floorEntry", chunkMin);
+					logger.warn("Could not find chunk in map with min: {}, trying floorEntry", chunkMinValue);
 					// Try floorEntry as fallback
 					Map.Entry<BsonValueWrapper, CountingMegachunk> entry = nsChunkMap.floorEntry(minWrapper);
 					if (entry != null) {
