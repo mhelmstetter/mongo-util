@@ -433,7 +433,7 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 
                 if (success) {
                     successfulMoves++;
-                    logger.debug("Successfully moved chunk with min {} to shard {}", chunkMinDoc, destShardId);
+                    // Successfully moved chunk
                     
                     // Update stats collection with move:true for this chunkMin
                     try {

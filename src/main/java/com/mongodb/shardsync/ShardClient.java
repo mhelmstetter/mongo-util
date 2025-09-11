@@ -1762,8 +1762,9 @@ public class ShardClient {
 		try {
 			adminCommand(moveChunkCmd);
 		} catch (MongoCommandException mce) {
-			if (!ignoreMissing) {
-				logger.warn(String.format("moveChunk error ns: %s, message: %s", namespace, mce.getMessage()));
+			if (!ignoreMissing && !mce.getMessage().contains("ChunkTooBig")) {
+				// Only log non-ChunkTooBig errors since ChunkTooBig is handled gracefully
+				logger.warn("moveChunk error ns: {}, code: {}, message: {}", namespace, mce.getCode(), mce.getErrorMessage());
 			}
 			if (throwCommandExceptions) {
 				throw mce;

@@ -322,7 +322,7 @@ public class Balancer implements Callable<Integer> {
 			Document dataSizeResult = sourceShardClient.dataSize(ns, min, max);
 			if (dataSizeResult != null && dataSizeResult.containsKey("numObjects")) {
 				long totalDocs = ((Number) dataSizeResult.get("numObjects")).longValue();
-				logger.debug("Chunk has {} documents, maxDocs limit is {}", totalDocs, maxDocs);
+				// Chunk has more documents than maxDocs limit
 				
 				if (totalDocs <= maxDocs) {
 					logger.debug("Chunk already within maxDocs limit, no split needed");
@@ -335,7 +335,7 @@ public class Balancer implements Callable<Integer> {
 				
 				if (overage >= 3.0) {
 					// For chunks that are 3x+ over limit, try two quick splits to break it down faster
-					logger.debug("Performing two splits for chunk significantly over limit");
+					// Performing multiple splits for very large chunk
 					Document result1 = sourceShardClient.splitFind(ns, min, true);
 					Thread.sleep(50);
 					Document result2 = sourceShardClient.splitFind(ns, min, true);
@@ -384,9 +384,6 @@ public class Balancer implements Callable<Integer> {
 				boolean success = sourceShardClient.moveChunk(ns, mega.getMin(), mega.getMax(), toShard, false, false, false, false, true);
 				if (success) {
 					onChunkMoved(); // Hook for subclasses to track chunk moves
-					if (splitDepth > 0) {
-						logger.debug("Successfully moved split chunk (depth {}) with min: {}", splitDepth, mega.getMin());
-					}
 					return true;
 				}
 			} catch (MongoCommandException mce) {
@@ -398,7 +395,7 @@ public class Balancer implements Callable<Integer> {
 					
 					if (matcher.find()) {
 						long extractedMaxDocs = Long.parseLong(matcher.group(1));
-						logger.debug("ChunkTooBig error at depth {}, extracted maxDocs: {}, splitting chunk", splitDepth, extractedMaxDocs);
+						// ChunkTooBig: splitting chunk at depth level
 						
 						splitChunkByDocCount(ns, mega.getMin(), mega.getMax(), extractedMaxDocs);
 						onChunkSplit(); // Hook for subclasses to track splits
@@ -409,8 +406,6 @@ public class Balancer implements Callable<Integer> {
 								sourceChunksCache, chunkMap);
 						
 						if (splitChunks != null && splitChunks.length == 2) {
-							logger.debug("Processing {} split chunks at depth {}", splitChunks.length, splitDepth + 1);
-							
 							// Process ALL split chunks recursively
 							boolean allSuccess = true;
 							int processedSplits = 0;
@@ -421,23 +416,17 @@ public class Balancer implements Callable<Integer> {
 									allSuccess = allSuccess && splitSuccess;
 									processedSplits++;
 									
-									if (splitSuccess) {
-										logger.debug("Successfully processed split chunk {} of {} at depth {}", 
-													processedSplits, splitChunks.length, splitDepth + 1);
-									} else {
-										logger.warn("Failed to process split chunk {} of {} at depth {}", 
-												   processedSplits, splitChunks.length, splitDepth + 1);
+									if (!splitSuccess && splitDepth == 0) {
+										logger.warn("Failed to process split chunk {} of {} from original chunk", 
+												   processedSplits, splitChunks.length);
 									}
 								}
 							}
 							
 							if (processedSplits == 0) {
-								logger.warn("No valid split chunks found after splitting at depth {}", splitDepth);
+								logger.warn("No valid split chunks found after splitting");
 								break;
 							}
-							
-							logger.debug("Completed processing {} split chunks at depth {}, overall success: {}", 
-										processedSplits, splitDepth + 1, allSuccess);
 							return allSuccess;
 						} else {
 							logger.warn("Failed to reload split chunks at depth {}, falling back to namespace reload", splitDepth);
