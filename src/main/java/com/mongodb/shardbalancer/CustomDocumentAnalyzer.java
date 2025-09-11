@@ -30,7 +30,11 @@ import org.apache.commons.configuration2.builder.FileBasedConfigurationBuilder;
 import org.apache.commons.configuration2.builder.fluent.Parameters;
 import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
 import org.apache.commons.configuration2.ex.ConfigurationException;
+import org.bson.BsonArray;
+import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
+import org.bson.BsonInt32;
+import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.Document;
@@ -359,14 +363,18 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
         // Build aggregation pipeline
         List<org.bson.conversions.Bson> pipeline = new ArrayList<>();
         
-        // Match documents with bsonSize >= 1000000 and (move:false OR move field doesn't exist)
-        pipeline.add(match(and(
-            gte("bsonSize", 1000000),
-            or(eq("move", false), exists("move", false))
-        )));
+        // Match documents with bsonSize >= 1000000
+        pipeline.add(match(gte("bsonSize", 1000000)));
         
-        // Group by chunkMin and count (using chunkMin as unique identifier)
-        pipeline.add(group("$chunkMin", sum("count", 1)));
+        // Group by chunkMin and count, also capture move status
+        pipeline.add(group("$chunkMin", 
+            sum("count", 1),
+            sum("movedCount", new BsonDocument("$cond", new BsonArray(Arrays.asList(
+                new BsonDocument("$eq", new BsonArray(Arrays.asList(new BsonString("$move"), new BsonBoolean(true)))),
+                new BsonInt32(1),
+                new BsonInt32(0)
+            ))))
+        ));
         
         // Sort by count descending
         pipeline.add(sort(descending("count")));
@@ -389,9 +397,17 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                 // Extract the _id value to match how chunk map keys are stored  
                 BsonValue chunkMinValue = chunkMinDoc.get("_id");
                 int count = result.getInteger("count");
+                int movedCount = result.getInteger("movedCount", 0);
                 
                 if (isDryRun) {
-                    logger.info("Chunk min: {}, Count: {}", chunkMinDoc, count);
+                    logger.info("Chunk min: {}, Count: {}, Moved: {}", chunkMinDoc, count, movedCount);
+                    processedCount++;
+                    continue;
+                }
+                
+                // Skip chunks that are already completely moved
+                if (movedCount >= count) {
+                    logger.debug("Skipping chunk {} - already fully moved ({}/{})", chunkMinDoc, movedCount, count);
                     processedCount++;
                     continue;
                 }

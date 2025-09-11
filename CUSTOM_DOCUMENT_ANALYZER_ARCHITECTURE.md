@@ -61,27 +61,47 @@ Balancer (abstract base class)
 **Purpose**: Move chunks containing large documents to achieve better distribution.
 
 **Target Selection Algorithm**:
+
+The balance phase uses this aggregation pipeline against the `mongoCustomBalancerStats.chunkStats` collection:
+
 ```javascript
-// MongoDB Aggregation Pipeline
-[
-  // Filter: Large documents not yet moved
-  { $match: { 
-      bsonSize: { $gte: 1000000 },
-      $or: [{ move: false }, { move: { $exists: false }}]
+db.chunkStats.aggregate([
+  { 
+    $match: { 
+      bsonSize: { $gte: 1000000 }
     }
   },
-  
-  // Group by chunk and count large documents
-  { $group: { 
+  { 
+    $group: { 
       _id: "$chunkMin", 
-      count: { $sum: 1 } 
+      count: { $sum: 1 },
+      movedCount: { 
+        $sum: { 
+          $cond: [{ $eq: ["$move", true] }, 1, 0] 
+        }
+      }
     }
   },
-  
-  // Sort by document count (highest first) 
-  { $sort: { count: -1 } }
-]
+  { 
+    $sort: { count: -1 } 
+  }
+])
 ```
+
+**Pipeline Breakdown**:
+1. **$match**: Finds all large documents (≥1MB BSON size)
+2. **$group**: Groups by chunk boundary (`chunkMin`) and calculates:
+   - `count`: Total large documents per chunk
+   - `movedCount`: Number of documents already moved (`move: true`)
+3. **$sort**: Orders chunks by document count (highest concentration first)
+
+**Output Example**:
+```javascript
+{ "_id": { "_id": "562134:201812" }, "count": 4097, "movedCount": 0 }
+{ "_id": { "_id": "594932:201512" }, "count": 1964, "movedCount": 1200 }
+```
+
+This shows both total large documents and how many have already been moved, allowing for informed balancing decisions.
 
 **Balancing Workflow**:
 1. **Destination Setup**: Parse comma-separated destination shard indexes
