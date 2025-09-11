@@ -27,6 +27,10 @@ public class ComparableBsonDocument implements Comparable<ComparableBsonDocument
         keys1.sort(String::compareTo);
         keys2.sort(String::compareTo);
 
+        // Debug logging
+        System.out.println("DEBUG ComparableBsonDocument: Comparing " + this.document + " vs " + other.document);
+        System.out.println("DEBUG keys1: " + keys1 + ", keys2: " + keys2);
+
         // Compare by iterating through keys in sorted order
         int minSize = Math.min(keys1.size(), keys2.size());
         for (int i = 0; i < minSize; i++) {
@@ -35,6 +39,7 @@ public class ComparableBsonDocument implements Comparable<ComparableBsonDocument
             
             // First compare the keys themselves
             int keyComparison = key1.compareTo(key2);
+            System.out.println("DEBUG key comparison: '" + key1 + "' vs '" + key2 + "' = " + keyComparison);
             if (keyComparison != 0) {
                 return keyComparison;
             }
@@ -43,13 +48,17 @@ public class ComparableBsonDocument implements Comparable<ComparableBsonDocument
             BsonValue value1 = this.document.get(key1);
             BsonValue value2 = other.document.get(key2);
             
+            System.out.println("DEBUG value comparison: " + value1 + " vs " + value2);
             int valueComparison = new BsonValueWrapper(value1).compareTo(new BsonValueWrapper(value2));
+            System.out.println("DEBUG value comparison result: " + valueComparison);
             if (valueComparison != 0) {
                 return valueComparison;
             }
         }
 
         // All compared key-value pairs are equal, compare by number of keys
-        return Integer.compare(keys1.size(), keys2.size());
+        int result = Integer.compare(keys1.size(), keys2.size());
+        System.out.println("DEBUG final size comparison: " + result);
+        return result;
     }
 }
