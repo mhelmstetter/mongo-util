@@ -84,6 +84,9 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
     
     @Option(names = {"--migrate"}, description = "Migrate existing stats collection to add chunkMin/chunkMax fields")
     private boolean migrateMode = false;
+    
+    @Option(names = {"--chunkLimit"}, description = "Maximum number of chunks to move during balance phase (0 = no limit)")
+    private int chunkLimit = 0;
 
     private final Logger logger = LoggerFactory.getLogger(CustomDocumentAnalyzer.class);
     
@@ -107,10 +110,19 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
             long elapsedMinutes = (currentTime - startTime) / 60000;
             double movesPerMinute = elapsedMinutes > 0 ? (double) successfulMoves / elapsedMinutes : 0;
             
-            logger.info("📊 STATUS: {} chunks processed, {} successful moves ({} total chunks moved), {} splits | " +
-                       "Runtime: {}m | Rate: {} moves/min", 
-                       chunksProcessed, successfulMoves, totalChunksMoved, splitOperations, elapsedMinutes, 
-                       String.format("%.1f", movesPerMinute));
+            String statusMessage;
+            if (chunkLimit > 0) {
+                statusMessage = String.format("📊 STATUS: %d chunks processed, %d/%d successful moves (%d total chunks moved), %d splits | " +
+                               "Runtime: %dm | Rate: %s moves/min", 
+                               chunksProcessed, successfulMoves, chunkLimit, totalChunksMoved, splitOperations, elapsedMinutes, 
+                               String.format("%.1f", movesPerMinute));
+            } else {
+                statusMessage = String.format("📊 STATUS: %d chunks processed, %d successful moves (%d total chunks moved), %d splits | " +
+                               "Runtime: %dm | Rate: %s moves/min", 
+                               chunksProcessed, successfulMoves, totalChunksMoved, splitOperations, elapsedMinutes, 
+                               String.format("%.1f", movesPerMinute));
+            }
+            logger.info(statusMessage);
             lastStatusReport = currentTime;
         }
     }
@@ -308,7 +320,11 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
         String collectionName = parts[1];
         Namespace ns = new Namespace(dbName, collectionName);
         
-        logger.info("Starting balance phase for namespace: {}", namespace);
+        if (chunkLimit > 0) {
+            logger.info("Starting balance phase for namespace: {} (chunk limit: {})", namespace, chunkLimit);
+        } else {
+            logger.info("Starting balance phase for namespace: {} (no chunk limit)", namespace);
+        }
         
         // Initialize status tracking
         startTime = System.currentTimeMillis();
@@ -435,6 +451,12 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                     successfulMoves++;
                     // Successfully moved chunk
                     
+                    // Check if we've reached the chunk limit
+                    if (chunkLimit > 0 && successfulMoves >= chunkLimit) {
+                        logger.info("Reached chunk limit of {} successful moves, stopping balance phase", chunkLimit);
+                        break;
+                    }
+                    
                     // Update stats collection with move:true for this chunkMin
                     try {
                         UpdateResult updateResult = statsCollection.updateMany(
@@ -464,10 +486,20 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
             long totalElapsed = (System.currentTimeMillis() - startTime) / 60000;
             double finalRate = totalElapsed > 0 ? (double) successfulMoves / totalElapsed : 0;
             
-            logger.info("🏁 FINAL STATUS: {} chunks processed, {} successful moves ({} total chunks moved), {} splits | " +
-                       "Total runtime: {}m | Final rate: {} moves/min", 
-                       chunksProcessed, successfulMoves, totalChunksMoved, splitOperations, totalElapsed, 
-                       String.format("%.1f", finalRate));
+            String finalStatusMessage;
+            if (chunkLimit > 0) {
+                String limitStatus = successfulMoves >= chunkLimit ? "LIMIT REACHED" : "INCOMPLETE";
+                finalStatusMessage = String.format("🏁 FINAL STATUS [%s]: %d chunks processed, %d/%d successful moves (%d total chunks moved), %d splits | " +
+                                   "Total runtime: %dm | Final rate: %s moves/min", 
+                                   limitStatus, chunksProcessed, successfulMoves, chunkLimit, totalChunksMoved, splitOperations, totalElapsed, 
+                                   String.format("%.1f", finalRate));
+            } else {
+                finalStatusMessage = String.format("🏁 FINAL STATUS: %d chunks processed, %d successful moves (%d total chunks moved), %d splits | " +
+                                   "Total runtime: %dm | Final rate: %s moves/min", 
+                                   chunksProcessed, successfulMoves, totalChunksMoved, splitOperations, totalElapsed, 
+                                   String.format("%.1f", finalRate));
+            }
+            logger.info(finalStatusMessage);
         }
     }
     
