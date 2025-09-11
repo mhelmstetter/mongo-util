@@ -47,6 +47,7 @@ import com.mongodb.client.model.InsertOneModel;
 import com.mongodb.client.model.WriteModel;
 import com.mongodb.client.model.UpdateOneModel;
 import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.result.UpdateResult;
 import com.mongodb.shardsync.ChunkManager;
 import com.mongodb.shardsync.ShardClient;
 import com.mongodb.util.bson.BsonValueWrapper;
@@ -392,10 +393,12 @@ public class CustomDocumentAnalyzer extends Balancer implements Callable<Integer
                     
                     // Update stats collection with move:true for this chunkMin
                     try {
-                        statsCollection.updateMany(
+                        UpdateResult updateResult = statsCollection.updateMany(
                             eq("chunkMin", chunkMinDoc),
                             set("move", true)
                         );
+                        logger.debug("Updated {} documents in stats collection for chunk with min {} (matched: {}, modified: {})", 
+                                   updateResult.getModifiedCount(), chunkMinDoc, updateResult.getMatchedCount(), updateResult.getModifiedCount());
                         logger.debug("Updated stats collection for chunk with min {}", chunkMinDoc);
                     } catch (Exception e) {
                         logger.warn("Failed to update stats collection for chunk with min {}: {}", chunkMinDoc, e.getMessage());
