@@ -1525,8 +1525,8 @@ public class ShardConfigSync implements Callable<Integer> {
         logger.info("=== COMPARISON SUMMARY ===");
         logger.info("Total collections compared: {}", totalCollections);
         logger.info("✅ Matching collections: {}", matchingCollections);
-        logger.info("❌ Mismatched collections: {}", mismatchedCollections);
-        logger.info("❌ Missing databases: {}", missingDestDatabases.size());
+        logger.info("{} Mismatched collections: {}", mismatchedCollections == 0 ? "✅" : "❌", mismatchedCollections);
+        logger.info("{} Missing databases: {}", missingDestDatabases.size() == 0 ? "✅" : "❌", missingDestDatabases.size());
         
         boolean success = mismatchedCollections == 0 && missingDestDatabases.isEmpty();
         
@@ -1586,7 +1586,15 @@ public class ShardConfigSync implements Callable<Integer> {
         }
     }
 
-    public void compareChunkCounts() {
+    public boolean compareChunkCounts() {
+        logger.info("=== COMPARING CHUNK COUNTS ===");
+        
+        boolean overallSuccess = true;
+        int totalCollections = 0;
+        int matchingCollections = 0;
+        int mismatchedCollections = 0;
+        List<String> mismatches = new ArrayList<>();
+        
         for (String databaseName : sourceShardClient.listDatabaseNames()) {
             MongoDatabase db = sourceShardClient.getMongoClient().getDatabase(databaseName);
 
@@ -1605,51 +1613,63 @@ public class ShardConfigSync implements Callable<Integer> {
                     logger.debug("compareChunkCounts skipping {}, filtered", ns);
                     continue;
                 }
-                compareChunkCounts(ns);
+                
+                totalCollections++;
+                boolean result = compareChunkCounts(ns);
+                if (result) {
+                    matchingCollections++;
+                } else {
+                    mismatchedCollections++;
+                    mismatches.add(ns.getNamespace());
+                    overallSuccess = false;
+                }
             }
         }
+        
+        // Print summary
+        logger.info("=== CHUNK COUNT COMPARISON SUMMARY ===");
+        logger.info("Total collections compared: {}", totalCollections);
+        logger.info("✅ Collections with matching chunk counts: {}", matchingCollections);
+        logger.info("{} Collections with mismatched chunk counts: {}", mismatchedCollections == 0 ? "✅" : "❌", mismatchedCollections);
+        
+        if (overallSuccess) {
+            logger.info("=== CHUNK COUNT COMPARISON SUCCESSFUL ===");
+            logger.info("🎉 All chunk counts match between source and destination");
+        } else {
+            logger.error("=== CHUNK COUNT COMPARISON FAILED ===");
+            logger.error("Collections with mismatched chunk counts:");
+            for (String ns : mismatches) {
+                logger.error("  • {}", ns);
+            }
+        }
+        
+        return overallSuccess;
     }
 
-    // TODO - this is incomplete
-    public void compareChunkCounts(Namespace ns) {
+    public boolean compareChunkCounts(Namespace ns) {
         destShardClient.populateCollectionsMap();
         Document shardCollection = destShardClient.getCollectionsMap().get(ns.getNamespace());
         if (shardCollection == null) {
             logger.warn("Collection {} is not sharded, cannot do chunk compare", ns);
-        } else {
-            MongoDatabase sourceDb = sourceShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
-            MongoDatabase destDb = destShardClient.getMongoClient().getDatabase(ns.getDatabaseName());
-
-            Document shardKeysDoc = (Document) shardCollection.get("key");
-            Set<String> shardKeys = shardKeysDoc.keySet();
-
-            // use dest chunks as reference, may be smaller
-            MongoCollection<Document> chunksCollection = destShardClient.getChunksCollection();
-            // int chunkCount = (int)sourceChunksColl.countDocuments(eq("ns",
-            // ns.getNamespace()));
-
-            FindIterable<Document> sourceChunks = chunksCollection.find(eq("ns", ns.getNamespace()))
-                    .sort(Sorts.ascending("min"));
-            for (Document sourceChunk : sourceChunks) {
-                String id = sourceChunk.getString("_id");
-                // each chunk is inclusive of min and exclusive of max
-                Document min = (Document) sourceChunk.get("min");
-                Document max = (Document) sourceChunk.get("max");
-                Bson chunkQuery = null;
-
-                if (shardKeys.size() > 1) {
-                    List<Bson> filters = new ArrayList<Bson>(shardKeys.size());
-                    for (String key : shardKeys) {
-                        filters.add(and(gte(key, min.get(key)), lt(key, max.get(key))));
-                    }
-                    chunkQuery = and(filters);
-                } else {
-                    String key = shardKeys.iterator().next();
-                    chunkQuery = and(gte(key, min.get(key)), lt(key, max.get(key)));
-                }
-
-                long[] result = doCounts(sourceDb, destDb, ns.getCollectionName(), chunkQuery);
+            return false;
+        }
+        
+        try {
+            // Get chunk counts from both source and destination
+            long sourceChunkCount = sourceShardClient.getChunkCount(ns.getNamespace());
+            long destChunkCount = destShardClient.getChunkCount(ns.getNamespace());
+            
+            if (sourceChunkCount == destChunkCount) {
+                logger.info("  ✅ {}: {} chunks", ns, sourceChunkCount);
+                return true;
+            } else {
+                logger.error("  ❌ {}: source={} chunks, dest={} chunks, diff={}", 
+                    ns, sourceChunkCount, destChunkCount, (sourceChunkCount - destChunkCount));
+                return false;
             }
+        } catch (Exception e) {
+            logger.error("  ❌ {}: Error comparing chunk counts: {}", ns, e.getMessage());
+            return false;
         }
     }
 
@@ -1745,7 +1765,7 @@ public class ShardConfigSync implements Callable<Integer> {
         logger.info("=== UUID COMPARISON SUMMARY ===");
         logger.info("Total collections checked: {}", successCount + failureCount);
         logger.info("✅ Collections with consistent UUIDs: {}", successCount);
-        logger.info("❌ Collections with UUID mismatches: {}", failureCount);
+        logger.info("{} Collections with UUID mismatches: {}", failureCount == 0 ? "✅" : "❌", failureCount);
         
         boolean success = failureCount == 0 && successCount > 0;
         

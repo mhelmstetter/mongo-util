@@ -834,6 +834,11 @@ public class ShardClient {
 	public MongoCollection<RawBsonDocument> getChunksCollectionRaw() {
 		return configDb.getCollection("chunks", RawBsonDocument.class);
 	}
+	
+	public long getChunkCount(String namespace) {
+		MongoCollection<Document> chunksCollection = getChunksCollection();
+		return chunksCollection.countDocuments(eq("ns", namespace));
+	}
 
 	public MongoCollection<RawBsonDocument> getChunksCollectionRawPrivileged() {
 		if (csrsMongoClient != null) {

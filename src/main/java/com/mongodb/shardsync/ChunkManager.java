@@ -786,18 +786,22 @@ public class ChunkManager {
 
 		boolean success = (mismatchedCount == 0 && missingCount == 0 && errorCount == 0);
 		
-		if (doMove) {
-			if (success) {
+		// Always show summary, regardless of doMove flag
+		if (success) {
+			if (doMove) {
 				logger.info("✅ {} complete - all chunks match, sourceCount: {}, destCount: {}, movedCount: {}",
 						operationName, sourceTotalCount, destChunkMap.size(), movedCount);
 			} else {
-				if (doMove) {
-					logger.error("❌ {} complete with errors, sourceCount: {}, destCount: {}, movedCount: {}, errorCount: {}",
-						operationName, sourceTotalCount, destChunkMap.size(), movedCount, errorCount);
-				} else {
-					logger.error("❌ {} complete, sourceCount: {}, destCount: {}, mismatchedCount: {}, missingCount: {}",
-							operationName, sourceTotalCount, destChunkMap.size(), mismatchedCount, missingCount);
-				}
+				logger.info("✅ {} complete - all chunks match, sourceCount: {}, destCount: {}",
+						operationName, sourceTotalCount, destChunkMap.size());
+			}
+		} else {
+			if (doMove) {
+				logger.error("❌ {} complete with errors, sourceCount: {}, destCount: {}, movedCount: {}, errorCount: {}",
+					operationName, sourceTotalCount, destChunkMap.size(), movedCount, errorCount);
+			} else {
+				logger.error("❌ {} complete, sourceCount: {}, destCount: {}, mismatchedCount: {}, missingCount: {}",
+						operationName, sourceTotalCount, destChunkMap.size(), mismatchedCount, missingCount);
 			}
 		}
 		

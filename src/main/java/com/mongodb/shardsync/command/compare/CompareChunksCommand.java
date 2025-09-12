@@ -36,8 +36,8 @@ public class CompareChunksCommand implements Callable<Integer> {
         sync.initialize();
         
         if (counts) {
-            sync.compareChunkCounts();
-            return 0;
+            boolean success = sync.compareChunkCounts();
+            return success ? 0 : 1;
         } else if (equivalent) {
             boolean isEquivalent = sync.compareChunksEquivalent();
             return isEquivalent ? 0 : 1;  // Return 0 for success, 1 for failure
