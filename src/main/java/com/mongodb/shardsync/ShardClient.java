@@ -891,9 +891,88 @@ public class ShardClient {
 	public Document listDatabases() {
 		return this.mongoClient.getDatabase("admin").runCommand(listDatabasesCommand);
 	}
+	
+	public Document listDatabases(boolean excludeSystemDbs) {
+		Document result = this.mongoClient.getDatabase("admin").runCommand(listDatabasesCommand);
+		if (!excludeSystemDbs) {
+			return result;
+		}
+		
+		// Filter out system databases
+		List<Document> databases = result.getList("databases", Document.class);
+		List<Document> filteredDatabases = new ArrayList<>();
+		
+		for (Document db : databases) {
+			String dbName = db.getString("name");
+			if (!excludedSystemDbs.contains(dbName)) {
+				filteredDatabases.add(db);
+			}
+		}
+		
+		Document filteredResult = new Document(result);
+		filteredResult.put("databases", filteredDatabases);
+		return filteredResult;
+	}
 
 	public Document dbStats(String dbName) {
 		return this.mongoClient.getDatabase(dbName).runCommand(dbStatsCommand);
+	}
+	
+	/**
+	 * Performs a preflight check to verify the destination cluster is empty.
+	 * This checks for non-system databases and their contents.
+	 * 
+	 * @return true if destination is empty, false otherwise
+	 * @throws RuntimeException if destination is not empty with detailed error information
+	 */
+	public boolean preflightCheckEmptyDestination() {
+		logger.info("Verifying destination cluster databases are empty...");
+		
+		boolean isEmpty = true;
+		List<String> issues = new ArrayList<>();
+		
+		// Check: Verify no non-system databases exist
+		Document dbListResult = listDatabases(true); // Exclude system databases
+		List<Document> databases = dbListResult.getList("databases", Document.class);
+		
+		if (!databases.isEmpty()) {
+			isEmpty = false;
+			logger.error("❌ Found {} non-system database(s) on destination:", databases.size());
+			
+			for (Document db : databases) {
+				String dbName = db.getString("name");
+				logger.error("   📁 Database: {}", dbName);
+				
+				try {
+					Document dbStatsResult = dbStats(dbName);
+					int collections = dbStatsResult.getInteger("collections", 0);
+					Number objectsNum = (Number) dbStatsResult.get("objects");
+					long documents = objectsNum != null ? objectsNum.longValue() : 0L;
+					
+					logger.error("      Collections: {}, Documents: {}", collections, documents);
+					issues.add(String.format("Database '%s' contains %d collections and %d documents", 
+							dbName, collections, documents));
+				} catch (Exception e) {
+					logger.error("      Failed to get stats for database {}: {}", dbName, e.getMessage());
+					issues.add(String.format("Database '%s' exists (failed to get stats)", dbName));
+				}
+			}
+		} else {
+			logger.info("✅ No non-system databases found");
+		}
+		
+		// Return results
+		if (isEmpty) {
+			logger.info("✅ Database check passed - no non-system databases found");
+			return true;
+		} else {
+			logger.error("❌ Database check failed:");
+			for (String issue : issues) {
+				logger.error("   • {}", issue);
+			}
+			throw new RuntimeException("Database preflight check failed: Destination cluster contains non-system databases. " +
+					"Found " + issues.size() + " issue(s). See logs for details.");
+		}
 	}
 
 	private Document collStatsCommand(String collName) {
@@ -1228,7 +1307,7 @@ public class ShardClient {
 		return users;
 	}
 
-	public void createIndexes(Namespace ns, Set<IndexSpec> sourceSpecs, boolean extendTtl, Document collation) {
+	public void createIndexes(Namespace ns, Set<IndexSpec> sourceSpecs, boolean extendTtl) {
 		//MongoClient client = getShardMongoClient(shardName);
 		MongoDatabase db = mongoClient.getDatabase(ns.getDatabaseName());
 
@@ -1261,26 +1340,20 @@ public class ShardClient {
 						expireAfterSeconds, indexInfo.get("expireAfterSeconds")));
 
 			}
-			if (collation != null) {
-				
-				Document key = (Document)indexInfo.get("key");
-				if (key != null && !key.containsKey("_id")) {
-					indexInfo.put("collation", collation);
-				}
-				
-			}
 			indexes.add(indexInfo);
 		}
 		if (!indexes.isEmpty()) {
-
+			logger.info("Creating {} indexes for namespace: {}", indexes.size(), ns);
 			try {
 				Document createIndexesResult = db.runCommand(createIndexes);
+				logger.info("✅ Successfully created {} indexes for {}", indexes.size(), ns);
 				// logger.debug(String.format("%s result: %s", ns, createIndexesResult));
 			} catch (MongoCommandException mce) {
 				if (mce.getCode() == 85) {
-					
+					logger.warn("⚠️ Index already exists for {} (code 85)", ns);
+				} else {
+					logger.error("❌ Failed to create indexes for {}: {}", ns, mce.getMessage());
 				}
-				logger.error(String.format("%s createIndexes failed: %s", ns, mce.getMessage()));
 			}
 
 		}
@@ -1539,7 +1612,6 @@ public class ShardClient {
 		MongoIterable<RawBsonDocument> sourceChunks;
 		
 		if (this.isVersion5OrLater()) {
-			logger.debug("Building aggregation pipeline for version 5+");
 			sourceChunks = chunksColl.aggregate(Arrays.asList(
 		            match(chunkQuery),
 		            lookup("collections", "uuid", "uuid", "collectionData"),
@@ -1883,8 +1955,16 @@ public class ShardClient {
 			if (excludedSystemDbs.contains(ns.getDatabaseName())) {
 				continue;
 			}
+			
+			// For timeseries bucket collections, calculate split vector for the view collection instead
+			String targetNamespace = nsStr;
+			if (ns.getCollectionName().startsWith("system.buckets.")) {
+				String viewCollectionName = ns.getCollectionName().substring("system.buckets.".length());
+				targetNamespace = ns.getDatabaseName() + "." + viewCollectionName;
+				logger.debug("Converting bucket collection {} to view collection {} for split vector", ns, targetNamespace);
+			}
 
-			Document splitVectorCmd = new Document("splitVector", nsStr);
+			Document splitVectorCmd = new Document("splitVector", targetNamespace);
 			Document keyPattern = (Document)sourceColl.get("key");
 			splitVectorCmd.append("keyPattern", keyPattern);
 			splitVectorCmd.append("maxChunkSizeBytes", ONE_GIGABYTE);
@@ -1922,7 +2002,7 @@ public class ShardClient {
 				}
 				logger.debug("{}: shard: {}, ns: {}, key: {}, splitCount: {}", name, shardId, nsStr, keyPattern, splitCount);
 			}
-			splitPoints.put(ns, splitKeysAll);
+			splitPoints.put(new Namespace(targetNamespace), splitKeysAll);
 
 		}
 		return splitPoints;

@@ -25,6 +25,8 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.util.DatabaseUtil;
+
 import com.mongodb.ConnectionString;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
@@ -156,7 +158,7 @@ public class DiffUtil {
 		for (String dbName : sourceDbInfoMap.keySet()) {
 			Document destInfo = destDbInfoMap.get(dbName);
 			
-			if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config")) {
+			if (DatabaseUtil.isSystemDatabase(dbName)) {
 				continue;
 			}
 			
@@ -312,7 +314,7 @@ public class DiffUtil {
 		for (String dbName : sourceDbInfoMap.keySet()) {
 			Document destInfo = destDbInfoMap.get(dbName);
 			
-			if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config")) {
+			if (DatabaseUtil.isSystemDatabase(dbName)) {
 				continue;
 			}
 			
@@ -500,7 +502,7 @@ public class DiffUtil {
 			Document destInfo = destDbInfoMap.get(dbName);
 			if (destInfo != null) {
 
-				if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config")) {
+				if (DatabaseUtil.isSystemDatabase(dbName)) {
 					continue;
 				}
 				ds.totalDbs++;
@@ -560,7 +562,7 @@ public class DiffUtil {
 			Document destInfo = destDbInfoMap.get(dbName);
 			if (destInfo != null) {
 
-				if (dbName.equals("admin") || dbName.equals("local") || dbName.equals("config")) {
+				if (DatabaseUtil.isSystemDatabase(dbName)) {
 					continue;
 				}
 				ds.totalDbs++;

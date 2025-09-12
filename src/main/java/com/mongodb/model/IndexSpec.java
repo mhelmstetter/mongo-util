@@ -9,6 +9,8 @@ import org.bson.BsonType;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 
+import com.mongodb.util.bson.BsonValueComparator;
+
 public class IndexSpec {
 	
 	public final static Set<String> validIndexOptions = new HashSet<>(
@@ -90,9 +92,22 @@ public class IndexSpec {
 			return false;
 		IndexSpec other = (IndexSpec) obj;
 		return  Objects.equals(namespace, other.namespace)
-				&& Objects.equals(key, other.key)
+				&& compareKeys(key, other.key)
 				&& Objects.equals(expireAfterSeconds, other.expireAfterSeconds)
 				&& sparse == other.sparse && unique == other.unique;
+	}
+	
+	/**
+	 * Compare two index keys using semantic comparison instead of direct object equality.
+	 * This handles cases where functionally equivalent indexes have different numeric types
+	 * (e.g., NumberLong(1) vs NumberInt(1)) which should be considered equal.
+	 */
+	private boolean compareKeys(RawBsonDocument key1, RawBsonDocument key2) {
+		if (key1 == key2) return true;
+		if (key1 == null || key2 == null) return false;
+		
+		BsonValueComparator comparator = new BsonValueComparator();
+		return comparator.compare(key1, key2) == 0;
 	}
 
 	@Override

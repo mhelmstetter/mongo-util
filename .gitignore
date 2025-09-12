@@ -15,3 +15,8 @@ ss.props
 ss2.props
 exportToHTML
 *.jfr
+.DS_Store
+CLAUDE.md
+
+# Integration test configuration (contains credentials)
+src/test/resources/shard-sync.properties

@@ -117,7 +117,7 @@ public class TailingOplogAnalyzerWorker implements Runnable {
 		
 		logger.debug("{}: oplog analyzer starting round {}, latestOplogTimestamp: {}", shardId, round++, DateTimeFormatter.ISO_DATE_TIME.format(zonedDateTime));
 		
-		Set<String> includedNamespaces = config.getIncludedNamespaceStrings(); 
+		List<String> includedNamespaces = config.getIncludedNamespaceStrings(); 
 		Bson query = null;
 		if (includedNamespaces.isEmpty()) {
 			query = gte("ts", shardTimestamp);

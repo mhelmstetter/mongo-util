@@ -24,16 +24,16 @@ public class SyncConfiguration extends BaseConfiguration {
 	public boolean drop;
 	public boolean dropDestDbs;
 	public boolean dropDestDbsAndConfigMetadata;
+	public boolean overlappingOnly;
+	public boolean dryRun;
 	public boolean nonPrivilegedMode;
 	public boolean doChunkCounts;
-	public boolean preserveUUIDs;
 	public String compressors;
 	public String oplogBasePath;
 	public String bookmarkFilePrefix;
 	public boolean reverseSync;
 	public boolean noIndexRestore;
 	public Integer collStatsThreshold;
-	public boolean dryRun;
 	public boolean extendTtl;
 	public File mongomirrorBinary;
 
@@ -57,8 +57,6 @@ public class SyncConfiguration extends BaseConfiguration {
 	public Long cleanupOrphansSleepMillis;
 	public String destVersion;
 	public List<Integer> destVersionArray;
-	public boolean sslAllowInvalidHostnames;
-	public boolean sslAllowInvalidCertificates;
 	public boolean skipFlushRouterConfig;
 	
 	private String usersInputCsv;
@@ -119,13 +117,13 @@ public class SyncConfiguration extends BaseConfiguration {
 	public void setDropDestDbsAndConfigMetadata(boolean dropDestDbsAndConfigMetadata) {
 		this.dropDestDbsAndConfigMetadata = dropDestDbsAndConfigMetadata;
 	}
-
-	public boolean isNonPrivilegedMode() {
-		return nonPrivilegedMode;
+	
+	public void setOverlappingOnly(boolean overlappingOnly) {
+		this.overlappingOnly = overlappingOnly;
 	}
 	
-	public void setNonPrivilegedMode(boolean nonPrivilegedMode) {
-		this.nonPrivilegedMode = nonPrivilegedMode;
+	public void setDryRun(boolean dryRun) {
+		this.dryRun = dryRun;
 	}
 
 	public boolean isDoChunkCounts() {
@@ -134,14 +132,6 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setDoChunkCounts(boolean doChunkCounts) {
 		this.doChunkCounts = doChunkCounts;
-	}
-
-	public boolean isPreserveUUIDs() {
-		return preserveUUIDs;
-	}
-
-	public void setPreserveUUIDs(boolean preserveUUIDs) {
-		this.preserveUUIDs = preserveUUIDs;
 	}
 
 	public String getCompressors() {
@@ -190,14 +180,6 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setCollStatsThreshold(Integer collStatsThreshold) {
 		this.collStatsThreshold = collStatsThreshold;
-	}
-
-	public boolean isDryRun() {
-		return dryRun;
-	}
-
-	public void setDryRun(boolean dryRun) {
-		this.dryRun = dryRun;
 	}
 
 	public boolean isExtendTtl() {
@@ -274,22 +256,6 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setDestVersionArray(List<Integer> destVersionArray) {
 		this.destVersionArray = destVersionArray;
-	}
-
-	public boolean isSslAllowInvalidHostnames() {
-		return sslAllowInvalidHostnames;
-	}
-
-	public void setSslAllowInvalidHostnames(boolean sslAllowInvalidHostnames) {
-		this.sslAllowInvalidHostnames = sslAllowInvalidHostnames;
-	}
-
-	public boolean isSslAllowInvalidCertificates() {
-		return sslAllowInvalidCertificates;
-	}
-
-	public void setSslAllowInvalidCertificates(boolean sslAllowInvalidCertificates) {
-		this.sslAllowInvalidCertificates = sslAllowInvalidCertificates;
 	}
 
 	public boolean isSkipFlushRouterConfig() {

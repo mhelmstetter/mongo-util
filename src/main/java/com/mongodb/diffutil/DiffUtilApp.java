@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
 
+import com.mongodb.shardsync.ShardConfigSyncApp;
+
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
@@ -98,11 +100,11 @@ public class DiffUtilApp {
         } else  {
             propsFile = new File("diff-util.properties");
             if (! propsFile.exists()) {
-            	propsFile = new File("shard-sync.properties");
+            	propsFile = new File(ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE);
             }
             
             if (! propsFile.exists()) {
-                logger.warn("Default config files diff-util.properties or shard-sync.properties, not found, using command line options only");
+                logger.warn("Default config files diff-util.properties or {}, not found, using command line options only", ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE);
                 return prop;
             }
         }

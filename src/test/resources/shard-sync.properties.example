@@ -1,0 +1,52 @@
+# Example MongoDB Shard Sync Integration Test Configuration
+# 
+# Copy this file to shard-sync.properties and modify the values to match your test environment.
+# The actual shard-sync.properties file is gitignored to prevent committing credentials.
+
+# Source MongoDB cluster connection string
+# This should be a mongos URL for sharded clusters or replica set URL for standalone testing
+source=mongodb://localhost:27017/
+
+# Destination MongoDB cluster connection string  
+# This should be a mongos URL for sharded clusters or replica set URL for standalone testing
+dest=mongodb://localhost:27018/
+
+# Optional: Shard mapping (if different shard names between source and dest)
+# Format: sourceShard1:destShard1,sourceShard2:destShard2
+# shardMap=
+
+# Note: Namespace filtering for tests is handled programmatically
+# Tests automatically limit operations to their specific test databases
+
+# Optional: Non-privileged mode (use splitChunk instead of direct chunk operations)
+# nonPrivileged=false
+
+# Optional: Dry run mode (log operations without executing them)
+# dryRun=false
+
+# Advanced connection options (usually not needed for local testing)
+# sourceUriPattern=
+# destUriPattern=
+# sourceRsSsl=false
+# sourceRsManual=false
+# destRsManual=false
+
+# Atlas API credentials (only needed if using Atlas-specific features)
+# atlasApiPublicKey=
+# atlasApiPrivateKey=
+# atlasProjectId=
+
+# Email configuration for mongomirror reporting (optional)
+# emailRecipients=
+# emailFrom=
+# emailSmtpHost=smtp.gmail.com
+# emailSmtpPort=587
+# emailSmtpPassword=
+
+# Performance tuning (optional)
+# collStatsThreshold=10000
+# numParallelCollections=1
+# mongoMirrorStartPort=9001
+
+# Compression settings (optional)  
+# compressors=zstd,zlib,snappy

@@ -39,6 +39,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.shardsync.ShardClient;
+import com.mongodb.shardsync.ShardConfigSyncApp;
 
 /**
  * 
@@ -254,9 +255,9 @@ public class OplogApplier {
 		if (line.hasOption("c")) {
 			propsFile = new File(line.getOptionValue("c"));
 		} else {
-			propsFile = new File("shard-sync.properties");
+			propsFile = new File(ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE);
 			if (!propsFile.exists()) {
-				logger.warn("Default config file shard-sync.properties not found, using command line options only");
+				logger.warn("Default config file {} not found, using command line options only", ShardConfigSyncApp.SHARD_SYNC_PROPERTIES_FILE);
 				return prop;
 			}
 		}

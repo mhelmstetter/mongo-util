@@ -55,7 +55,6 @@ public class MongoMirrorRunner {
 
     private String readPreference;
     private Boolean drop;
-    private Boolean preserveUUIDs;
     private String bookmarkFile;
     private String compressors;
     private Integer httpStatusPort;
@@ -127,7 +126,6 @@ public class MongoMirrorRunner {
 
         addArg("readPreference", readPreference);
         addArg("destinationNoSSL", destinationNoSSL);
-        addArg("preserveUUIDs", preserveUUIDs);
         addArg("extendTTL", extendTtl);
         addArg("noCollectionCreate", noCollectionCreate);
 
@@ -381,14 +379,6 @@ public class MongoMirrorRunner {
 
     public void setNumParallelCollections(String numParallelCollections) {
         this.numParallelCollections = numParallelCollections;
-    }
-
-    public Boolean getPreserveUUIDs() {
-        return preserveUUIDs;
-    }
-
-    public void setPreserveUUIDs(Boolean preserveUUIDs) {
-        this.preserveUUIDs = preserveUUIDs;
     }
 
     public void addIncludeNamespace(Namespace ns) {
