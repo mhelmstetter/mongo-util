@@ -28,8 +28,8 @@ public class CompareUuidsCommand implements Callable<Integer> {
         
         ShardConfigSync sync = new ShardConfigSync(config);
         sync.initialize();
-        sync.compareCollectionUuids();
+        boolean success = sync.compareCollectionUuidsWithOutput();
         
-        return 0;
+        return success ? 0 : 1;
     }
 }

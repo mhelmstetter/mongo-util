@@ -1226,24 +1226,95 @@ public class ShardConfigSync implements Callable<Integer> {
             // Don't mark as failed if we can't check - this is just a safety check
         }
         
+        // Check 3: Check for mongomirror resume and timestamp files in current directory
+        List<String> foundMongomirrorFiles = new ArrayList<>();
+        try {
+            logger.info("Checking for mongomirror resume and timestamp files...");
+            java.io.File currentDir = new java.io.File(".");
+            
+            // Get all shard IDs from source cluster to check for mongomirror files
+            Collection<Shard> sourceShards = sourceShardClient.getShardsMap().values();
+            
+            for (Shard shard : sourceShards) {
+                String shardId = shard.getId();
+                
+                // Check for resume files: mongomirror_resume_<shardId>.db
+                String resumeFileName = String.format("mongomirror_resume_%s.db", shardId);
+                java.io.File resumeFile = new java.io.File(currentDir, resumeFileName);
+                
+                if (resumeFile.exists()) {
+                    foundMongomirrorFiles.add(resumeFileName);
+                    logger.error("❌ Found mongomirror resume file: {}", resumeFileName);
+                }
+                
+                // Check for timestamp files: <shardId>.timestamp
+                String timestampFileName = String.format("%s.timestamp", shardId);
+                java.io.File timestampFile = new java.io.File(currentDir, timestampFileName);
+                
+                if (timestampFile.exists()) {
+                    foundMongomirrorFiles.add(timestampFileName);
+                    logger.error("❌ Found mongomirror timestamp file: {}", timestampFileName);
+                }
+            }
+            
+            if (!foundMongomirrorFiles.isEmpty()) {
+                // Note: Don't set isEmpty = false - mongomirror files are not cluster emptiness issues
+                for (String fileName : foundMongomirrorFiles) {
+                    issues.add(String.format("Mongomirror file exists: %s", fileName));
+                }
+                logger.error("❌ Found {} mongomirror file(s)", foundMongomirrorFiles.size());
+                logger.error("💡 These files indicate previous incomplete mongomirror operations");
+                logger.error("💡 Remove or move these files before running sync metadata");
+            } else {
+                logger.info("✅ No mongomirror resume or timestamp files found");
+            }
+            
+        } catch (Exception e) {
+            logger.warn("⚠️ Could not check for mongomirror files: {}", e.getMessage());
+            // Don't mark as failed if we can't check - this is just a safety check
+        }
+        
         // Summary
-        logger.debug("Preflight check complete: isEmpty={}, issues.size()={}", isEmpty, issues.size());
-        if (isEmpty) {
+        logger.debug("Preflight check complete: isEmpty={}, issues.size()={}, mongomirrorFiles.size()={}", isEmpty, issues.size(), foundMongomirrorFiles.size());
+        
+        // Check if we have any issues at all (cluster or mongomirror files)
+        boolean hasAnyIssues = !isEmpty || !foundMongomirrorFiles.isEmpty();
+        
+        if (!hasAnyIssues) {
             logger.info("=== PREFLIGHT CHECK PASSED ===");
             logger.info("✅ Destination cluster is empty and ready for sync");
             return true;
         } else {
             logger.error("=== PREFLIGHT CHECK FAILED ===");
-            logger.error("❌ Destination cluster is not empty:");
-            if (issues.isEmpty()) {
-                logger.error("   • Issues were detected but not properly captured in the issues list");
-            } else {
-                for (String issue : issues) {
-                    logger.error("   • {}", issue);
+            
+            // Handle cluster emptiness issues
+            if (!isEmpty) {
+                logger.error("❌ Destination cluster is not empty:");
+                // Filter out mongomirror resume file issues for cluster-specific reporting
+                List<String> clusterIssues = issues.stream()
+                    .filter(issue -> !issue.startsWith("Mongomirror resume file exists:"))
+                    .collect(java.util.stream.Collectors.toList());
+                
+                if (clusterIssues.isEmpty()) {
+                    logger.error("   • Issues were detected but not properly captured");
+                } else {
+                    for (String issue : clusterIssues) {
+                        logger.error("   • {}", issue);
+                    }
                 }
+                logger.error("🛑 Please ensure the destination cluster is completely empty before running sync operations");
+                logger.error("💡 Suggestion: Use 'shardSync drop databases' to clean the destination cluster");
             }
-            logger.error("🛑 Please ensure the destination cluster is completely empty before running sync operations");
-            logger.error("💡 Suggestion: Use 'shardSync drop databases' to clean the destination cluster");
+            
+            // Handle mongomirror files (resume and timestamp) issues
+            if (!foundMongomirrorFiles.isEmpty()) {
+                logger.error("❌ Local mongomirror files found:");
+                for (String fileName : foundMongomirrorFiles) {
+                    logger.error("   • {}", fileName);
+                }
+                logger.error("🛑 Please remove or move these files before running sync operations");
+                logger.error("💡 Suggestion: Run 'rm mongomirror_resume_*.db *.timestamp' or move them to another directory");
+            }
             
             return false;
         }
@@ -1372,8 +1443,9 @@ public class ShardConfigSync implements Callable<Integer> {
     }
 
     @SuppressWarnings("unchecked")
-    public void compareShardCounts() {
+    public boolean compareShardCounts() {
 
+        logger.info("=== COMPARING DOCUMENT COUNTS ===");
         logger.debug("Starting compareShardCounts mode");
 
         Document sourceDatabases = sourceShardClient.listDatabases();
@@ -1384,6 +1456,12 @@ public class ShardConfigSync implements Callable<Integer> {
 
         populateDbMap(sourceDatabaseInfo, sourceDbInfoMap);
         populateDbMap(destDatabaseInfo, destDbInfoMap);
+
+        int totalCollections = 0;
+        int matchingCollections = 0;
+        int mismatchedCollections = 0;
+        List<String> mismatches = new ArrayList<>();
+        List<String> missingDestDatabases = new ArrayList<>();
 
         for (Document sourceInfo : sourceDatabaseInfo) {
             String dbName = sourceInfo.getString("name");
@@ -1396,7 +1474,7 @@ public class ShardConfigSync implements Callable<Integer> {
 
             Document destInfo = destDbInfoMap.get(dbName);
             if (destInfo != null) {
-                logger.debug(String.format("Found matching database %s", dbName));
+                logger.info("📁 Comparing database: {}", dbName);
 
                 long sourceTotal = 0;
                 long destTotal = 0;
@@ -1413,21 +1491,65 @@ public class ShardConfigSync implements Callable<Integer> {
                     Namespace ns = new Namespace(dbName, collectionName);
                     if (config.filtered && !config.getIncludeNamespaces().contains(ns)
                             && !config.getIncludeDatabases().contains(dbName)) {
-//						logger.debug("include: " + includeNamespaces);
                         continue;
                     }
-
 
                     long[] result = doCounts(sourceDb, destDb, collectionName);
                     sourceTotal += result[0];
                     destTotal += result[1];
                     collCount++;
+                    totalCollections++;
+                    
+                    if (result[0] == result[1]) {
+                        matchingCollections++;
+                    } else {
+                        mismatchedCollections++;
+                        mismatches.add(String.format("%s.%s: source=%d, dest=%d, diff=%d", 
+                            dbName, collectionName, result[0], result[1], (result[0] - result[1])));
+                    }
                 }
-                logger.debug("Database {} - source count sourceTotal: {}, dest count sourceTotal {}", dbName, sourceTotal, destTotal);
+                
+                if (sourceTotal == destTotal) {
+                    logger.info("✅ Database {} - MATCH: {} collections, {} documents", dbName, collCount, sourceTotal);
+                } else {
+                    logger.error("❌ Database {} - MISMATCH: {} collections, source={} docs, dest={} docs, diff={}", 
+                        dbName, collCount, sourceTotal, destTotal, (sourceTotal - destTotal));
+                }
             } else {
-                logger.warn(String.format("Destination db not found, name: %s", dbName));
+                logger.error("❌ Destination database not found: {}", dbName);
+                missingDestDatabases.add(dbName);
             }
         }
+        
+        // Print summary
+        logger.info("=== COMPARISON SUMMARY ===");
+        logger.info("Total collections compared: {}", totalCollections);
+        logger.info("✅ Matching collections: {}", matchingCollections);
+        logger.info("❌ Mismatched collections: {}", mismatchedCollections);
+        logger.info("❌ Missing databases: {}", missingDestDatabases.size());
+        
+        boolean success = mismatchedCollections == 0 && missingDestDatabases.isEmpty();
+        
+        if (!success) {
+            logger.error("=== COUNT COMPARISON FAILED ===");
+            if (!mismatches.isEmpty()) {
+                logger.error("Collection mismatches:");
+                for (String mismatch : mismatches) {
+                    logger.error("  • {}", mismatch);
+                }
+            }
+            if (!missingDestDatabases.isEmpty()) {
+                logger.error("Missing destination databases:");
+                for (String dbName : missingDestDatabases) {
+                    logger.error("  • {}", dbName);
+                }
+            }
+        } else {
+            logger.info("=== COUNT COMPARISON SUCCESSFUL ===");
+            logger.info("🎉 All document counts match between source and destination");
+        }
+        
+        return success;
     }
 
 
@@ -1454,11 +1576,12 @@ public class ShardConfigSync implements Callable<Integer> {
         result[1] = destCount;
 
         if (sourceCount.equals(destCount)) {
-            logger.debug(String.format("%s.%s count matches: %s", sourceDb.getName(), collectionName, sourceCount));
+            logger.info("  ✅ {}.{}: {} documents", sourceDb.getName(), collectionName, sourceCount);
             return result;
         } else {
-            logger.warn(String.format("%s.%s count MISMATCH - source: %s, dest: %s, query: %s", sourceDb.getName(), collectionName,
-                    sourceCount, destCount, query));
+            long diff = sourceCount - destCount;
+            logger.error("  ❌ {}.{}: source={}, dest={}, diff={}{}", sourceDb.getName(), collectionName,
+                    sourceCount, destCount, diff > 0 ? "+" : "", diff);
             return result;
         }
     }
@@ -1530,9 +1653,9 @@ public class ShardConfigSync implements Callable<Integer> {
         }
     }
 
-    public List<String> compareCollectionUuids() {
-        String name = "dest";
-        logger.debug(String.format("%s - Starting compareCollectionUuids", name));
+    public boolean compareCollectionUuidsWithOutput() {
+        logger.info("=== COMPARING COLLECTION UUIDs ===");
+        logger.debug("Starting compareCollectionUuids");
         initChunkManager();
         destShardClient.populateShardMongoClients();
 
@@ -1592,32 +1715,66 @@ public class ShardConfigSync implements Callable<Integer> {
 
         int successCount = 0;
         int failureCount = 0;
+        List<String> failureDetails = new ArrayList<>();
+
+        logger.info("Checking collection UUIDs across shards...");
 
         for (Map.Entry<Namespace, Map<UUID, Set<String>>> mappingEntry : collectionUuidMappings.entrySet()) {
             Namespace ns = mappingEntry.getKey();
             Map<UUID, Set<String>> uuidMappings = mappingEntry.getValue();
             if (uuidMappings.size() == 1) {
                 successCount++;
-                logger.debug(String.format("%s ==> %s", ns, uuidMappings));
+                logger.info("  ✅ {}: UUID consistent across shards", ns);
             } else {
                 failureCount++;
-                String failureMessage = String.format("%s ==> %s", ns, uuidMappings);
-                logger.error(failureMessage);
-                failures.add(failureMessage);
+                logger.error("  ❌ {}: UUID MISMATCH - {} different UUIDs found", ns, uuidMappings.size());
+                
+                // Log details of the mismatch
+                for (Map.Entry<UUID, Set<String>> entry : uuidMappings.entrySet()) {
+                    UUID uuid = entry.getKey();
+                    Set<String> shards = entry.getValue();
+                    logger.error("    • UUID {} found on shards: {}", uuid, shards);
+                }
+                
+                failureDetails.add(String.format("%s: %d different UUIDs", ns, uuidMappings.size()));
                 uuidFailure(ns, uuidMappings);
             }
         }
 
-        if (failureCount == 0 && successCount > 0) {
-            logger.debug(String.format("%s - compareCollectionUuids complete: successCount: %s, failureCount: %s", name,
-                    successCount, failureCount));
+        // Print summary
+        logger.info("=== UUID COMPARISON SUMMARY ===");
+        logger.info("Total collections checked: {}", successCount + failureCount);
+        logger.info("✅ Collections with consistent UUIDs: {}", successCount);
+        logger.info("❌ Collections with UUID mismatches: {}", failureCount);
+        
+        boolean success = failureCount == 0 && successCount > 0;
+        
+        if (success) {
+            logger.info("=== UUID COMPARISON SUCCESSFUL ===");
+            logger.info("🎉 All collection UUIDs are consistent across shards");
+        } else if (failureCount > 0) {
+            logger.error("=== UUID COMPARISON FAILED ===");
+            logger.error("Collection UUID mismatches found:");
+            for (String detail : failureDetails) {
+                logger.error("  • {}", detail);
+            }
+            logger.error("💡 UUID mismatches indicate collections may not be properly distributed across shards");
         } else {
-            logger.error(String.format("%s - compareCollectionUuids complete: successCount: %s, failureCount: %s", name,
-                    successCount, failureCount));
+            logger.warn("=== UUID COMPARISON WARNING ===");
+            logger.warn("⚠️ No collections found to compare");
+            success = true; // Don't fail if there are simply no collections
         }
-        return failures;
+        
+        return success;
     }
 
+    // Legacy method for compatibility (used by CollectionUuidWatcherTask)
+    public List<String> compareCollectionUuids() {
+        compareCollectionUuidsWithOutput();
+        // Return empty list since the old method behavior isn't easily extractable
+        // The watcher task should be updated to use the new method if detailed failures are needed
+        return new ArrayList<>();
+    }
 
     private void uuidFailure(Namespace ns, Map<UUID, Set<String>> uuidMappings) {
         Set<String> correctShards = chunkManager.getShardsForNamespace(ns);

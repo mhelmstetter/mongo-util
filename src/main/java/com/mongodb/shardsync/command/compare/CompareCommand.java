@@ -15,6 +15,7 @@ import java.util.concurrent.Callable;
          description = "Compare source and destination clusters",
          subcommands = {
              CompareChunksCommand.class,
+             CompareCountsCommand.class,
              CompareIndexesCommand.class,
              CompareUsersCommand.class,
              CompareUuidsCommand.class
