@@ -104,14 +104,11 @@ public class ShardClient {
 	}
 
 	private static Logger logger = LoggerFactory.getLogger(ShardClient.class);
-	private static Pattern excludeCollRegex = Pattern.compile("system\\..*");
 
 	private final static int ONE_GIGABYTE = 1024 * 1024 * 1024;
 	private final static int ONE_MEGABYTE = 1024 * 1024;
 
 	private DocumentCodec codec = new DocumentCodec();
-
-	private static final String MONGODB_SRV_PREFIX = "mongodb+srv://";
 
 	private final static List<Document> countPipeline = new ArrayList<Document>();
 	static {
@@ -177,7 +174,7 @@ public class ShardClient {
 	// Advanced only, for manual configuration / overriding discovery
 	private String[] rsStringsManual;
 
-	public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter, ShardClientType shardClientType) {
+	public ShardClient(String name, String clusterUri, Collection<String> shardIdFilter) {
 
 		this.patternedUri = clusterUri.contains("%s");
 		if (patternedUri) {
@@ -190,12 +187,6 @@ public class ShardClient {
 		} else {
 			this.connectionString = new ConnectionString(clusterUri);
 		}
-		this.shardClientType = shardClientType;
-
-		if (ShardClientType.SHARDED_NO_SRV.equals(shardClientType)  && connectionString.isSrvProtocol()) {
-			throw new IllegalArgumentException(
-					"srv protocol not supported, please configure a single mongos mongodb:// connection string");
-		}
 
 		this.name = name;
 		this.shardIdFilter = shardIdFilter;
@@ -203,7 +194,7 @@ public class ShardClient {
 	}
 
 	public ShardClient(String name, String clusterUri) {
-		this(name, clusterUri, null, null);
+		this(name, clusterUri, null);
 	}
 
 	public void init() {
@@ -2048,10 +2039,6 @@ public class ShardClient {
 
 	public ShardClientType getShardClientType() {
 		return shardClientType;
-	}
-
-	public void setShardClientType(ShardClientType shardClientType) {
-		this.shardClientType = shardClientType;
 	}
 
 	public String[] getRsStringsManual() {

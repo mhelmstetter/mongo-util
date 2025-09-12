@@ -113,7 +113,7 @@ public class Balancer implements Callable<Integer> {
 		if (sourceShards.isEmpty()) {
 			sourceShardClient = new ShardClient("source", balancerConfig.getSourceClusterUri());
 		} else {
-			sourceShardClient = new ShardClient("source", balancerConfig.getSourceClusterUri(), sourceShards, null);
+			sourceShardClient = new ShardClient("source", balancerConfig.getSourceClusterUri(), sourceShards);
 		}
 		
 		balancerConfig.setSourceShardClient(sourceShardClient);
