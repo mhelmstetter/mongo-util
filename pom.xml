@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.helmstetter</groupId>
 	<artifactId>mongo-util-core</artifactId>
-	<version>1.1.0</version>
+	<version>1.1.1</version>
 	<name>mongo-util-core</name>
 	<description>MongoDB related utilities</description>
 	<url>https://github.com/mhelmstetter/mongo-util</url>
@@ -192,6 +192,11 @@
 										<Implementation-Version>
 											${project.version}</Implementation-Version>
 									</manifestEntries>
+								</transformer>
+								<transformer
+									implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+									<resource>logback.xml</resource>
+									<file>src/main/resources/logback.xml</file>
 								</transformer>
 							</transformers>
 							<filters>
