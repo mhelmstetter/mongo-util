@@ -7,17 +7,17 @@ public class ServerStatus {
     private String rsName;
     private Document databases;
     
-    private int totalInserts = 0;
-    private Integer currentInserts;
+    private long totalInserts = 0;
+    private Long currentInserts;
     
-    private int totalQueries = 0;
-    private Integer currentQueries;
+    private long totalQueries = 0;
+    private Long currentQueries;
     
-    private int totalUpdates = 0;
-    private Integer currentUpdates;
+    private long totalUpdates = 0;
+    private Long currentUpdates;
     
-    private int totalDeletes = 0;
-    private Integer currentDeletes;
+    private long totalDeletes = 0;
+    private Long currentDeletes;
     
     private Double totalCacheBytesRead = null;
     private Double lastCacheBytesRead = null;
@@ -35,33 +35,33 @@ public class ServerStatus {
             }
             
         }
-        int inserts = ops.getInteger("insert");
+        long inserts = getLongValue(ops, "insert");
         if (currentInserts == null) {
-            currentInserts = 0;
+            currentInserts = 0L;
         } else {
             currentInserts = inserts - totalInserts;
         }
         totalInserts = inserts;
         
-        int updates = ops.getInteger("update");
+        long updates = getLongValue(ops, "update");
         if (currentUpdates == null) {
-            currentUpdates = 0;
+            currentUpdates = 0L;
         } else {
             currentUpdates = updates - totalUpdates;
         }
         totalUpdates = updates;
         
-        int queries = ops.getInteger("query");
+        long queries = getLongValue(ops, "query");
         if (currentQueries == null) {
-            currentQueries = 0;
+            currentQueries = 0L;
         } else {
             currentQueries = queries - totalQueries;
         }
         totalQueries = queries;
         
-        int deletes = ops.getInteger("delete");
+        long deletes = getLongValue(ops, "delete");
         if (currentDeletes == null) {
-            currentDeletes = 0;
+            currentDeletes = 0L;
         } else {
             currentDeletes = deletes - totalDeletes;
         }
@@ -90,5 +90,22 @@ public class ServerStatus {
                 rsName, currentInserts, currentQueries, currentUpdates, currentDeletes,
                 totalInserts, totalQueries, totalUpdates, totalDeletes, totalCacheBytesRead/1024/1024);
     }
+    
+    private long getLongValue(Document doc, String key) {
+        Number num = (Number) doc.get(key);
+        return num != null ? num.longValue() : 0L;
+    }
+    
+    // Getters for JSON output
+    public String getRsName() { return rsName; }
+    public Long getCurrentInserts() { return currentInserts; }
+    public Long getCurrentQueries() { return currentQueries; }
+    public Long getCurrentUpdates() { return currentUpdates; }
+    public Long getCurrentDeletes() { return currentDeletes; }
+    public Long getTotalInserts() { return totalInserts; }
+    public Long getTotalQueries() { return totalQueries; }
+    public Long getTotalUpdates() { return totalUpdates; }
+    public Long getTotalDeletes() { return totalDeletes; }
+    public Double getTotalCacheBytesRead() { return totalCacheBytesRead; }
 
 }
