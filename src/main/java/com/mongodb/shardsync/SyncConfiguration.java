@@ -36,6 +36,8 @@ public class SyncConfiguration extends BaseConfiguration {
 	public Integer collStatsThreshold;
 	public boolean extendTtl;
 	public File mongomirrorBinary;
+	public Integer verbose;
+	public String mongomirrorLogPath;
 
 	/* Mongomirror email report specific settings */
 	public List<String> emailReportRecipients;
@@ -390,5 +392,21 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setTargetShards(Set<String> targetShards) {
 		this.targetShards = targetShards;
+	}
+
+	public Integer getVerbose() {
+		return verbose;
+	}
+
+	public void setVerbose(Integer verbose) {
+		this.verbose = verbose;
+	}
+
+	public String getMongomirrorLogPath() {
+		return mongomirrorLogPath;
+	}
+
+	public void setMongomirrorLogPath(String mongomirrorLogPath) {
+		this.mongomirrorLogPath = mongomirrorLogPath;
 	}
 }

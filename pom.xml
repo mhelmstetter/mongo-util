@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.helmstetter</groupId>
 	<artifactId>mongo-util-core</artifactId>
-	<version>2.0.0</version>
+	<version>2.0.1</version>
 	<name>mongo-util-core</name>
 	<description>MongoDB related utilities</description>
 	<url>https://github.com/mhelmstetter/mongo-util</url>
@@ -115,47 +115,6 @@
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-resources-plugin</artifactId>
-				<version>3.3.1</version>
-				<executions>
-					<execution>
-						<id>default-resources</id>
-						<phase>process-resources</phase>
-						<goals>
-							<goal>resources</goal>
-						</goals>
-						<configuration>
-							<resources>
-								<resource>
-									<directory>src/main/resources</directory>
-									<excludes>
-										<exclude>*logback*.xml</exclude>
-										<exclude>log4j.properties</exclude>
-									</excludes>
-								</resource>
-							</resources>
-						</configuration>
-					</execution>
-					<execution>
-						<id>uber-resources</id>
-						<phase>prepare-package</phase>
-						<goals>
-							<goal>copy-resources</goal>
-						</goals>
-						<configuration>
-							<outputDirectory>${project.build.directory}/uber-classes</outputDirectory>
-							<resources>
-								<resource>
-									<directory>src/main/resources</directory>
-									<!-- Include all resources for uber jar -->
-								</resource>
-							</resources>
-						</configuration>
-					</execution>
-				</executions>
-			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-jar-plugin</artifactId>
 				<version>3.3.0</version>
 				<configuration>
@@ -189,11 +148,6 @@
 										<Implementation-Version>
 											${project.version}</Implementation-Version>
 									</manifestEntries>
-								</transformer>
-								<transformer
-									implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-									<resource>logback.xml</resource>
-									<file>src/main/resources/logback.xml</file>
 								</transformer>
 							</transformers>
 							<filters>

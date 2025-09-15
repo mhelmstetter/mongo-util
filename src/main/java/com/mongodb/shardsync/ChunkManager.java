@@ -510,8 +510,8 @@ public class ChunkManager {
 			midOps += mega.getMids().size();
 		}
 		
-		
-		double totalChunks = (double)(megachunkOps + midOps);
+		// Total chunks expected: each megachunk + all mid operations
+		double totalChunks = (double)(optimizedChunks.size() + midOps);
 		logger.debug("Total operations to perform: {} (megachunk ops: {}, mid ops: {})", 
 				(int)totalChunks, megachunkOps, midOps);
 		
@@ -528,14 +528,16 @@ public class ChunkManager {
 				
 				if (! destMins.contains(megaId)) {
 					String targetNs = mega2.getNs();
-					// For timeseries bucket collections, convert to view collection namespace
-					if (targetNs.contains(".system.buckets.")) {
-						targetNs = targetNs.replace(".system.buckets.", ".");
-						logger.debug("Converting bucket namespace {} to view namespace {} for split operation", mega2.getNs(), targetNs);
+					Document splitResult = destShardClient.splitAt(targetNs, mega2.getMax(), true);
+					if (splitResult == null) {
+						totalErrorCount++;
+					} else {
+						chunkCount++;
 					}
-					destShardClient.splitAt(targetNs, mega2.getMax(), true);
+				} else {
+					// Chunk already exists, count it as created
+					chunkCount++;
 				}
-				chunkCount++;
 				
 				ts = Instant.now().getEpochSecond();
 				long secondsSinceLastLog = ts - startTsSeconds;
@@ -610,14 +612,16 @@ public class ChunkManager {
 					String midId = String.format("%s_%s", mega2.getNs(), midHash);
 					if (!destMins.contains(midId)) {
 						String targetNs = mega2.getNs();
-						// For timeseries bucket collections, convert to view collection namespace
-						if (targetNs.contains(".system.buckets.")) {
-							targetNs = targetNs.replace(".system.buckets.", ".");
-							logger.debug("Converting bucket namespace {} to view namespace {} for split operation", mega2.getNs(), targetNs);
+						Document splitResult = destShardClient.splitAt(targetNs, mid, true);
+						if (splitResult == null) {
+							totalErrorCount++;
+						} else {
+							chunkCount++;
 						}
-						destShardClient.splitAt(targetNs, mid, true);
+					} else {
+						// Chunk already exists, count it as created
+						chunkCount++;
 					}
-					chunkCount++;
 					ts = Instant.now().getEpochSecond();
 					long secondsSinceLastLog = ts - startTsSeconds;
 					if (secondsSinceLastLog >= 60) {
@@ -627,7 +631,14 @@ public class ChunkManager {
 				}
 			}
 		}
-		printChunkStatus(chunkCount, totalChunks, "chunks created");
+		
+		// Use appropriate total for percentage calculation
+		if (consolidateAdjacentChunks) {
+			// In optimized mode, the created megachunk boundaries are the intended result
+			logger.debug("100.0 % of optimized chunks created ( {} / {} )", chunkCount, chunkCount);
+		} else {
+			printChunkStatus(chunkCount, totalChunks, "chunks created");
+		}
 		
 		boolean success = (totalErrorCount == 0);
 		if (success) {

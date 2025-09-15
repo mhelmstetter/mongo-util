@@ -94,6 +94,12 @@ public class MongomirrorCommand implements Callable<Integer> {
     @Option(names = {"--emailReportMax"}, description = "Maximum number of email reports")
     private String emailReportMax;
     
+    @Option(names = {"--verbose"}, arity = "0..1", fallbackValue = "3", description = "Set verbose level (0-5, default: 3 when option is specified)")
+    private Integer verbose;
+    
+    @Option(names = {"--mongomirrorLogPath"}, description = "Directory path for mongomirror log files (default: current directory)")
+    private String mongomirrorLogPath;
+    
     @Override
     public Integer call() throws Exception {
         return parent.executeMongomirrorCommand(this);
@@ -126,4 +132,6 @@ public class MongomirrorCommand implements Callable<Integer> {
     public String getErrorMessageWindowSecs() { return errorMessageWindowSecs; }
     public String getErrorReportMax() { return errorReportMax; }
     public String getEmailReportMax() { return emailReportMax; }
+    public Integer getVerbose() { return verbose; }
+    public String getMongomirrorLogPath() { return mongomirrorLogPath; }
 }

@@ -545,6 +545,16 @@ public class ShardClient {
 				UUID uuid = (UUID)c.get("uuid");
 				collectionsUuidMap.put(uuid, id);
 			}
+			
+			// For timeseries bucket collections, also add an entry for the view
+			if (TimeseriesUtil.isBucketNamespace(id)) {
+				String viewNamespace = TimeseriesUtil.bucketToViewNamespace(id);
+				// Create a copy of the document with the view namespace as _id
+				Document viewDoc = new Document(c);
+				viewDoc.put("_id", viewNamespace);
+				collectionsMap.put(viewNamespace, viewDoc);
+			} else {
+			}
 		}
 		logger.debug(String.format("%s Finished populateCollectionsMap(), %s collections loaded from config server",
 				name, collectionsMap.size()));

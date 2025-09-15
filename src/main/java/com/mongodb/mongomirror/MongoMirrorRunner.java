@@ -70,6 +70,8 @@ public class MongoMirrorRunner {
     private Boolean extendTtl;
     private Boolean noCollectionCreate = true;
     private Integer stopWhenLagWithin;
+    private Integer verbose;
+    private String logPath;
 
     private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
     private Set<String> includeDatabases = new HashSet<String>();
@@ -139,6 +141,7 @@ public class MongoMirrorRunner {
         addArg("noIndexRestore", noIndexRestore);
         addArg("collStatsThreshold", collStatsThreshold);
         addArg("stopWhenLagWithin", stopWhenLagWithin);
+        addArg("verbose", verbose);
         addArg("resumeDBFile", "mongomirror_resume_" + id + ".db");
 
         for (Namespace ns : includeNamespaces) {
@@ -159,7 +162,7 @@ public class MongoMirrorRunner {
             emailSender = new EmailSender(emailRecipients, smtpHost, smtpPort, smtpTls, smtpAuth, emailFrom,
                     smtpPassword, errMsgWindowSecs, errorRptMaxErrors, totalEmailsMax, id);
         }
-        logHandler = new MongoMirrorLogHandler(emailSender, id);
+        logHandler = new MongoMirrorLogHandler(emailSender, id, logPath);
         PumpStreamHandler psh = new PumpStreamHandler(logHandler);
 
         executeResultHandler = new DefaultExecuteResultHandler();
@@ -503,6 +506,14 @@ public class MongoMirrorRunner {
 
 	public void setNoCollectionCreate(Boolean noCollectionCreate) {
 		this.noCollectionCreate = noCollectionCreate;
+	}
+
+	public void setVerbose(Integer verbose) {
+		this.verbose = verbose;
+	}
+
+	public void setLogPath(String logPath) {
+		this.logPath = logPath;
 	}
 
 	public int getErrorCount() {

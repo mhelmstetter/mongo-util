@@ -1,9 +1,5 @@
 package com.mongodb.shardsync;
 
-import static com.mongodb.client.model.Filters.and;
-import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.gte;
-import static com.mongodb.client.model.Filters.lt;
 import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
@@ -28,6 +24,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -47,8 +44,6 @@ import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.mongodb.util.DatabaseUtil;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Sets;
@@ -76,7 +71,8 @@ import com.mongodb.client.model.CollationMaxVariable;
 import com.mongodb.client.model.CollationStrength;
 import com.mongodb.client.model.CreateCollectionOptions;
 import com.mongodb.client.model.ReplaceOptions;
-import com.mongodb.client.model.Sorts;
+import com.mongodb.client.model.TimeSeriesGranularity;
+import com.mongodb.client.model.TimeSeriesOptions;
 import com.mongodb.client.model.ValidationOptions;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
@@ -92,6 +88,7 @@ import com.mongodb.mongomirror.MongoMirrorRunner;
 import com.mongodb.mongomirror.model.MongoMirrorStatus;
 import com.mongodb.mongomirror.model.MongoMirrorStatusInitialSync;
 import com.mongodb.mongomirror.model.MongoMirrorStatusOplogSync;
+import com.mongodb.util.DatabaseUtil;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
 import com.opencsv.CSVWriter;
@@ -217,8 +214,7 @@ public class ShardConfigSync implements Callable<Integer> {
                 }
                 
                 // Skip timeseries bucket collections - they are automatically created by MongoDB
-                if (collectionName.startsWith("system.buckets.")) {
-                    logger.debug("Skipping timeseries bucket collection: {}", ns);
+                if (TimeseriesUtil.isBucketCollection(collectionName)) {
                     continue;
                 }
 
@@ -296,6 +292,21 @@ public class ShardConfigSync implements Callable<Integer> {
         if (collationDoc != null) {
             Collation collation = getCollation(collationDoc);
             opts.collation(collation);
+        }
+        
+        Document tsDoc = options.get("timeseries", Document.class);
+        if (tsDoc != null) {
+        	TimeSeriesGranularity granularity = TimeSeriesGranularity.valueOf(tsDoc.getString("granularity").toUpperCase());
+        	Number bucketMaxSpanSeconds = tsDoc.get("bucketMaxSpanSeconds", Number.class);
+        	TimeSeriesOptions timeSeriesOptions = new TimeSeriesOptions(tsDoc.getString("timeField"))
+                    .metaField(tsDoc.getString("metaField"));
+                    
+        	if (granularity != null) {
+        		timeSeriesOptions.granularity(granularity);
+        	} else if (bucketMaxSpanSeconds != null) {
+        		timeSeriesOptions.bucketMaxSpan(bucketMaxSpanSeconds.longValue(), TimeUnit.SECONDS);
+        	}
+        	opts.timeSeriesOptions(timeSeriesOptions);
         }
         
         Document storageEngine = options.get("storageEngine", Document.class);
@@ -1126,7 +1137,7 @@ public class ShardConfigSync implements Callable<Integer> {
         AtlasServiceGenerator.shutdown();
     }
 
-    private boolean syncMetadataInitialization() {
+    private SyncMetadataResult syncMetadataInitialization() {
         return syncMetadataInitialization(PreflightMode.ENFORCE_CHECKS);
     }
     
@@ -1135,29 +1146,115 @@ public class ShardConfigSync implements Callable<Integer> {
         IGNORE_FAILURES
     }
     
-    private boolean syncMetadataInitialization(PreflightMode preflightMode) {
-        initChunkManager();
+    private SyncMetadataResult syncMetadataInitialization(PreflightMode preflightMode) {
+        SyncMetadataResult result = new SyncMetadataResult();
         
-        // Always perform preflight check to gather destination cluster information
-        boolean preflightPassed = performPreflightCheck();
-        
-        if (preflightMode == PreflightMode.IGNORE_FAILURES) {
-            if (!preflightPassed) {
-                logger.warn("⚠️  FORCE MODE: Preflight check failed but proceeding anyway due to --force flag");
-                logger.warn("💀 WARNING: Destination cluster is not empty - sync may overwrite existing data");
-            }
-            // Continue execution regardless of preflight result
-        } else if (!preflightPassed) {
-            return false; // Exit early if preflight check fails and not in force mode
+        // Step 1: Initialize chunk manager
+        try {
+            initChunkManager();
+            result.addSuccess("Initialize Chunk Manager", "Chunk manager initialized successfully");
+        } catch (Exception e) {
+            result.addFailure("Initialize Chunk Manager", "Failed to initialize chunk manager", e);
+            return result; // Critical failure - cannot continue
         }
         
-        stopBalancers();
-        createCollections(config);
-        enableDestinationSharding();
-        sourceShardClient.populateCollectionsMap();
-        shardDestinationCollections();
-        destShardClient.populateCollectionsMap();
-        return true;
+        // Step 2: Perform preflight check
+        try {
+            boolean preflightPassed = performPreflightCheck();
+            if (preflightPassed) {
+                result.addSuccess("Preflight Check", "Destination cluster is empty and ready for sync");
+            } else {
+                if (preflightMode == PreflightMode.IGNORE_FAILURES) {
+                    result.addWarning("Preflight Check", "FORCE MODE: Preflight check failed but proceeding anyway due to --force flag");
+                    logger.warn("⚠️  FORCE MODE: Preflight check failed but proceeding anyway due to --force flag");
+                    logger.warn("💀 WARNING: Destination cluster is not empty - sync may overwrite existing data");
+                } else {
+                    result.addFailure("Preflight Check", "Destination cluster is not empty - use --force to override");
+                    return result; // Exit early if preflight check fails and not in force mode
+                }
+            }
+        } catch (Exception e) {
+            result.addFailure("Preflight Check", "Error during preflight check", e);
+            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+                return result;
+            }
+        }
+        
+        // Step 3: Stop balancers
+        try {
+            stopBalancers();
+            result.addSuccess("Stop Balancers", "Balancers stopped successfully");
+        } catch (Exception e) {
+            result.addFailure("Stop Balancers", "Failed to stop balancers", e);
+            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+                return result;
+            }
+        }
+        
+        // Step 4: Create collections
+        try {
+            createCollections(config);
+            result.addSuccess("Create Collections", "Collections created successfully");
+        } catch (Exception e) {
+            result.addFailure("Create Collections", "Failed to create collections", e);
+            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+                return result;
+            }
+        }
+        
+        // Step 5: Enable destination sharding
+        try {
+            enableDestinationSharding();
+            result.addSuccess("Enable Destination Sharding", "Sharding enabled on destination cluster");
+        } catch (Exception e) {
+            result.addFailure("Enable Destination Sharding", "Failed to enable sharding on destination", e);
+            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+                return result;
+            }
+        }
+        
+        // Step 6: Populate source collections map
+        try {
+            sourceShardClient.populateCollectionsMap();
+            result.addSuccess("Populate Source Collections Map", "Source collections map populated successfully");
+        } catch (Exception e) {
+            result.addFailure("Populate Source Collections Map", "Failed to populate source collections map", e);
+            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+                return result;
+            }
+        }
+        
+        // Step 7: Shard destination collections
+        try {
+            shardDestinationCollections();
+            result.addSuccess("Shard Destination Collections", "All collections sharded successfully");
+        } catch (RuntimeException e) {
+            if (preflightMode == PreflightMode.IGNORE_FAILURES) {
+                result.addWarning("Shard Destination Collections", "FORCE MODE: Some sharding operations failed but continuing: " + e.getMessage());
+                logger.warn("⚠️  FORCE MODE: Continuing despite sharding failures");
+            } else {
+                result.addFailure("Shard Destination Collections", "Failed to shard collections: " + e.getMessage(), e);
+                return result;
+            }
+        } catch (Exception e) {
+            result.addFailure("Shard Destination Collections", "Unexpected error during sharding", e);
+            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+                return result;
+            }
+        }
+        
+        // Step 8: Populate destination collections map
+        try {
+            destShardClient.populateCollectionsMap();
+            result.addSuccess("Populate Destination Collections Map", "Destination collections map populated successfully");
+        } catch (Exception e) {
+            result.addFailure("Populate Destination Collections Map", "Failed to populate destination collections map", e);
+            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+                return result;
+            }
+        }
+        
+        return result;
     }
     
     /**
@@ -1321,70 +1418,314 @@ public class ShardConfigSync implements Callable<Integer> {
     }
 
 
-    public boolean syncMetadataLegacy() throws InterruptedException {
+    public SyncMetadataResult syncMetadataLegacy() throws InterruptedException {
         return syncMetadataLegacy(false);
     }
     
-    public boolean syncMetadataLegacy(boolean force) throws InterruptedException {
+    public SyncMetadataResult syncMetadataLegacy(boolean force) throws InterruptedException {
         logger.debug(String.format("Starting legacy metadata sync/migration, %s: %s",
                 ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
+        logger.info("🚀 STARTING LEGACY SYNC METADATA PROCESS 🚀");
         
         if (destShardClient.isVersion5OrLater()) {
         	logger.warn("syncMetadata legacy is slower, please consider syncMetadataOptimized");
         }
 
-
-        if (!syncMetadataInitialization(force ? PreflightMode.IGNORE_FAILURES : PreflightMode.ENFORCE_CHECKS)) {
-            return false; // Preflight check failed
+        // Step 1: Initialization
+        SyncMetadataResult result = syncMetadataInitialization(force ? PreflightMode.IGNORE_FAILURES : PreflightMode.ENFORCE_CHECKS);
+        
+        if (!result.isOverallSuccess() && !force) {
+            printSyncMetadataSummary(result);
+            return result; // Early exit if initialization failed and not in force mode
         }
-        chunkManager.createDestChunksUsingSplitCommand();
-        chunkManager.compareAndMoveChunks(true, false);
 
+        // Step 2: Create destination chunks using split command
+        try {
+            chunkManager.createDestChunksUsingSplitCommand();
+            result.addSuccess("Create Destination Chunks (Legacy)", "Destination chunks created using split command");
+        } catch (Exception e) {
+            if (force) {
+                result.addWarning("Create Destination Chunks (Legacy)", "FORCE MODE: Failed to create chunks but continuing: " + e.getMessage());
+            } else {
+                result.addFailure("Create Destination Chunks (Legacy)", "Failed to create destination chunks using split command", e);
+                printSyncMetadataSummary(result);
+                return result;
+            }
+        }
+
+        // Step 3: Compare and move chunks
+        try {
+            boolean moveSuccess = chunkManager.compareAndMoveChunks(true, false);
+            if (moveSuccess) {
+                result.addSuccess("Compare and Move Chunks (Legacy)", "Chunks compared and moved successfully");
+            } else {
+                if (force) {
+                    result.addWarning("Compare and Move Chunks (Legacy)", "FORCE MODE: Some chunk move operations failed but continuing");
+                } else {
+                    result.addFailure("Compare and Move Chunks (Legacy)", "Failed to compare and move chunks");
+                    printSyncMetadataSummary(result);
+                    return result;
+                }
+            }
+        } catch (Exception e) {
+            if (force) {
+                result.addWarning("Compare and Move Chunks (Legacy)", "FORCE MODE: Exception during chunk operations but continuing: " + e.getMessage());
+            } else {
+                result.addFailure("Compare and Move Chunks (Legacy)", "Exception during chunk compare and move operations", e);
+                printSyncMetadataSummary(result);
+                return result;
+            }
+        }
+
+        // Step 4: Flush router configuration
         if (!config.skipFlushRouterConfig) {
-            destShardClient.flushRouterConfig();
+            try {
+                destShardClient.flushRouterConfig();
+                result.addSuccess("Flush Router Configuration", "Router configuration flushed successfully");
+            } catch (Exception e) {
+                if (force) {
+                    result.addWarning("Flush Router Configuration", "FORCE MODE: Failed to flush router config but continuing: " + e.getMessage());
+                } else {
+                    result.addFailure("Flush Router Configuration", "Failed to flush router configuration", e);
+                }
+            }
+        } else {
+            result.addSkipped("Flush Router Configuration", "Skipped due to skipFlushRouterConfig setting");
         }
-        return true;
+        
+        printSyncMetadataSummary(result);
+        return result;
     }
     
-    public boolean syncMetadata() {
+    public SyncMetadataResult syncMetadata() {
         return syncMetadata(false);
     }
     
-    public boolean syncMetadata(boolean force) {
+    public SyncMetadataResult syncMetadata(boolean force) {
         logger.debug(String.format("Starting metadata sync/migration, %s: %s",
                 ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
+        logger.info("🚀 STARTING SYNC METADATA PROCESS 🚀");
 
-        if (!syncMetadataInitialization(force ? PreflightMode.IGNORE_FAILURES : PreflightMode.ENFORCE_CHECKS)) {
-            return false; // Preflight check failed
+        // Step 1: Initialization
+        SyncMetadataResult result = syncMetadataInitialization(force ? PreflightMode.IGNORE_FAILURES : PreflightMode.ENFORCE_CHECKS);
+        
+        if (!result.isOverallSuccess() && !force) {
+            printSyncMetadataSummary(result);
+            return result; // Early exit if initialization failed and not in force mode
         }
 
-        boolean success = chunkManager.createAndMoveChunks(false);
+        // Step 2: Create and move chunks
+        try {
+            boolean chunksSuccess = chunkManager.createAndMoveChunks(false);
+            if (chunksSuccess) {
+                result.addSuccess("Create and Move Chunks", "Chunks created and moved successfully");
+            } else {
+                if (force) {
+                    result.addWarning("Create and Move Chunks", "FORCE MODE: Some chunk operations failed but continuing");
+                } else {
+                    result.addFailure("Create and Move Chunks", "Failed to create and move chunks");
+                    printSyncMetadataSummary(result);
+                    return result;
+                }
+            }
+        } catch (Exception e) {
+            if (force) {
+                result.addWarning("Create and Move Chunks", "FORCE MODE: Exception during chunk operations but continuing: " + e.getMessage());
+            } else {
+                result.addFailure("Create and Move Chunks", "Exception during chunk operations", e);
+                printSyncMetadataSummary(result);
+                return result;
+            }
+        }
 
+        // Step 3: Flush router configuration
         if (!config.skipFlushRouterConfig) {
-            destShardClient.flushRouterConfig();
+            try {
+                destShardClient.flushRouterConfig();
+                result.addSuccess("Flush Router Configuration", "Router configuration flushed successfully");
+            } catch (Exception e) {
+                if (force) {
+                    result.addWarning("Flush Router Configuration", "FORCE MODE: Failed to flush router config but continuing: " + e.getMessage());
+                } else {
+                    result.addFailure("Flush Router Configuration", "Failed to flush router configuration", e);
+                }
+            }
+        } else {
+            result.addSkipped("Flush Router Configuration", "Skipped due to skipFlushRouterConfig setting");
         }
         
-        return success;
+        printSyncMetadataSummary(result);
+        return result;
     }
     
-    public boolean syncMetadataOptimized() {
+    public SyncMetadataResult syncMetadataOptimized() {
         return syncMetadataOptimized(false);
     }
     
-    public boolean syncMetadataOptimized(boolean force) {
+    public SyncMetadataResult syncMetadataOptimized(boolean force) {
         logger.debug(String.format("Starting optimized metadata sync/migration, %s: %s",
                 ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
+        logger.info("🚀 STARTING OPTIMIZED SYNC METADATA PROCESS 🚀");
         
-        if (!syncMetadataInitialization(force ? PreflightMode.IGNORE_FAILURES : PreflightMode.ENFORCE_CHECKS)) {
-            return false; // Preflight check failed
+        // Step 1: Initialization
+        SyncMetadataResult result = syncMetadataInitialization(force ? PreflightMode.IGNORE_FAILURES : PreflightMode.ENFORCE_CHECKS);
+        
+        if (!result.isOverallSuccess() && !force) {
+            printSyncMetadataSummary(result);
+            return result; // Early exit if initialization failed and not in force mode
         }
-        
-        boolean success = chunkManager.createAndMoveChunks(true);
+
+        // Step 2: Create and move chunks (optimized)
+        try {
+            boolean chunksSuccess = chunkManager.createAndMoveChunks(true);
+            if (chunksSuccess) {
+                result.addSuccess("Create and Move Chunks (Optimized)", "Optimized chunks created and moved successfully");
+            } else {
+                if (force) {
+                    result.addWarning("Create and Move Chunks (Optimized)", "FORCE MODE: Some optimized chunk operations failed but continuing");
+                } else {
+                    result.addFailure("Create and Move Chunks (Optimized)", "Failed to create and move chunks using optimized method");
+                    printSyncMetadataSummary(result);
+                    return result;
+                }
+            }
+        } catch (Exception e) {
+            if (force) {
+                result.addWarning("Create and Move Chunks (Optimized)", "FORCE MODE: Exception during optimized chunk operations but continuing: " + e.getMessage());
+            } else {
+                result.addFailure("Create and Move Chunks (Optimized)", "Exception during optimized chunk operations", e);
+                printSyncMetadataSummary(result);
+                return result;
+            }
+        }
+
+        // Step 3: Flush router configuration
         if (!config.skipFlushRouterConfig) {
-            destShardClient.flushRouterConfig();
+            try {
+                destShardClient.flushRouterConfig();
+                result.addSuccess("Flush Router Configuration", "Router configuration flushed successfully");
+            } catch (Exception e) {
+                if (force) {
+                    result.addWarning("Flush Router Configuration", "FORCE MODE: Failed to flush router config but continuing: " + e.getMessage());
+                } else {
+                    result.addFailure("Flush Router Configuration", "Failed to flush router configuration", e);
+                }
+            }
+        } else {
+            result.addSkipped("Flush Router Configuration", "Skipped due to skipFlushRouterConfig setting");
         }
         
-        return success;
+        printSyncMetadataSummary(result);
+        return result;
+    }
+
+    /**
+     * Prints a comprehensive summary of the sync metadata process results.
+     * Shows success/failure status for each step with clear visual indicators.
+     */
+    private void printSyncMetadataSummary(SyncMetadataResult result) {
+        logger.info("================================================================================");
+        logger.info("                          SYNC METADATA SUMMARY");
+        logger.info("================================================================================");
+        
+        // Overall status
+        String overallStatus;
+        String overallEmoji;
+        if (result.isOverallSuccess()) {
+            if (result.hasWarnings()) {
+                overallStatus = "SUCCESS WITH WARNINGS";
+                overallEmoji = "⚠️";
+            } else {
+                overallStatus = "SUCCESS";
+                overallEmoji = "✅";
+            }
+        } else {
+            overallStatus = "FAILED";
+            overallEmoji = "❌";
+        }
+        
+        logger.info("Overall Status: {} {}", overallEmoji, overallStatus);
+        
+        int completedSteps = result.getSteps().size();
+        if (result.isOverallSuccess()) {
+            logger.info("Steps Completed: {}", completedSteps);
+        } else {
+            // For failures, we can estimate total steps, but it varies by execution path
+            int estimatedTotalSteps = Math.max(9, completedSteps + 3); // At least 9, or current + estimated remaining
+            logger.info("Steps Attempted: {} / {} (stopped due to failure)", completedSteps, estimatedTotalSteps);
+        }
+        logger.info("Successes: {}  Failures: {}  Warnings: {}", 
+                result.getSuccessCount(),
+                result.getFailureCount(),
+                result.getWarningCount());
+        
+        // Only show individual step details if there are failures or warnings
+        if (!result.isOverallSuccess() || result.hasWarnings()) {
+            logger.info("--------------------------------------------------------------------------------");
+            
+            // Individual step results
+            for (SyncMetadataResult.StepResult step : result.getSteps()) {
+                String statusEmoji;
+                String statusText;
+                
+                switch (step.getStatus()) {
+                    case SUCCESS:
+                        statusEmoji = "✅";
+                        statusText = "SUCCESS";
+                        break;
+                    case FAILED:
+                        statusEmoji = "❌";
+                        statusText = "FAILED";
+                        break;
+                    case WARNING:
+                        statusEmoji = "⚠️";
+                        statusText = "WARNING";
+                        break;
+                    case SKIPPED:
+                        statusEmoji = "⏭️";
+                        statusText = "SKIPPED";
+                        break;
+                    default:
+                        statusEmoji = "❓";
+                        statusText = "UNKNOWN";
+                }
+                
+                logger.info("{} {}: {}", statusEmoji, step.getStepName(), statusText);
+                
+                // Show detailed message for failures and warnings
+                if (step.isFailed() || step.isWarning()) {
+                    logger.info("   └─ {}", step.getMessage());
+                }
+            }
+        }
+        
+        logger.info("================================================================================");
+        
+        // Additional failure details
+        if (!result.isOverallSuccess()) {
+            logger.error("🚨 DETAILED FAILURE INFORMATION:");
+            for (SyncMetadataResult.StepResult failedStep : result.getFailedSteps()) {
+                logger.error("❌ {}: {}", failedStep.getStepName(), failedStep.getMessage());
+                if (failedStep.getException() != null) {
+                    logger.error("   Exception: {}", failedStep.getException().getMessage());
+                }
+            }
+        }
+        
+        // Warnings details
+        if (result.hasWarnings()) {
+            logger.warn("⚠️  WARNINGS:");
+            for (SyncMetadataResult.StepResult warningStep : result.getWarningSteps()) {
+                logger.warn("⚠️  {}: {}", warningStep.getStepName(), warningStep.getMessage());
+            }
+        }
+        
+        // Final recommendation
+        if (!result.isOverallSuccess()) {
+            logger.error("💥 Sync metadata failed!");
+            logger.error("🔧 Please address the failures above before proceeding.");
+            logger.error("💡 You can use --force to continue despite failures (not recommended).");
+        }
     }
 
     private void stopBalancers() {
@@ -1604,9 +1945,6 @@ public class ShardConfigSync implements Callable<Integer> {
 
             for (Document collectionInfo : db.listCollections()) {
                 String collectionName = (String) collectionInfo.get("name");
-                if (collectionName.endsWith(".create")) {
-                    continue;
-                }
 
                 Namespace ns = new Namespace(databaseName, collectionName);
                 if (config.filtered && !config.getIncludeNamespaces().contains(ns)) {
@@ -1696,10 +2034,17 @@ public class ShardConfigSync implements Callable<Integer> {
                     continue;
                 }
 
+                // Collect all collections once to avoid multiple listCollections() calls
+                Map<String, Document> allCollections = new HashMap<>();
                 for (Document collectionInfo : db.listCollections()) {
                     String collectionName = collectionInfo.getString("name");
+                    allCollections.put(collectionName, collectionInfo);
+                }
+
+                for (Document collectionInfo : allCollections.values()) {
+                    String collectionName = collectionInfo.getString("name");
                     String type = collectionInfo.getString("type");
-                    if (collectionName.endsWith(".create") || "view".equals(type)) {
+                    if ("view".equals(type)) {
                         continue;
                     }
                     Namespace ns = new Namespace(databaseName, collectionName);
@@ -1710,6 +2055,25 @@ public class ShardConfigSync implements Callable<Integer> {
 
                     Document info = (Document) collectionInfo.get("info");
                     UUID uuid = (UUID) info.get("uuid");
+                    
+                    // For timeseries view collections, we need to look up the UUID from the bucket collection
+                    if (uuid == null) {
+                        String bucketNamespace = TimeseriesUtil.viewToBucketNamespace(ns.getNamespace());
+                        // Only try this if the bucket namespace is different (i.e., this could be a timeseries view)
+                        if (!bucketNamespace.equals(ns.getNamespace())) {
+                            Namespace bucketNs = new Namespace(bucketNamespace);
+                            if (bucketNs.getDatabaseName().equals(databaseName)) {
+                                // Look up bucket collection from our already-collected data
+                                Document bucketCollectionInfo = allCollections.get(bucketNs.getCollectionName());
+                                if (bucketCollectionInfo != null) {
+                                    Document bucketInfoDoc = (Document) bucketCollectionInfo.get("info");
+                                    if (bucketInfoDoc != null) {
+                                        uuid = (UUID) bucketInfoDoc.get("uuid");
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     Map<UUID, Set<String>> uuidMapping = collectionUuidMappings.get(ns);
                     if (uuidMapping == null) {
@@ -1924,9 +2288,8 @@ public class ShardConfigSync implements Callable<Integer> {
             }
             
             // For timeseries bucket collections, create config entry for the view collection instead
-            if (ns.getCollectionName().startsWith("system.buckets.")) {
-                String viewCollectionName = ns.getCollectionName().substring("system.buckets.".length());
-                String viewNamespace = ns.getDatabaseName() + "." + viewCollectionName;
+            if (TimeseriesUtil.isBucketCollection(ns.getCollectionName())) {
+                String viewNamespace = TimeseriesUtil.bucketToViewNamespace(ns.getNamespace());
                 logger.debug("Converting bucket collection {} to view collection {} for config entry", ns, viewNamespace);
                 
                 // Create a modified collection document for the view collection
@@ -1948,6 +2311,10 @@ public class ShardConfigSync implements Callable<Integer> {
 
     private void shardDestinationCollectionsUsingShardCommand() {
         logger.debug("shardDestinationCollectionsUsingShardCommand(), non-privileged mode");
+        
+        List<String> shardingErrors = new ArrayList<>();
+        int totalCollections = 0;
+        int successfullySharded = 0;
 
         for (Document sourceColl : sourceShardClient.getCollectionsMap().values()) {
 
@@ -1958,18 +2325,38 @@ public class ShardConfigSync implements Callable<Integer> {
                 continue;
             }
             
-            // For timeseries bucket collections, shard the view collection instead
-            if (ns.getCollectionName().startsWith("system.buckets.")) {
-                String viewCollectionName = ns.getCollectionName().substring("system.buckets.".length());
-                String viewNamespace = ns.getDatabaseName() + "." + viewCollectionName;
-                logger.debug("Converting bucket collection {} to view collection {} for sharding", ns, viewNamespace);
+            // Skip bucket collections - they can't be sharded directly
+            if (TimeseriesUtil.isBucketCollection(ns.getCollectionName())) {
+                continue;
+            }
+            
+            totalCollections++;
+            
+            try {
                 
-                // Create a modified collection document for the view collection
-                Document viewCollectionDoc = new Document(sourceColl);
-                viewCollectionDoc.put("_id", viewNamespace);
-                shardCollection(viewCollectionDoc);
-            } else {
-                shardCollection(sourceColl);
+                // For timeseries collections, check if they have timeseriesFields
+                Document timeseriesFields = (Document) sourceColl.get("timeseriesFields");
+                if (timeseriesFields != null) {
+                    // For timeseries collections, the conversion logic is now handled in shardCollection method
+                    boolean success = shardCollection(sourceColl);
+                    if (success) {
+                        successfullySharded++;
+                        logger.debug("Successfully sharded timeseries collection: {}", nsStr);
+                    } else {
+                        shardingErrors.add("Failed to shard timeseries collection: " + nsStr);
+                    }
+                } else {
+                    boolean success = shardCollection(sourceColl);
+                    if (success) {
+                        successfullySharded++;
+                        logger.debug("Successfully sharded collection: {}", nsStr);
+                    } else {
+                        shardingErrors.add("Failed to shard collection: " + nsStr);
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Unexpected error sharding collection {}: {}", nsStr, e.getMessage());
+                shardingErrors.add("Unexpected error sharding collection " + nsStr + ": " + e.getMessage());
             }
 
             if ((boolean) sourceColl.get("noBalance", false)) {
@@ -1980,45 +2367,132 @@ public class ShardConfigSync implements Callable<Integer> {
                 logger.warn(String.format("Balancing is disabled for %s, this is not possible in Atlas", nsStr));
             }
         }
+        // Report sharding results
+        if (totalCollections > 0) {
+            if (shardingErrors.isEmpty()) {
+                logger.info("✅ Sharding completed successfully: {}/{} collections sharded", successfullySharded, totalCollections);
+            } else {
+                logger.error("❌ Sharding completed with errors: {}/{} collections sharded successfully", successfullySharded, totalCollections);
+                logger.error("Sharding failures:");
+                for (String error : shardingErrors) {
+                    logger.error("  - {}", error);
+                }
+                
+                // Store errors for later reporting in sync metadata summary
+                if (!shardingErrors.isEmpty()) {
+                    // We'll need to pass these errors up to the calling method
+                    throw new RuntimeException(String.format("Sharding failed for %d out of %d collections", 
+                            shardingErrors.size(), totalCollections));
+                }
+            }
+        } else {
+            logger.info("No collections found to shard");
+        }
+        
         logger.debug("shardDestinationCollectionsUsingShardCommand() complete");
         destShardClient.populateCollectionsMap(true);
     }
 
     /**
-     * Take the sourceColl as a "template" to shard on the destination side
-     *
-     * @param sourceColl
+     * Convert a bucket collection shard key to the equivalent view collection shard key
+     * for timeseries collections. In bucket collections, meta fields are stored as "meta",
+     * but in the view they need to use the actual meta field name.
      */
-    private Document shardCollection(ShardCollection sourceColl) {
-        Document shardCommand = new Document("shardCollection", sourceColl.getId());
-        shardCommand.append("key", sourceColl.getKey());
-
-        // apparently unique is not always correct here, there are cases where unique is
-        // false
-        // here but the underlying index is unique
-        shardCommand.append("unique", sourceColl.isUnique());
-        if (sourceColl.getDefaultCollation() != null) {
-            shardCommand.append("collation", LOCALE_SIMPLE);
+    private Document convertBucketShardKeyToViewShardKey(Document bucketShardKey, String viewNamespace) {
+        if (bucketShardKey == null) {
+            return null;
         }
-
-        Document result = null;
+        
         try {
-            result = destShardClient.adminCommand(shardCommand);
-        } catch (MongoCommandException mce) {
-            if (mce.getCode() == 20) {
-                logger.debug(String.format("Sharding already enabled for %s", sourceColl.getId()));
-            } else {
-                throw mce;
+            // Get the timeseries configuration for this view collection
+            String[] parts = viewNamespace.split("\\.", 2);
+            if (parts.length != 2) {
+                logger.warn("Invalid namespace format for timeseries conversion: {}", viewNamespace);
+                return bucketShardKey;
             }
+            
+            String dbName = parts[0];
+            String collectionName = parts[1];
+            
+            // Get the actual timeseries collection options from the source
+            MongoDatabase db = sourceShardClient.getMongoClient().getDatabase(dbName);
+            Document listCollectionsFilter = new Document("name", collectionName);
+            Document collectionInfo = db.listCollections().filter(listCollectionsFilter).first();
+            
+            if (collectionInfo == null) {
+                logger.warn("Could not find timeseries collection {} for shard key conversion", viewNamespace);
+                return bucketShardKey;
+            }
+            
+            Document options = collectionInfo.get("options", Document.class);
+            if (options == null) {
+                return bucketShardKey;
+            }
+            
+            Document tsDoc = options.get("timeseries", Document.class);
+            if (tsDoc == null) {
+                return bucketShardKey;
+            }
+            
+            String timeField = tsDoc.getString("timeField");
+            String metaField = tsDoc.getString("metaField");
+            
+            // Convert the shard key
+            Document convertedKey = new Document();
+            for (String key : bucketShardKey.keySet()) {
+                Object value = bucketShardKey.get(key);
+                
+                if ("meta".equals(key) && metaField != null) {
+                    // Convert "meta" to the actual meta field name
+                    convertedKey.put(metaField, value);
+                    logger.debug("Converted shard key field 'meta' to '{}' for timeseries view", metaField);
+                } else if (timeField != null && timeField.equals(key)) {
+                    // Keep time field as-is
+                    convertedKey.put(key, value);
+                } else {
+                    logger.warn("Unexpected shard key field '{}' for timeseries collection {}", key, viewNamespace);
+                    // Keep the original field for now
+                    convertedKey.put(key, value);
+                }
+            }
+            
+            return convertedKey;
+            
+        } catch (Exception e) {
+            logger.error("Error converting shard key for timeseries collection {}: {}", viewNamespace, e.getMessage());
+            return bucketShardKey; // Fallback to original key
         }
-        return result;
     }
 
-    private Document shardCollection(Document sourceColl) {
-        Document shardCommand = new Document("shardCollection", sourceColl.get("_id"));
-
-        Document key = (Document) sourceColl.get("key");
-        shardCommand.append("key", key);
+    private boolean shardCollection(Document sourceColl) {
+        String namespace = (String) sourceColl.get("_id");
+        
+        // Check if this is a timeseries collection and convert shard key if needed
+        Document originalKey = (Document) sourceColl.get("key");
+        Document shardKey = originalKey;
+        String targetNamespace = namespace;
+        
+        // Check if this collection has timeseriesFields (indicating it's a timeseries collection)
+        Document timeseriesFields = (Document) sourceColl.get("timeseriesFields");
+        if (timeseriesFields != null && originalKey != null && originalKey.containsKey("meta")) {
+            String metaField = timeseriesFields.getString("metaField");
+            if (metaField != null) {
+                // Convert meta shard key to the actual meta field name
+                Document convertedKey = new Document();
+                for (String key : originalKey.keySet()) {
+                    Object value = originalKey.get(key);
+                    if ("meta".equals(key)) {
+                        convertedKey.put(metaField, value);
+                    } else {
+                        convertedKey.put(key, value);
+                    }
+                }
+                shardKey = convertedKey;
+            }
+        }
+        
+        Document shardCommand = new Document("shardCollection", targetNamespace);
+        shardCommand.append("key", shardKey);
 
         // apparently unique is not always correct here, there are cases where unique is
         // false
@@ -2026,7 +2500,7 @@ public class ShardConfigSync implements Callable<Integer> {
         shardCommand.append("unique", sourceColl.get("unique"));
 
         boolean hashed = false;
-        Object key1 = key.values().iterator().next();
+        Object key1 = shardKey.values().iterator().next();
         if ("hashed".equals(key1)) {
         	hashed = true;
             shardCommand.append("numInitialChunks", 1);
@@ -2039,42 +2513,16 @@ public class ShardConfigSync implements Callable<Integer> {
         Document result = null;
         try {
             result = destShardClient.adminCommand(shardCommand);
+            return true; // Success
         } catch (MongoCommandException mce) {
             if (mce.getCode() == 20) {
                 logger.debug(String.format("Sharding already enabled for %s", sourceColl.get("_id")));
+                return true; // Already sharded counts as success
             } else {
-                logger.error(String.format("Error sharding collection %s", sourceColl.get("_id")));
-                //throw mce;
+                logger.error(String.format("Error sharding collection %s: %s", sourceColl.get("_id"), mce.getMessage()));
+                return false; // Failure
             }
         }
-        
-        if (destShardClient.isVersion8OrLater() && hashed && destShardClient.getShardsMap().size() > 1) {
-        	String namespace = (String) sourceColl.get("_id");
-        	Shard firstShard = destShardClient.getShardsMap().values().iterator().next();
-        	String firstShardId = firstShard.getId();
-        	
-        	logger.debug("MongoDB 8+ hashed collection detected: {}. Moving all chunks to shard: {}", 
-        			namespace, firstShardId);
-        	
-        	// Collection should exist since we just sharded it above, but check collections map is current
-        	destShardClient.populateCollectionsMap(true);
-        	
-        	if (!destShardClient.getCollectionsMap().containsKey(namespace)) {
-        		logger.error("Collection {} not found in collections map after sharding - this should not happen", namespace);
-        		throw new IllegalStateException("Collection " + namespace + " not found after sharding");
-        	}
-        	
-        	// Step 1: Move all chunks for this namespace to the first shard
-        	moveAllChunksForNamespace(namespace, firstShardId);
-        	
-        	// Step 2: Merge all chunks for this namespace into a single chunk
-        	mergeAllChunksForNamespace(namespace);
-        	
-        	logger.info("Successfully consolidated chunks for hashed collection {} on shard {}", 
-        			namespace, firstShardId);
-        }
-        
-        return result;
     }
     
     /**
@@ -2193,9 +2641,8 @@ public class ShardConfigSync implements Callable<Integer> {
             
             // For timeseries bucket collections, compare with the view collection instead
             String compareNamespace = nsStr;
-            if (ns.getCollectionName().startsWith("system.buckets.")) {
-                String viewCollectionName = ns.getCollectionName().substring("system.buckets.".length());
-                compareNamespace = ns.getDatabaseName() + "." + viewCollectionName;
+            if (TimeseriesUtil.isBucketCollection(ns.getCollectionName())) {
+                compareNamespace = TimeseriesUtil.bucketToViewNamespace(nsStr);
                 logger.debug("Converting bucket collection {} to view collection {} for comparison", ns, compareNamespace);
             }
 
@@ -2206,8 +2653,12 @@ public class ShardConfigSync implements Callable<Integer> {
                         + sourceColl.get("key"));
                 if (sync) {
                     try {
-                        Document result = shardCollection(sourceColl);
-                        logger.debug("Sharded: " + result);
+                        boolean success = shardCollection(sourceColl);
+                        if (success) {
+                            logger.debug("Successfully sharded collection: {}", sourceColl.get("_id"));
+                        } else {
+                            logger.error("Failed to shard collection: {}", sourceColl.get("_id"));
+                        }
                     } catch (MongoCommandException mce) {
                         logger.error("Error sharding", mce);
                     }
@@ -2518,6 +2969,10 @@ public class ShardConfigSync implements Callable<Integer> {
 
             mongomirror.setNumParallelCollections(config.numParallelCollections);
             mongomirror.setHttpStatusPort(httpStatusPort++);
+            
+            if (config.mongomirrorLogPath != null) {
+                mongomirror.setLogPath(config.mongomirrorLogPath);
+            }
 
             setMongomirrorEmailReportDetails(mongomirror);
 
@@ -2695,6 +3150,14 @@ public class ShardConfigSync implements Callable<Integer> {
             if (config.collStatsThreshold != null) {
                 mongomirror.setCollStatsThreshold(config.collStatsThreshold);
             }
+            if (config.verbose != null) {
+                mongomirror.setVerbose(config.verbose);
+            }
+            
+            if (config.mongomirrorLogPath != null) {
+                mongomirror.setLogPath(config.mongomirrorLogPath);
+            }
+            
             setMongomirrorEmailReportDetails(mongomirror);
 
             mongomirror.execute(config.dryRun);

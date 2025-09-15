@@ -2,6 +2,7 @@ package com.mongodb.shardsync.command.sync;
 
 import com.mongodb.shardsync.ShardConfigSync;
 import com.mongodb.shardsync.SyncConfiguration;
+import com.mongodb.shardsync.SyncMetadataResult;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -39,16 +40,28 @@ public class SyncMetadataCommand implements Callable<Integer> {
         ShardConfigSync sync = new ShardConfigSync(config);
         sync.initialize();
         
-        boolean success = true;
+        SyncMetadataResult result;
         
         if (legacy) {
-            success = sync.syncMetadataLegacy(force);
+            result = sync.syncMetadataLegacy(force);
         } else if (skipOptimizeAdjacent) {
-        	success = sync.syncMetadata(force);
+        	result = sync.syncMetadata(force);
         } else {
-        	success = sync.syncMetadataOptimized(force);
+        	result = sync.syncMetadataOptimized(force);
         }
         
-        return success ? 0 : 1;
+        // Return proper exit codes based on results
+        if (result.isOverallSuccess()) {
+            if (result.hasWarnings()) {
+                // Success with warnings - exit code 0 but user should review warnings
+                return 0;
+            } else {
+                // Complete success
+                return 0;
+            }
+        } else {
+            // Failure - exit code 1
+            return 1;
+        }
     }
 }

@@ -274,6 +274,16 @@ public class ShardConfigSyncApp implements Callable<Integer> {
         if (mongoCmd.getStopWhenLagWithin() != null) {
             config.setStopWhenLagWithin(Integer.parseInt(mongoCmd.getStopWhenLagWithin()));
         }
+        
+        // Handle verbose option - if specified but no value given, default to 3
+        if (mongoCmd.getVerbose() != null) {
+            config.setVerbose(mongoCmd.getVerbose());
+        }
+        
+        // Set mongomirror log path if provided
+        if (mongoCmd.getMongomirrorLogPath() != null) {
+            config.setMongomirrorLogPath(mongoCmd.getMongomirrorLogPath());
+        }
 
         initMongoMirrorEmailReportConfig(config, mongoCmd);
 

@@ -18,8 +18,12 @@ public class CompareChunksCommand implements Callable<Integer> {
     private CompareCommand parent;
     
     @Option(names = {"--equivalent"}, 
-            description = "Check for chunk equivalence")
+            description = "Check for chunk equivalence (default behavior)")
     private boolean equivalent;
+    
+    @Option(names = {"--strict"}, 
+            description = "Use strict chunk comparison (mutually exclusive with --equivalent)")
+    private boolean strict;
     
     @Option(names = {"--counts"}, 
             description = "Compare chunk counts only")
@@ -31,6 +35,12 @@ public class CompareChunksCommand implements Callable<Integer> {
     
     @Override
     public Integer call() throws Exception {
+        // Validate mutually exclusive options
+        if (equivalent && strict) {
+            System.err.println("Error: --equivalent and --strict are mutually exclusive");
+            return 1;
+        }
+        
         SyncConfiguration config = parent.createConfiguration();
         ShardConfigSync sync = new ShardConfigSync(config);
         sync.initialize();
@@ -38,15 +48,17 @@ public class CompareChunksCommand implements Callable<Integer> {
         if (counts) {
             boolean success = sync.compareChunkCounts();
             return success ? 0 : 1;
-        } else if (equivalent) {
-            boolean isEquivalent = sync.compareChunksEquivalent();
-            return isEquivalent ? 0 : 1;  // Return 0 for success, 1 for failure
         } else if (move) {
             boolean success = sync.compareAndMoveChunks(true, false);
             return success ? 0 : 1;  // Return 0 for success, 1 for failure
-        } else {
+        } else if (strict) {
+            // Use strict comparison
             boolean success = sync.compareChunks();
             return success ? 0 : 1;  // Return 0 for success, 1 for failure
+        } else {
+            // Default behavior: equivalent comparison (whether --equivalent is specified or not)
+            boolean isEquivalent = sync.compareChunksEquivalent();
+            return isEquivalent ? 0 : 1;  // Return 0 for success, 1 for failure
         }
     }
 }
