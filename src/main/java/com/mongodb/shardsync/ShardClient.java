@@ -1973,8 +1973,8 @@ public class ShardClient {
 			
 			// For timeseries bucket collections, calculate split vector for the view collection instead
 			String targetNamespace = nsStr;
-			if (ns.getCollectionName().startsWith("system.buckets.")) {
-				String viewCollectionName = ns.getCollectionName().substring("system.buckets.".length());
+			if (TimeseriesUtil.isBucketCollection(ns.getCollectionName())) {
+				String viewCollectionName = TimeseriesUtil.bucketToViewCollectionName(ns.getCollectionName());
 				targetNamespace = ns.getDatabaseName() + "." + viewCollectionName;
 				logger.debug("Converting bucket collection {} to view collection {} for split vector", ns, targetNamespace);
 			}

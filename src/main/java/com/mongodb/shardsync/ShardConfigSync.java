@@ -296,16 +296,30 @@ public class ShardConfigSync implements Callable<Integer> {
         
         Document tsDoc = options.get("timeseries", Document.class);
         if (tsDoc != null) {
-        	TimeSeriesGranularity granularity = TimeSeriesGranularity.valueOf(tsDoc.getString("granularity").toUpperCase());
+        	String granularityStr = tsDoc.getString("granularity");
+        	TimeSeriesGranularity granularity = null;
+        	if (granularityStr != null) {
+        		granularity = TimeSeriesGranularity.valueOf(granularityStr.toUpperCase());
+        	}
+
         	Number bucketMaxSpanSeconds = tsDoc.get("bucketMaxSpanSeconds", Number.class);
+        	Number bucketRoundingSeconds = tsDoc.get("bucketRoundingSeconds", Number.class);
+
         	TimeSeriesOptions timeSeriesOptions = new TimeSeriesOptions(tsDoc.getString("timeField"))
                     .metaField(tsDoc.getString("metaField"));
-                    
+
         	if (granularity != null) {
         		timeSeriesOptions.granularity(granularity);
-        	} else if (bucketMaxSpanSeconds != null) {
+        	}
+
+        	if (bucketMaxSpanSeconds != null) {
         		timeSeriesOptions.bucketMaxSpan(bucketMaxSpanSeconds.longValue(), TimeUnit.SECONDS);
         	}
+
+        	if (bucketRoundingSeconds != null) {
+        		timeSeriesOptions.bucketRounding(bucketRoundingSeconds.longValue(), TimeUnit.SECONDS);
+        	}
+
         	opts.timeSeriesOptions(timeSeriesOptions);
         }
         
@@ -2333,23 +2347,17 @@ public class ShardConfigSync implements Callable<Integer> {
             totalCollections++;
             
             try {
-                
-                // For timeseries collections, check if they have timeseriesFields
-                Document timeseriesFields = (Document) sourceColl.get("timeseriesFields");
-                if (timeseriesFields != null) {
-                    // For timeseries collections, the conversion logic is now handled in shardCollection method
-                    boolean success = shardCollection(sourceColl);
-                    if (success) {
-                        successfullySharded++;
+                boolean success = shardCollection(sourceColl);
+                if (success) {
+                    successfullySharded++;
+                    if (TimeseriesUtil.isBucketNamespace(nsStr)) {
                         logger.debug("Successfully sharded timeseries collection: {}", nsStr);
                     } else {
-                        shardingErrors.add("Failed to shard timeseries collection: " + nsStr);
+                        logger.debug("Successfully sharded collection: {}", nsStr);
                     }
                 } else {
-                    boolean success = shardCollection(sourceColl);
-                    if (success) {
-                        successfullySharded++;
-                        logger.debug("Successfully sharded collection: {}", nsStr);
+                    if (TimeseriesUtil.isBucketNamespace(nsStr)) {
+                        shardingErrors.add("Failed to shard timeseries collection: " + nsStr);
                     } else {
                         shardingErrors.add("Failed to shard collection: " + nsStr);
                     }
@@ -2466,31 +2474,17 @@ public class ShardConfigSync implements Callable<Integer> {
 
     private boolean shardCollection(Document sourceColl) {
         String namespace = (String) sourceColl.get("_id");
-        
-        // Check if this is a timeseries collection and convert shard key if needed
-        Document originalKey = (Document) sourceColl.get("key");
-        Document shardKey = originalKey;
+
+        // For timeseries collections, MongoDB stores the bucket collection in config.collections
+        // but we need to shard the view collection instead
         String targetNamespace = namespace;
-        
-        // Check if this collection has timeseriesFields (indicating it's a timeseries collection)
-        Document timeseriesFields = (Document) sourceColl.get("timeseriesFields");
-        if (timeseriesFields != null && originalKey != null && originalKey.containsKey("meta")) {
-            String metaField = timeseriesFields.getString("metaField");
-            if (metaField != null) {
-                // Convert meta shard key to the actual meta field name
-                Document convertedKey = new Document();
-                for (String key : originalKey.keySet()) {
-                    Object value = originalKey.get(key);
-                    if ("meta".equals(key)) {
-                        convertedKey.put(metaField, value);
-                    } else {
-                        convertedKey.put(key, value);
-                    }
-                }
-                shardKey = convertedKey;
-            }
+        if (TimeseriesUtil.isBucketNamespace(namespace)) {
+            targetNamespace = TimeseriesUtil.bucketToViewNamespace(namespace);
+            logger.debug("Converting bucket collection {} to view collection {} for sharding", namespace, targetNamespace);
         }
-        
+
+        Document shardKey = (Document) sourceColl.get("key");
+
         Document shardCommand = new Document("shardCollection", targetNamespace);
         shardCommand.append("key", shardKey);
 
