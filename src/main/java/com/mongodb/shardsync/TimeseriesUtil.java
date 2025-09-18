@@ -33,8 +33,12 @@ public class TimeseriesUtil {
      * Convert a bucket collection name to its view collection name.
      * @param bucketCollectionName The bucket collection name (e.g., "system.buckets.metrics")
      * @return The view collection name (e.g., "metrics")
+     * @throws IllegalArgumentException if bucketCollectionName is null or empty
      */
     public static String bucketToViewCollectionName(String bucketCollectionName) {
+        if (bucketCollectionName == null || bucketCollectionName.isEmpty()) {
+            throw new IllegalArgumentException("Collection name cannot be null or empty");
+        }
         if (!isBucketCollection(bucketCollectionName)) {
             return bucketCollectionName;
         }
@@ -45,8 +49,12 @@ public class TimeseriesUtil {
      * Convert a view collection name to its bucket collection name.
      * @param viewCollectionName The view collection name (e.g., "metrics")
      * @return The bucket collection name (e.g., "system.buckets.metrics")
+     * @throws IllegalArgumentException if viewCollectionName is null or empty
      */
     public static String viewToBucketCollectionName(String viewCollectionName) {
+        if (viewCollectionName == null || viewCollectionName.isEmpty()) {
+            throw new IllegalArgumentException("Collection name cannot be null or empty");
+        }
         if (isBucketCollection(viewCollectionName)) {
             return viewCollectionName;
         }
@@ -57,14 +65,18 @@ public class TimeseriesUtil {
      * Convert a bucket namespace to its view namespace.
      * @param bucketNamespace The bucket namespace (e.g., "db.system.buckets.metrics")
      * @return The view namespace (e.g., "db.metrics")
+     * @throws IllegalArgumentException if bucketNamespace is null, empty, or malformed
      */
     public static String bucketToViewNamespace(String bucketNamespace) {
+        if (bucketNamespace == null || bucketNamespace.isEmpty()) {
+            throw new IllegalArgumentException("Namespace cannot be null or empty");
+        }
         if (!isBucketNamespace(bucketNamespace)) {
             return bucketNamespace;
         }
         String[] parts = bucketNamespace.split("\\.", 2);
         if (parts.length != 2) {
-            return bucketNamespace;
+            throw new IllegalArgumentException("Invalid namespace format: " + bucketNamespace);
         }
         return parts[0] + "." + bucketToViewCollectionName(parts[1]);
     }
@@ -73,14 +85,18 @@ public class TimeseriesUtil {
      * Convert a view namespace to its bucket namespace.
      * @param viewNamespace The view namespace (e.g., "db.metrics")
      * @return The bucket namespace (e.g., "db.system.buckets.metrics")
+     * @throws IllegalArgumentException if viewNamespace is null, empty, or malformed
      */
     public static String viewToBucketNamespace(String viewNamespace) {
+        if (viewNamespace == null || viewNamespace.isEmpty()) {
+            throw new IllegalArgumentException("Namespace cannot be null or empty");
+        }
         if (isBucketNamespace(viewNamespace)) {
             return viewNamespace;
         }
         String[] parts = viewNamespace.split("\\.", 2);
         if (parts.length != 2) {
-            return viewNamespace;
+            throw new IllegalArgumentException("Invalid namespace format: " + viewNamespace);
         }
         return parts[0] + "." + viewToBucketCollectionName(parts[1]);
     }
