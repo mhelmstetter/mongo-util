@@ -29,6 +29,11 @@ import com.mongodb.shardsync.SyncConfiguration;
 
 import jakarta.mail.internet.AddressException;
 
+/**
+ * Monitors MongoDB clusters for schema changes including collection additions/removals
+ * and optionally collection UUID mismatches between source and destination clusters.
+ * Sends email notifications when changes are detected.
+ */
 public class SchemaChangeWatcher {
 	
 	

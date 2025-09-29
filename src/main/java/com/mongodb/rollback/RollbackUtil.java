@@ -49,6 +49,10 @@ import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
 import com.opencsv.CSVWriter;
 
+/**
+ * Utility for analyzing MongoDB rollback files. Exports collection UUID mappings from a live cluster
+ * and processes rollback BSON files to identify rolled back documents and their source collections.
+ */
 public class RollbackUtil {
 
 	private static final Logger logger = LoggerFactory.getLogger(RollbackUtil.class);

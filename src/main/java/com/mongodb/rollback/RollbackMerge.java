@@ -14,6 +14,10 @@ import org.bson.BSONObject;
 import org.bson.BasicBSONDecoder;
 import org.bson.BasicBSONEncoder;
 
+/**
+ * Filters MongoDB rollback BSON files to extract specific operations.
+ * Processes rollback files and writes filtered output containing only operations with opcode 2004.
+ */
 public class RollbackMerge {
 
     private final BasicBSONEncoder encoder;

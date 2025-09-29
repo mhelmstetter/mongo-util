@@ -36,6 +36,10 @@ import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.ParseResult;
 import picocli.CommandLine.PropertiesDefaultProvider;
 
+/**
+ * Utility for comparing MongoDB database hashes between source and destination clusters.
+ * Performs parallel dbHash operations across shards to verify data consistency during migrations.
+ */
 @Command(name = "dbHashUtil", mixinStandardHelpOptions = true, version = "dbHashUtil 0.1", description = "MongoDB dbHash utility", defaultValueProvider = PropertiesDefaultProvider.class)
 public class DbHashUtil implements Callable<Integer> {
 
