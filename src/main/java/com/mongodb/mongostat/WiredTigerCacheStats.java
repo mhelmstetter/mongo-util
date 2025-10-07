@@ -148,10 +148,10 @@ public class WiredTigerCacheStats {
     }
     
     public double getDirtyFillRatio() {
-        if (currentCacheBytes == null || currentCacheBytes == 0 || dirtyBytes == null) {
+        if (maxCacheBytes == null || maxCacheBytes == 0 || dirtyBytes == null) {
             return 0.0;
         }
-        return (double) dirtyBytes / currentCacheBytes;
+        return (double) dirtyBytes / maxCacheBytes;
     }
     
     public double getCacheUtilization() {

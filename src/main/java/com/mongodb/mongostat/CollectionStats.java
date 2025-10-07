@@ -114,10 +114,10 @@ public class CollectionStats {
     }
     
     public double getDirtyFillRatio() {
-        if (cacheCurrentBytes == null || cacheCurrentBytes == 0 || cacheDirtyBytes == null) {
+        if (cacheMaxBytes == null || cacheMaxBytes == 0 || cacheDirtyBytes == null) {
             return 0.0;
         }
-        return (double) cacheDirtyBytes / cacheCurrentBytes;
+        return (double) cacheDirtyBytes / cacheMaxBytes;
     }
     
     // Getters
