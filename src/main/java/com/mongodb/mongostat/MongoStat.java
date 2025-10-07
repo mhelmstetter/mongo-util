@@ -285,8 +285,35 @@ public class MongoStat {
         }
     }
     
+    private int maxShardWidth = 20;
+    private int maxCollectionWidth = 50;
+
+    private void calculateColumnWidths() {
+        maxShardWidth = 20;  // minimum width
+        maxCollectionWidth = 50;  // minimum width
+
+        // Find max shard name width
+        for (String shardName : shardClients.keySet()) {
+            if (shardName != null && shardName.length() > maxShardWidth) {
+                maxShardWidth = shardName.length();
+            }
+        }
+
+        // Find max collection name width
+        for (Map<String, CollectionStats> shardStats : collectionStats.values()) {
+            if (shardStats != null) {
+                for (String namespace : shardStats.keySet()) {
+                    if (namespace != null && namespace.length() > maxCollectionWidth) {
+                        maxCollectionWidth = namespace.length();
+                    }
+                }
+            }
+        }
+    }
+
     private void printDetailedHeader() {
-        System.out.printf("%-8s %-20s %-38s %6s %6s %6s %6s %8s %8s %8s %8s %8s %8s %7s%n",
+        calculateColumnWidths();
+        System.out.printf("%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8s %8s %8s %8s %8s %8s %7s%n",
                 "Time", "Shard", "Collection", "ins", "qry", "upd", "del", "dataGB", "idxGB", "cacheMB", "dirtyMB", "readMB", "writMB", "dirty%");
         lineCount = 0;
     }
@@ -383,7 +410,8 @@ public class MongoStat {
         }
         
         // Print shard summary line
-        System.out.printf("%-8s %-20s %-38s %6s %6s %6s %6s %8.1f %8.1f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n",
+        String format = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.1f %8.1f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n";
+        System.out.printf(format,
                 timestamp, shard, "[SHARD TOTAL]",
                 status.getCurrentInserts(), status.getCurrentQueries(),
                 status.getCurrentUpdates(), status.getCurrentDeletes(),
@@ -396,8 +424,9 @@ public class MongoStat {
         
         // Print collection details if available
         if (shardCollStats != null && !shardCollStats.isEmpty()) {
+            String collFormat = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n";
             for (CollectionStats cs : shardCollStats.values()) {
-                System.out.printf("%-8s %-20s %-38s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n",
+                System.out.printf(collFormat,
                         timestamp, shard, cs.getNamespace(),
                         "-", "-", "-", "-",
                         cs.getDataSize() != null ? cs.getDataSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
