@@ -251,15 +251,21 @@ public class MongoStat {
         try {
             MongoIterable<String> databaseNames = client.listDatabaseNames();
             Map<String, CollectionStats> shardCollStats = collectionStats.get(shardName);
-            
+
+            logger.debug("Starting collection stats update for shard {}", shardName);
+            int dbCount = 0;
+            int collCount = 0;
+
             for (String dbName : databaseNames) {
                 if ("admin".equals(dbName) || "config".equals(dbName) || "local".equals(dbName)) {
                     continue;
                 }
-                
+                dbCount++;
+
                 MongoIterable<String> collectionNames = client.getDatabase(dbName).listCollectionNames();
                 for (String collName : collectionNames) {
                     String namespace = dbName + "." + collName;
+                    collCount++;
                     
                     CollectionStats collStats = shardCollStats.computeIfAbsent(namespace, 
                             k -> new CollectionStats(namespace, shardName));
@@ -273,6 +279,7 @@ public class MongoStat {
                     }
                 }
             }
+            logger.warn("Collection stats update complete for shard {}: {} databases, {} collections", shardName, dbCount, collCount);
         } catch (Exception e) {
             logger.error("Error updating collection stats for shard " + shardName, e);
         }
