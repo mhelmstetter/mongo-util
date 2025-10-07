@@ -252,6 +252,10 @@ public class MongoStat {
             MongoIterable<String> databaseNames = client.listDatabaseNames();
             Map<String, CollectionStats> shardCollStats = collectionStats.get(shardName);
 
+            // Get server max cache bytes from WiredTiger stats
+            WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
+            Long serverMaxCacheBytes = wtStats != null ? wtStats.getMaxCacheBytes() : null;
+
             logger.debug("Starting collection stats update for shard {}", shardName);
             int dbCount = 0;
             int collCount = 0;
@@ -266,10 +270,13 @@ public class MongoStat {
                 for (String collName : collectionNames) {
                     String namespace = dbName + "." + collName;
                     collCount++;
-                    
-                    CollectionStats collStats = shardCollStats.computeIfAbsent(namespace, 
+
+                    CollectionStats collStats = shardCollStats.computeIfAbsent(namespace,
                             k -> new CollectionStats(namespace, shardName));
-                    
+
+                    // Set server max cache bytes for dirty% calculation
+                    collStats.setServerMaxCacheBytes(serverMaxCacheBytes);
+
                     try {
                         Document collStatsDoc = client.getDatabase(dbName)
                                 .runCommand(new Document("collStats", collName));
@@ -429,12 +436,18 @@ public class MongoStat {
         if (shardCollStats != null && !shardCollStats.isEmpty()) {
             String collFormat = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n";
             for (CollectionStats cs : shardCollStats.values()) {
+                // Skip collections with zero cache
+                double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+                if (cacheMB == 0.0) {
+                    continue;
+                }
+
                 System.out.printf(collFormat,
                         timestamp, shard, cs.getNamespace(),
                         "-", "-", "-", "-",
                         cs.getDataSize() != null ? cs.getDataSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
                         cs.getIndexSize() != null ? cs.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
-                        cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0,
+                        cacheMB,
                         cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
                         cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
                         cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,

@@ -27,7 +27,10 @@ public class CollectionStats {
     private Long cachePagesWritten;
     private Long cacheBytesRead;
     private Long cacheBytesWritten;
-    
+
+    // Server-level max cache for dirty% calculation
+    private Long serverMaxCacheBytes;
+
     // Previous values for delta calculation
     private CollectionStats previous;
     
@@ -114,11 +117,15 @@ public class CollectionStats {
     }
     
     public double getDirtyFillRatio() {
-        // For collections, use current cache bytes as denominator since max bytes is server-wide
-        if (cacheCurrentBytes == null || cacheCurrentBytes == 0 || cacheDirtyBytes == null) {
+        // Calculate dirty bytes as percentage of server's total max cache
+        if (serverMaxCacheBytes == null || serverMaxCacheBytes == 0 || cacheDirtyBytes == null) {
             return 0.0;
         }
-        return (double) cacheDirtyBytes / cacheCurrentBytes;
+        return (double) cacheDirtyBytes / serverMaxCacheBytes;
+    }
+
+    public void setServerMaxCacheBytes(Long serverMaxCacheBytes) {
+        this.serverMaxCacheBytes = serverMaxCacheBytes;
     }
     
     // Getters
