@@ -286,11 +286,14 @@ public class MongoStat {
     }
     
     private int maxShardWidth = 20;
-    private int maxCollectionWidth = 50;
+    private int maxCollectionWidth = 60;
 
     private void calculateColumnWidths() {
-        maxShardWidth = 20;  // minimum width
-        maxCollectionWidth = 50;  // minimum width
+        int minShardWidth = 20;
+        int minCollectionWidth = 60;
+
+        maxShardWidth = minShardWidth;
+        maxCollectionWidth = minCollectionWidth;
 
         // Find max shard name width
         for (String shardName : shardClients.keySet()) {
