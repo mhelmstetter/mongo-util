@@ -269,7 +269,7 @@ public class MongoStat {
                                 .runCommand(new Document("collStats", collName));
                         collStats.updateFromCollStats(collStatsDoc);
                     } catch (Exception e) {
-                        logger.debug("Error getting collStats for " + namespace + " on shard " + shardName, e);
+                        logger.warn("Error getting collStats for {} on shard {}: {}", namespace, shardName, e.getMessage());
                     }
                 }
             }
@@ -279,7 +279,7 @@ public class MongoStat {
     }
     
     private void printDetailedHeader() {
-        System.out.printf("%-8s %-12s %-35s %6s %6s %6s %6s %8s %8s %8s %8s %8s %8s %7s%n",
+        System.out.printf("%-8s %-20s %-38s %6s %6s %6s %6s %8s %8s %8s %8s %8s %8s %7s%n",
                 "Time", "Shard", "Collection", "ins", "qry", "upd", "del", "dataGB", "idxGB", "cacheMB", "dirtyMB", "readMB", "writMB", "dirty%");
         lineCount = 0;
     }
@@ -376,9 +376,9 @@ public class MongoStat {
         }
         
         // Print shard summary line
-        System.out.printf("%-8s %-12s %-35s %6s %6s %6s %6s %8.1f %8.1f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n",
+        System.out.printf("%-8s %-20s %-38s %6s %6s %6s %6s %8.1f %8.1f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n",
                 timestamp, shard, "[SHARD TOTAL]",
-                status.getCurrentInserts(), status.getCurrentQueries(), 
+                status.getCurrentInserts(), status.getCurrentQueries(),
                 status.getCurrentUpdates(), status.getCurrentDeletes(),
                 0.0, 0.0,
                 wtStats != null ? wtStats.getCurrentCacheBytes() / 1024.0 / 1024.0 : 0.0,
@@ -390,7 +390,7 @@ public class MongoStat {
         // Print collection details if available
         if (shardCollStats != null && !shardCollStats.isEmpty()) {
             for (CollectionStats cs : shardCollStats.values()) {
-                System.out.printf("%-8s %-12s %-35s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n",
+                System.out.printf("%-8s %-20s %-38s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n",
                         timestamp, shard, cs.getNamespace(),
                         "-", "-", "-", "-",
                         cs.getDataSize() != null ? cs.getDataSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
@@ -402,6 +402,8 @@ public class MongoStat {
                         cs.getDirtyFillRatio() * 100);
                 lineCount++;
             }
+        } else {
+            logger.warn("No collection stats available for shard {} - map is {}", shard, shardCollStats != null ? "empty" : "null");
         }
     }
     
