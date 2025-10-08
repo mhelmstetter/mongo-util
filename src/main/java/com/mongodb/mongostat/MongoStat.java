@@ -293,11 +293,11 @@ public class MongoStat {
     }
     
     private int maxShardWidth = 20;
-    private int maxCollectionWidth = 60;
+    private int maxCollectionWidth = 80;
 
     private void calculateColumnWidths() {
         int minShardWidth = 20;
-        int minCollectionWidth = 60;
+        int minCollectionWidth = 80;
 
         maxShardWidth = minShardWidth;
         maxCollectionWidth = minCollectionWidth;
@@ -435,25 +435,35 @@ public class MongoStat {
         // Print collection details if available
         if (shardCollStats != null && !shardCollStats.isEmpty()) {
             String collFormat = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n";
-            for (CollectionStats cs : shardCollStats.values()) {
-                // Skip collections with zero cache
-                double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
-                if (cacheMB == 0.0) {
-                    continue;
-                }
 
-                System.out.printf(collFormat,
-                        timestamp, shard, cs.getNamespace(),
-                        "-", "-", "-", "-",
-                        cs.getDataSize() != null ? cs.getDataSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
-                        cs.getIndexSize() != null ? cs.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
-                        cacheMB,
-                        cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
-                        cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
-                        cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
-                        cs.getDirtyFillRatio() * 100);
-                lineCount++;
-            }
+            // Sort collections by cacheMB descending
+            shardCollStats.values().stream()
+                .sorted((cs1, cs2) -> {
+                    double cache1 = cs1.getCacheCurrentBytes() != null ? cs1.getCacheCurrentBytes() : 0L;
+                    double cache2 = cs2.getCacheCurrentBytes() != null ? cs2.getCacheCurrentBytes() : 0L;
+                    return Double.compare(cache2, cache1);
+                })
+                .forEach(cs -> {
+                    // Calculate display value
+                    double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+
+                    // Skip collections where display value would be 0.0 (less than 0.05 MB)
+                    if (cacheMB < 0.05) {
+                        return;
+                    }
+
+                    System.out.printf(collFormat,
+                            timestamp, shard, cs.getNamespace(),
+                            "-", "-", "-", "-",
+                            cs.getDataSize() != null ? cs.getDataSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
+                            cs.getIndexSize() != null ? cs.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
+                            cacheMB,
+                            cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
+                            cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
+                            cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
+                            cs.getDirtyFillRatio() * 100);
+                    lineCount++;
+                });
         } else {
             logger.warn("No collection stats available for shard {} - map is {}", shard, shardCollStats != null ? "empty" : "null");
         }
