@@ -87,12 +87,6 @@ public class CollectionStats {
                         k -> new IndexStats(indexName, namespace, shardName));
                 idxStats.setServerMaxCacheBytes(serverMaxCacheBytes);
                 idxStats.updateFromIndexDetails(indexDetail, indexSizeValue);
-
-                // Debug first index only
-                if (indexStats.size() == 1) {
-                    logger.warn("Index {} stats - dirtyBytes: {}, currentBytes: {}, serverMax: {}",
-                            indexName, idxStats.getCacheDirtyBytes(), idxStats.getCacheCurrentBytes(), serverMaxCacheBytes);
-                }
             }
         }
     }

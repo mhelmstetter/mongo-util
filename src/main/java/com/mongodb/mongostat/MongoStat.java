@@ -286,28 +286,6 @@ public class MongoStat {
                         Document collStatsCommand = new Document("collStats", collName);
                         Document collStatsDoc = client.getDatabase(dbName)
                                 .runCommand(collStatsCommand);
-
-                        // Debug: check if indexDetails are in the response for first collection only
-                        if (collCount == 1) {
-                            logger.warn("Sample collStats response for {}: has indexDetails={}, has indexSizes={}",
-                                    namespace,
-                                    collStatsDoc.containsKey("indexDetails"),
-                                    collStatsDoc.containsKey("indexSizes"));
-                            if (collStatsDoc.containsKey("indexDetails")) {
-                                Document indexDetails = (Document) collStatsDoc.get("indexDetails");
-                                logger.warn("indexDetails has {} indexes", indexDetails.keySet().size());
-                                // Log first index details
-                                String firstIndexName = indexDetails.keySet().iterator().next();
-                                Document firstIndex = (Document) indexDetails.get(firstIndexName);
-                                logger.warn("First index '{}' has cache section: {}",
-                                        firstIndexName, firstIndex.containsKey("cache"));
-                                if (firstIndex.containsKey("cache")) {
-                                    Document cache = (Document) firstIndex.get("cache");
-                                    logger.warn("Cache keys: {}", cache.keySet());
-                                }
-                            }
-                        }
-
                         collStats.updateFromCollStats(collStatsDoc);
                         successCount++;
                     } catch (Exception e) {
