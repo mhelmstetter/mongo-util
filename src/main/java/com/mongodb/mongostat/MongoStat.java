@@ -280,9 +280,10 @@ public class MongoStat {
                     collStats.setServerMaxCacheBytes(serverMaxCacheBytes);
 
                     try {
-                        // Always request indexDetails to collect index cache stats
-                        Document collStatsCommand = new Document("collStats", collName)
-                                .append("indexDetails", true);
+                        // Call collStats - indexDetails are included in response by default if supported
+                        // The indexDetails parameter is NOT a command parameter, it's just used by the shell
+                        // to filter the response. We always get the full response.
+                        Document collStatsCommand = new Document("collStats", collName);
                         Document collStatsDoc = client.getDatabase(dbName)
                                 .runCommand(collStatsCommand);
                         collStats.updateFromCollStats(collStatsDoc);
