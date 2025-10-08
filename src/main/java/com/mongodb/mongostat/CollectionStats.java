@@ -6,16 +6,16 @@ import java.util.Map;
 import org.bson.Document;
 
 public class CollectionStats {
-    
+
     private String namespace;
     private String shardName;
-    
+
     // Per-shard collection stats
     private Long dataSize;
     private Long indexSize;
     private Long totalSize;
     private Long documentCount;
-    
+
     // WT Cache stats for this collection
     private Long cacheCurrentBytes;
     private Long cacheMaxBytes;
@@ -31,6 +31,9 @@ public class CollectionStats {
     // Server-level max cache for dirty% calculation
     private Long serverMaxCacheBytes;
 
+    // Per-index stats
+    private Map<String, IndexStats> indexStats = new HashMap<>();
+
     // Previous values for delta calculation
     private CollectionStats previous;
     
@@ -43,13 +46,13 @@ public class CollectionStats {
         // Store previous values for delta calculation
         previous = new CollectionStats(namespace, shardName);
         copyCurrentToPrevious(previous);
-        
+
         // Basic collection stats
         dataSize = getLongValue(collStats, "size");
         indexSize = getLongValue(collStats, "totalIndexSize");
         totalSize = getLongValue(collStats, "storageSize");
         documentCount = getLongValue(collStats, "count");
-        
+
         // WT cache stats from collStats
         Document wiredTiger = (Document) collStats.get("wiredTiger");
         if (wiredTiger != null) {
@@ -65,6 +68,21 @@ public class CollectionStats {
                 cachePagesWritten = getLongValue(cache, "pages written from cache");
                 cacheBytesRead = getLongValue(cache, "bytes read into cache");
                 cacheBytesWritten = getLongValue(cache, "bytes written from cache");
+            }
+        }
+
+        // Index details if provided
+        Document indexDetails = (Document) collStats.get("indexDetails");
+        Document indexSizes = (Document) collStats.get("indexSizes");
+        if (indexDetails != null && indexSizes != null) {
+            for (String indexName : indexDetails.keySet()) {
+                Document indexDetail = (Document) indexDetails.get(indexName);
+                Long indexSizeValue = getLongValue(indexSizes, indexName);
+
+                IndexStats idxStats = indexStats.computeIfAbsent(indexName,
+                        k -> new IndexStats(indexName, namespace, shardName));
+                idxStats.setServerMaxCacheBytes(serverMaxCacheBytes);
+                idxStats.updateFromIndexDetails(indexDetail, indexSizeValue);
             }
         }
     }
@@ -124,6 +142,20 @@ public class CollectionStats {
         return (double) cacheDirtyBytes / serverMaxCacheBytes;
     }
 
+    public double getIndexDirtyFillRatio() {
+        // Calculate aggregate index dirty bytes as percentage of server's total max cache
+        if (serverMaxCacheBytes == null || serverMaxCacheBytes == 0) {
+            return 0.0;
+        }
+        long totalIndexDirtyBytes = 0L;
+        for (IndexStats idx : indexStats.values()) {
+            if (idx.getCacheDirtyBytes() != null) {
+                totalIndexDirtyBytes += idx.getCacheDirtyBytes();
+            }
+        }
+        return (double) totalIndexDirtyBytes / serverMaxCacheBytes;
+    }
+
     public void setServerMaxCacheBytes(Long serverMaxCacheBytes) {
         this.serverMaxCacheBytes = serverMaxCacheBytes;
     }
@@ -143,6 +175,7 @@ public class CollectionStats {
     public Long getCacheNonPageImagesBytes() { return cacheNonPageImagesBytes; }
     public Long getCachePagesRead() { return cachePagesRead; }
     public Long getCachePagesWritten() { return cachePagesWritten; }
+    public Map<String, IndexStats> getIndexStats() { return indexStats; }
     public Long getCacheBytesRead() { return cacheBytesRead; }
     public Long getCacheBytesWritten() { return cacheBytesWritten; }
 }
