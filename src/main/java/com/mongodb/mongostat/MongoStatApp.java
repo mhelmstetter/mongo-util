@@ -39,6 +39,9 @@ public class MongoStatApp implements Callable<Integer> {
     @Option(names = {"-i", "--interval"}, description = "Interval between stats collection in seconds", defaultValue = "15")
     private long intervalSecs = 15;
 
+    @Option(names = {"--cache-size-gb"}, description = "Manually specify WiredTiger cache size in GB (bypasses serverStatus)")
+    private Double cacheSizeGB;
+
     @Override
     public Integer call() throws Exception {
         MongoStatConfiguration config = new MongoStatConfiguration()
@@ -48,7 +51,13 @@ public class MongoStatApp implements Callable<Integer> {
                 .detailedOutput(!disableDetail)
                 .includeIndexDetails(indexDetails)  // Default disabled, enable with --index-details
                 .intervalMs(intervalSecs * 1000);
-        
+
+        // If cache size is manually specified, convert GB to bytes
+        if (cacheSizeGB != null) {
+            long cacheSizeBytes = (long)(cacheSizeGB * 1024 * 1024 * 1024);
+            config.manualCacheSizeBytes(cacheSizeBytes);
+        }
+
         MongoStat mongoStat = MongoStat.create(uri, config);
         mongoStat.init();
         mongoStat.run();

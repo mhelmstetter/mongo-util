@@ -193,24 +193,60 @@ public class MongoStat {
             final int currentIndex = index;
             
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                Document serverStatus = client.getDatabase("admin").runCommand(new Document("serverStatus", 1));
-                
-                ServerStatus status = null;
-                if (serverStatuses.size() >= currentIndex + 1) {
-                    status = serverStatuses.get(currentIndex);
-                } else {
-                    status = new ServerStatus();
-                    serverStatuses.add(currentIndex, status);
-                }
-                status.updateServerStatus(serverStatus);
-                
                 String shardName = getShardNameForClient(client);
-                
-                // Update WT cache stats if enabled
-                if (config.isIncludeWiredTigerStats() && shardName != null) {
-                    WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
-                    if (wtStats != null) {
-                        wtStats.updateFromServerStatus(serverStatus);
+                ServerStatus status = null;
+                Document serverStatus = null;
+
+                // Try to get serverStatus, but handle authorization errors gracefully
+                if (config.getManualCacheSizeBytes() == null) {
+                    try {
+                        serverStatus = client.getDatabase("admin").runCommand(new Document("serverStatus", 1));
+
+                        if (serverStatuses.size() >= currentIndex + 1) {
+                            status = serverStatuses.get(currentIndex);
+                        } else {
+                            status = new ServerStatus();
+                            serverStatuses.add(currentIndex, status);
+                        }
+                        status.updateServerStatus(serverStatus);
+
+                        // Update WT cache stats if enabled
+                        if (config.isIncludeWiredTigerStats() && shardName != null) {
+                            WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
+                            if (wtStats != null) {
+                                wtStats.updateFromServerStatus(serverStatus);
+                            }
+                        }
+                    } catch (com.mongodb.MongoCommandException e) {
+                        if (e.getErrorCode() == 13) { // Unauthorized
+                            logger.warn("Not authorized to run serverStatus on {}. Use --cache-size-gb to specify cache size manually.", shardName);
+                            // Create empty status for operation counters
+                            if (serverStatuses.size() >= currentIndex + 1) {
+                                status = serverStatuses.get(currentIndex);
+                            } else {
+                                status = new ServerStatus();
+                                serverStatuses.add(currentIndex, status);
+                            }
+                        } else {
+                            throw e;
+                        }
+                    }
+                } else {
+                    // Using manual cache size, skip serverStatus
+                    logger.debug("Using manual cache size, skipping serverStatus for {}", shardName);
+                    if (serverStatuses.size() >= currentIndex + 1) {
+                        status = serverStatuses.get(currentIndex);
+                    } else {
+                        status = new ServerStatus();
+                        serverStatuses.add(currentIndex, status);
+                    }
+
+                    // Set manual cache size on WiredTiger stats
+                    if (config.isIncludeWiredTigerStats() && shardName != null) {
+                        WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
+                        if (wtStats != null) {
+                            wtStats.setManualMaxCacheBytes(config.getManualCacheSizeBytes());
+                        }
                     }
                 }
                 
@@ -528,45 +564,83 @@ public class MongoStat {
             
             CompletableFuture<ObjectNode> future = CompletableFuture.supplyAsync(() -> {
                 ObjectNode shardNode = objectMapper.createObjectNode();
-                
+
                 try {
-                    Document serverStatus = client.getDatabase("admin").runCommand(new Document("serverStatus", 1));
-                    
-                    ServerStatus status = null;
-                    if (serverStatuses.size() >= currentIndex + 1) {
-                        status = serverStatuses.get(currentIndex);
-                    } else {
-                        status = new ServerStatus();
-                        serverStatuses.add(currentIndex, status);
-                    }
-                    status.updateServerStatus(serverStatus);
-                    
                     String shardName = getShardNameForClient(client);
                     shardNode.put("shard", shardName != null ? shardName : "unknown");
-                    
-                    // Basic server stats
-                    addServerStatsToJson(shardNode, status);
-                    
-                    // WT cache stats if enabled
-                    if (config.isIncludeWiredTigerStats() && shardName != null) {
-                        WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
-                        if (wtStats != null) {
-                            wtStats.updateFromServerStatus(serverStatus);
-                            addWtCacheStatsToJson(shardNode, wtStats);
+
+                    ServerStatus status = null;
+                    Document serverStatus = null;
+
+                    // Try to get serverStatus, but handle authorization errors gracefully
+                    if (config.getManualCacheSizeBytes() == null) {
+                        try {
+                            serverStatus = client.getDatabase("admin").runCommand(new Document("serverStatus", 1));
+
+                            if (serverStatuses.size() >= currentIndex + 1) {
+                                status = serverStatuses.get(currentIndex);
+                            } else {
+                                status = new ServerStatus();
+                                serverStatuses.add(currentIndex, status);
+                            }
+                            status.updateServerStatus(serverStatus);
+
+                            // Basic server stats
+                            addServerStatsToJson(shardNode, status);
+
+                            // WT cache stats if enabled
+                            if (config.isIncludeWiredTigerStats() && shardName != null) {
+                                WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
+                                if (wtStats != null) {
+                                    wtStats.updateFromServerStatus(serverStatus);
+                                    addWtCacheStatsToJson(shardNode, wtStats);
+                                }
+                            }
+                        } catch (com.mongodb.MongoCommandException e) {
+                            if (e.getErrorCode() == 13) { // Unauthorized
+                                logger.warn("Not authorized to run serverStatus on {}. Use --cache-size-gb to specify cache size manually.", shardName);
+                                // Create empty status
+                                if (serverStatuses.size() >= currentIndex + 1) {
+                                    status = serverStatuses.get(currentIndex);
+                                } else {
+                                    status = new ServerStatus();
+                                    serverStatuses.add(currentIndex, status);
+                                }
+                            } else {
+                                throw e;
+                            }
+                        }
+                    } else {
+                        // Using manual cache size, skip serverStatus
+                        logger.debug("Using manual cache size, skipping serverStatus for {}", shardName);
+                        if (serverStatuses.size() >= currentIndex + 1) {
+                            status = serverStatuses.get(currentIndex);
+                        } else {
+                            status = new ServerStatus();
+                            serverStatuses.add(currentIndex, status);
+                        }
+
+                        // Set manual cache size on WiredTiger stats
+                        if (config.isIncludeWiredTigerStats() && shardName != null) {
+                            WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
+                            if (wtStats != null) {
+                                wtStats.setManualMaxCacheBytes(config.getManualCacheSizeBytes());
+                                addWtCacheStatsToJson(shardNode, wtStats);
+                            }
                         }
                     }
-                    
+
                     // Collection stats if enabled
                     if (config.isIncludeCollectionStats() && shardName != null) {
                         updateCollectionStatsForShard(client, shardName);
                         addCollectionStatsToJson(shardNode, shardName);
                     }
-                    
+
                 } catch (Exception e) {
                     logger.error("Error collecting stats for shard", e);
                     shardNode.put("error", e.getMessage());
                 }
-                
+
                 return shardNode;
             }, executor);
             

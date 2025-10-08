@@ -1169,7 +1169,7 @@ public class ShardConfigSync implements Callable<Integer> {
                     logger.warn("⚠️  FORCE MODE: Preflight check failed but proceeding anyway due to --force flag");
                     logger.warn("💀 WARNING: Destination cluster is not empty - sync may overwrite existing data");
                 } else {
-                    result.addFailure("Preflight Check", "Destination cluster is not empty - use --force to override");
+                    result.addFailure("Preflight Check", "Preflight check failed - see logs for details. Use --force to override");
                     return result; // Exit early if preflight check fails and not in force mode
                 }
             }

@@ -160,7 +160,14 @@ public class WiredTigerCacheStats {
         }
         return (double) currentCacheBytes / maxCacheBytes;
     }
-    
+
+    /**
+     * Manually set the max cache bytes, bypassing serverStatus
+     */
+    public void setManualMaxCacheBytes(Long maxCacheBytes) {
+        this.maxCacheBytes = maxCacheBytes;
+    }
+
     // Getters
     public String getShardName() { return shardName; }
     public Long getCurrentCacheBytes() { return currentCacheBytes; }
