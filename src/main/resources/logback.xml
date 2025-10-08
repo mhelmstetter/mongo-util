@@ -28,7 +28,7 @@
   <logger name="com.mongodb.corruptutil" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.util" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.oplog" level="DEBUG" additivity="true"/>
-  <logger name="com.mongodb.mongostat" level="DEBUG" additivity="false"/>
+  <logger name="com.mongodb.mongostat" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.cacheview" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.mongomirror" level="DEBUG" additivity="true"/>
   <logger name="com.mongodb.internal" level="ERROR"  additivity="false"/>
