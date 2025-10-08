@@ -256,9 +256,11 @@ public class MongoStat {
             WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
             Long serverMaxCacheBytes = wtStats != null ? wtStats.getMaxCacheBytes() : null;
 
-            logger.debug("Starting collection stats update for shard {}", shardName);
+            logger.warn("Starting collection stats update for shard {}, serverMaxCacheBytes: {}", shardName, serverMaxCacheBytes);
             int dbCount = 0;
             int collCount = 0;
+            int successCount = 0;
+            int failCount = 0;
 
             for (String dbName : databaseNames) {
                 if ("admin".equals(dbName) || "config".equals(dbName) || "local".equals(dbName)) {
@@ -284,12 +286,16 @@ public class MongoStat {
                         Document collStatsDoc = client.getDatabase(dbName)
                                 .runCommand(collStatsCommand);
                         collStats.updateFromCollStats(collStatsDoc);
+                        successCount++;
                     } catch (Exception e) {
                         logger.warn("Error getting collStats for {} on shard {}: {}", namespace, shardName, e.getMessage());
+                        failCount++;
                     }
                 }
             }
-            logger.warn("Collection stats update complete for shard {}: {} databases, {} collections", shardName, dbCount, collCount);
+            logger.warn("Collection stats update complete for shard {}: {} databases, {} collections, {} successful, {} failed",
+                    shardName, dbCount, collCount, successCount, failCount);
+            logger.warn("Collection stats map for shard {} now contains {} entries", shardName, shardCollStats.size());
         } catch (Exception e) {
             logger.error("Error updating collection stats for shard " + shardName, e);
         }
@@ -415,13 +421,16 @@ public class MongoStat {
         WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
         String timestamp = LocalTime.now().format(timeFormatter);
         String shard = shardName != null ? shardName : "unknown";
-        
+
+        logger.warn("printDetailedCollectionReport called for shard {}, collStats map size: {}",
+                shard, shardCollStats != null ? shardCollStats.size() : "null");
+
         // Check if we need to print header again
         if (lineCount >= 25) {
             System.out.println();
             printDetailedHeader();
         }
-        
+
         // Print shard summary line
         String format = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.1f %8.1f %8.1f %8.1f %8.1f %8.1f %6.1f%% %6.1f%%%n";
         System.out.printf(format,
@@ -435,10 +444,14 @@ public class MongoStat {
                 wtStats != null ? wtStats.getDirtyFillRatio() * 100 : 0.0,
                 0.0);  // No index dirty% for shard total line
         lineCount++;
-        
+
         // Print collection details if available
         if (shardCollStats != null && !shardCollStats.isEmpty()) {
+            logger.warn("Processing {} collections for printing", shardCollStats.size());
             String collFormat = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%% %6.1f%%%n";
+
+            int filteredCount = 0;
+            int printedCount = 0;
 
             // Sort collections by cacheMB descending
             shardCollStats.values().stream()
@@ -450,6 +463,8 @@ public class MongoStat {
                 .forEach(cs -> {
                     // Calculate display value
                     double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+
+                    logger.warn("Collection {}: cacheMB = {}", cs.getNamespace(), cacheMB);
 
                     // Skip collections where display value would be 0.0 (less than 0.05 MB)
                     if (cacheMB < 0.05) {

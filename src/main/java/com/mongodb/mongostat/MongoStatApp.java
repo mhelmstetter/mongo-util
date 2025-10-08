@@ -32,7 +32,10 @@ public class MongoStatApp implements Callable<Integer> {
     
     @Option(names = {"--no-detail"}, description = "Disable detailed per-collection stats (enabled by default)")
     private boolean disableDetail = false;
-    
+
+    @Option(names = {"--index-details"}, description = "Show individual indexes as separate rows (disabled by default)")
+    private boolean indexDetails = false;
+
     @Option(names = {"-i", "--interval"}, description = "Interval between stats collection in seconds", defaultValue = "15")
     private long intervalSecs = 15;
 
@@ -43,6 +46,7 @@ public class MongoStatApp implements Callable<Integer> {
                 .includeWiredTigerStats(!disableWiredTiger)  // Default enabled, disable with --no-wt
                 .includeCollectionStats(!disableCollections)  // Default enabled, disable with --no-coll
                 .detailedOutput(!disableDetail)
+                .includeIndexDetails(indexDetails)  // Default disabled, enable with --index-details
                 .intervalMs(intervalSecs * 1000);
         
         MongoStat mongoStat = MongoStat.create(uri, config);
