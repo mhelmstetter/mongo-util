@@ -1619,6 +1619,104 @@ public class ShardConfigSync implements Callable<Integer> {
         return result;
     }
 
+    public SyncMetadataResult syncMetadataWithCatalogMirror() {
+        return syncMetadataWithCatalogMirror(false);
+    }
+
+    public SyncMetadataResult syncMetadataWithCatalogMirror(boolean force) {
+        logger.debug(String.format("Starting catalogmirror metadata sync/migration, %s: %s",
+                ShardConfigSyncApp.NON_PRIVILEGED, config.nonPrivilegedMode));
+        logger.info("🚀 STARTING CATALOGMIRROR SYNC METADATA PROCESS 🚀");
+
+        SyncMetadataResult result = new SyncMetadataResult();
+
+        // Step 1: Dump source cluster catalog
+        com.mongodb.shardedclustersync.entities.DumpedShardedCluster dump;
+        try {
+            MongoClient sourceClient = sourceShardClient.getMongoClient();
+            dump = com.mongodb.shardedclustersync.CatalogDumper.dumpCluster(sourceClient);
+            result.addSuccess("Dump Source Catalog", "Source cluster catalog dumped successfully");
+        } catch (Exception e) {
+            result.addFailure("Dump Source Catalog", "Failed to dump source cluster catalog", e);
+            printSyncMetadataSummary(result);
+            return result;
+        }
+
+        // Step 2: Build shard mapping
+        java.util.HashMap<String, String> shardsMapping;
+        try {
+            shardsMapping = new java.util.HashMap<String, String>();
+            Map<String, com.mongodb.model.Shard> sourceShardsMap = sourceShardClient.getShardsMap();
+            Map<String, com.mongodb.model.Shard> destShardsMap = destShardClient.getShardsMap();
+
+            // For now, assume same number of shards and map in order
+            // TODO: Make this configurable or more intelligent
+            List<String> sourceShardIds = new ArrayList<>(sourceShardsMap.keySet());
+            List<String> destShardIds = new ArrayList<>(destShardsMap.keySet());
+
+            if (sourceShardIds.size() != destShardIds.size()) {
+                String message = String.format("Shard count mismatch: source has %d shards, destination has %d shards",
+                        sourceShardIds.size(), destShardIds.size());
+                if (force) {
+                    result.addWarning("Build Shard Mapping", "FORCE MODE: " + message + " - attempting to proceed");
+                    logger.warn("⚠️  " + message);
+                } else {
+                    result.addFailure("Build Shard Mapping", message);
+                    printSyncMetadataSummary(result);
+                    return result;
+                }
+            }
+
+            // Map source shards to destination shards in order
+            for (int i = 0; i < Math.min(sourceShardIds.size(), destShardIds.size()); i++) {
+                shardsMapping.put(sourceShardIds.get(i), destShardIds.get(i));
+                logger.debug("Mapping source shard {} to destination shard {}", sourceShardIds.get(i), destShardIds.get(i));
+            }
+
+            result.addSuccess("Build Shard Mapping", String.format("Shard mapping built: %d shards mapped", shardsMapping.size()));
+        } catch (Exception e) {
+            result.addFailure("Build Shard Mapping", "Failed to build shard mapping", e);
+            printSyncMetadataSummary(result);
+            return result;
+        }
+
+        // Step 3: Restore catalog to destination
+        try {
+            MongoClient destClient = destShardClient.getMongoClient();
+            com.mongodb.shardedclustersync.ShardsMapping mapping = new com.mongodb.shardedclustersync.ShardsMapping(shardsMapping);
+            com.mongodb.shardedclustersync.CatalogRestorer restorer = new com.mongodb.shardedclustersync.CatalogRestorer(mapping);
+            restorer.restore(destClient, dump);
+            result.addSuccess("Restore Destination Catalog", "Destination cluster catalog restored successfully");
+        } catch (Exception e) {
+            if (force) {
+                result.addWarning("Restore Destination Catalog", "FORCE MODE: Failed to restore catalog but continuing: " + e.getMessage());
+            } else {
+                result.addFailure("Restore Destination Catalog", "Failed to restore destination cluster catalog", e);
+                printSyncMetadataSummary(result);
+                return result;
+            }
+        }
+
+        // Step 4: Flush router configuration
+        if (!config.skipFlushRouterConfig) {
+            try {
+                destShardClient.flushRouterConfig();
+                result.addSuccess("Flush Router Configuration", "Router configuration flushed successfully");
+            } catch (Exception e) {
+                if (force) {
+                    result.addWarning("Flush Router Configuration", "FORCE MODE: Failed to flush router config but continuing: " + e.getMessage());
+                } else {
+                    result.addFailure("Flush Router Configuration", "Failed to flush router configuration", e);
+                }
+            }
+        } else {
+            result.addSkipped("Flush Router Configuration", "Skipped due to skipFlushRouterConfig setting");
+        }
+
+        printSyncMetadataSummary(result);
+        return result;
+    }
+
     /**
      * Prints a comprehensive summary of the sync metadata process results.
      * Shows success/failure status for each step with clear visual indicators.

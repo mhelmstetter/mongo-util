@@ -202,6 +202,11 @@
 			<version>4.11.1</version>
 		</dependency>
 		<dependency>
+			<groupId>com.mongodb</groupId>
+			<artifactId>catalogmirror</artifactId>
+			<version>1.0.0</version>
+		</dependency>
+		<dependency>
 			<groupId>commons-io</groupId>
 			<artifactId>commons-io</artifactId>
 			<version>2.14.0</version>
