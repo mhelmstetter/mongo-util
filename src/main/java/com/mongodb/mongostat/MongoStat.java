@@ -259,9 +259,13 @@ public class MongoStat {
                 
                 if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
                     if (config.isDetailedOutput() && config.isIncludeCollectionStats()) {
-                        printDetailedCollectionReport(status, shardName);
+                        synchronized(this) {
+                            printDetailedCollectionReport(status, shardName);
+                        }
                     } else {
-                        printEnhancedReport(status, shardName);
+                        synchronized(this) {
+                            printEnhancedReport(status, shardName);
+                        }
                     }
                 } else {
                     status.report();
