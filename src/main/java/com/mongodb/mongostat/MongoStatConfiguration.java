@@ -11,7 +11,8 @@ public class MongoStatConfiguration {
     private Long manualCacheSizeBytes = null;        // Manual cache size, bypasses serverStatus
     private String sortBy = "cacheMB";               // Default sort by cacheMB descending
     private int top = 0;                             // Default 0 = show all rows
-    
+    private boolean shardPivot = false;              // Default false - normal vertical display
+
     public MongoStatConfiguration() {
     }
     
@@ -60,6 +61,11 @@ public class MongoStatConfiguration {
         return this;
     }
 
+    public MongoStatConfiguration shardPivot(boolean shardPivot) {
+        this.shardPivot = shardPivot;
+        return this;
+    }
+
     // Getters
     public boolean isJsonOutput() { return jsonOutput; }
     public boolean isIncludeWiredTigerStats() { return includeWiredTigerStats; }
@@ -70,4 +76,5 @@ public class MongoStatConfiguration {
     public Long getManualCacheSizeBytes() { return manualCacheSizeBytes; }
     public String getSortBy() { return sortBy; }
     public int getTop() { return top; }
+    public boolean isShardPivot() { return shardPivot; }
 }

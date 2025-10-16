@@ -6,8 +6,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -256,19 +259,22 @@ public class MongoStat {
                 if (config.isIncludeCollectionStats() && shardName != null) {
                     updateCollectionStatsForShard(client, shardName);
                 }
-                
-                if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
-                    if (config.isDetailedOutput() && config.isIncludeCollectionStats()) {
-                        synchronized(this) {
-                            printDetailedCollectionReport(status, shardName);
+
+                // Skip per-shard printing if in pivot mode
+                if (!config.isShardPivot()) {
+                    if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
+                        if (config.isDetailedOutput() && config.isIncludeCollectionStats()) {
+                            synchronized(this) {
+                                printDetailedCollectionReport(status, shardName);
+                            }
+                        } else {
+                            synchronized(this) {
+                                printEnhancedReport(status, shardName);
+                            }
                         }
                     } else {
-                        synchronized(this) {
-                            printEnhancedReport(status, shardName);
-                        }
+                        status.report();
                     }
-                } else {
-                    status.report();
                 }
             }, executor);
             
@@ -278,6 +284,11 @@ public class MongoStat {
         
         // Wait for all futures to complete
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        // After all shards are processed, print pivot report if enabled
+        if (config.isShardPivot() && config.isIncludeCollectionStats()) {
+            printShardPivotReport();
+        }
     }
     
     private String getShardNameForClient(MongoClient client) {
@@ -598,6 +609,16 @@ public class MongoStat {
             printDetailedHeader();
         }
 
+        // Calculate shard totals for readMB and writMB by summing collection values
+        double totalReadMB = 0.0;
+        double totalWriteMB = 0.0;
+        if (shardCollStats != null && !shardCollStats.isEmpty()) {
+            for (CollectionStats cs : shardCollStats.values()) {
+                totalReadMB += cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
+                totalWriteMB += cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+            }
+        }
+
         // Print shard summary line
         String format = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.1f %8.1f %8.1f %8.1f %8.1f %8.1f %6.1f%% %6.1f%%%n";
         System.out.printf(format,
@@ -607,7 +628,7 @@ public class MongoStat {
                 0.0, 0.0,
                 wtStats != null ? wtStats.getCurrentCacheBytes() / 1024.0 / 1024.0 : 0.0,
                 wtStats != null ? wtStats.getDirtyBytes() / 1024.0 / 1024.0 : 0.0,
-                0.0, 0.0,
+                totalReadMB, totalWriteMB,
                 wtStats != null ? wtStats.getDirtyFillRatio() * 100 : 0.0,
                 0.0);  // No index dirty% for shard total line
         lineCount++;
@@ -680,7 +701,108 @@ public class MongoStat {
             logger.warn("No collection stats available for shard {} - map is {}", shard, shardCollStats != null ? "empty" : "null");
         }
     }
-    
+
+    private void printShardPivotReport() {
+        String timestamp = LocalTime.now().format(timeFormatter);
+
+        // Collect all unique namespaces across all shards
+        Set<String> allNamespaces = new TreeSet<>();
+        for (Map<String, CollectionStats> shardStats : collectionStats.values()) {
+            if (shardStats != null) {
+                allNamespaces.addAll(shardStats.keySet());
+            }
+        }
+
+        // Build a map of namespace -> shard -> stats for easier lookup
+        Map<String, Map<String, CollectionStats>> namespaceToShardStats = new LinkedHashMap<>();
+        for (String namespace : allNamespaces) {
+            Map<String, CollectionStats> shardStats = new LinkedHashMap<>();
+            for (Map.Entry<String, Map<String, CollectionStats>> entry : collectionStats.entrySet()) {
+                String shardName = entry.getKey();
+                Map<String, CollectionStats> collections = entry.getValue();
+                if (collections != null && collections.containsKey(namespace)) {
+                    shardStats.put(shardName, collections.get(namespace));
+                }
+            }
+            namespaceToShardStats.put(namespace, shardStats);
+        }
+
+        // Sort namespaces by total cache across all shards (descending)
+        List<Map.Entry<String, Map<String, CollectionStats>>> sortedNamespaces = new ArrayList<>(namespaceToShardStats.entrySet());
+        sortedNamespaces.sort((e1, e2) -> {
+            double total1 = e1.getValue().values().stream()
+                .mapToDouble(cs -> cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() : 0.0)
+                .sum();
+            double total2 = e2.getValue().values().stream()
+                .mapToDouble(cs -> cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() : 0.0)
+                .sum();
+            return Double.compare(total2, total1); // Descending
+        });
+
+        // Apply top N limit if specified
+        if (config.getTop() > 0 && sortedNamespaces.size() > config.getTop()) {
+            sortedNamespaces = sortedNamespaces.subList(0, config.getTop());
+        }
+
+        // Get shard names in consistent order
+        List<String> shardNames = new ArrayList<>(shardClients.keySet());
+
+        // Calculate column width for each shard (cache/dirty/read/write = ~20 chars)
+        int shardColumnWidth = 22;
+        int namespaceWidth = 40;
+
+        // Print header row 1: Shard names
+        System.out.print(String.format("%-" + namespaceWidth + "s |", "Collection"));
+        for (String shardName : shardNames) {
+            String shortName = shardName.length() > shardColumnWidth ? shardName.substring(0, shardColumnWidth - 2) + ".." : shardName;
+            System.out.print(String.format(" %-" + shardColumnWidth + "s |", shortName));
+        }
+        System.out.println();
+
+        // Print header row 2: Metric labels
+        System.out.print(String.format("%-" + namespaceWidth + "s |", ""));
+        for (int i = 0; i < shardNames.size(); i++) {
+            System.out.print(" cache/dirty/read/writ |");
+        }
+        System.out.println();
+
+        // Print separator line
+        System.out.print("-".repeat(namespaceWidth) + "-+");
+        for (int i = 0; i < shardNames.size(); i++) {
+            System.out.print("-".repeat(shardColumnWidth + 2) + "+");
+        }
+        System.out.println();
+
+        // Print data rows
+        for (Map.Entry<String, Map<String, CollectionStats>> entry : sortedNamespaces) {
+            String namespace = entry.getKey();
+            Map<String, CollectionStats> shardStats = entry.getValue();
+
+            // Truncate namespace if too long
+            String displayNamespace = namespace.length() > namespaceWidth
+                ? namespace.substring(0, namespaceWidth - 2) + ".."
+                : namespace;
+
+            System.out.print(String.format("%-" + namespaceWidth + "s |", displayNamespace));
+
+            for (String shardName : shardNames) {
+                CollectionStats cs = shardStats.get(shardName);
+                if (cs != null) {
+                    double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+                    double dirtyMB = cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0;
+                    double readMB = cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
+                    double writMB = cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+                    System.out.print(String.format(" %4.0f/%4.0f/%4.0f/%4.0f |", cacheMB, dirtyMB, readMB, writMB));
+                } else {
+                    System.out.print(" ".repeat(shardColumnWidth) + " |");
+                }
+            }
+            System.out.println();
+        }
+
+        System.out.println();
+    }
+
     private void runJsonOutput() {
         ObjectNode rootNode = objectMapper.createObjectNode();
         rootNode.put("timestamp", System.currentTimeMillis());

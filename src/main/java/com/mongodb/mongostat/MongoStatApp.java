@@ -53,6 +53,9 @@ public class MongoStatApp implements Callable<Integer> {
     @Option(names = {"--top"}, description = "Display only top N collections/indexes (0 = show all)", defaultValue = "0")
     private int top = 0;
 
+    @Option(names = {"--shardPivot"}, description = "Pivot table view with shards as columns (only shows cacheMB/dirtyMB/readMB/writMB)")
+    private boolean shardPivot = false;
+
     @Override
     public Integer call() throws Exception {
         // Set logging level based on verbose flag
@@ -72,7 +75,8 @@ public class MongoStatApp implements Callable<Integer> {
                 .includeIndexDetails(indexDetails)  // Default disabled, enable with --index-details
                 .intervalMs(intervalSecs * 1000)
                 .sortBy(sortBy)
-                .top(top);
+                .top(top)
+                .shardPivot(shardPivot);
 
         // If cache size is manually specified, convert GB to bytes
         if (cacheSizeGB != null) {
