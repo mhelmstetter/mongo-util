@@ -4,6 +4,7 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -389,6 +390,130 @@ public class MongoStat {
                     "Time    ", "shard", "ins", "qry", "upd", "del", "colls", "dataGB", "idxGB");
         }
     }
+
+    private Comparator<CollectionStats> getCollectionComparator() {
+        String sortBy = config.getSortBy();
+
+        switch (sortBy.toLowerCase()) {
+            case "cachemb":
+                return (cs1, cs2) -> {
+                    double cache1 = cs1.getCacheCurrentBytes() != null ? cs1.getCacheCurrentBytes() : 0L;
+                    double cache2 = cs2.getCacheCurrentBytes() != null ? cs2.getCacheCurrentBytes() : 0L;
+                    return Double.compare(cache2, cache1); // Descending
+                };
+            case "dirtymb":
+                return (cs1, cs2) -> {
+                    double dirty1 = cs1.getCacheDirtyBytes() != null ? cs1.getCacheDirtyBytes() : 0L;
+                    double dirty2 = cs2.getCacheDirtyBytes() != null ? cs2.getCacheDirtyBytes() : 0L;
+                    return Double.compare(dirty2, dirty1); // Descending
+                };
+            case "datagb":
+                return (cs1, cs2) -> {
+                    double data1 = cs1.getDataSize() != null ? cs1.getDataSize() : 0L;
+                    double data2 = cs2.getDataSize() != null ? cs2.getDataSize() : 0L;
+                    return Double.compare(data2, data1); // Descending
+                };
+            case "idxgb":
+                return (cs1, cs2) -> {
+                    double idx1 = cs1.getIndexSize() != null ? cs1.getIndexSize() : 0L;
+                    double idx2 = cs2.getIndexSize() != null ? cs2.getIndexSize() : 0L;
+                    return Double.compare(idx2, idx1); // Descending
+                };
+            case "namespace":
+                return (cs1, cs2) -> {
+                    String ns1 = cs1.getNamespace() != null ? cs1.getNamespace() : "";
+                    String ns2 = cs2.getNamespace() != null ? cs2.getNamespace() : "";
+                    return ns1.compareTo(ns2); // Ascending
+                };
+            case "dirty%":
+                return (cs1, cs2) -> {
+                    double ratio1 = cs1.getDirtyFillRatio();
+                    double ratio2 = cs2.getDirtyFillRatio();
+                    return Double.compare(ratio2, ratio1); // Descending
+                };
+            case "idxdty%":
+                return (cs1, cs2) -> {
+                    double ratio1 = cs1.getIndexDirtyFillRatio();
+                    double ratio2 = cs2.getIndexDirtyFillRatio();
+                    return Double.compare(ratio2, ratio1); // Descending
+                };
+            case "readmb":
+                return (cs1, cs2) -> {
+                    double read1 = cs1.getDelta("cacheBytesRead");
+                    double read2 = cs2.getDelta("cacheBytesRead");
+                    return Double.compare(read2, read1); // Descending
+                };
+            case "writmb":
+                return (cs1, cs2) -> {
+                    double writ1 = cs1.getDelta("cacheBytesWritten");
+                    double writ2 = cs2.getDelta("cacheBytesWritten");
+                    return Double.compare(writ2, writ1); // Descending
+                };
+            default:
+                logger.warn("Unknown sort field: {}, defaulting to cacheMB", sortBy);
+                return (cs1, cs2) -> {
+                    double cache1 = cs1.getCacheCurrentBytes() != null ? cs1.getCacheCurrentBytes() : 0L;
+                    double cache2 = cs2.getCacheCurrentBytes() != null ? cs2.getCacheCurrentBytes() : 0L;
+                    return Double.compare(cache2, cache1); // Descending
+                };
+        }
+    }
+
+    private Comparator<IndexStats> getIndexComparator() {
+        String sortBy = config.getSortBy();
+
+        switch (sortBy.toLowerCase()) {
+            case "cachemb":
+                return (idx1, idx2) -> {
+                    double cache1 = idx1.getCacheCurrentBytes() != null ? idx1.getCacheCurrentBytes() : 0L;
+                    double cache2 = idx2.getCacheCurrentBytes() != null ? idx2.getCacheCurrentBytes() : 0L;
+                    return Double.compare(cache2, cache1); // Descending
+                };
+            case "dirtymb":
+                return (idx1, idx2) -> {
+                    double dirty1 = idx1.getCacheDirtyBytes() != null ? idx1.getCacheDirtyBytes() : 0L;
+                    double dirty2 = idx2.getCacheDirtyBytes() != null ? idx2.getCacheDirtyBytes() : 0L;
+                    return Double.compare(dirty2, dirty1); // Descending
+                };
+            case "idxgb":
+                return (idx1, idx2) -> {
+                    double size1 = idx1.getIndexSize() != null ? idx1.getIndexSize() : 0L;
+                    double size2 = idx2.getIndexSize() != null ? idx2.getIndexSize() : 0L;
+                    return Double.compare(size2, size1); // Descending
+                };
+            case "namespace":
+                return (idx1, idx2) -> {
+                    String name1 = idx1.getIndexName() != null ? idx1.getIndexName() : "";
+                    String name2 = idx2.getIndexName() != null ? idx2.getIndexName() : "";
+                    return name1.compareTo(name2); // Ascending
+                };
+            case "dirty%":
+                return (idx1, idx2) -> {
+                    double ratio1 = idx1.getDirtyFillRatio();
+                    double ratio2 = idx2.getDirtyFillRatio();
+                    return Double.compare(ratio2, ratio1); // Descending
+                };
+            case "readmb":
+                return (idx1, idx2) -> {
+                    double read1 = idx1.getDelta("cacheBytesRead");
+                    double read2 = idx2.getDelta("cacheBytesRead");
+                    return Double.compare(read2, read1); // Descending
+                };
+            case "writmb":
+                return (idx1, idx2) -> {
+                    double writ1 = idx1.getDelta("cacheBytesWritten");
+                    double writ2 = idx2.getDelta("cacheBytesWritten");
+                    return Double.compare(writ2, writ1); // Descending
+                };
+            default:
+                // Default to cacheMB for indexes too
+                return (idx1, idx2) -> {
+                    double cache1 = idx1.getCacheCurrentBytes() != null ? idx1.getCacheCurrentBytes() : 0L;
+                    double cache2 = idx2.getCacheCurrentBytes() != null ? idx2.getCacheCurrentBytes() : 0L;
+                    return Double.compare(cache2, cache1); // Descending
+                };
+        }
+    }
     
     private void printEnhancedReport(ServerStatus status, String shardName) {
         WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
@@ -487,13 +612,9 @@ public class MongoStat {
             logger.debug("Processing {} collections for printing", shardCollStats.size());
             String collFormat = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%% %6.1f%%%n";
 
-            // Sort collections by cacheMB descending
+            // Sort collections using configured comparator
             shardCollStats.values().stream()
-                .sorted((cs1, cs2) -> {
-                    double cache1 = cs1.getCacheCurrentBytes() != null ? cs1.getCacheCurrentBytes() : 0L;
-                    double cache2 = cs2.getCacheCurrentBytes() != null ? cs2.getCacheCurrentBytes() : 0L;
-                    return Double.compare(cache2, cache1);
-                })
+                .sorted(getCollectionComparator())
                 .forEach(cs -> {
                     // Calculate display value
                     double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
@@ -519,11 +640,7 @@ public class MongoStat {
                     // If includeIndexDetails is true, print each index as a separate row
                     if (config.isIncludeIndexDetails() && cs.getIndexStats() != null && !cs.getIndexStats().isEmpty()) {
                         cs.getIndexStats().values().stream()
-                            .sorted((idx1, idx2) -> {
-                                double idxCache1 = idx1.getCacheCurrentBytes() != null ? idx1.getCacheCurrentBytes() : 0L;
-                                double idxCache2 = idx2.getCacheCurrentBytes() != null ? idx2.getCacheCurrentBytes() : 0L;
-                                return Double.compare(idxCache2, idxCache1);
-                            })
+                            .sorted(getIndexComparator())
                             .forEach(idx -> {
                                 double idxCacheMB = idx.getCacheCurrentBytes() != null ? idx.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
                                 if (idxCacheMB < 0.05) {

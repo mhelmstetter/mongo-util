@@ -9,6 +9,7 @@ public class MongoStatConfiguration {
     private boolean includeIndexDetails = false;     // Default to false - show indexes as separate rows
     private long intervalMs = 15000;
     private Long manualCacheSizeBytes = null;        // Manual cache size, bypasses serverStatus
+    private String sortBy = "cacheMB";               // Default sort by cacheMB descending
     
     public MongoStatConfiguration() {
     }
@@ -48,6 +49,11 @@ public class MongoStatConfiguration {
         return this;
     }
 
+    public MongoStatConfiguration sortBy(String sortBy) {
+        this.sortBy = sortBy;
+        return this;
+    }
+
     // Getters
     public boolean isJsonOutput() { return jsonOutput; }
     public boolean isIncludeWiredTigerStats() { return includeWiredTigerStats; }
@@ -56,4 +62,5 @@ public class MongoStatConfiguration {
     public boolean isIncludeIndexDetails() { return includeIndexDetails; }
     public long getIntervalMs() { return intervalMs; }
     public Long getManualCacheSizeBytes() { return manualCacheSizeBytes; }
+    public String getSortBy() { return sortBy; }
 }

@@ -5,6 +5,8 @@ import java.util.concurrent.Callable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.LoggerContext;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -42,15 +44,27 @@ public class MongoStatApp implements Callable<Integer> {
     @Option(names = {"--cache-size-gb"}, description = "Manually specify WiredTiger cache size in GB (bypasses serverStatus)")
     private Double cacheSizeGB;
 
+    @Option(names = {"-v", "--verbose"}, description = "Enable verbose/debug logging")
+    private boolean verbose = false;
+
+    @Option(names = {"--sort"}, description = "Sort collections by: cacheMB (default), dirtyMB, dataGB, idxGB, namespace, dirty%%, idxDty%%, readMB, writMB", defaultValue = "cacheMB")
+    private String sortBy = "cacheMB";
+
     @Override
     public Integer call() throws Exception {
+        // Set logging level based on verbose flag
+        LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
+        ch.qos.logback.classic.Logger mongostatLogger = loggerContext.getLogger("com.mongodb.mongostat");
+        mongostatLogger.setLevel(verbose ? Level.DEBUG : Level.INFO);
+
         MongoStatConfiguration config = new MongoStatConfiguration()
                 .jsonOutput(jsonOutput)
                 .includeWiredTigerStats(!disableWiredTiger)  // Default enabled, disable with --no-wt
                 .includeCollectionStats(!disableCollections)  // Default enabled, disable with --no-coll
                 .detailedOutput(!disableDetail)
                 .includeIndexDetails(indexDetails)  // Default disabled, enable with --index-details
-                .intervalMs(intervalSecs * 1000);
+                .intervalMs(intervalSecs * 1000)
+                .sortBy(sortBy);
 
         // If cache size is manually specified, convert GB to bytes
         if (cacheSizeGB != null) {
