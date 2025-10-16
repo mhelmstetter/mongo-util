@@ -347,7 +347,7 @@ public class MongoStat {
     private int maxShardWidth = 20;
     private int maxCollectionWidth = 80;
 
-    private void calculateColumnWidths() {
+    private synchronized void calculateColumnWidths() {
         int minShardWidth = 20;
         int minCollectionWidth = 80;
 
