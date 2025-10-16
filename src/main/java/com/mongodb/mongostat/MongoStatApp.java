@@ -50,6 +50,9 @@ public class MongoStatApp implements Callable<Integer> {
     @Option(names = {"--sort"}, description = "Sort collections by: cacheMB (default), dirtyMB, dataGB, idxGB, namespace, dirty%%, idxDty%%, readMB, writMB", defaultValue = "cacheMB")
     private String sortBy = "cacheMB";
 
+    @Option(names = {"--top"}, description = "Display only top N collections/indexes (0 = show all)", defaultValue = "0")
+    private int top = 0;
+
     @Override
     public Integer call() throws Exception {
         // Set logging level based on verbose flag
@@ -64,7 +67,8 @@ public class MongoStatApp implements Callable<Integer> {
                 .detailedOutput(!disableDetail)
                 .includeIndexDetails(indexDetails)  // Default disabled, enable with --index-details
                 .intervalMs(intervalSecs * 1000)
-                .sortBy(sortBy);
+                .sortBy(sortBy)
+                .top(top);
 
         // If cache size is manually specified, convert GB to bytes
         if (cacheSizeGB != null) {

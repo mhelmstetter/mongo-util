@@ -10,6 +10,7 @@ public class MongoStatConfiguration {
     private long intervalMs = 15000;
     private Long manualCacheSizeBytes = null;        // Manual cache size, bypasses serverStatus
     private String sortBy = "cacheMB";               // Default sort by cacheMB descending
+    private int top = 0;                             // Default 0 = show all rows
     
     public MongoStatConfiguration() {
     }
@@ -54,6 +55,11 @@ public class MongoStatConfiguration {
         return this;
     }
 
+    public MongoStatConfiguration top(int top) {
+        this.top = top;
+        return this;
+    }
+
     // Getters
     public boolean isJsonOutput() { return jsonOutput; }
     public boolean isIncludeWiredTigerStats() { return includeWiredTigerStats; }
@@ -63,4 +69,5 @@ public class MongoStatConfiguration {
     public long getIntervalMs() { return intervalMs; }
     public Long getManualCacheSizeBytes() { return manualCacheSizeBytes; }
     public String getSortBy() { return sortBy; }
+    public int getTop() { return top; }
 }

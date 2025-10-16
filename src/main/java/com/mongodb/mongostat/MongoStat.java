@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Stream;
 
 import org.bson.Document;
 import org.slf4j.Logger;
@@ -612,55 +613,65 @@ public class MongoStat {
             logger.debug("Processing {} collections for printing", shardCollStats.size());
             String collFormat = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%% %6.1f%%%n";
 
-            // Sort collections using configured comparator
-            shardCollStats.values().stream()
-                .sorted(getCollectionComparator())
-                .forEach(cs -> {
-                    // Calculate display value
-                    double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+            // Sort collections using configured comparator and apply top limit if specified
+            Stream<CollectionStats> collectionStream = shardCollStats.values().stream()
+                .sorted(getCollectionComparator());
 
-                    // Skip collections where display value would be 0.0 (less than 0.05 MB)
-                    if (cacheMB < 0.05) {
-                        return;
+            if (config.getTop() > 0) {
+                collectionStream = collectionStream.limit(config.getTop());
+            }
+
+            collectionStream.forEach(cs -> {
+                // Calculate display value
+                double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+
+                // Skip collections where display value would be 0.0 (less than 0.05 MB)
+                if (cacheMB < 0.05) {
+                    return;
+                }
+
+                System.out.printf(collFormat,
+                        timestamp, shard, cs.getNamespace(),
+                        "-", "-", "-", "-",
+                        cs.getDataSize() != null ? cs.getDataSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
+                        cs.getIndexSize() != null ? cs.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
+                        cacheMB,
+                        cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
+                        cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
+                        cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
+                        cs.getDirtyFillRatio() * 100,
+                        cs.getIndexDirtyFillRatio() * 100);
+                lineCount++;
+
+                // If includeIndexDetails is true, print each index as a separate row
+                if (config.isIncludeIndexDetails() && cs.getIndexStats() != null && !cs.getIndexStats().isEmpty()) {
+                    Stream<IndexStats> indexStream = cs.getIndexStats().values().stream()
+                        .sorted(getIndexComparator());
+
+                    if (config.getTop() > 0) {
+                        indexStream = indexStream.limit(config.getTop());
                     }
 
-                    System.out.printf(collFormat,
-                            timestamp, shard, cs.getNamespace(),
-                            "-", "-", "-", "-",
-                            cs.getDataSize() != null ? cs.getDataSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
-                            cs.getIndexSize() != null ? cs.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
-                            cacheMB,
-                            cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
-                            cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
-                            cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
-                            cs.getDirtyFillRatio() * 100,
-                            cs.getIndexDirtyFillRatio() * 100);
-                    lineCount++;
-
-                    // If includeIndexDetails is true, print each index as a separate row
-                    if (config.isIncludeIndexDetails() && cs.getIndexStats() != null && !cs.getIndexStats().isEmpty()) {
-                        cs.getIndexStats().values().stream()
-                            .sorted(getIndexComparator())
-                            .forEach(idx -> {
-                                double idxCacheMB = idx.getCacheCurrentBytes() != null ? idx.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
-                                if (idxCacheMB < 0.05) {
-                                    return;
-                                }
-                                System.out.printf(collFormat,
-                                        timestamp, shard, "  [idx] " + idx.getIndexName(),
-                                        "-", "-", "-", "-",
-                                        0.0,
-                                        idx.getIndexSize() != null ? idx.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
-                                        idxCacheMB,
-                                        idx.getCacheDirtyBytes() != null ? idx.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
-                                        idx.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
-                                        idx.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
-                                        idx.getDirtyFillRatio() * 100,
-                                        0.0);  // No index dirty% for individual indexes
-                                lineCount++;
-                            });
-                    }
-                });
+                    indexStream.forEach(idx -> {
+                        double idxCacheMB = idx.getCacheCurrentBytes() != null ? idx.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+                        if (idxCacheMB < 0.05) {
+                            return;
+                        }
+                        System.out.printf(collFormat,
+                                timestamp, shard, "  [idx] " + idx.getIndexName(),
+                                "-", "-", "-", "-",
+                                0.0,
+                                idx.getIndexSize() != null ? idx.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
+                                idxCacheMB,
+                                idx.getCacheDirtyBytes() != null ? idx.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
+                                idx.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
+                                idx.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
+                                idx.getDirtyFillRatio() * 100,
+                                0.0);  // No index dirty% for individual indexes
+                        lineCount++;
+                    });
+                }
+            });
         } else {
             logger.warn("No collection stats available for shard {} - map is {}", shard, shardCollStats != null ? "empty" : "null");
         }
