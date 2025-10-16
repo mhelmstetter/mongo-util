@@ -12,6 +12,7 @@ public class MongoStatConfiguration {
     private String sortBy = "cacheMB";               // Default sort by cacheMB descending
     private int top = 0;                             // Default 0 = show all rows
     private boolean shardPivot = false;              // Default false - normal vertical display
+    private String pivotMetrics = "cacheMB,dirtyMB"; // Default metrics for pivot view
 
     public MongoStatConfiguration() {
     }
@@ -66,6 +67,11 @@ public class MongoStatConfiguration {
         return this;
     }
 
+    public MongoStatConfiguration pivotMetrics(String pivotMetrics) {
+        this.pivotMetrics = pivotMetrics;
+        return this;
+    }
+
     // Getters
     public boolean isJsonOutput() { return jsonOutput; }
     public boolean isIncludeWiredTigerStats() { return includeWiredTigerStats; }
@@ -77,4 +83,5 @@ public class MongoStatConfiguration {
     public String getSortBy() { return sortBy; }
     public int getTop() { return top; }
     public boolean isShardPivot() { return shardPivot; }
+    public String getPivotMetrics() { return pivotMetrics; }
 }

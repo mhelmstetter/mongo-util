@@ -178,18 +178,21 @@ public class MongoStat {
     
     private void runTableOutput() {
         int index = 0;
-        
-        if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
-            if (config.isDetailedOutput()) {
-                printDetailedHeader();
+
+        // Skip printing header when in pivot mode
+        if (!config.isShardPivot()) {
+            if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
+                if (config.isDetailedOutput()) {
+                    printDetailedHeader();
+                } else {
+                    printEnhancedHeader();
+                }
             } else {
-                printEnhancedHeader();
+                System.out.printf(
+                        "%s %-15s%8s%8s%8s%8s %13s%13s%13s%13s %n",
+                        LocalTime.now().format(timeFormatter),
+                        "replicaSet", "insert", "query", "update", "delete", "totInserts", "totQueries", "totUpdates", "totDeletes");
             }
-        } else {
-            System.out.printf(
-                    "%s %-15s%8s%8s%8s%8s %13s%13s%13s%13s %n",
-                    LocalTime.now().format(timeFormatter),
-                    "replicaSet", "insert", "query", "update", "delete", "totInserts", "totQueries", "totUpdates", "totDeletes");
         }
         
         List<CompletableFuture<Void>> futures = new ArrayList<>();
@@ -705,6 +708,12 @@ public class MongoStat {
     private void printShardPivotReport() {
         String timestamp = LocalTime.now().format(timeFormatter);
 
+        // Parse pivot metrics from config
+        String[] metrics = config.getPivotMetrics().split(",");
+        for (int i = 0; i < metrics.length; i++) {
+            metrics[i] = metrics[i].trim();
+        }
+
         // Collect all unique namespaces across all shards
         Set<String> allNamespaces = new TreeSet<>();
         for (Map<String, CollectionStats> shardStats : collectionStats.values()) {
@@ -747,22 +756,53 @@ public class MongoStat {
         // Get shard names in consistent order
         List<String> shardNames = new ArrayList<>(shardClients.keySet());
 
-        // Calculate column width for each shard (cache/dirty/read/write = ~20 chars)
-        int shardColumnWidth = 22;
+        // Calculate max width needed for each metric across all shards and collections
+        Map<String, Integer> metricWidths = new LinkedHashMap<>();
+        for (String metric : metrics) {
+            int maxWidth = metric.length(); // At least as wide as the metric name
+            for (Map.Entry<String, Map<String, CollectionStats>> entry : sortedNamespaces) {
+                for (String shardName : shardNames) {
+                    CollectionStats cs = entry.getValue().get(shardName);
+                    if (cs != null) {
+                        double value = getMetricValue(cs, metric);
+                        int valueWidth = String.format("%.0f", value).length();
+                        if (valueWidth > maxWidth) {
+                            maxWidth = valueWidth;
+                        }
+                    }
+                }
+            }
+            metricWidths.put(metric, maxWidth);
+        }
+
+        // Calculate total width for each shard column (sum of metric widths + spaces)
+        int shardColumnWidth = metricWidths.values().stream().mapToInt(Integer::intValue).sum() + (metrics.length - 1) * 2; // 2 spaces between metrics
         int namespaceWidth = 40;
 
-        // Print header row 1: Shard names
+        // Print header row 1: Shard names (centered)
         System.out.print(String.format("%-" + namespaceWidth + "s |", "Collection"));
         for (String shardName : shardNames) {
             String shortName = shardName.length() > shardColumnWidth ? shardName.substring(0, shardColumnWidth - 2) + ".." : shardName;
-            System.out.print(String.format(" %-" + shardColumnWidth + "s |", shortName));
+            // Center the shard name
+            int padding = (shardColumnWidth - shortName.length()) / 2;
+            String centeredName = " ".repeat(padding) + shortName + " ".repeat(shardColumnWidth - padding - shortName.length());
+            System.out.print(" " + centeredName + " |");
         }
         System.out.println();
 
-        // Print header row 2: Metric labels
+        // Print header row 2: Metric labels (right-aligned within their columns)
         System.out.print(String.format("%-" + namespaceWidth + "s |", ""));
         for (int i = 0; i < shardNames.size(); i++) {
-            System.out.print(" cache/dirty/read/writ |");
+            System.out.print(" ");
+            for (int j = 0; j < metrics.length; j++) {
+                String metric = metrics[j];
+                int width = metricWidths.get(metric);
+                System.out.print(String.format("%" + width + "s", metric));
+                if (j < metrics.length - 1) {
+                    System.out.print("  "); // 2 spaces between metrics
+                }
+            }
+            System.out.print(" |");
         }
         System.out.println();
 
@@ -787,20 +827,50 @@ public class MongoStat {
 
             for (String shardName : shardNames) {
                 CollectionStats cs = shardStats.get(shardName);
+                System.out.print(" ");
                 if (cs != null) {
-                    double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
-                    double dirtyMB = cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0;
-                    double readMB = cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
-                    double writMB = cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
-                    System.out.print(String.format(" %4.0f/%4.0f/%4.0f/%4.0f |", cacheMB, dirtyMB, readMB, writMB));
+                    for (int j = 0; j < metrics.length; j++) {
+                        String metric = metrics[j];
+                        int width = metricWidths.get(metric);
+                        double value = getMetricValue(cs, metric);
+                        System.out.print(String.format("%" + width + ".0f", value));
+                        if (j < metrics.length - 1) {
+                            System.out.print("  "); // 2 spaces between metrics
+                        }
+                    }
                 } else {
-                    System.out.print(" ".repeat(shardColumnWidth) + " |");
+                    // Print empty spaces for missing data
+                    for (int j = 0; j < metrics.length; j++) {
+                        int width = metricWidths.get(metrics[j]);
+                        System.out.print(" ".repeat(width));
+                        if (j < metrics.length - 1) {
+                            System.out.print("  ");
+                        }
+                    }
                 }
+                System.out.print(" |");
             }
             System.out.println();
         }
 
         System.out.println();
+    }
+
+    private double getMetricValue(CollectionStats cs, String metric) {
+        switch (metric.toLowerCase()) {
+            case "cachemb":
+                return cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+            case "dirtymb":
+                return cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0;
+            case "readmb":
+                return cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
+            case "writmb":
+            case "writemb":
+                return cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+            default:
+                logger.warn("Unknown pivot metric: {}", metric);
+                return 0.0;
+        }
     }
 
     private void runJsonOutput() {

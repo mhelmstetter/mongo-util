@@ -53,8 +53,11 @@ public class MongoStatApp implements Callable<Integer> {
     @Option(names = {"--top"}, description = "Display only top N collections/indexes (0 = show all)", defaultValue = "0")
     private int top = 0;
 
-    @Option(names = {"--shardPivot"}, description = "Pivot table view with shards as columns (only shows cacheMB/dirtyMB/readMB/writMB)")
+    @Option(names = {"--shardPivot"}, description = "Pivot table view with shards as columns")
     private boolean shardPivot = false;
+
+    @Option(names = {"--pivotMetrics"}, description = "Metrics to show in pivot view (comma-separated: cacheMB,dirtyMB,readMB,writMB)", defaultValue = "cacheMB,dirtyMB")
+    private String pivotMetrics = "cacheMB,dirtyMB";
 
     @Override
     public Integer call() throws Exception {
@@ -76,7 +79,8 @@ public class MongoStatApp implements Callable<Integer> {
                 .intervalMs(intervalSecs * 1000)
                 .sortBy(sortBy)
                 .top(top)
-                .shardPivot(shardPivot);
+                .shardPivot(shardPivot)
+                .pivotMetrics(pivotMetrics);
 
         // If cache size is manually specified, convert GB to bytes
         if (cacheSizeGB != null) {
