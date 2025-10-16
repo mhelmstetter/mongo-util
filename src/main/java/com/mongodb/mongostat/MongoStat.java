@@ -736,14 +736,15 @@ public class MongoStat {
             namespaceToShardStats.put(namespace, shardStats);
         }
 
-        // Sort namespaces by total cache across all shards (descending)
+        // Sort namespaces by total of first metric across all shards (descending)
+        final String firstMetric = metrics[0];
         List<Map.Entry<String, Map<String, CollectionStats>>> sortedNamespaces = new ArrayList<>(namespaceToShardStats.entrySet());
         sortedNamespaces.sort((e1, e2) -> {
             double total1 = e1.getValue().values().stream()
-                .mapToDouble(cs -> cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() : 0.0)
+                .mapToDouble(cs -> getMetricValue(cs, firstMetric))
                 .sum();
             double total2 = e2.getValue().values().stream()
-                .mapToDouble(cs -> cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() : 0.0)
+                .mapToDouble(cs -> getMetricValue(cs, firstMetric))
                 .sum();
             return Double.compare(total2, total1); // Descending
         });
