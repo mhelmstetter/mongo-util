@@ -782,7 +782,8 @@ public class MongoStat {
         // Print header row 1: Shard names (centered)
         System.out.print(String.format("%-" + namespaceWidth + "s |", "Collection"));
         for (String shardName : shardNames) {
-            String shortName = shardName.length() > shardColumnWidth ? shardName.substring(0, shardColumnWidth - 2) + ".." : shardName;
+            String extractedName = extractShardName(shardName);
+            String shortName = extractedName.length() > shardColumnWidth ? extractedName.substring(0, shardColumnWidth - 2) + ".." : extractedName;
             // Center the shard name
             int padding = (shardColumnWidth - shortName.length()) / 2;
             String centeredName = " ".repeat(padding) + shortName + " ".repeat(shardColumnWidth - padding - shortName.length());
@@ -871,6 +872,32 @@ public class MongoStat {
                 logger.warn("Unknown pivot metric: {}", metric);
                 return 0.0;
         }
+    }
+
+    /**
+     * Extract shard identifier from full shard name.
+     * Examples:
+     *   atlas-pzgfjj-shard-0 -> shard-0
+     *   atlas-pzgfjj-shard-02 -> shard-02
+     *   fooBlahBlahShard1 -> shard1
+     *   configServer -> configServer (no match, return as-is)
+     */
+    private String extractShardName(String fullName) {
+        if (fullName == null) {
+            return "unknown";
+        }
+
+        // Try to find "shard" (case insensitive) followed by optional separator and digits
+        // Pattern matches: shard-0, shard_0, shard0, Shard1, etc.
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(shard[-_]?\\d+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+        java.util.regex.Matcher matcher = pattern.matcher(fullName);
+
+        if (matcher.find()) {
+            return matcher.group(1).toLowerCase();
+        }
+
+        // No shard pattern found, return the original name (will be truncated if too long)
+        return fullName;
     }
 
     private void runJsonOutput() {
