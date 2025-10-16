@@ -60,6 +60,10 @@ public class MongoStatApp implements Callable<Integer> {
         ch.qos.logback.classic.Logger mongostatLogger = loggerContext.getLogger("com.mongodb.mongostat");
         mongostatLogger.setLevel(verbose ? Level.DEBUG : Level.INFO);
 
+        // Also control ShardClient logging (used for connecting to shards)
+        ch.qos.logback.classic.Logger shardClientLogger = loggerContext.getLogger("com.mongodb.shardsync.ShardClient");
+        shardClientLogger.setLevel(verbose ? Level.DEBUG : Level.INFO);
+
         MongoStatConfiguration config = new MongoStatConfiguration()
                 .jsonOutput(jsonOutput)
                 .includeWiredTigerStats(!disableWiredTiger)  // Default enabled, disable with --no-wt
