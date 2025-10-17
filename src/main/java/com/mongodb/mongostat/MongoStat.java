@@ -823,6 +823,7 @@ public class MongoStat {
             Map<String, CollectionStats> shardStats = entry.getValue();
 
             // Calculate average for each metric across all shards for this namespace
+            // Exclude zero values to avoid diluting the average with empty/inactive shards
             Map<String, Double> metricAverages = new LinkedHashMap<>();
             for (String metric : metrics) {
                 double sum = 0.0;
@@ -830,8 +831,11 @@ public class MongoStat {
                 for (String shardName : shardNames) {
                     CollectionStats cs = shardStats.get(shardName);
                     if (cs != null) {
-                        sum += getMetricValue(cs, metric);
-                        count++;
+                        double value = getMetricValue(cs, metric);
+                        if (value > 0) {  // Only include non-zero values in average
+                            sum += value;
+                            count++;
+                        }
                     }
                 }
                 double average = count > 0 ? sum / count : 0.0;
