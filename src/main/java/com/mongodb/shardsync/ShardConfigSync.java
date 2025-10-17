@@ -1137,10 +1137,57 @@ public class ShardConfigSync implements Callable<Integer> {
         AtlasServiceGenerator.shutdown();
     }
 
+    /**
+     * Performs common pre-sync validation and preparation steps:
+     * - Preflight check (verify destination is empty)
+     * - Stop balancers on source and destination
+     *
+     * @param force Whether to continue on failures
+     * @return SyncMetadataResult with success/failure of checks
+     */
+    private SyncMetadataResult performPreSyncChecks(boolean force) {
+        SyncMetadataResult result = new SyncMetadataResult();
+
+        // Step 1: Perform preflight check
+        try {
+            boolean preflightPassed = performPreflightCheck();
+            if (preflightPassed) {
+                result.addSuccess("Preflight Check", "Destination cluster is empty and ready for sync");
+            } else {
+                if (force) {
+                    result.addWarning("Preflight Check", "FORCE MODE: Preflight check failed but proceeding anyway due to --force flag");
+                    logger.warn("⚠️  FORCE MODE: Preflight check failed but proceeding anyway due to --force flag");
+                    logger.warn("💀 WARNING: Destination cluster is not empty - sync may overwrite existing data");
+                } else {
+                    result.addFailure("Preflight Check", "Preflight check failed - see logs for details. Use --force to override");
+                    return result;
+                }
+            }
+        } catch (Exception e) {
+            result.addFailure("Preflight Check", "Error during preflight check", e);
+            if (!force) {
+                return result;
+            }
+        }
+
+        // Step 2: Stop balancers
+        try {
+            stopBalancers();
+            result.addSuccess("Stop Balancers", "Balancers stopped successfully");
+        } catch (Exception e) {
+            result.addFailure("Stop Balancers", "Failed to stop balancers", e);
+            if (!force) {
+                return result;
+            }
+        }
+
+        return result;
+    }
+
     private SyncMetadataResult syncMetadataInitialization() {
         return syncMetadataInitialization(PreflightMode.ENFORCE_CHECKS);
     }
-    
+
     public enum PreflightMode {
         ENFORCE_CHECKS,
         IGNORE_FAILURES
@@ -1148,8 +1195,9 @@ public class ShardConfigSync implements Callable<Integer> {
     
     private SyncMetadataResult syncMetadataInitialization(PreflightMode preflightMode) {
         SyncMetadataResult result = new SyncMetadataResult();
-        
-        // Step 1: Initialize chunk manager
+        boolean force = (preflightMode == PreflightMode.IGNORE_FAILURES);
+
+        // Step 1: Initialize chunk manager (legacy-specific)
         try {
             initChunkManager();
             result.addSuccess("Initialize Chunk Manager", "Chunk manager initialized successfully");
@@ -1157,79 +1205,53 @@ public class ShardConfigSync implements Callable<Integer> {
             result.addFailure("Initialize Chunk Manager", "Failed to initialize chunk manager", e);
             return result; // Critical failure - cannot continue
         }
-        
-        // Step 2: Perform preflight check
-        try {
-            boolean preflightPassed = performPreflightCheck();
-            if (preflightPassed) {
-                result.addSuccess("Preflight Check", "Destination cluster is empty and ready for sync");
-            } else {
-                if (preflightMode == PreflightMode.IGNORE_FAILURES) {
-                    result.addWarning("Preflight Check", "FORCE MODE: Preflight check failed but proceeding anyway due to --force flag");
-                    logger.warn("⚠️  FORCE MODE: Preflight check failed but proceeding anyway due to --force flag");
-                    logger.warn("💀 WARNING: Destination cluster is not empty - sync may overwrite existing data");
-                } else {
-                    result.addFailure("Preflight Check", "Preflight check failed - see logs for details. Use --force to override");
-                    return result; // Exit early if preflight check fails and not in force mode
-                }
-            }
-        } catch (Exception e) {
-            result.addFailure("Preflight Check", "Error during preflight check", e);
-            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
-                return result;
-            }
+
+        // Step 2: Perform common pre-sync checks (preflight check + stop balancers)
+        SyncMetadataResult preCheckResult = performPreSyncChecks(force);
+        result.merge(preCheckResult);
+        if (!preCheckResult.isOverallSuccess() && !force) {
+            return result;
         }
-        
-        // Step 3: Stop balancers
-        try {
-            stopBalancers();
-            result.addSuccess("Stop Balancers", "Balancers stopped successfully");
-        } catch (Exception e) {
-            result.addFailure("Stop Balancers", "Failed to stop balancers", e);
-            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
-                return result;
-            }
-        }
-        
-        // Step 4: Create collections
+
+        // Step 3: Create collections (legacy-specific)
         try {
             createCollections(config);
             result.addSuccess("Create Collections", "Collections created successfully");
         } catch (Exception e) {
             result.addFailure("Create Collections", "Failed to create collections", e);
-            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+            if (!force) {
                 return result;
             }
         }
-        
-        // Step 5: Enable destination sharding
+
+        // Step 4: Enable destination sharding (legacy-specific)
         try {
             enableDestinationSharding();
             result.addSuccess("Enable Destination Sharding", "Sharding enabled on destination cluster");
         } catch (Exception e) {
             result.addFailure("Enable Destination Sharding", "Failed to enable sharding on destination", e);
-            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+            if (!force) {
                 return result;
             }
         }
-        
-        // Step 6: Populate source collections map
+
+        // Step 5: Populate source collections map (legacy-specific)
         try {
             sourceShardClient.populateCollectionsMap();
             result.addSuccess("Populate Source Collections Map", "Source collections map populated successfully");
         } catch (Exception e) {
             result.addFailure("Populate Source Collections Map", "Failed to populate source collections map", e);
-            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+            if (!force) {
                 return result;
             }
         }
-        
-        // Step 7: Shard destination collections
+
+        // Step 6: Shard destination collections (legacy-specific)
         try {
             shardDestinationCollections();
             result.addSuccess("Shard Destination Collections", "All collections sharded successfully");
         } catch (RuntimeException e) {
-            if (preflightMode == PreflightMode.IGNORE_FAILURES) {
+            if (force) {
                 result.addWarning("Shard Destination Collections", "FORCE MODE: Some sharding operations failed but continuing: " + e.getMessage());
                 logger.warn("⚠️  FORCE MODE: Continuing despite sharding failures");
             } else {
@@ -1238,18 +1260,18 @@ public class ShardConfigSync implements Callable<Integer> {
             }
         } catch (Exception e) {
             result.addFailure("Shard Destination Collections", "Unexpected error during sharding", e);
-            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+            if (!force) {
                 return result;
             }
         }
-        
-        // Step 8: Populate destination collections map
+
+        // Step 7: Populate destination collections map (legacy-specific)
         try {
             destShardClient.populateCollectionsMap();
             result.addSuccess("Populate Destination Collections Map", "Destination collections map populated successfully");
         } catch (Exception e) {
             result.addFailure("Populate Destination Collections Map", "Failed to populate destination collections map", e);
-            if (preflightMode != PreflightMode.IGNORE_FAILURES) {
+            if (!force) {
                 return result;
             }
         }
@@ -1630,7 +1652,15 @@ public class ShardConfigSync implements Callable<Integer> {
 
         SyncMetadataResult result = new SyncMetadataResult();
 
-        // Step 1: Dump source cluster catalog
+        // Step 1: Perform common pre-sync checks (preflight check + stop balancers)
+        SyncMetadataResult preCheckResult = performPreSyncChecks(force);
+        result.merge(preCheckResult);
+        if (!preCheckResult.isOverallSuccess() && !force) {
+            printSyncMetadataSummary(result);
+            return result;
+        }
+
+        // Step 2: Dump source cluster catalog
         com.mongodb.shardedclustersync.entities.DumpedShardedCluster dump;
         try {
             MongoClient sourceClient = sourceShardClient.getMongoClient();
@@ -1642,7 +1672,7 @@ public class ShardConfigSync implements Callable<Integer> {
             return result;
         }
 
-        // Step 2: Build shard mapping
+        // Step 3: Build shard mapping
         java.util.HashMap<String, String> shardsMapping;
         try {
             shardsMapping = new java.util.HashMap<String, String>();
@@ -1680,7 +1710,7 @@ public class ShardConfigSync implements Callable<Integer> {
             return result;
         }
 
-        // Step 3: Restore catalog to destination
+        // Step 4: Restore catalog to destination
         try {
             MongoClient destClient = destShardClient.getMongoClient();
             com.mongodb.shardedclustersync.ShardsMapping mapping = new com.mongodb.shardedclustersync.ShardsMapping(shardsMapping);
@@ -1697,7 +1727,7 @@ public class ShardConfigSync implements Callable<Integer> {
             }
         }
 
-        // Step 4: Flush router configuration
+        // Step 5: Flush router configuration
         if (!config.skipFlushRouterConfig) {
             try {
                 destShardClient.flushRouterConfig();
