@@ -99,7 +99,10 @@ public class MongomirrorCommand implements Callable<Integer> {
     
     @Option(names = {"--mongomirrorLogPath"}, description = "Directory path for mongomirror log files (default: current directory)")
     private String mongomirrorLogPath;
-    
+
+    @Option(names = {"--pprof"}, description = "Enable pprof profiling on specified address:port (e.g., localhost:6060)")
+    private String pprof;
+
     @Override
     public Integer call() throws Exception {
         return parent.executeMongomirrorCommand(this);
@@ -134,4 +137,5 @@ public class MongomirrorCommand implements Callable<Integer> {
     public String getEmailReportMax() { return emailReportMax; }
     public Integer getVerbose() { return verbose; }
     public String getMongomirrorLogPath() { return mongomirrorLogPath; }
+    public String getPprof() { return pprof; }
 }

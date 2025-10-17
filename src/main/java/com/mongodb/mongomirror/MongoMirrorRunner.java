@@ -73,6 +73,7 @@ public class MongoMirrorRunner {
     private Integer stopWhenLagWithin;
     private Integer verbose;
     private String logPath;
+    private String pprof;
 
     private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
     private Set<String> includeDatabases = new HashSet<String>();
@@ -143,6 +144,7 @@ public class MongoMirrorRunner {
         addArg("collStatsThreshold", collStatsThreshold);
         addArg("stopWhenLagWithin", stopWhenLagWithin);
         addArg("verbose", verbose);
+        addArg("pprof", pprof);
         addArg("resumeDBFile", "mongomirror_resume_" + id + ".db");
 
         for (Namespace ns : includeNamespaces) {
@@ -518,6 +520,10 @@ public class MongoMirrorRunner {
 
 	public void setLogPath(String logPath) {
 		this.logPath = logPath;
+	}
+
+	public void setPprof(String pprof) {
+		this.pprof = pprof;
 	}
 
 	public int getErrorCount() {

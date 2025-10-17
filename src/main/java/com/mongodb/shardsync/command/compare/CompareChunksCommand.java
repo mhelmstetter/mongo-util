@@ -29,10 +29,14 @@ public class CompareChunksCommand implements Callable<Integer> {
             description = "Compare chunk counts only")
     private boolean counts;
     
-    @Option(names = {"--move"}, 
+    @Option(names = {"--move"},
             description = "Compare and move chunks if needed")
     private boolean move;
-    
+
+    @Option(names = {"--legacyCatalogMirror"},
+            description = "Use legacy chunk comparison method (by default, uses CatalogVerifier)")
+    private boolean legacyCatalogMirror;
+
     @Override
     public Integer call() throws Exception {
         // Validate mutually exclusive options
@@ -40,11 +44,30 @@ public class CompareChunksCommand implements Callable<Integer> {
             System.err.println("Error: --equivalent and --strict are mutually exclusive");
             return 1;
         }
-        
+
         SyncConfiguration config = parent.createConfiguration();
         ShardConfigSync sync = new ShardConfigSync(config);
         sync.initialize();
-        
+
+        // If NOT using legacy catalog mirror, use the new CatalogVerifier methods
+        if (!legacyCatalogMirror) {
+            // New verification method - equivalent, strict, and move options don't apply
+            if (equivalent || strict || move) {
+                System.err.println("Warning: --equivalent, --strict, and --move options are ignored when using CatalogVerifier (default)");
+                System.err.println("Use --legacyCatalogMirror if you need these options");
+            }
+
+            if (counts) {
+                boolean success = sync.compareChunkCounts();
+                return success ? 0 : 1;
+            } else {
+                // Use new CatalogVerifier method
+                boolean success = sync.verifyCatalogMetadata();
+                return success ? 0 : 1;
+            }
+        }
+
+        // Legacy comparison methods
         if (counts) {
             boolean success = sync.compareChunkCounts();
             return success ? 0 : 1;

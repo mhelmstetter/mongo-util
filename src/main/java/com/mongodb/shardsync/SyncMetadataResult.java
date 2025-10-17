@@ -102,4 +102,20 @@ public class SyncMetadataResult {
     public List<StepResult> getWarningSteps() {
         return steps.stream().filter(StepResult::isWarning).toList();
     }
+
+    /**
+     * Merges another result into this one, combining all steps and updating
+     * overall status flags appropriately.
+     *
+     * @param other The result to merge into this one
+     */
+    public void merge(SyncMetadataResult other) {
+        this.steps.addAll(other.steps);
+        if (!other.overallSuccess) {
+            this.overallSuccess = false;
+        }
+        if (other.hasWarnings) {
+            this.hasWarnings = true;
+        }
+    }
 }

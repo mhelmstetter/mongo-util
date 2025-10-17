@@ -20,12 +20,16 @@ public class SyncMetadataCommand implements Callable<Integer> {
             description = "Skip optimization that will combine adjacent chunks")
     private boolean skipOptimizeAdjacent;
     
-    @Option(names = {"--legacy"}, 
-            description = "Use legacy metadata sync method (slower)", 
+    @Option(names = {"--legacy"},
+            description = "Use legacy metadata sync method (slower)",
             hidden = true)
     private boolean legacy;
-    
-    @Option(names = {"--skipFlushRouterConfig"}, 
+
+    @Option(names = {"--legacyCatalogMirror"},
+            description = "Use legacy mongo-util implementation instead of catalogmirror")
+    private boolean legacyCatalogMirror;
+
+    @Option(names = {"--skipFlushRouterConfig"},
             description = "Skip the flushRouterConfig step")
     private boolean skipFlushRouterConfig;
     
@@ -39,17 +43,23 @@ public class SyncMetadataCommand implements Callable<Integer> {
         config.setSkipFlushRouterConfig(skipFlushRouterConfig);
         ShardConfigSync sync = new ShardConfigSync(config);
         sync.initialize();
-        
+
         SyncMetadataResult result;
-        
-        if (legacy) {
-            result = sync.syncMetadataLegacy(force);
-        } else if (skipOptimizeAdjacent) {
-        	result = sync.syncMetadata(force);
+
+        if (legacyCatalogMirror) {
+            // Use legacy mongo-util implementation
+            if (legacy) {
+                result = sync.syncMetadataLegacy(force);
+            } else if (skipOptimizeAdjacent) {
+                result = sync.syncMetadata(force);
+            } else {
+                result = sync.syncMetadataOptimized(force);
+            }
         } else {
-        	result = sync.syncMetadataOptimized(force);
+            // Use catalogmirror implementation (default)
+            result = sync.syncMetadataWithCatalogMirror(force);
         }
-        
+
         // Return proper exit codes based on results
         if (result.isOverallSuccess()) {
             if (result.hasWarnings()) {

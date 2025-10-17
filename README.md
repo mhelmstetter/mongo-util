@@ -1,5 +1,32 @@
 # MongoDB Utilities
 
+## Build
+
+This project depends on the `catalogmirror` library which must be installed to your local Maven repository before building.
+
+### Install catalogmirror dependency
+
+The catalogmirror library is included in the `lib/` directory. Install it to your local Maven repository:
+
+```bash
+mvn install:install-file \
+  -Dfile=lib/catalogmirror-1.0.0.jar \
+  -DgroupId=com.mongodb \
+  -DartifactId=catalogmirror \
+  -Dversion=1.0.0 \
+  -Dpackaging=jar
+```
+
+### Build mongo-util
+
+Once catalogmirror is installed to your local Maven repository:
+
+```bash
+mvn clean package -DskipTests
+```
+
+The shaded JAR will be created at `bin/mongo-util.jar`.
+
 ShardConfigSync
 ---------------
 Sync shard metadata, copies sharding metadata from one cluster to another.

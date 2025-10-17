@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.helmstetter</groupId>
 	<artifactId>mongo-util-core</artifactId>
-	<version>2.0.1</version>
+	<version>2.0.2</version>
 	<name>mongo-util-core</name>
 	<description>MongoDB related utilities</description>
 	<url>https://github.com/mhelmstetter/mongo-util</url>
@@ -200,6 +200,11 @@
 			<groupId>org.mongodb</groupId>
 			<artifactId>mongodb-driver-sync</artifactId>
 			<version>4.11.1</version>
+		</dependency>
+		<dependency>
+			<groupId>com.mongodb</groupId>
+			<artifactId>catalogmirror</artifactId>
+			<version>1.0.0</version>
 		</dependency>
 		<dependency>
 			<groupId>commons-io</groupId>

@@ -38,6 +38,7 @@ public class SyncConfiguration extends BaseConfiguration {
 	public File mongomirrorBinary;
 	public Integer verbose;
 	public String mongomirrorLogPath;
+	public String pprof;
 
 	/* Mongomirror email report specific settings */
 	public List<String> emailReportRecipients;
@@ -408,5 +409,13 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setMongomirrorLogPath(String mongomirrorLogPath) {
 		this.mongomirrorLogPath = mongomirrorLogPath;
+	}
+
+	public String getPprof() {
+		return pprof;
+	}
+
+	public void setPprof(String pprof) {
+		this.pprof = pprof;
 	}
 }
