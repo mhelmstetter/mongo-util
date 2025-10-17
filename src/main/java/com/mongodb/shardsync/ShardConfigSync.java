@@ -1727,21 +1727,7 @@ public class ShardConfigSync implements Callable<Integer> {
             }
         }
 
-        // Step 5: Refresh destination collections map (to pick up newly restored collections and chunks)
-        try {
-            destShardClient.populateCollectionsMap();
-            result.addSuccess("Refresh Destination Collections Map", "Destination collections map refreshed successfully");
-        } catch (Exception e) {
-            if (force) {
-                result.addWarning("Refresh Destination Collections Map", "FORCE MODE: Failed to refresh collections map but continuing: " + e.getMessage());
-            } else {
-                result.addFailure("Refresh Destination Collections Map", "Failed to refresh destination collections map", e);
-                printSyncMetadataSummary(result);
-                return result;
-            }
-        }
-
-        // Step 6: Flush router configuration
+        // Step 5: Flush router configuration
         if (!config.skipFlushRouterConfig) {
             try {
                 destShardClient.flushRouterConfig();
@@ -1923,6 +1909,77 @@ public class ShardConfigSync implements Callable<Integer> {
     public boolean compareAndMoveChunks(boolean doMove, boolean ignoreMissing) {
         initChunkManager();
         return chunkManager.compareAndMoveChunks(doMove, ignoreMissing);
+    }
+
+    /**
+     * Verifies catalog metadata consistency between source and destination clusters
+     * using the CatalogVerifier from catalogmirror library.
+     *
+     * @return true if verification passes, false otherwise
+     */
+    public boolean verifyCatalogMetadata() {
+        logger.info("=== VERIFYING CATALOG METADATA ===");
+        logger.info("Using CatalogVerifier to verify catalog consistency");
+
+        try {
+            MongoClient srcClient = sourceShardClient.getMongoClient();
+            MongoClient dstClient = destShardClient.getMongoClient();
+
+            // Build shard mapping
+            logger.info("Building shard mapping for verification");
+            java.util.HashMap<String, String> shardsMapping = new java.util.HashMap<String, String>();
+            Map<String, com.mongodb.model.Shard> sourceShardsMap = sourceShardClient.getShardsMap();
+            Map<String, com.mongodb.model.Shard> destShardsMap = destShardClient.getShardsMap();
+
+            List<String> sourceShardIds = new ArrayList<>(sourceShardsMap.keySet());
+            List<String> destShardIds = new ArrayList<>(destShardsMap.keySet());
+
+            if (sourceShardIds.size() != destShardIds.size()) {
+                logger.error("Shard count mismatch: source has {} shards, destination has {} shards",
+                        sourceShardIds.size(), destShardIds.size());
+                return false;
+            }
+
+            // Map source shards to destination shards in order
+            for (int i = 0; i < sourceShardIds.size(); i++) {
+                shardsMapping.put(sourceShardIds.get(i), destShardIds.get(i));
+                logger.info("  Mapping source shard {} to destination shard {}",
+                        sourceShardIds.get(i), destShardIds.get(i));
+            }
+
+            com.mongodb.shardedclustersync.ShardsMapping mapping =
+                    new com.mongodb.shardedclustersync.ShardsMapping(shardsMapping);
+
+            logger.info("");
+
+            // Step 1 & 2: Verify config server metadata (databases, collections, chunks)
+            try {
+                com.mongodb.shardedclustersync.CatalogVerifier.rawVerifyConfigCollections(
+                        srcClient, dstClient, mapping, false /* verbose */);
+            } catch (Exception e) {
+                logger.error("Config server metadata verification FAILED: {}", e.getMessage());
+                return false;
+            }
+
+            logger.info("");
+
+            // Step 3: Verify shard catalogs metadata
+            try {
+                com.mongodb.shardedclustersync.CatalogVerifier.rawVerifyShardCatalogs(
+                        srcClient, dstClient, mapping, false /* verbose */);
+            } catch (Exception e) {
+                logger.error("Shard catalog metadata verification FAILED: {}", e.getMessage());
+                return false;
+            }
+
+            logger.info("");
+            logger.info("=== VERIFICATION COMPLETE: ALL CHECKS PASSED ===");
+            return true;
+
+        } catch (Exception e) {
+            logger.error("Error during catalog metadata verification", e);
+            return false;
+        }
     }
 
     @SuppressWarnings("unchecked")
