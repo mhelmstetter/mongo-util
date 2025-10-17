@@ -285,6 +285,11 @@ public class ShardConfigSyncApp implements Callable<Integer> {
             config.setMongomirrorLogPath(mongoCmd.getMongomirrorLogPath());
         }
 
+        // Set pprof option if provided
+        if (mongoCmd.getPprof() != null) {
+            config.setPprof(mongoCmd.getPprof());
+        }
+
         initMongoMirrorEmailReportConfig(config, mongoCmd);
 
         ShardConfigSync sync = new ShardConfigSync(config);

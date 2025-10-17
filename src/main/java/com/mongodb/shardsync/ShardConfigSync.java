@@ -3255,7 +3255,11 @@ public class ShardConfigSync implements Callable<Integer> {
             if (config.mongomirrorLogPath != null) {
                 mongomirror.setLogPath(config.mongomirrorLogPath);
             }
-            
+
+            if (config.pprof != null) {
+                mongomirror.setPprof(config.pprof);
+            }
+
             setMongomirrorEmailReportDetails(mongomirror);
 
             mongomirror.execute(config.dryRun);
