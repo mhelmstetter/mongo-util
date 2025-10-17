@@ -205,8 +205,6 @@
 			<groupId>com.mongodb</groupId>
 			<artifactId>catalogmirror</artifactId>
 			<version>1.0.0</version>
-			<scope>system</scope>
-			<systemPath>${project.basedir}/lib/catalogmirror-1.0.0.jar</systemPath>
 		</dependency>
 		<dependency>
 			<groupId>commons-io</groupId>
