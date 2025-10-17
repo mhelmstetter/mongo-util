@@ -1727,7 +1727,21 @@ public class ShardConfigSync implements Callable<Integer> {
             }
         }
 
-        // Step 5: Flush router configuration
+        // Step 5: Refresh destination collections map (to pick up newly restored collections and chunks)
+        try {
+            destShardClient.populateCollectionsMap();
+            result.addSuccess("Refresh Destination Collections Map", "Destination collections map refreshed successfully");
+        } catch (Exception e) {
+            if (force) {
+                result.addWarning("Refresh Destination Collections Map", "FORCE MODE: Failed to refresh collections map but continuing: " + e.getMessage());
+            } else {
+                result.addFailure("Refresh Destination Collections Map", "Failed to refresh destination collections map", e);
+                printSyncMetadataSummary(result);
+                return result;
+            }
+        }
+
+        // Step 6: Flush router configuration
         if (!config.skipFlushRouterConfig) {
             try {
                 destShardClient.flushRouterConfig();
