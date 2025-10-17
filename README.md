@@ -4,24 +4,18 @@
 
 This project depends on the `catalogmirror` library which must be installed to your local Maven repository before building.
 
-### Prerequisites
+### Install catalogmirror dependency
 
-1. Clone and build the catalogmirror project:
-   ```bash
-   cd /path/to/catalogmirror
-   export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
-   mvn clean package -DskipTests
-   ```
+The catalogmirror library is included in the `lib/` directory. Install it to your local Maven repository:
 
-2. Install the obfuscated catalogmirror JAR to local Maven repository:
-   ```bash
-   mvn install:install-file \
-     -Dfile=target/catalogmirror-1.0.0-obfuscated.jar \
-     -DgroupId=com.mongodb \
-     -DartifactId=catalogmirror \
-     -Dversion=1.0.0 \
-     -Dpackaging=jar
-   ```
+```bash
+mvn install:install-file \
+  -Dfile=lib/catalogmirror-1.0.0.jar \
+  -DgroupId=com.mongodb \
+  -DartifactId=catalogmirror \
+  -Dversion=1.0.0 \
+  -Dpackaging=jar
+```
 
 ### Build mongo-util
 
