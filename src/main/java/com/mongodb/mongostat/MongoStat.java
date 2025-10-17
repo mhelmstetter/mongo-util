@@ -758,6 +758,7 @@ public class MongoStat {
         List<String> shardNames = new ArrayList<>(shardClients.keySet());
 
         // Calculate max width needed for each metric across all shards and collections
+        // Add 1 to account for potential "*" prefix
         Map<String, Integer> metricWidths = new LinkedHashMap<>();
         for (String metric : metrics) {
             int maxWidth = metric.length(); // At least as wide as the metric name
@@ -766,7 +767,8 @@ public class MongoStat {
                     CollectionStats cs = entry.getValue().get(shardName);
                     if (cs != null) {
                         double value = getMetricValue(cs, metric);
-                        int valueWidth = String.format("%.0f", value).length();
+                        // Add 1 for potential "*" prefix
+                        int valueWidth = String.format("%.0f", value).length() + 1;
                         if (valueWidth > maxWidth) {
                             maxWidth = valueWidth;
                         }
@@ -820,6 +822,22 @@ public class MongoStat {
             String namespace = entry.getKey();
             Map<String, CollectionStats> shardStats = entry.getValue();
 
+            // Calculate average for each metric across all shards for this namespace
+            Map<String, Double> metricAverages = new LinkedHashMap<>();
+            for (String metric : metrics) {
+                double sum = 0.0;
+                int count = 0;
+                for (String shardName : shardNames) {
+                    CollectionStats cs = shardStats.get(shardName);
+                    if (cs != null) {
+                        sum += getMetricValue(cs, metric);
+                        count++;
+                    }
+                }
+                double average = count > 0 ? sum / count : 0.0;
+                metricAverages.put(metric, average);
+            }
+
             // Truncate namespace if too long
             String displayNamespace = namespace.length() > namespaceWidth
                 ? namespace.substring(0, namespaceWidth - 2) + ".."
@@ -835,7 +853,14 @@ public class MongoStat {
                         String metric = metrics[j];
                         int width = metricWidths.get(metric);
                         double value = getMetricValue(cs, metric);
-                        System.out.print(String.format("%" + width + ".0f", value));
+                        double average = metricAverages.get(metric);
+
+                        // Add "*" prefix if value is > 25% above average
+                        String prefix = (average > 0 && value > average * 1.25) ? "*" : "";
+                        String valueStr = String.format("%.0f", value);
+                        String display = prefix + valueStr;
+
+                        System.out.print(String.format("%" + width + "s", display));
                         if (j < metrics.length - 1) {
                             System.out.print("  "); // 2 spaces between metrics
                         }
