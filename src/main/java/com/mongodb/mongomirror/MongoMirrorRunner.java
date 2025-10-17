@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.google.common.base.Strings;
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecuteResultHandler;
 import org.apache.commons.exec.DefaultExecutor;
@@ -161,6 +162,9 @@ public class MongoMirrorRunner {
         
         
         if (!emailRecipients.isEmpty()) {
+            if (Strings.isNullOrEmpty(emailFrom) || Strings.isNullOrEmpty(smtpPassword)) {
+                throw new ExecuteException("'emailFrom' and 'emailSmtpPassword' must be configured to send email report", 1);
+            }
             emailSender = new EmailSender(emailRecipients, smtpHost, smtpPort, smtpTls, smtpAuth, emailFrom,
                     smtpPassword, errMsgWindowSecs, errorRptMaxErrors, totalEmailsMax, id);
         }
