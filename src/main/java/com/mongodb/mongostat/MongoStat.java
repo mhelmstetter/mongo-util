@@ -4,12 +4,17 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Stream;
 
 import org.bson.Document;
 import org.slf4j.Logger;
@@ -173,18 +178,21 @@ public class MongoStat {
     
     private void runTableOutput() {
         int index = 0;
-        
-        if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
-            if (config.isDetailedOutput()) {
-                printDetailedHeader();
+
+        // Skip printing header when in pivot mode
+        if (!config.isShardPivot()) {
+            if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
+                if (config.isDetailedOutput()) {
+                    printDetailedHeader();
+                } else {
+                    printEnhancedHeader();
+                }
             } else {
-                printEnhancedHeader();
+                System.out.printf(
+                        "%s %-15s%8s%8s%8s%8s %13s%13s%13s%13s %n",
+                        LocalTime.now().format(timeFormatter),
+                        "replicaSet", "insert", "query", "update", "delete", "totInserts", "totQueries", "totUpdates", "totDeletes");
             }
-        } else {
-            System.out.printf(
-                    "%s %-15s%8s%8s%8s%8s %13s%13s%13s%13s %n",
-                    LocalTime.now().format(timeFormatter),
-                    "replicaSet", "insert", "query", "update", "delete", "totInserts", "totQueries", "totUpdates", "totDeletes");
         }
         
         List<CompletableFuture<Void>> futures = new ArrayList<>();
@@ -193,24 +201,60 @@ public class MongoStat {
             final int currentIndex = index;
             
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                Document serverStatus = client.getDatabase("admin").runCommand(new Document("serverStatus", 1));
-                
-                ServerStatus status = null;
-                if (serverStatuses.size() >= currentIndex + 1) {
-                    status = serverStatuses.get(currentIndex);
-                } else {
-                    status = new ServerStatus();
-                    serverStatuses.add(currentIndex, status);
-                }
-                status.updateServerStatus(serverStatus);
-                
                 String shardName = getShardNameForClient(client);
-                
-                // Update WT cache stats if enabled
-                if (config.isIncludeWiredTigerStats() && shardName != null) {
-                    WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
-                    if (wtStats != null) {
-                        wtStats.updateFromServerStatus(serverStatus);
+                ServerStatus status = null;
+                Document serverStatus = null;
+
+                // Try to get serverStatus, but handle authorization errors gracefully
+                if (config.getManualCacheSizeBytes() == null) {
+                    try {
+                        serverStatus = client.getDatabase("admin").runCommand(new Document("serverStatus", 1));
+
+                        if (serverStatuses.size() >= currentIndex + 1) {
+                            status = serverStatuses.get(currentIndex);
+                        } else {
+                            status = new ServerStatus();
+                            serverStatuses.add(currentIndex, status);
+                        }
+                        status.updateServerStatus(serverStatus);
+
+                        // Update WT cache stats if enabled
+                        if (config.isIncludeWiredTigerStats() && shardName != null) {
+                            WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
+                            if (wtStats != null) {
+                                wtStats.updateFromServerStatus(serverStatus);
+                            }
+                        }
+                    } catch (com.mongodb.MongoCommandException e) {
+                        if (e.getErrorCode() == 13) { // Unauthorized
+                            logger.warn("Not authorized to run serverStatus on {}. Use --cache-size-gb to specify cache size manually.", shardName);
+                            // Create empty status for operation counters
+                            if (serverStatuses.size() >= currentIndex + 1) {
+                                status = serverStatuses.get(currentIndex);
+                            } else {
+                                status = new ServerStatus();
+                                serverStatuses.add(currentIndex, status);
+                            }
+                        } else {
+                            throw e;
+                        }
+                    }
+                } else {
+                    // Using manual cache size, skip serverStatus
+                    logger.debug("Using manual cache size, skipping serverStatus for {}", shardName);
+                    if (serverStatuses.size() >= currentIndex + 1) {
+                        status = serverStatuses.get(currentIndex);
+                    } else {
+                        status = new ServerStatus();
+                        serverStatuses.add(currentIndex, status);
+                    }
+
+                    // Set manual cache size on WiredTiger stats
+                    if (config.isIncludeWiredTigerStats() && shardName != null) {
+                        WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
+                        if (wtStats != null) {
+                            wtStats.setManualMaxCacheBytes(config.getManualCacheSizeBytes());
+                        }
                     }
                 }
                 
@@ -218,15 +262,22 @@ public class MongoStat {
                 if (config.isIncludeCollectionStats() && shardName != null) {
                     updateCollectionStatsForShard(client, shardName);
                 }
-                
-                if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
-                    if (config.isDetailedOutput() && config.isIncludeCollectionStats()) {
-                        printDetailedCollectionReport(status, shardName);
+
+                // Skip per-shard printing if in pivot mode
+                if (!config.isShardPivot()) {
+                    if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
+                        if (config.isDetailedOutput() && config.isIncludeCollectionStats()) {
+                            synchronized(this) {
+                                printDetailedCollectionReport(status, shardName);
+                            }
+                        } else {
+                            synchronized(this) {
+                                printEnhancedReport(status, shardName);
+                            }
+                        }
                     } else {
-                        printEnhancedReport(status, shardName);
+                        status.report();
                     }
-                } else {
-                    status.report();
                 }
             }, executor);
             
@@ -236,6 +287,11 @@ public class MongoStat {
         
         // Wait for all futures to complete
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        // After all shards are processed, print pivot report if enabled
+        if (config.isShardPivot() && config.isIncludeCollectionStats()) {
+            printShardPivotReport();
+        }
     }
     
     private String getShardNameForClient(MongoClient client) {
@@ -251,36 +307,90 @@ public class MongoStat {
         try {
             MongoIterable<String> databaseNames = client.listDatabaseNames();
             Map<String, CollectionStats> shardCollStats = collectionStats.get(shardName);
-            
+
+            // Get server max cache bytes from WiredTiger stats
+            WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
+            Long serverMaxCacheBytes = wtStats != null ? wtStats.getMaxCacheBytes() : null;
+
+            logger.debug("Starting collection stats update for shard {}, serverMaxCacheBytes: {}", shardName, serverMaxCacheBytes);
+            int dbCount = 0;
+            int collCount = 0;
+            int successCount = 0;
+            int failCount = 0;
+
             for (String dbName : databaseNames) {
                 if ("admin".equals(dbName) || "config".equals(dbName) || "local".equals(dbName)) {
                     continue;
                 }
-                
+                dbCount++;
+
                 MongoIterable<String> collectionNames = client.getDatabase(dbName).listCollectionNames();
                 for (String collName : collectionNames) {
                     String namespace = dbName + "." + collName;
-                    
-                    CollectionStats collStats = shardCollStats.computeIfAbsent(namespace, 
+                    collCount++;
+
+                    CollectionStats collStats = shardCollStats.computeIfAbsent(namespace,
                             k -> new CollectionStats(namespace, shardName));
-                    
+
+                    // Set server max cache bytes for dirty% calculation
+                    collStats.setServerMaxCacheBytes(serverMaxCacheBytes);
+
                     try {
+                        // Call collStats - indexDetails are included in response by default if supported
+                        // The indexDetails parameter is NOT a command parameter, it's just used by the shell
+                        // to filter the response. We always get the full response.
+                        Document collStatsCommand = new Document("collStats", collName);
                         Document collStatsDoc = client.getDatabase(dbName)
-                                .runCommand(new Document("collStats", collName));
+                                .runCommand(collStatsCommand);
                         collStats.updateFromCollStats(collStatsDoc);
+                        successCount++;
                     } catch (Exception e) {
-                        logger.debug("Error getting collStats for " + namespace + " on shard " + shardName, e);
+                        logger.warn("Error getting collStats for {} on shard {}: {}", namespace, shardName, e.getMessage());
+                        failCount++;
                     }
                 }
             }
+            logger.debug("Collection stats update complete for shard {}: {} databases, {} collections, {} successful, {} failed",
+                    shardName, dbCount, collCount, successCount, failCount);
+            logger.debug("Collection stats map for shard {} now contains {} entries", shardName, shardCollStats.size());
         } catch (Exception e) {
             logger.error("Error updating collection stats for shard " + shardName, e);
         }
     }
     
+    private int maxShardWidth = 20;
+    private int maxCollectionWidth = 80;
+
+    private synchronized void calculateColumnWidths() {
+        int minShardWidth = 20;
+        int minCollectionWidth = 80;
+
+        maxShardWidth = minShardWidth;
+        maxCollectionWidth = minCollectionWidth;
+
+        // Find max shard name width
+        for (String shardName : shardClients.keySet()) {
+            if (shardName != null && shardName.length() > maxShardWidth) {
+                maxShardWidth = shardName.length();
+            }
+        }
+
+        // Find max collection name width
+        for (Map<String, CollectionStats> shardStats : collectionStats.values()) {
+            if (shardStats != null) {
+                for (String namespace : shardStats.keySet()) {
+                    if (namespace != null && namespace.length() > maxCollectionWidth) {
+                        maxCollectionWidth = namespace.length();
+                    }
+                }
+            }
+        }
+    }
+
     private void printDetailedHeader() {
-        System.out.printf("%-8s %-12s %-35s %6s %6s %6s %6s %8s %8s %8s %8s %8s %8s %7s%n",
-                "Time", "Shard", "Collection", "ins", "qry", "upd", "del", "dataGB", "idxGB", "cacheMB", "dirtyMB", "readMB", "writMB", "dirty%");
+        calculateColumnWidths();
+        System.out.printf("%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8s %8s %8s %8s %8s %8s %7s %7s%n",
+                "Time", "Shard", "Collection", "ins", "qry", "upd", "del", "dataGB", "idxGB", "cacheMB", "dirtyMB", "readMB", "writMB", "dirty%", "idxDty%");
         lineCount = 0;
     }
     
@@ -297,6 +407,130 @@ public class MongoStat {
             System.out.printf(
                     "%s %-15s%8s%8s%8s%8s %10s%10s%10s %n",
                     "Time    ", "shard", "ins", "qry", "upd", "del", "colls", "dataGB", "idxGB");
+        }
+    }
+
+    private Comparator<CollectionStats> getCollectionComparator() {
+        String sortBy = config.getSortBy();
+
+        switch (sortBy.toLowerCase()) {
+            case "cachemb":
+                return (cs1, cs2) -> {
+                    double cache1 = cs1.getCacheCurrentBytes() != null ? cs1.getCacheCurrentBytes() : 0L;
+                    double cache2 = cs2.getCacheCurrentBytes() != null ? cs2.getCacheCurrentBytes() : 0L;
+                    return Double.compare(cache2, cache1); // Descending
+                };
+            case "dirtymb":
+                return (cs1, cs2) -> {
+                    double dirty1 = cs1.getCacheDirtyBytes() != null ? cs1.getCacheDirtyBytes() : 0L;
+                    double dirty2 = cs2.getCacheDirtyBytes() != null ? cs2.getCacheDirtyBytes() : 0L;
+                    return Double.compare(dirty2, dirty1); // Descending
+                };
+            case "datagb":
+                return (cs1, cs2) -> {
+                    double data1 = cs1.getDataSize() != null ? cs1.getDataSize() : 0L;
+                    double data2 = cs2.getDataSize() != null ? cs2.getDataSize() : 0L;
+                    return Double.compare(data2, data1); // Descending
+                };
+            case "idxgb":
+                return (cs1, cs2) -> {
+                    double idx1 = cs1.getIndexSize() != null ? cs1.getIndexSize() : 0L;
+                    double idx2 = cs2.getIndexSize() != null ? cs2.getIndexSize() : 0L;
+                    return Double.compare(idx2, idx1); // Descending
+                };
+            case "namespace":
+                return (cs1, cs2) -> {
+                    String ns1 = cs1.getNamespace() != null ? cs1.getNamespace() : "";
+                    String ns2 = cs2.getNamespace() != null ? cs2.getNamespace() : "";
+                    return ns1.compareTo(ns2); // Ascending
+                };
+            case "dirty%":
+                return (cs1, cs2) -> {
+                    double ratio1 = cs1.getDirtyFillRatio();
+                    double ratio2 = cs2.getDirtyFillRatio();
+                    return Double.compare(ratio2, ratio1); // Descending
+                };
+            case "idxdty%":
+                return (cs1, cs2) -> {
+                    double ratio1 = cs1.getIndexDirtyFillRatio();
+                    double ratio2 = cs2.getIndexDirtyFillRatio();
+                    return Double.compare(ratio2, ratio1); // Descending
+                };
+            case "readmb":
+                return (cs1, cs2) -> {
+                    double read1 = cs1.getDelta("cacheBytesRead");
+                    double read2 = cs2.getDelta("cacheBytesRead");
+                    return Double.compare(read2, read1); // Descending
+                };
+            case "writmb":
+                return (cs1, cs2) -> {
+                    double writ1 = cs1.getDelta("cacheBytesWritten");
+                    double writ2 = cs2.getDelta("cacheBytesWritten");
+                    return Double.compare(writ2, writ1); // Descending
+                };
+            default:
+                logger.warn("Unknown sort field: {}, defaulting to cacheMB", sortBy);
+                return (cs1, cs2) -> {
+                    double cache1 = cs1.getCacheCurrentBytes() != null ? cs1.getCacheCurrentBytes() : 0L;
+                    double cache2 = cs2.getCacheCurrentBytes() != null ? cs2.getCacheCurrentBytes() : 0L;
+                    return Double.compare(cache2, cache1); // Descending
+                };
+        }
+    }
+
+    private Comparator<IndexStats> getIndexComparator() {
+        String sortBy = config.getSortBy();
+
+        switch (sortBy.toLowerCase()) {
+            case "cachemb":
+                return (idx1, idx2) -> {
+                    double cache1 = idx1.getCacheCurrentBytes() != null ? idx1.getCacheCurrentBytes() : 0L;
+                    double cache2 = idx2.getCacheCurrentBytes() != null ? idx2.getCacheCurrentBytes() : 0L;
+                    return Double.compare(cache2, cache1); // Descending
+                };
+            case "dirtymb":
+                return (idx1, idx2) -> {
+                    double dirty1 = idx1.getCacheDirtyBytes() != null ? idx1.getCacheDirtyBytes() : 0L;
+                    double dirty2 = idx2.getCacheDirtyBytes() != null ? idx2.getCacheDirtyBytes() : 0L;
+                    return Double.compare(dirty2, dirty1); // Descending
+                };
+            case "idxgb":
+                return (idx1, idx2) -> {
+                    double size1 = idx1.getIndexSize() != null ? idx1.getIndexSize() : 0L;
+                    double size2 = idx2.getIndexSize() != null ? idx2.getIndexSize() : 0L;
+                    return Double.compare(size2, size1); // Descending
+                };
+            case "namespace":
+                return (idx1, idx2) -> {
+                    String name1 = idx1.getIndexName() != null ? idx1.getIndexName() : "";
+                    String name2 = idx2.getIndexName() != null ? idx2.getIndexName() : "";
+                    return name1.compareTo(name2); // Ascending
+                };
+            case "dirty%":
+                return (idx1, idx2) -> {
+                    double ratio1 = idx1.getDirtyFillRatio();
+                    double ratio2 = idx2.getDirtyFillRatio();
+                    return Double.compare(ratio2, ratio1); // Descending
+                };
+            case "readmb":
+                return (idx1, idx2) -> {
+                    double read1 = idx1.getDelta("cacheBytesRead");
+                    double read2 = idx2.getDelta("cacheBytesRead");
+                    return Double.compare(read2, read1); // Descending
+                };
+            case "writmb":
+                return (idx1, idx2) -> {
+                    double writ1 = idx1.getDelta("cacheBytesWritten");
+                    double writ2 = idx2.getDelta("cacheBytesWritten");
+                    return Double.compare(writ2, writ1); // Descending
+                };
+            default:
+                // Default to cacheMB for indexes too
+                return (idx1, idx2) -> {
+                    double cache1 = idx1.getCacheCurrentBytes() != null ? idx1.getCacheCurrentBytes() : 0L;
+                    double cache2 = idx2.getCacheCurrentBytes() != null ? idx2.getCacheCurrentBytes() : 0L;
+                    return Double.compare(cache2, cache1); // Descending
+                };
         }
     }
     
@@ -368,43 +602,334 @@ public class MongoStat {
         WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
         String timestamp = LocalTime.now().format(timeFormatter);
         String shard = shardName != null ? shardName : "unknown";
-        
+
+        logger.debug("printDetailedCollectionReport called for shard {}, collStats map size: {}",
+                shard, shardCollStats != null ? shardCollStats.size() : "null");
+
         // Check if we need to print header again
         if (lineCount >= 25) {
             System.out.println();
             printDetailedHeader();
         }
-        
+
+        // Calculate shard totals for readMB and writMB by summing collection values
+        double totalReadMB = 0.0;
+        double totalWriteMB = 0.0;
+        if (shardCollStats != null && !shardCollStats.isEmpty()) {
+            for (CollectionStats cs : shardCollStats.values()) {
+                totalReadMB += cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
+                totalWriteMB += cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+            }
+        }
+
         // Print shard summary line
-        System.out.printf("%-8s %-12s %-35s %6s %6s %6s %6s %8.1f %8.1f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n",
+        String format = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.1f %8.1f %8.1f %8.1f %8.1f %8.1f %6.1f%% %6.1f%%%n";
+        System.out.printf(format,
                 timestamp, shard, "[SHARD TOTAL]",
-                status.getCurrentInserts(), status.getCurrentQueries(), 
+                status.getCurrentInserts(), status.getCurrentQueries(),
                 status.getCurrentUpdates(), status.getCurrentDeletes(),
                 0.0, 0.0,
                 wtStats != null ? wtStats.getCurrentCacheBytes() / 1024.0 / 1024.0 : 0.0,
                 wtStats != null ? wtStats.getDirtyBytes() / 1024.0 / 1024.0 : 0.0,
-                0.0, 0.0,
-                wtStats != null ? wtStats.getDirtyFillRatio() * 100 : 0.0);
+                totalReadMB, totalWriteMB,
+                wtStats != null ? wtStats.getDirtyFillRatio() * 100 : 0.0,
+                0.0);  // No index dirty% for shard total line
         lineCount++;
-        
+
         // Print collection details if available
         if (shardCollStats != null && !shardCollStats.isEmpty()) {
-            for (CollectionStats cs : shardCollStats.values()) {
-                System.out.printf("%-8s %-12s %-35s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%%%n",
+            logger.debug("Processing {} collections for printing", shardCollStats.size());
+            String collFormat = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%% %6.1f%%%n";
+
+            // Sort collections using configured comparator and apply top limit if specified
+            Stream<CollectionStats> collectionStream = shardCollStats.values().stream()
+                .sorted(getCollectionComparator());
+
+            if (config.getTop() > 0) {
+                collectionStream = collectionStream.limit(config.getTop());
+            }
+
+            collectionStream.forEach(cs -> {
+                // Calculate display value
+                double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+
+                // Skip collections where display value would be 0.0 (less than 0.05 MB)
+                if (cacheMB < 0.05) {
+                    return;
+                }
+
+                System.out.printf(collFormat,
                         timestamp, shard, cs.getNamespace(),
                         "-", "-", "-", "-",
                         cs.getDataSize() != null ? cs.getDataSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
                         cs.getIndexSize() != null ? cs.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
-                        cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0,
+                        cacheMB,
                         cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
                         cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
                         cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
-                        cs.getDirtyFillRatio() * 100);
+                        cs.getDirtyFillRatio() * 100,
+                        cs.getIndexDirtyFillRatio() * 100);
                 lineCount++;
-            }
+
+                // If includeIndexDetails is true, print each index as a separate row
+                if (config.isIncludeIndexDetails() && cs.getIndexStats() != null && !cs.getIndexStats().isEmpty()) {
+                    Stream<IndexStats> indexStream = cs.getIndexStats().values().stream()
+                        .sorted(getIndexComparator());
+
+                    if (config.getTop() > 0) {
+                        indexStream = indexStream.limit(config.getTop());
+                    }
+
+                    indexStream.forEach(idx -> {
+                        double idxCacheMB = idx.getCacheCurrentBytes() != null ? idx.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+                        if (idxCacheMB < 0.05) {
+                            return;
+                        }
+                        System.out.printf(collFormat,
+                                timestamp, shard, "  [idx] " + idx.getIndexName(),
+                                "-", "-", "-", "-",
+                                0.0,
+                                idx.getIndexSize() != null ? idx.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
+                                idxCacheMB,
+                                idx.getCacheDirtyBytes() != null ? idx.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
+                                idx.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
+                                idx.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
+                                idx.getDirtyFillRatio() * 100,
+                                0.0);  // No index dirty% for individual indexes
+                        lineCount++;
+                    });
+                }
+            });
+        } else {
+            logger.warn("No collection stats available for shard {} - map is {}", shard, shardCollStats != null ? "empty" : "null");
         }
     }
-    
+
+    private void printShardPivotReport() {
+        String timestamp = LocalTime.now().format(timeFormatter);
+
+        // Parse pivot metrics from config
+        String[] metrics = config.getPivotMetrics().split(",");
+        for (int i = 0; i < metrics.length; i++) {
+            metrics[i] = metrics[i].trim();
+        }
+
+        // Collect all unique namespaces across all shards
+        Set<String> allNamespaces = new TreeSet<>();
+        for (Map<String, CollectionStats> shardStats : collectionStats.values()) {
+            if (shardStats != null) {
+                allNamespaces.addAll(shardStats.keySet());
+            }
+        }
+
+        // Build a map of namespace -> shard -> stats for easier lookup
+        Map<String, Map<String, CollectionStats>> namespaceToShardStats = new LinkedHashMap<>();
+        for (String namespace : allNamespaces) {
+            Map<String, CollectionStats> shardStats = new LinkedHashMap<>();
+            for (Map.Entry<String, Map<String, CollectionStats>> entry : collectionStats.entrySet()) {
+                String shardName = entry.getKey();
+                Map<String, CollectionStats> collections = entry.getValue();
+                if (collections != null && collections.containsKey(namespace)) {
+                    shardStats.put(shardName, collections.get(namespace));
+                }
+            }
+            namespaceToShardStats.put(namespace, shardStats);
+        }
+
+        // Sort namespaces by total of first metric across all shards (descending)
+        final String firstMetric = metrics[0];
+        List<Map.Entry<String, Map<String, CollectionStats>>> sortedNamespaces = new ArrayList<>(namespaceToShardStats.entrySet());
+        sortedNamespaces.sort((e1, e2) -> {
+            double total1 = e1.getValue().values().stream()
+                .mapToDouble(cs -> getMetricValue(cs, firstMetric))
+                .sum();
+            double total2 = e2.getValue().values().stream()
+                .mapToDouble(cs -> getMetricValue(cs, firstMetric))
+                .sum();
+            return Double.compare(total2, total1); // Descending
+        });
+
+        // Apply top N limit if specified
+        if (config.getTop() > 0 && sortedNamespaces.size() > config.getTop()) {
+            sortedNamespaces = sortedNamespaces.subList(0, config.getTop());
+        }
+
+        // Get shard names in consistent order
+        List<String> shardNames = new ArrayList<>(shardClients.keySet());
+
+        // Calculate max width needed for each metric across all shards and collections
+        // Add 1 to account for potential "*" prefix
+        Map<String, Integer> metricWidths = new LinkedHashMap<>();
+        for (String metric : metrics) {
+            int maxWidth = metric.length(); // At least as wide as the metric name
+            for (Map.Entry<String, Map<String, CollectionStats>> entry : sortedNamespaces) {
+                for (String shardName : shardNames) {
+                    CollectionStats cs = entry.getValue().get(shardName);
+                    if (cs != null) {
+                        double value = getMetricValue(cs, metric);
+                        // Add 1 for potential "*" prefix
+                        int valueWidth = String.format("%.0f", value).length() + 1;
+                        if (valueWidth > maxWidth) {
+                            maxWidth = valueWidth;
+                        }
+                    }
+                }
+            }
+            metricWidths.put(metric, maxWidth);
+        }
+
+        // Calculate total width for each shard column (sum of metric widths + spaces)
+        int shardColumnWidth = metricWidths.values().stream().mapToInt(Integer::intValue).sum() + (metrics.length - 1) * 2; // 2 spaces between metrics
+        int namespaceWidth = 40;
+
+        // Print header row 1: Shard names (centered)
+        System.out.print(String.format("%-" + namespaceWidth + "s |", "Collection"));
+        for (String shardName : shardNames) {
+            String extractedName = extractShardName(shardName);
+            String shortName = extractedName.length() > shardColumnWidth ? extractedName.substring(0, shardColumnWidth - 2) + ".." : extractedName;
+            // Center the shard name
+            int padding = (shardColumnWidth - shortName.length()) / 2;
+            String centeredName = " ".repeat(padding) + shortName + " ".repeat(shardColumnWidth - padding - shortName.length());
+            System.out.print(" " + centeredName + " |");
+        }
+        System.out.println();
+
+        // Print header row 2: Metric labels (right-aligned within their columns)
+        System.out.print(String.format("%-" + namespaceWidth + "s |", ""));
+        for (int i = 0; i < shardNames.size(); i++) {
+            System.out.print(" ");
+            for (int j = 0; j < metrics.length; j++) {
+                String metric = metrics[j];
+                int width = metricWidths.get(metric);
+                System.out.print(String.format("%" + width + "s", metric));
+                if (j < metrics.length - 1) {
+                    System.out.print("  "); // 2 spaces between metrics
+                }
+            }
+            System.out.print(" |");
+        }
+        System.out.println();
+
+        // Print separator line
+        System.out.print("-".repeat(namespaceWidth) + "-+");
+        for (int i = 0; i < shardNames.size(); i++) {
+            System.out.print("-".repeat(shardColumnWidth + 2) + "+");
+        }
+        System.out.println();
+
+        // Print data rows
+        for (Map.Entry<String, Map<String, CollectionStats>> entry : sortedNamespaces) {
+            String namespace = entry.getKey();
+            Map<String, CollectionStats> shardStats = entry.getValue();
+
+            // Calculate average for each metric across all shards for this namespace
+            // Exclude zero values to avoid diluting the average with empty/inactive shards
+            Map<String, Double> metricAverages = new LinkedHashMap<>();
+            for (String metric : metrics) {
+                double sum = 0.0;
+                int count = 0;
+                for (String shardName : shardNames) {
+                    CollectionStats cs = shardStats.get(shardName);
+                    if (cs != null) {
+                        double value = getMetricValue(cs, metric);
+                        if (value > 0) {  // Only include non-zero values in average
+                            sum += value;
+                            count++;
+                        }
+                    }
+                }
+                double average = count > 0 ? sum / count : 0.0;
+                metricAverages.put(metric, average);
+            }
+
+            // Truncate namespace if too long
+            String displayNamespace = namespace.length() > namespaceWidth
+                ? namespace.substring(0, namespaceWidth - 2) + ".."
+                : namespace;
+
+            System.out.print(String.format("%-" + namespaceWidth + "s |", displayNamespace));
+
+            for (String shardName : shardNames) {
+                CollectionStats cs = shardStats.get(shardName);
+                System.out.print(" ");
+                if (cs != null) {
+                    for (int j = 0; j < metrics.length; j++) {
+                        String metric = metrics[j];
+                        int width = metricWidths.get(metric);
+                        double value = getMetricValue(cs, metric);
+                        double average = metricAverages.get(metric);
+
+                        // Add "*" prefix if value is > 25% above average
+                        String prefix = (average > 0 && value > average * 1.25) ? "*" : "";
+                        String valueStr = String.format("%.0f", value);
+                        String display = prefix + valueStr;
+
+                        System.out.print(String.format("%" + width + "s", display));
+                        if (j < metrics.length - 1) {
+                            System.out.print("  "); // 2 spaces between metrics
+                        }
+                    }
+                } else {
+                    // Print empty spaces for missing data
+                    for (int j = 0; j < metrics.length; j++) {
+                        int width = metricWidths.get(metrics[j]);
+                        System.out.print(" ".repeat(width));
+                        if (j < metrics.length - 1) {
+                            System.out.print("  ");
+                        }
+                    }
+                }
+                System.out.print(" |");
+            }
+            System.out.println();
+        }
+
+        System.out.println();
+    }
+
+    private double getMetricValue(CollectionStats cs, String metric) {
+        switch (metric.toLowerCase()) {
+            case "cachemb":
+                return cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+            case "dirtymb":
+                return cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0;
+            case "readmb":
+                return cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
+            case "writmb":
+            case "writemb":
+                return cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+            default:
+                logger.warn("Unknown pivot metric: {}", metric);
+                return 0.0;
+        }
+    }
+
+    /**
+     * Extract shard identifier from full shard name.
+     * Examples:
+     *   atlas-pzgfjj-shard-0 -> shard-0
+     *   atlas-pzgfjj-shard-02 -> shard-02
+     *   fooBlahBlahShard1 -> shard1
+     *   configServer -> configServer (no match, return as-is)
+     */
+    private String extractShardName(String fullName) {
+        if (fullName == null) {
+            return "unknown";
+        }
+
+        // Try to find "shard" (case insensitive) followed by optional separator and digits
+        // Pattern matches: shard-0, shard_0, shard0, Shard1, etc.
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(shard[-_]?\\d+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+        java.util.regex.Matcher matcher = pattern.matcher(fullName);
+
+        if (matcher.find()) {
+            return matcher.group(1).toLowerCase();
+        }
+
+        // No shard pattern found, return the original name (will be truncated if too long)
+        return fullName;
+    }
+
     private void runJsonOutput() {
         ObjectNode rootNode = objectMapper.createObjectNode();
         rootNode.put("timestamp", System.currentTimeMillis());
@@ -420,45 +945,83 @@ public class MongoStat {
             
             CompletableFuture<ObjectNode> future = CompletableFuture.supplyAsync(() -> {
                 ObjectNode shardNode = objectMapper.createObjectNode();
-                
+
                 try {
-                    Document serverStatus = client.getDatabase("admin").runCommand(new Document("serverStatus", 1));
-                    
-                    ServerStatus status = null;
-                    if (serverStatuses.size() >= currentIndex + 1) {
-                        status = serverStatuses.get(currentIndex);
-                    } else {
-                        status = new ServerStatus();
-                        serverStatuses.add(currentIndex, status);
-                    }
-                    status.updateServerStatus(serverStatus);
-                    
                     String shardName = getShardNameForClient(client);
                     shardNode.put("shard", shardName != null ? shardName : "unknown");
-                    
-                    // Basic server stats
-                    addServerStatsToJson(shardNode, status);
-                    
-                    // WT cache stats if enabled
-                    if (config.isIncludeWiredTigerStats() && shardName != null) {
-                        WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
-                        if (wtStats != null) {
-                            wtStats.updateFromServerStatus(serverStatus);
-                            addWtCacheStatsToJson(shardNode, wtStats);
+
+                    ServerStatus status = null;
+                    Document serverStatus = null;
+
+                    // Try to get serverStatus, but handle authorization errors gracefully
+                    if (config.getManualCacheSizeBytes() == null) {
+                        try {
+                            serverStatus = client.getDatabase("admin").runCommand(new Document("serverStatus", 1));
+
+                            if (serverStatuses.size() >= currentIndex + 1) {
+                                status = serverStatuses.get(currentIndex);
+                            } else {
+                                status = new ServerStatus();
+                                serverStatuses.add(currentIndex, status);
+                            }
+                            status.updateServerStatus(serverStatus);
+
+                            // Basic server stats
+                            addServerStatsToJson(shardNode, status);
+
+                            // WT cache stats if enabled
+                            if (config.isIncludeWiredTigerStats() && shardName != null) {
+                                WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
+                                if (wtStats != null) {
+                                    wtStats.updateFromServerStatus(serverStatus);
+                                    addWtCacheStatsToJson(shardNode, wtStats);
+                                }
+                            }
+                        } catch (com.mongodb.MongoCommandException e) {
+                            if (e.getErrorCode() == 13) { // Unauthorized
+                                logger.warn("Not authorized to run serverStatus on {}. Use --cache-size-gb to specify cache size manually.", shardName);
+                                // Create empty status
+                                if (serverStatuses.size() >= currentIndex + 1) {
+                                    status = serverStatuses.get(currentIndex);
+                                } else {
+                                    status = new ServerStatus();
+                                    serverStatuses.add(currentIndex, status);
+                                }
+                            } else {
+                                throw e;
+                            }
+                        }
+                    } else {
+                        // Using manual cache size, skip serverStatus
+                        logger.debug("Using manual cache size, skipping serverStatus for {}", shardName);
+                        if (serverStatuses.size() >= currentIndex + 1) {
+                            status = serverStatuses.get(currentIndex);
+                        } else {
+                            status = new ServerStatus();
+                            serverStatuses.add(currentIndex, status);
+                        }
+
+                        // Set manual cache size on WiredTiger stats
+                        if (config.isIncludeWiredTigerStats() && shardName != null) {
+                            WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
+                            if (wtStats != null) {
+                                wtStats.setManualMaxCacheBytes(config.getManualCacheSizeBytes());
+                                addWtCacheStatsToJson(shardNode, wtStats);
+                            }
                         }
                     }
-                    
+
                     // Collection stats if enabled
                     if (config.isIncludeCollectionStats() && shardName != null) {
                         updateCollectionStatsForShard(client, shardName);
                         addCollectionStatsToJson(shardNode, shardName);
                     }
-                    
+
                 } catch (Exception e) {
                     logger.error("Error collecting stats for shard", e);
                     shardNode.put("error", e.getMessage());
                 }
-                
+
                 return shardNode;
             }, executor);
             

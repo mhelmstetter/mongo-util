@@ -5,6 +5,8 @@ import java.util.concurrent.Callable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.LoggerContext;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -32,19 +34,60 @@ public class MongoStatApp implements Callable<Integer> {
     
     @Option(names = {"--no-detail"}, description = "Disable detailed per-collection stats (enabled by default)")
     private boolean disableDetail = false;
-    
+
+    @Option(names = {"--index-details"}, description = "Show individual indexes as separate rows (disabled by default)")
+    private boolean indexDetails = false;
+
     @Option(names = {"-i", "--interval"}, description = "Interval between stats collection in seconds", defaultValue = "15")
     private long intervalSecs = 15;
 
+    @Option(names = {"--cache-size-gb"}, description = "Manually specify WiredTiger cache size in GB (bypasses serverStatus)")
+    private Double cacheSizeGB;
+
+    @Option(names = {"-v", "--verbose"}, description = "Enable verbose/debug logging")
+    private boolean verbose = false;
+
+    @Option(names = {"--sort"}, description = "Sort collections by: cacheMB (default), dirtyMB, dataGB, idxGB, namespace, dirty%%, idxDty%%, readMB, writMB", defaultValue = "cacheMB")
+    private String sortBy = "cacheMB";
+
+    @Option(names = {"--top"}, description = "Display only top N collections/indexes (0 = show all)", defaultValue = "0")
+    private int top = 0;
+
+    @Option(names = {"--shardPivot"}, description = "Pivot table view with shards as columns")
+    private boolean shardPivot = false;
+
+    @Option(names = {"--pivotMetrics"}, description = "Metrics to show in pivot view (comma-separated: cacheMB,dirtyMB,readMB,writMB)", defaultValue = "cacheMB,dirtyMB")
+    private String pivotMetrics = "cacheMB,dirtyMB";
+
     @Override
     public Integer call() throws Exception {
+        // Set logging level based on verbose flag
+        LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
+        ch.qos.logback.classic.Logger mongostatLogger = loggerContext.getLogger("com.mongodb.mongostat");
+        mongostatLogger.setLevel(verbose ? Level.DEBUG : Level.INFO);
+
+        // Also control ShardClient logging (used for connecting to shards)
+        ch.qos.logback.classic.Logger shardClientLogger = loggerContext.getLogger("com.mongodb.shardsync.ShardClient");
+        shardClientLogger.setLevel(verbose ? Level.DEBUG : Level.INFO);
+
         MongoStatConfiguration config = new MongoStatConfiguration()
                 .jsonOutput(jsonOutput)
                 .includeWiredTigerStats(!disableWiredTiger)  // Default enabled, disable with --no-wt
                 .includeCollectionStats(!disableCollections)  // Default enabled, disable with --no-coll
                 .detailedOutput(!disableDetail)
-                .intervalMs(intervalSecs * 1000);
-        
+                .includeIndexDetails(indexDetails)  // Default disabled, enable with --index-details
+                .intervalMs(intervalSecs * 1000)
+                .sortBy(sortBy)
+                .top(top)
+                .shardPivot(shardPivot)
+                .pivotMetrics(pivotMetrics);
+
+        // If cache size is manually specified, convert GB to bytes
+        if (cacheSizeGB != null) {
+            long cacheSizeBytes = (long)(cacheSizeGB * 1024 * 1024 * 1024);
+            config.manualCacheSizeBytes(cacheSizeBytes);
+        }
+
         MongoStat mongoStat = MongoStat.create(uri, config);
         mongoStat.init();
         mongoStat.run();

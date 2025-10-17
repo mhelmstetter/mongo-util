@@ -148,10 +148,10 @@ public class WiredTigerCacheStats {
     }
     
     public double getDirtyFillRatio() {
-        if (currentCacheBytes == null || currentCacheBytes == 0 || dirtyBytes == null) {
+        if (maxCacheBytes == null || maxCacheBytes == 0 || dirtyBytes == null) {
             return 0.0;
         }
-        return (double) dirtyBytes / currentCacheBytes;
+        return (double) dirtyBytes / maxCacheBytes;
     }
     
     public double getCacheUtilization() {
@@ -160,7 +160,14 @@ public class WiredTigerCacheStats {
         }
         return (double) currentCacheBytes / maxCacheBytes;
     }
-    
+
+    /**
+     * Manually set the max cache bytes, bypassing serverStatus
+     */
+    public void setManualMaxCacheBytes(Long maxCacheBytes) {
+        this.maxCacheBytes = maxCacheBytes;
+    }
+
     // Getters
     public String getShardName() { return shardName; }
     public Long getCurrentCacheBytes() { return currentCacheBytes; }
