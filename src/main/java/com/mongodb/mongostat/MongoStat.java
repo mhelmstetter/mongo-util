@@ -48,7 +48,8 @@ public class MongoStat {
     private ObjectMapper objectMapper = new ObjectMapper();
     private DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
     private int lineCount = 0;
-    
+    private int snapshotCount = 0;
+
     private ShardClient shardClient;
 
     public void setUris(String[] uris) {
@@ -169,18 +170,34 @@ public class MongoStat {
     }
     
     public void runSnapshot() {
+        // Skip first snapshot for delta metrics - need previous values to calculate deltas
+        if (snapshotCount == 0) {
+            logger.info("Collecting initial snapshot, please wait {} seconds for first output...", config.getIntervalMs() / 1000);
+            snapshotCount++;
+
+            // Still need to collect the data, just don't output it
+            if (config.isJsonOutput()) {
+                runJsonOutputInternal(false); // false = skip output
+            } else {
+                runTableOutputInternal(false); // false = skip output
+            }
+            return;
+        }
+
+        snapshotCount++;
+
         if (config.isJsonOutput()) {
-            runJsonOutput();
+            runJsonOutputInternal(true);
         } else {
-            runTableOutput();
+            runTableOutputInternal(true);
         }
     }
     
-    private void runTableOutput() {
+    private void runTableOutputInternal(boolean shouldOutput) {
         int index = 0;
 
-        // Skip printing header when in pivot mode
-        if (!config.isShardPivot()) {
+        // Skip printing header when in pivot mode or when shouldOutput is false
+        if (shouldOutput && !config.isShardPivot()) {
             if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
                 if (config.isDetailedOutput()) {
                     printDetailedHeader();
@@ -196,10 +213,11 @@ public class MongoStat {
         }
         
         List<CompletableFuture<Void>> futures = new ArrayList<>();
-        
+        final boolean finalShouldOutput = shouldOutput; // Make effectively final for lambda
+
         for (MongoClient client : mongoClients) {
             final int currentIndex = index;
-            
+
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                 String shardName = getShardNameForClient(client);
                 ServerStatus status = null;
@@ -263,8 +281,8 @@ public class MongoStat {
                     updateCollectionStatsForShard(client, shardName);
                 }
 
-                // Skip per-shard printing if in pivot mode
-                if (!config.isShardPivot()) {
+                // Skip per-shard printing if in pivot mode or if shouldOutput is false
+                if (finalShouldOutput && !config.isShardPivot()) {
                     if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
                         if (config.isDetailedOutput() && config.isIncludeCollectionStats()) {
                             synchronized(this) {
@@ -289,7 +307,7 @@ public class MongoStat {
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
         // After all shards are processed, print pivot report if enabled
-        if (config.isShardPivot() && config.isIncludeCollectionStats()) {
+        if (shouldOutput && config.isShardPivot() && config.isIncludeCollectionStats()) {
             printShardPivotReport();
         }
     }
@@ -736,17 +754,21 @@ public class MongoStat {
             namespaceToShardStats.put(namespace, shardStats);
         }
 
-        // Sort namespaces by total of first metric across all shards (descending)
-        final String firstMetric = metrics[0];
+        // Sort namespaces by max value of sort metric across all shards (descending)
+        // Use --sort flag if specified, otherwise use first pivotMetric
+        final String sortMetric = config.getSortBy() != null ? config.getSortBy() : metrics[0];
         List<Map.Entry<String, Map<String, CollectionStats>>> sortedNamespaces = new ArrayList<>(namespaceToShardStats.entrySet());
         sortedNamespaces.sort((e1, e2) -> {
-            double total1 = e1.getValue().values().stream()
-                .mapToDouble(cs -> getMetricValue(cs, firstMetric))
-                .sum();
-            double total2 = e2.getValue().values().stream()
-                .mapToDouble(cs -> getMetricValue(cs, firstMetric))
-                .sum();
-            return Double.compare(total2, total1); // Descending
+            // Use MAX instead of SUM to find hotspots/outliers
+            double max1 = e1.getValue().values().stream()
+                .mapToDouble(cs -> getMetricValueForSorting(cs, sortMetric))
+                .max()
+                .orElse(0.0);
+            double max2 = e2.getValue().values().stream()
+                .mapToDouble(cs -> getMetricValueForSorting(cs, sortMetric))
+                .max()
+                .orElse(0.0);
+            return Double.compare(max2, max1); // Descending
         });
 
         // Apply top N limit if specified
@@ -784,9 +806,8 @@ public class MongoStat {
 
         // Print header row 1: Shard names (centered)
         System.out.print(String.format("%-" + namespaceWidth + "s |", "Collection"));
-        for (String shardName : shardNames) {
-            String extractedName = extractShardName(shardName);
-            String shortName = extractedName.length() > shardColumnWidth ? extractedName.substring(0, shardColumnWidth - 2) + ".." : extractedName;
+        for (int i = 0; i < shardNames.size(); i++) {
+            String shortName = "sh" + i;
             // Center the shard name
             int padding = (shardColumnWidth - shortName.length()) / 2;
             String centeredName = " ".repeat(padding) + shortName + " ".repeat(shardColumnWidth - padding - shortName.length());
@@ -904,6 +925,33 @@ public class MongoStat {
         }
     }
 
+    private double getMetricValueForSorting(CollectionStats cs, String metric) {
+        switch (metric.toLowerCase()) {
+            case "cachemb":
+                return cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+            case "dirtymb":
+                return cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0;
+            case "datagb":
+                return cs.getDataSize() != null ? cs.getDataSize() / 1024.0 / 1024.0 / 1024.0 : 0.0;
+            case "idxgb":
+                return cs.getIndexSize() != null ? cs.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0;
+            case "dirty%":
+                return cs.getDirtyFillRatio() * 100;
+            case "idxdty%":
+                return cs.getIndexDirtyFillRatio() * 100;
+            case "readmb":
+                return cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
+            case "writmb":
+            case "writemb":
+                return cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+            case "namespace":
+                return 0.0; // Namespace sorting not applicable for numeric sorting
+            default:
+                logger.warn("Unknown sort metric: {}, defaulting to cacheMB", metric);
+                return cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
+        }
+    }
+
     /**
      * Extract shard identifier from full shard name.
      * Examples:
@@ -930,11 +978,11 @@ public class MongoStat {
         return fullName;
     }
 
-    private void runJsonOutput() {
+    private void runJsonOutputInternal(boolean shouldOutput) {
         ObjectNode rootNode = objectMapper.createObjectNode();
         rootNode.put("timestamp", System.currentTimeMillis());
         rootNode.put("time", LocalTime.now().format(timeFormatter));
-        
+
         ArrayNode shardsArray = objectMapper.createArrayNode();
         
         List<CompletableFuture<ObjectNode>> futures = new ArrayList<>();
@@ -1039,11 +1087,13 @@ public class MongoStat {
         }
         
         rootNode.set("shards", shardsArray);
-        
-        try {
-            System.out.println(objectMapper.writeValueAsString(rootNode));
-        } catch (Exception e) {
-            logger.error("Error serializing JSON output", e);
+
+        if (shouldOutput) {
+            try {
+                System.out.println(objectMapper.writeValueAsString(rootNode));
+            } catch (Exception e) {
+                logger.error("Error serializing JSON output", e);
+            }
         }
     }
     
