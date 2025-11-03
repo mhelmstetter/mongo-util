@@ -73,63 +73,46 @@ public class ChunkManager {
 	
 	@SuppressWarnings("unchecked")
 	public void initalize() {
-		
+
 		String source = config.getSourceClusterUri() == null ? config.getSourceClusterPattern() : config.getSourceClusterUri();
 		String dest = config.getDestClusterUri() == null ? config.getDestClusterPattern() : config.getDestClusterUri();
-		
+
 		if (config.getShardMap() != null) {
 			// shardMap is for doing an uneven shard mapping, e.g. 10 shards on source
 			// down to 5 shards on destination
 			logger.debug("Custom n:m shard mapping");
-			
+
 			for (String mapping : config.getShardMap()) {
 				String[] mappings = mapping.split("\\|");
 				logger.debug(mappings[0] + " ==> " + mappings[1]);
 				sourceToDestShardMap.put(mappings[0], mappings[1]);
 			}
-			
+
 			sourceShardClient = new ShardClient("source", source, sourceToDestShardMap.keySet());
 			config.setSourceShardClient(sourceShardClient);
 			destShardClient = new ShardClient("dest", dest, sourceToDestShardMap.values());
 			config.setDestShardClient(destShardClient);
-			
-			sourceShardClient.setRsSsl(config.getSourceRsSsl());
-			sourceShardClient.setRsPattern(config.getSourceRsPattern());
-			destShardClient.setRsPattern(config.getDestRsPattern());
-			sourceShardClient.setRsStringsManual(config.getSourceRsManual());
-			destShardClient.setRsStringsManual(config.getDestRsManual());
-			sourceShardClient.setRsRegex(config.getSourceRsRegex());
-			destShardClient.setRsRegex(config.getDestRsRegex());
-			destShardClient.setCsrsUri(config.getDestCsrsUri());
-			
-			sourceShardClient.init();
-			destShardClient.init();
-			
+
+			initializeSourceClient(sourceShardClient);
+			initializeDestClient(destShardClient);
+
 		} else {
 			logger.debug("Default 1:1 shard mapping");
-			
+
 			sourceShardClient = new ShardClient("source", source, null);
 			config.setSourceShardClient(sourceShardClient);
 			destShardClient = new ShardClient("dest", dest, null);
 			config.setDestShardClient(destShardClient);
-			sourceShardClient.setRsSsl(config.getSourceRsSsl());
-			sourceShardClient.setRsPattern(config.getSourceRsPattern());
-			destShardClient.setRsPattern(config.getDestRsPattern());
-			sourceShardClient.setRsStringsManual(config.getSourceRsManual());
-			destShardClient.setRsStringsManual(config.getDestRsManual());
-			sourceShardClient.setRsRegex(config.getSourceRsRegex());
-			destShardClient.setRsRegex(config.getDestRsRegex());
-			destShardClient.setCsrsUri(config.getDestCsrsUri());
-			
-			sourceShardClient.init();
-			destShardClient.init();
-			
+
+			initializeSourceClient(sourceShardClient);
+			initializeDestClient(destShardClient);
+
 			// Check if target shards are specified
 			if (config instanceof SyncConfiguration) {
 				SyncConfiguration syncConfig = (SyncConfiguration) config;
 				targetShards = syncConfig.getTargetShards();
 			}
-			
+
 			// Validate target shards if specified
 			if (targetShards != null && !targetShards.isEmpty()) {
 				validateTargetShards();
@@ -140,19 +123,19 @@ public class ChunkManager {
 				logger.debug("Source shard count: " + sourceShardClient.getShardsMap().size());
 				// default, just match up the shards 1:1
 				int index = 0;
-				
+
 				Map<String, Shard> sourceTertiaryMap = sourceShardClient.getTertiaryShardsMap();
-				
+
 				//Map<String, Shard> sourceShardsMap = sourceTertiaryMap.isEmpty() ?  sourceShardClient.getShardsMap() : sourceTertiaryMap;
 				Map<String, Shard> sourceShardsMap = sourceShardClient.getShardsMap();
-				
+
 				List<Shard> destList = new ArrayList<Shard>(destShardClient.getShardsMap().values());
-				
+
 				if (config.getShardMap() == null && sourceShardsMap.size() != destList.size() && !config.isShardToRs()) {
-					throw new IllegalArgumentException(String.format("disparate shard counts requires shardMap to be defined, sourceShardCount: %s, destShardCount: %s", 
+					throw new IllegalArgumentException(String.format("disparate shard counts requires shardMap to be defined, sourceShardCount: %s, destShardCount: %s",
 							sourceShardsMap.size(), destList.size()));
 				}
-				
+
 				if (! config.isShardToRs()) {
 					for (Iterator<Shard> i = sourceShardsMap.values().iterator(); i.hasNext();) {
 						Shard sourceShard = i.next();
@@ -163,7 +146,7 @@ public class ChunkManager {
 						}
 						index++;
 					}
-					
+
 					index = 0;
 					for (Iterator<Shard> i = sourceTertiaryMap.values().iterator(); i.hasNext();) {
 						Shard sourceShard = i.next();
@@ -178,9 +161,37 @@ public class ChunkManager {
 			}
 		}
 		initializeSourceChunkQuery();
-		
+
 		// reverse map
 		destToSourceShardMap = MapUtils.invertMap(sourceToDestShardMap);
+	}
+
+	/**
+	 * Initialize a source ShardClient with configuration properties and call init().
+	 * This method can be called independently to initialize only the source client.
+	 *
+	 * @param client The source ShardClient to initialize
+	 */
+	public void initializeSourceClient(ShardClient client) {
+		client.setRsSsl(config.getSourceRsSsl());
+		client.setRsPattern(config.getSourceRsPattern());
+		client.setRsStringsManual(config.getSourceRsManual());
+		client.setRsRegex(config.getSourceRsRegex());
+		client.init();
+	}
+
+	/**
+	 * Initialize a destination ShardClient with configuration properties and call init().
+	 * This method can be called independently to initialize only the dest client.
+	 *
+	 * @param client The destination ShardClient to initialize
+	 */
+	public void initializeDestClient(ShardClient client) {
+		client.setRsPattern(config.getDestRsPattern());
+		client.setRsStringsManual(config.getDestRsManual());
+		client.setRsRegex(config.getDestRsRegex());
+		client.setCsrsUri(config.getDestCsrsUri());
+		client.init();
 	}
 	
 	/**

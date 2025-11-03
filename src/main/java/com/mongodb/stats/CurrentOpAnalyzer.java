@@ -56,6 +56,9 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 	@Option(names = "--connsByIp", description = "group connections by IP address")
     boolean connsByIp;
 
+	@Option(names = "--connsByUser", description = "group connections by user")
+    boolean connsByUser;
+
 	@Option(names = "--filterAppName", description = "filter by specific application name")
     String filterAppName;
 	
@@ -109,13 +112,15 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 		String appName;
 		String ipAddress;
 		String driver;
+		String user;
 		boolean active;
 		Long secsRunning;
 
-		public ConnectionInfo(String appName, String ipAddress, String driver, boolean active, Long secsRunning) {
+		public ConnectionInfo(String appName, String ipAddress, String driver, String user, boolean active, Long secsRunning) {
 			this.appName = appName != null ? appName : "(no appName)";
 			this.ipAddress = ipAddress != null ? ipAddress : "(no IP)";
 			this.driver = driver != null ? driver : "(no driver info)";
+			this.user = user != null ? user : "(no user)";
 			this.active = active;
 			this.secsRunning = secsRunning;
 		}
@@ -187,6 +192,28 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 				}
 			}
 
+			// Extract user info
+			String user = null;
+			// Try to get user from effectiveUsers array first (preferred method)
+			if (result.containsKey("effectiveUsers")) {
+				try {
+					org.bson.BsonArray effectiveUsers = result.getArray("effectiveUsers");
+					if (effectiveUsers != null && !effectiveUsers.isEmpty()) {
+						org.bson.BsonValue firstUser = effectiveUsers.get(0);
+						if (firstUser.isDocument()) {
+							RawBsonDocument userDoc = (RawBsonDocument) firstUser;
+							user = getStringValue(userDoc, "user");
+						}
+					}
+				} catch (Exception e) {
+					// Fall through to try direct user field
+				}
+			}
+			// Fallback: try direct user field
+			if (user == null) {
+				user = getStringValue(result, "user");
+			}
+
 			// Extract active status
 			boolean active = false;
 			if (result.containsKey("active") && result.getBoolean("active") != null) {
@@ -202,7 +229,7 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 				}
 			}
 
-			connections.add(new ConnectionInfo(appName, ipAddress, driverInfo, active, secsRunning));
+			connections.add(new ConnectionInfo(appName, ipAddress, driverInfo, user, active, secsRunning));
 		}
 
 		return connections;
@@ -218,7 +245,8 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 			.orElse(40));
 
 		String keyHeader = title.contains("Application") ? "Application Name" :
-		                   title.contains("IP") ? "IP Address" : "Driver";
+		                   title.contains("IP") ? "IP Address" :
+		                   title.contains("User") ? "User" : "Driver";
 
 		// Print header
 		System.out.printf("%-" + maxKeyLength + "s  %6s  %6s  %8s  %10s  %10s%n",
@@ -284,6 +312,16 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 			printTable("=== Connection Count by Application Name ===", appNameStats);
 		}
 
+		if (connsByUser) {
+			// Group by user
+			Map<String, ConnectionStats> userStats = new HashMap<>();
+			for (ConnectionInfo conn : connections) {
+				userStats.computeIfAbsent(conn.user, k -> new ConnectionStats())
+					.addConnection(conn);
+			}
+			printTable("=== Connection Count by User ===", userStats);
+		}
+
 		if (connsByIp) {
 			// Filter by appName if specified
 			List<ConnectionInfo> filtered = connections;
@@ -315,7 +353,7 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 	
 	
 	private void analyze() throws IOException {
-		if (connsByAppName || connsByIp) {
+		if (connsByAppName || connsByIp || connsByUser) {
 			// Run once and exit for connection analysis
 			if (shardClient.isMongos()) {
 				Collection<MongoClient> mongoClients = shardClient.getMongosMongoClients();
