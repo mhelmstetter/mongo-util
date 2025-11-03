@@ -1,0 +1,60 @@
+name: Create GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build with Maven
+        run: mvn clean package -DskipTests
+
+      - name: Verify JAR exists
+        run: |
+          if [ ! -f bin/mongo-util.jar ]; then
+            echo "ERROR: bin/mongo-util.jar not found!"
+            exit 1
+          fi
+          ls -lh bin/mongo-util.jar
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ github.ref_name }} \
+            bin/mongo-util.jar \
+            --title "Release ${{ github.ref_name }}" \
+            --generate-notes
+
+      - name: Release Summary
+        run: |
+          echo "✅ Release ${{ github.ref_name }} created successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts Published" >> $GITHUB_STEP_SUMMARY
+          echo "- \`bin/mongo-util.jar\` (shaded JAR for standalone use)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "To publish to Maven Central, run locally:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "mvn deploy -Prelease" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
