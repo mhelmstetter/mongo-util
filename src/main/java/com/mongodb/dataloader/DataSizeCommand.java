@@ -72,95 +72,97 @@ public class DataSizeCommand implements Callable<Integer> {
 
         logger.info("Found {} shards in cluster", shardsMap.size());
 
-        // Connect to each shard and collect data sizes
-        for (Map.Entry<String, Shard> entry : shardsMap.entrySet()) {
-            String shardName = entry.getKey();
-            Shard shard = entry.getValue();
-            String shardUri = shard.getHost();
+        // Initialize shard size tracking for all known shards
+        for (String shardName : shardsMap.keySet()) {
+            shardSizes.put(shardName, new ShardDataSize(shardName, 0, 0, 0, new HashMap<>()));
+        }
 
-            logger.debug("Connecting to shard: {} at {}", shardName, shardUri);
+        // Get database list
+        MongoClient mongosClient = shardClient.getMongoClient();
+        MongoIterable<String> dbNames = mongosClient.listDatabaseNames();
+
+        // For each database, run dbStats through mongos to get per-shard statistics
+        for (String dbName : dbNames) {
+            // Skip system databases
+            if (dbName.equals("admin") || dbName.equals("config") || dbName.equals("local")) {
+                continue;
+            }
+
+            // Apply database filter if specified
+            if (databaseFilter != null && !dbName.equals(databaseFilter)) {
+                continue;
+            }
 
             try {
-                ShardDataSize dataSize = getShardDataSize(shardName, shardUri);
-                shardSizes.put(shardName, dataSize);
+                // Run dbStats through mongos - it returns per-shard statistics in the "shards" field
+                Document dbStats = mongosClient.getDatabase(dbName).runCommand(new Document("dbStats", 1));
+
+                // Parse the shards field which contains per-shard statistics
+                Document shardsDoc = dbStats.get("shards", Document.class);
+                if (shardsDoc != null) {
+                    for (String shardName : shardsDoc.keySet()) {
+                        Document shardStats = shardsDoc.get(shardName, Document.class);
+                        if (shardStats != null) {
+                            updateShardDataSize(shardSizes, shardName, dbName, shardStats);
+                        }
+                    }
+                }
             } catch (Exception e) {
-                logger.warn("Failed to get data size for shard {}: {}", shardName, e.getMessage());
-                shardSizes.put(shardName, new ShardDataSize(shardName, 0, 0, 0, new HashMap<>()));
+                logger.warn("Failed to get stats for database {}: {}", dbName, e.getMessage());
             }
         }
 
         return shardSizes;
     }
 
-    private ShardDataSize getShardDataSize(String shardName, String shardUri) {
-        // Parse shard URI to get replica set connection string
-        // Format is typically "rsname/host1:port1,host2:port2"
-        String connectionString;
-        if (shardUri.contains("/")) {
-            String[] parts = shardUri.split("/", 2);
-            connectionString = "mongodb://" + parts[1];
-        } else {
-            connectionString = "mongodb://" + shardUri;
+    /**
+     * Updates the shard data size tracking with statistics from a database on a specific shard.
+     * This method accumulates statistics across multiple databases for each shard.
+     */
+    private void updateShardDataSize(Map<String, ShardDataSize> shardSizes, String shardName,
+                                     String dbName, Document shardStats) {
+        // Extract statistics from the shard's dbStats
+        long dataSize = 0;
+        Object dataSizeObj = shardStats.get("dataSize");
+        if (dataSizeObj instanceof Number) {
+            dataSize = ((Number) dataSizeObj).longValue();
         }
 
-        try (MongoClient shardClient = com.mongodb.client.MongoClients.create(connectionString)) {
-            long totalSize = 0;
-            long totalCollections = 0;
-            long totalDocuments = 0;
-            Map<String, Long> databaseSizes = new HashMap<>();
+        long collectionCount = 0;
+        Object collectionsObj = shardStats.get("collections");
+        if (collectionsObj instanceof Number) {
+            collectionCount = ((Number) collectionsObj).longValue();
+        }
 
-            // Get list of databases
-            MongoIterable<String> dbNames = shardClient.listDatabaseNames();
+        long documentCount = 0;
+        Object objectsObj = shardStats.get("objects");
+        if (objectsObj instanceof Number) {
+            documentCount = ((Number) objectsObj).longValue();
+        }
 
-            for (String dbName : dbNames) {
-                // Skip system databases
-                if (dbName.equals("admin") || dbName.equals("config") || dbName.equals("local")) {
-                    continue;
-                }
+        logger.debug("Shard {}, DB {}: {} bytes ({} collections, {} documents)",
+                    shardName, dbName, dataSize, collectionCount, documentCount);
 
-                // Apply database filter if specified
-                if (databaseFilter != null && !dbName.equals(databaseFilter)) {
-                    continue;
-                }
+        // Get or create the ShardDataSize entry
+        ShardDataSize existing = shardSizes.get(shardName);
+        if (existing == null) {
+            // This shard wasn't in our initial list - add it
+            Map<String, Long> dbSizes = new HashMap<>();
+            dbSizes.put(dbName, dataSize);
+            shardSizes.put(shardName, new ShardDataSize(shardName, dataSize, collectionCount, documentCount, dbSizes));
+        } else {
+            // Accumulate statistics for this database
+            Map<String, Long> dbSizes = new HashMap<>(existing.databaseSizes);
+            dbSizes.put(dbName, dataSize);
 
-                // Get database stats
-                Document dbStats = shardClient.getDatabase(dbName).runCommand(new Document("dbStats", 1));
-
-                // MongoDB returns dataSize as a Double, need to convert safely
-                long dataSize = 0;
-                Object dataSizeObj = dbStats.get("dataSize");
-                if (dataSizeObj instanceof Number) {
-                    dataSize = ((Number) dataSizeObj).longValue();
-                }
-
-                // collections is typically an Integer
-                long collectionCount = 0;
-                Object collectionsObj = dbStats.get("collections");
-                if (collectionsObj instanceof Number) {
-                    collectionCount = ((Number) collectionsObj).longValue();
-                }
-
-                // objects field contains document count
-                long documentCount = 0;
-                Object objectsObj = dbStats.get("objects");
-                if (objectsObj instanceof Number) {
-                    documentCount = ((Number) objectsObj).longValue();
-                }
-
-                databaseSizes.put(dbName, dataSize);
-                totalSize += dataSize;
-                totalCollections += collectionCount;
-                totalDocuments += documentCount;
-
-                logger.debug("Shard {}, DB {}: {} bytes ({} collections, {} documents)",
-                            shardName, dbName, dataSize, collectionCount, documentCount);
-            }
-
-            return new ShardDataSize(shardName, totalSize, totalCollections, totalDocuments, databaseSizes);
-
-        } catch (Exception e) {
-            logger.error("Error connecting to shard {}: {}", shardName, e.getMessage());
-            throw e;
+            ShardDataSize updated = new ShardDataSize(
+                shardName,
+                existing.totalSize + dataSize,
+                existing.collectionCount + collectionCount,
+                existing.documentCount + documentCount,
+                dbSizes
+            );
+            shardSizes.put(shardName, updated);
         }
     }
 
@@ -270,20 +272,6 @@ public class DataSizeCommand implements Callable<Integer> {
         System.out.println();
         System.out.println("╚══════════════════════════════════════════════════════════════════════╝");
         System.out.println();
-    }
-
-    private String formatBytes(long bytes) {
-        if (bytes < 1024) {
-            return bytes + " B";
-        } else if (bytes < 1024 * 1024) {
-            return String.format("%.2f KB", bytes / 1024.0);
-        } else if (bytes < 1024 * 1024 * 1024) {
-            return String.format("%.2f MB", bytes / (1024.0 * 1024.0));
-        } else if (bytes < 1024L * 1024L * 1024L * 1024L) {
-            return String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
-        } else {
-            return String.format("%.2f TB", bytes / (1024.0 * 1024.0 * 1024.0 * 1024.0));
-        }
     }
 
     private static class ShardDataSize {
