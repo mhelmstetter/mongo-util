@@ -43,12 +43,7 @@ public class DataSizeCommand implements Callable<Integer> {
             shardClient = new ShardClient("dataloader", uri);
             shardClient.init();
 
-            if (!shardClient.isMongos()) {
-                logger.error("Error: --uri must point to a mongos instance for shard analysis");
-                return 1;
-            }
-
-            // Get shard data sizes
+            // Get shard data sizes (works for both sharded and non-sharded deployments)
             Map<String, ShardDataSize> shardSizes = collectShardDataSizes();
 
             // Display results in table format
@@ -68,13 +63,19 @@ public class DataSizeCommand implements Callable<Integer> {
 
     private Map<String, ShardDataSize> collectShardDataSizes() {
         Map<String, ShardDataSize> shardSizes = new TreeMap<>();
-        Map<String, Shard> shardsMap = shardClient.getShardsMap();
 
-        logger.info("Found {} shards in cluster", shardsMap.size());
+        // For sharded clusters, initialize with known shards
+        // For non-sharded deployments, this will be empty and populated during dbStats parsing
+        if (shardClient.isMongos()) {
+            Map<String, Shard> shardsMap = shardClient.getShardsMap();
+            logger.info("Found {} shards in cluster", shardsMap.size());
 
-        // Initialize shard size tracking for all known shards
-        for (String shardName : shardsMap.keySet()) {
-            shardSizes.put(shardName, new ShardDataSize(shardName, 0, 0, 0, new HashMap<>()));
+            // Initialize shard size tracking for all known shards
+            for (String shardName : shardsMap.keySet()) {
+                shardSizes.put(shardName, new ShardDataSize(shardName, 0, 0, 0, new HashMap<>()));
+            }
+        } else {
+            logger.info("Non-sharded deployment detected");
         }
 
         // Get database list
@@ -94,18 +95,32 @@ public class DataSizeCommand implements Callable<Integer> {
             }
 
             try {
-                // Run dbStats through mongos - it returns per-shard statistics in the "shards" field
+                // Run dbStats through mongos - it returns per-shard statistics in the "raw" field
                 Document dbStats = mongosClient.getDatabase(dbName).runCommand(new Document("dbStats", 1));
 
-                // Parse the shards field which contains per-shard statistics
-                Document shardsDoc = dbStats.get("shards", Document.class);
-                if (shardsDoc != null) {
-                    for (String shardName : shardsDoc.keySet()) {
-                        Document shardStats = shardsDoc.get(shardName, Document.class);
+                logger.debug("dbStats for {}: {}", dbName, dbStats.toJson());
+
+                // For sharded clusters, dbStats returns a "raw" field with per-shard statistics
+                // For non-sharded deployments, there's no "raw" field
+                Document rawDoc = dbStats.get("raw", Document.class);
+                if (rawDoc != null) {
+                    // Sharded cluster - parse per-shard stats
+                    for (String shardKey : rawDoc.keySet()) {
+                        Document shardStats = rawDoc.get(shardKey, Document.class);
                         if (shardStats != null) {
+                            // The key is like "atlas-o3y5yd-shard-0/host1:port,host2:port,..."
+                            // Extract just the shard name (part before the '/')
+                            String shardName = shardKey.contains("/") ? shardKey.substring(0, shardKey.indexOf("/")) : shardKey;
                             updateShardDataSize(shardSizes, shardName, dbName, shardStats);
                         }
                     }
+                } else {
+                    // Non-sharded deployment - use the top-level stats
+                    // For non-sharded, we'll use a single "standalone" entry
+                    if (shardSizes.isEmpty()) {
+                        shardSizes.put("standalone", new ShardDataSize("standalone", 0, 0, 0, new HashMap<>()));
+                    }
+                    updateShardDataSize(shardSizes, "standalone", dbName, dbStats);
                 }
             } catch (Exception e) {
                 logger.warn("Failed to get stats for database {}: {}", dbName, e.getMessage());
