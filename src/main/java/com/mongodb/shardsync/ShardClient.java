@@ -1098,6 +1098,13 @@ public class ShardClient {
 		return false;
 	}
 	
+	public boolean isVersion6OrLater() {
+		if (versionArray.get(0) >= 6) {
+			return true;
+		}
+		return false;
+	}
+
 	public boolean isVersion8OrLater() {
 		if (versionArray.get(0) >= 8) {
 			return true;
@@ -1814,8 +1821,37 @@ public class ShardClient {
 		return moveChunk(namespace, min, max, moveToShard, ignoreMissing, secondaryThrottle, waitForDelete, majorityWrite, false);
 	}
 
-	public boolean moveChunk(String namespace, BsonDocument min, BsonDocument max, String moveToShard, 
+	public boolean moveChunk(String namespace, BsonDocument min, BsonDocument max, String moveToShard,
 			boolean ignoreMissing, boolean secondaryThrottle, boolean waitForDelete, boolean majorityWrite, boolean throwCommandExceptions) {
+		return moveChunk(namespace, min, max, moveToShard, ignoreMissing, secondaryThrottle, waitForDelete, majorityWrite, throwCommandExceptions, false);
+	}
+
+	/**
+	 * Move a chunk to a different shard.
+	 * Supports both moveChunk (legacy) and moveRange (MongoDB 6.0+) commands.
+	 *
+	 * @param namespace The namespace (database.collection)
+	 * @param min The lower bound of the chunk
+	 * @param max The upper bound of the chunk
+	 * @param moveToShard The destination shard ID
+	 * @param ignoreMissing If true, don't log warnings for missing chunks
+	 * @param secondaryThrottle If true, wait for secondaries to acknowledge
+	 * @param waitForDelete If true, wait for orphan deletion
+	 * @param majorityWrite If true, use majority write concern
+	 * @param throwCommandExceptions If true, throw exceptions on command failures
+	 * @param useMoveRange If true, use moveRange command (MongoDB 6.0+), otherwise use moveChunk
+	 * @return true if the move was successful, false otherwise
+	 */
+	public boolean moveChunk(String namespace, BsonDocument min, BsonDocument max, String moveToShard,
+			boolean ignoreMissing, boolean secondaryThrottle, boolean waitForDelete, boolean majorityWrite,
+			boolean throwCommandExceptions, boolean useMoveRange) {
+
+		// Use moveRange for MongoDB 6.0+ if requested
+		if (useMoveRange && isVersion6OrLater()) {
+			return moveRange(namespace, min, max, moveToShard, secondaryThrottle, waitForDelete, majorityWrite, throwCommandExceptions);
+		}
+
+		// Fall back to legacy moveChunk command
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
 		moveChunkCmd.append("to", moveToShard);
@@ -1831,13 +1867,55 @@ public class ShardClient {
 		if (waitForDelete) {
 			moveChunkCmd.append("_waitForDelete", waitForDelete);
 		}
-		
+
 		try {
 			adminCommand(moveChunkCmd);
 		} catch (MongoCommandException mce) {
 			if (!ignoreMissing) {
 				logger.warn(String.format("moveChunk error ns: %s, message: %s", namespace, mce.getMessage()));
 			}
+			if (throwCommandExceptions) {
+				throw mce;
+			}
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Move a range to a different shard using the moveRange command (MongoDB 6.0+).
+	 *
+	 * @param namespace The namespace (database.collection)
+	 * @param min The lower bound of the range
+	 * @param max The upper bound of the range
+	 * @param moveToShard The destination shard ID
+	 * @param secondaryThrottle If true, wait for secondaries to acknowledge
+	 * @param waitForDelete If true, wait for orphan deletion
+	 * @param majorityWrite If true, use majority write concern
+	 * @param throwCommandExceptions If true, throw exceptions on command failures
+	 * @return true if the move was successful, false otherwise
+	 */
+	public boolean moveRange(String namespace, BsonDocument min, BsonDocument max, String moveToShard,
+			boolean secondaryThrottle, boolean waitForDelete, boolean majorityWrite, boolean throwCommandExceptions) {
+		Document moveRangeCmd = new Document("moveRange", namespace);
+		moveRangeCmd.append("min", min);
+		moveRangeCmd.append("max", max);
+		moveRangeCmd.append("toShard", moveToShard);
+
+		if (secondaryThrottle) {
+			moveRangeCmd.append("secondaryThrottle", secondaryThrottle);
+		}
+		if (majorityWrite) {
+			moveRangeCmd.append("writeConcern", WriteConcern.MAJORITY.asDocument());
+		}
+		if (waitForDelete) {
+			moveRangeCmd.append("_waitForDelete", waitForDelete);
+		}
+
+		try {
+			adminCommand(moveRangeCmd);
+		} catch (MongoCommandException mce) {
+			logger.warn(String.format("moveRange error ns: %s, message: %s", namespace, mce.getMessage()));
 			if (throwCommandExceptions) {
 				throw mce;
 			}
