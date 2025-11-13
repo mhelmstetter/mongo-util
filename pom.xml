@@ -40,7 +40,7 @@
 		<jersey2.version>3.0.8</jersey2.version>
 		<hibernate.version>4.1.9.Final</hibernate.version>
 		<slf4j.version>2.0.11</slf4j.version>
-		<logback.version>1.5.13</logback.version>
+		<logback.version>1.5.19</logback.version>
 		<aspectj.version>1.6.12</aspectj.version>
 		<jodatime.version>2.3</jodatime.version>
 		<resteasy.version>4.7.2.Final</resteasy.version>
