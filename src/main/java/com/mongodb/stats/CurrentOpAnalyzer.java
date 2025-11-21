@@ -59,6 +59,12 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 	@Option(names = "--connsByUser", description = "group connections by user")
     boolean connsByUser;
 
+	@Option(names = "--connsByDriver", description = "group connections by driver")
+    boolean connsByDriver;
+
+	@Option(names = "--connsByAppNameAndDriver", description = "group connections by application name and driver")
+    boolean connsByAppNameAndDriver;
+
 	@Option(names = "--filterAppName", description = "filter by specific application name")
     String filterAppName;
 	
@@ -244,7 +250,8 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 			.max()
 			.orElse(40));
 
-		String keyHeader = title.contains("Application") ? "Application Name" :
+		String keyHeader = title.contains("Application Name and Driver") ? "Application Name | Driver" :
+		                   title.contains("Application") ? "Application Name" :
 		                   title.contains("IP") ? "IP Address" :
 		                   title.contains("User") ? "User" : "Driver";
 
@@ -322,6 +329,27 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 			printTable("=== Connection Count by User ===", userStats);
 		}
 
+		if (connsByDriver) {
+			// Group by driver
+			Map<String, ConnectionStats> driverStats = new HashMap<>();
+			for (ConnectionInfo conn : connections) {
+				driverStats.computeIfAbsent(conn.driver, k -> new ConnectionStats())
+					.addConnection(conn);
+			}
+			printTable("=== Connection Count by Driver ===", driverStats);
+		}
+
+		if (connsByAppNameAndDriver) {
+			// Group by combination of appName and driver
+			Map<String, ConnectionStats> appNameDriverStats = new LinkedHashMap<>();
+			for (ConnectionInfo conn : connections) {
+				String key = conn.appName + " | " + conn.driver;
+				appNameDriverStats.computeIfAbsent(key, k -> new ConnectionStats())
+					.addConnection(conn);
+			}
+			printTable("=== Connection Count by Application Name and Driver ===", appNameDriverStats);
+		}
+
 		if (connsByIp) {
 			// Filter by appName if specified
 			List<ConnectionInfo> filtered = connections;
@@ -353,7 +381,7 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 	
 	
 	private void analyze() throws IOException {
-		if (connsByAppName || connsByIp || connsByUser) {
+		if (connsByAppName || connsByIp || connsByUser || connsByDriver || connsByAppNameAndDriver) {
 			// Run once and exit for connection analysis
 			if (shardClient.isMongos()) {
 				Collection<MongoClient> mongoClients = shardClient.getMongosMongoClients();

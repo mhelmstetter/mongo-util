@@ -1578,14 +1578,14 @@ public class ShardClient {
 	 */
 	public Map<String, RawBsonDocument> reloadChunksCacheForNamespace(String namespace) {
 		logger.debug("Reloading chunks cache for namespace: {}", namespace);
-		
+
 		// Create query for specific namespace
 		BsonDocument namespaceQuery = createNamespaceChunkQuery(namespace);
-		
+
 		// Use the internal method with namespace-specific clearing
 		return loadChunksCacheInternal(namespaceQuery, chunksCache, true, namespace);
 	}
-	
+
 	/**
 	 * Creates a chunk query for a specific namespace.
 	 * Handles both version 5+ (UUID-based) and older (namespace-based) MongoDB versions.
@@ -1852,6 +1852,11 @@ public class ShardClient {
 		}
 
 		// Fall back to legacy moveChunk command
+		// Note: Legacy moveChunk doesn't support partial bounds (null max), so max must be provided
+		if (max == null) {
+			throw new IllegalArgumentException("Legacy moveChunk command requires both min and max bounds. Use moveRange for MongoDB 6.0+ to enable automatic sub-range determination.");
+		}
+
 		Document moveChunkCmd = new Document("moveChunk", namespace);
 		moveChunkCmd.append("bounds", Arrays.asList(min, max));
 		moveChunkCmd.append("to", moveToShard);
@@ -1885,9 +1890,12 @@ public class ShardClient {
 	/**
 	 * Move a range to a different shard using the moveRange command (MongoDB 6.0+).
 	 *
+	 * If only min is provided (max is null), MongoDB will automatically compute an appropriate
+	 * max bound that fits within maxChunkSizeBytes, handling large auto-merged chunks efficiently.
+	 *
 	 * @param namespace The namespace (database.collection)
 	 * @param min The lower bound of the range
-	 * @param max The upper bound of the range
+	 * @param max The upper bound of the range (optional - if null, MongoDB computes it automatically)
 	 * @param moveToShard The destination shard ID
 	 * @param secondaryThrottle If true, wait for secondaries to acknowledge
 	 * @param waitForDelete If true, wait for orphan deletion
@@ -1899,7 +1907,10 @@ public class ShardClient {
 			boolean secondaryThrottle, boolean waitForDelete, boolean majorityWrite, boolean throwCommandExceptions) {
 		Document moveRangeCmd = new Document("moveRange", namespace);
 		moveRangeCmd.append("min", min);
-		moveRangeCmd.append("max", max);
+		// Only append max if provided - allows MongoDB to auto-compute sub-range for large chunks
+		if (max != null) {
+			moveRangeCmd.append("max", max);
+		}
 		moveRangeCmd.append("toShard", moveToShard);
 
 		if (secondaryThrottle) {
@@ -1923,7 +1934,97 @@ public class ShardClient {
 		}
 		return true;
 	}
-	
+
+	/**
+	 * Move a chunk or range with detailed result information.
+	 * This version returns a MoveChunkResult object containing success status and error details.
+	 *
+	 * @param namespace The namespace (database.collection)
+	 * @param min The lower bound
+	 * @param max The upper bound (optional for moveRange with MongoDB 6.0+)
+	 * @param moveToShard The destination shard ID
+	 * @param secondaryThrottle If true, wait for secondaries to acknowledge
+	 * @param waitForDelete If true, wait for orphan deletion
+	 * @param majorityWrite If true, use majority write concern
+	 * @param useMoveRange If true, use moveRange command (MongoDB 6.0+), otherwise use moveChunk
+	 * @return MoveChunkResult with success status and error details
+	 */
+	public MoveChunkResult moveChunkWithResult(String namespace, BsonDocument min, BsonDocument max, String moveToShard,
+			boolean secondaryThrottle, boolean waitForDelete, boolean majorityWrite, boolean useMoveRange) {
+
+		// Use moveRange for MongoDB 6.0+ if requested
+		if (useMoveRange && isVersion6OrLater()) {
+			return moveRangeWithResult(namespace, min, max, moveToShard, secondaryThrottle, waitForDelete, majorityWrite);
+		}
+
+		// Fall back to legacy moveChunk command
+		if (max == null) {
+			return MoveChunkResult.failure("Legacy moveChunk command requires both min and max bounds. Use moveRange for MongoDB 6.0+ to enable automatic sub-range determination.");
+		}
+
+		Document moveChunkCmd = new Document("moveChunk", namespace);
+		moveChunkCmd.append("bounds", Arrays.asList(min, max));
+		moveChunkCmd.append("to", moveToShard);
+		if (secondaryThrottle) {
+			moveChunkCmd.append("_secondaryThrottle", secondaryThrottle);
+		}
+		if (majorityWrite) {
+			moveChunkCmd.append("writeConcern", WriteConcern.MAJORITY.asDocument());
+		}
+		if (waitForDelete) {
+			moveChunkCmd.append("_waitForDelete", waitForDelete);
+		}
+
+		try {
+			adminCommand(moveChunkCmd);
+			return MoveChunkResult.success();
+		} catch (MongoCommandException mce) {
+			logger.warn(String.format("moveChunk error ns: %s, message: %s", namespace, mce.getMessage()));
+			return MoveChunkResult.failure(mce);
+		}
+	}
+
+	/**
+	 * Move a range with detailed result information (MongoDB 6.0+).
+	 *
+	 * @param namespace The namespace (database.collection)
+	 * @param min The lower bound of the range
+	 * @param max The upper bound of the range (optional - if null, MongoDB computes it automatically)
+	 * @param moveToShard The destination shard ID
+	 * @param secondaryThrottle If true, wait for secondaries to acknowledge
+	 * @param waitForDelete If true, wait for orphan deletion
+	 * @param majorityWrite If true, use majority write concern
+	 * @return MoveChunkResult with success status and error details
+	 */
+	public MoveChunkResult moveRangeWithResult(String namespace, BsonDocument min, BsonDocument max, String moveToShard,
+			boolean secondaryThrottle, boolean waitForDelete, boolean majorityWrite) {
+		Document moveRangeCmd = new Document("moveRange", namespace);
+		moveRangeCmd.append("min", min);
+		// Only append max if provided - allows MongoDB to auto-compute sub-range for large chunks
+		if (max != null) {
+			moveRangeCmd.append("max", max);
+		}
+		moveRangeCmd.append("toShard", moveToShard);
+
+		if (secondaryThrottle) {
+			moveRangeCmd.append("secondaryThrottle", secondaryThrottle);
+		}
+		if (majorityWrite) {
+			moveRangeCmd.append("writeConcern", WriteConcern.MAJORITY.asDocument());
+		}
+		if (waitForDelete) {
+			moveRangeCmd.append("_waitForDelete", waitForDelete);
+		}
+
+		try {
+			adminCommand(moveRangeCmd);
+			return MoveChunkResult.success();
+		} catch (MongoCommandException mce) {
+			logger.warn(String.format("moveRange error ns: %s, message: %s", namespace, mce.getMessage()));
+			return MoveChunkResult.failure(mce);
+		}
+	}
+
 	/**
 	 * Merges contiguous chunks in a sharded collection.
 	 * 
