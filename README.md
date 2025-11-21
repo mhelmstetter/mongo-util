@@ -10,10 +10,10 @@ The catalogmirror library is included in the `lib/` directory. Install it to you
 
 ```bash
 mvn install:install-file \
-  -Dfile=lib/catalogmirror-1.0.0.jar \
+  -Dfile=lib/catalogmirror-1.0.5.jar \
   -DgroupId=com.mongodb \
   -DartifactId=catalogmirror \
-  -Dversion=1.0.0 \
+  -Dversion=1.0.5 \
   -Dpackaging=jar
 ```
 

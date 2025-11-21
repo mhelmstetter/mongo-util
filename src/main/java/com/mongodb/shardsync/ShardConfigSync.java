@@ -1345,21 +1345,28 @@ public class ShardConfigSync implements Callable<Integer> {
             // Don't mark as failed if we can't check - this is just a safety check
         }
         
-        // Check 3: Check for mongomirror resume and timestamp files in current directory
+        // Check 3: Check for mongomirror resume and timestamp files
         List<String> foundMongomirrorFiles = new ArrayList<>();
         try {
-            logger.info("Checking for mongomirror resume and timestamp files...");
-            java.io.File currentDir = new java.io.File(".");
-            
+            // Determine directory to check based on resumeDbPath configuration
+            java.io.File checkDir;
+            if (config.resumeDbPath != null) {
+                checkDir = new java.io.File(config.resumeDbPath);
+                logger.info("Checking for mongomirror resume and timestamp files in: {}", config.resumeDbPath);
+            } else {
+                checkDir = new java.io.File(".");
+                logger.info("Checking for mongomirror resume and timestamp files in current directory...");
+            }
+
             // Get all shard IDs from source cluster to check for mongomirror files
             Collection<Shard> sourceShards = sourceShardClient.getShardsMap().values();
-            
+
             for (Shard shard : sourceShards) {
                 String shardId = shard.getId();
-                
+
                 // Check for resume files: mongomirror_resume_<shardId>.db
                 String resumeFileName = String.format("mongomirror_resume_%s.db", shardId);
-                java.io.File resumeFile = new java.io.File(currentDir, resumeFileName);
+                java.io.File resumeFile = new java.io.File(checkDir, resumeFileName);
                 
                 if (resumeFile.exists()) {
                     foundMongomirrorFiles.add(resumeFileName);
@@ -1368,7 +1375,7 @@ public class ShardConfigSync implements Callable<Integer> {
                 
                 // Check for timestamp files: <shardId>.timestamp
                 String timestampFileName = String.format("%s.timestamp", shardId);
-                java.io.File timestampFile = new java.io.File(currentDir, timestampFileName);
+                java.io.File timestampFile = new java.io.File(checkDir, timestampFileName);
                 
                 if (timestampFile.exists()) {
                     foundMongomirrorFiles.add(timestampFileName);
@@ -3173,6 +3180,10 @@ public class ShardConfigSync implements Callable<Integer> {
                 mongomirror.setLogPath(config.mongomirrorLogPath);
             }
 
+            if (config.resumeDbPath != null) {
+                mongomirror.setResumeDbPath(config.resumeDbPath);
+            }
+
             setMongomirrorEmailReportDetails(mongomirror);
 
             mongomirror.execute(config.dryRun);
@@ -3359,6 +3370,10 @@ public class ShardConfigSync implements Callable<Integer> {
 
             if (config.pprof != null) {
                 mongomirror.setPprof(config.pprof);
+            }
+
+            if (config.resumeDbPath != null) {
+                mongomirror.setResumeDbPath(config.resumeDbPath);
             }
 
             setMongomirrorEmailReportDetails(mongomirror);

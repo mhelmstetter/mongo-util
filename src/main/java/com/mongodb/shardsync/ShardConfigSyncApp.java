@@ -80,6 +80,11 @@ public class ShardConfigSyncApp implements Callable<Integer> {
     @Option(names = {"--dryRun"}, description = "Dry run only")
     private boolean dryRun;
 
+    @Option(names = {"--resumeDbPath"}, description = "Base directory path for mongomirror resume database files. " +
+            "Each shard will create a file named 'mongomirror_resume_<shardId>.db' in this directory. " +
+            "Example: --resumeDbPath /data/mongomirror will create /data/mongomirror/mongomirror_resume_shard01.db")
+    private String resumeDbPath;
+
     // Advanced connection options grouped in a mixin
     @CommandLine.Mixin
     private AdvancedConnectionMixin advancedConnection = new AdvancedConnectionMixin();
@@ -170,6 +175,11 @@ public class ShardConfigSyncApp implements Callable<Integer> {
         
         // Set global dryRun option
         config.setDryRun(dryRun);
+
+        // Set resumeDbPath if provided (from properties or command line)
+        if (resumeDbPath != null) {
+            config.setResumeDbPath(resumeDbPath);
+        }
 
         return config;
     }
@@ -288,6 +298,29 @@ public class ShardConfigSyncApp implements Callable<Integer> {
         // Set pprof option if provided
         if (mongoCmd.getPprof() != null) {
             config.setPprof(mongoCmd.getPprof());
+        }
+
+        // Validate and set resumeDbPath if provided
+        if (resumeDbPath != null) {
+            File resumeDbDir = new File(resumeDbPath);
+
+            if (!resumeDbDir.exists()) {
+                System.err.println("Error: resumeDbPath directory does not exist: " + resumeDbPath);
+                System.err.println("Please create the directory first or specify a valid path.");
+                return 1;
+            }
+            if (!resumeDbDir.isDirectory()) {
+                System.err.println("Error: resumeDbPath is not a directory: " + resumeDbPath);
+                System.err.println("Please specify a directory path, not a file.");
+                return 1;
+            }
+            if (!resumeDbDir.canWrite()) {
+                System.err.println("Error: resumeDbPath directory is not writable: " + resumeDbPath);
+                System.err.println("Please ensure the directory has write permissions.");
+                return 1;
+            }
+
+            config.setResumeDbPath(resumeDbPath);
         }
 
         initMongoMirrorEmailReportConfig(config, mongoCmd);

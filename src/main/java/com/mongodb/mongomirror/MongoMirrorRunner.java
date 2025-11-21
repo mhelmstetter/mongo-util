@@ -74,6 +74,7 @@ public class MongoMirrorRunner {
     private Integer verbose;
     private String logPath;
     private String pprof;
+    private String resumeDbPath;
 
     private Set<Namespace> includeNamespaces = new HashSet<Namespace>();
     private Set<String> includeDatabases = new HashSet<String>();
@@ -145,7 +146,17 @@ public class MongoMirrorRunner {
         addArg("stopWhenLagWithin", stopWhenLagWithin);
         addArg("verbose", verbose);
         addArg("pprof", pprof);
-        addArg("resumeDBFile", "mongomirror_resume_" + id + ".db");
+
+        // Construct resumeDBFile path
+        String resumeDBFile;
+        if (resumeDbPath != null) {
+            // Ensure path ends with separator
+            String basePath = resumeDbPath.endsWith(File.separator) ? resumeDbPath : resumeDbPath + File.separator;
+            resumeDBFile = basePath + "mongomirror_resume_" + id + ".db";
+        } else {
+            resumeDBFile = "mongomirror_resume_" + id + ".db";
+        }
+        addArg("resumeDBFile", resumeDBFile);
 
         for (Namespace ns : includeNamespaces) {
             addArg("includeNamespace", ns.getNamespace());
@@ -524,6 +535,10 @@ public class MongoMirrorRunner {
 
 	public void setPprof(String pprof) {
 		this.pprof = pprof;
+	}
+
+	public void setResumeDbPath(String resumeDbPath) {
+		this.resumeDbPath = resumeDbPath;
 	}
 
 	public int getErrorCount() {

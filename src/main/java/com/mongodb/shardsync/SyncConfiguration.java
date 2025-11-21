@@ -39,6 +39,7 @@ public class SyncConfiguration extends BaseConfiguration {
 	public Integer verbose;
 	public String mongomirrorLogPath;
 	public String pprof;
+	public String resumeDbPath;
 
 	/* Mongomirror email report specific settings */
 	public List<String> emailReportRecipients;
@@ -417,5 +418,13 @@ public class SyncConfiguration extends BaseConfiguration {
 
 	public void setPprof(String pprof) {
 		this.pprof = pprof;
+	}
+
+	public String getResumeDbPath() {
+		return resumeDbPath;
+	}
+
+	public void setResumeDbPath(String resumeDbPath) {
+		this.resumeDbPath = resumeDbPath;
 	}
 }
