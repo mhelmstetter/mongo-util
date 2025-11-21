@@ -26,6 +26,15 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      - name: Install catalogmirror dependency
+        run: |
+          mvn install:install-file \
+            -Dfile=lib/catalogmirror-1.0.5.jar \
+            -DgroupId=com.mongodb \
+            -DartifactId=catalogmirror \
+            -Dversion=1.0.5 \
+            -Dpackaging=jar
+
       - name: Build with Maven
         run: mvn clean package -DskipTests
 
