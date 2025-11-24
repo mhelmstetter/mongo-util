@@ -1,0 +1,43 @@
+import com.mongodb.shardsync.TimeseriesUtil;
+
+//		 Considering "test.system.buckets.coll"
+
+// --- Unit test TimeseriesUtil.isBucketCollection (only considering syntactically valid collection names)
+assert(TimeseriesUtil.isBucketCollection("system.buckets.coll") == true);
+assert(TimeseriesUtil.isBucketCollection("coll") == false);
+assert(TimeseriesUtil.isBucketCollection("system.bucket.coll") == false);
+assert(TimeseriesUtil.isBucketCollection("system.buckets") == false);
+
+// --- Unit test TimeseriesUtil.isBucketNamespace (only considering syntactically valid namespaces)
+assert(TimeseriesUtil.isBucketNamespace("test.system.buckets.coll") == true);
+assert(TimeseriesUtil.isBucketNamespace("test.coll") == false);
+assert(TimeseriesUtil.isBucketNamespace("test.system.bucket.coll") == false);
+assert(TimeseriesUtil.isBucketNamespace("test.system.buckets") == false);
+
+// --- Unit test TimeseriesUtil.bucketToViewCollectionName (only considering syntactically valid collection names)
+assert(TimeseriesUtil.bucketToViewCollectionName("system.buckets.coll").equals("coll"));
+
+/*
+* ----- TODO bucketToViewCollectionName must throw when passed in String is not a valid buckets
+* ----- collection name (aka when TimeseriesUtil.isBucketCollection would return false on that name)
+*/
+
+// --- Unit test TimeseriesUtil.bucketToViewNamespace (only considering syntactically valid collection names)
+assert(TimeseriesUtil.viewToBucketCollectionName("coll").equals("system.buckets.coll"));
+assert(TimeseriesUtil.viewToBucketCollectionName("system.buckets.coll").equals("system.buckets.coll"));
+
+// --- Unit test TimeseriesUtil.viewToBucketCollectionName (only considering syntactically valid namespaces)
+assert(TimeseriesUtil.bucketToViewNamespace("test.system.buckets.coll").equals("test.coll"));
+
+/*
+* ----- TODO viewToBucketCollectionName must throw when passed in String is not a valid buckets
+* ----- namespace (aka when TimeseriesUtil.isBucketNamespace would return false on that name)
+*/
+
+// --- Unit test TimeseriesUtil.bucketToViewNamespace (only considering syntactically valid namespaces)
+assert(TimeseriesUtil.viewToBucketNamespace("test.coll").equals("test.system.buckets.coll"));
+
+/*
+* ----- TODO bucketToViewNamespace must throw when passed in String is already a buckets
+* ----- namespace (aka when TimeseriesUtil.isBucketNamespace would return true on that name)
+*/

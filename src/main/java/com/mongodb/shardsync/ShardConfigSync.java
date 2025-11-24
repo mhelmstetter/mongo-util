@@ -296,17 +296,17 @@ public class ShardConfigSync implements Callable<Integer> {
         
         Document tsDoc = options.get("timeseries", Document.class);
         if (tsDoc != null) {
-        	TimeSeriesGranularity granularity = TimeSeriesGranularity.valueOf(tsDoc.getString("granularity").toUpperCase());
-        	Number bucketMaxSpanSeconds = tsDoc.get("bucketMaxSpanSeconds", Number.class);
-        	TimeSeriesOptions timeSeriesOptions = new TimeSeriesOptions(tsDoc.getString("timeField"))
-                    .metaField(tsDoc.getString("metaField"));
-                    
-        	if (granularity != null) {
-        		timeSeriesOptions.granularity(granularity);
-        	} else if (bucketMaxSpanSeconds != null) {
-        		timeSeriesOptions.bucketMaxSpan(bucketMaxSpanSeconds.longValue(), TimeUnit.SECONDS);
-        	}
-        	opts.timeSeriesOptions(timeSeriesOptions);
+        	TimeSeriesGranularity granularity = TimeSeriesGranularity.valueOf(tsDoc.getString("granularity").toUpperCase()); // TOREVIEW
+        	Number bucketMaxSpanSeconds = tsDoc.get("bucketMaxSpanSeconds", Number.class); // TOREVIEW
+        	TimeSeriesOptions timeSeriesOptions = new TimeSeriesOptions(tsDoc.getString("timeField")) // TOREVIEW
+                    .metaField(tsDoc.getString("metaField")); // TOREVIEW
+                     // TOREVIEW
+        	if (granularity != null) { // TOREVIEW
+        		timeSeriesOptions.granularity(granularity); // TOREVIEW
+        	} else if (bucketMaxSpanSeconds != null) { // TOREVIEW
+        		timeSeriesOptions.bucketMaxSpan(bucketMaxSpanSeconds.longValue(), TimeUnit.SECONDS); // TOREVIEW
+        	} // TOREVIEW
+        	opts.timeSeriesOptions(timeSeriesOptions); // TOREVIEW
         }
         
         Document storageEngine = options.get("storageEngine", Document.class);
@@ -2262,24 +2262,24 @@ public class ShardConfigSync implements Callable<Integer> {
                     Document info = (Document) collectionInfo.get("info");
                     UUID uuid = (UUID) info.get("uuid");
                     
-                    // For timeseries view collections, we need to look up the UUID from the bucket collection
-                    if (uuid == null) {
-                        String bucketNamespace = TimeseriesUtil.viewToBucketNamespace(ns.getNamespace());
-                        // Only try this if the bucket namespace is different (i.e., this could be a timeseries view)
-                        if (!bucketNamespace.equals(ns.getNamespace())) {
-                            Namespace bucketNs = new Namespace(bucketNamespace);
-                            if (bucketNs.getDatabaseName().equals(databaseName)) {
-                                // Look up bucket collection from our already-collected data
-                                Document bucketCollectionInfo = allCollections.get(bucketNs.getCollectionName());
-                                if (bucketCollectionInfo != null) {
-                                    Document bucketInfoDoc = (Document) bucketCollectionInfo.get("info");
-                                    if (bucketInfoDoc != null) {
-                                        uuid = (UUID) bucketInfoDoc.get("uuid");
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // For timeseries view collections, we need to look up the UUID from the bucket collection // TOREVIEW
+                    if (uuid == null) { // TOREVIEW
+                        String bucketNamespace = TimeseriesUtil.viewToBucketNamespace(ns.getNamespace()); // TOREVIEW
+                        // Only try this if the bucket namespace is different (i.e., this could be a timeseries view) // TOREVIEW
+                        if (!bucketNamespace.equals(ns.getNamespace())) { // TOREVIEW
+                            Namespace bucketNs = new Namespace(bucketNamespace); // TOREVIEW
+                            if (bucketNs.getDatabaseName().equals(databaseName)) { // TOREVIEW
+                                // Look up bucket collection from our already-collected data // TOREVIEW
+                                Document bucketCollectionInfo = allCollections.get(bucketNs.getCollectionName()); // TOREVIEW
+                                if (bucketCollectionInfo != null) { // TOREVIEW
+                                    Document bucketInfoDoc = (Document) bucketCollectionInfo.get("info"); // TOREVIEW
+                                    if (bucketInfoDoc != null) { // TOREVIEW
+                                        uuid = (UUID) bucketInfoDoc.get("uuid"); // TOREVIEW
+                                    } // TOREVIEW
+                                } // TOREVIEW
+                            } // TOREVIEW
+                        } // TOREVIEW
+                    } // TOREVIEW
 
                     Map<UUID, Set<String>> uuidMapping = collectionUuidMappings.get(ns);
                     if (uuidMapping == null) {
@@ -2493,64 +2493,64 @@ public class ShardConfigSync implements Callable<Integer> {
                 continue;
             }
             
-            // For timeseries bucket collections, create config entry for the view collection instead
-            if (TimeseriesUtil.isBucketCollection(ns.getCollectionName())) {
-                String viewNamespace = TimeseriesUtil.bucketToViewNamespace(ns.getNamespace());
-                logger.debug("Converting bucket collection {} to view collection {} for config entry", ns, viewNamespace);
-                
-                // Create a modified collection document for the view collection
-                Document viewCollectionDoc = new Document(sourceColl);
-                viewCollectionDoc.put("_id", viewNamespace);
-                
-                // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
-                RawBsonDocument rawDoc = new RawBsonDocument(viewCollectionDoc, documentCodec);
-                destColls.replaceOne(new Document("_id", viewNamespace), rawDoc, options);
-            } else {
-                // hack to avoid "Invalid BSON field name _id.x" for compound shard keys
-                RawBsonDocument rawDoc = new RawBsonDocument(sourceColl, documentCodec);
-                destColls.replaceOne(new Document("_id", nsStr), rawDoc, options);
-            }
-        }
-
-        logger.debug("shardDestinationCollectionsUsingInsert() complete");
-    }
-
-    private void shardDestinationCollectionsUsingShardCommand() {
-        logger.debug("shardDestinationCollectionsUsingShardCommand(), non-privileged mode");
-        
-        List<String> shardingErrors = new ArrayList<>();
-        int totalCollections = 0;
-        int successfullySharded = 0;
-
-        for (Document sourceColl : sourceShardClient.getCollectionsMap().values()) {
-
-            String nsStr = (String) sourceColl.get("_id");
-            Namespace ns = new Namespace(nsStr);
-
-            if (config.filterCheck(ns)) {
-                continue;
-            }
-            
-            // Skip bucket collections - they can't be sharded directly
-            if (TimeseriesUtil.isBucketCollection(ns.getCollectionName())) {
-                continue;
-            }
-            
-            totalCollections++;
-            
-            try {
-                
-                // For timeseries collections, check if they have timeseriesFields
-                Document timeseriesFields = (Document) sourceColl.get("timeseriesFields");
-                if (timeseriesFields != null) {
-                    // For timeseries collections, the conversion logic is now handled in shardCollection method
-                    boolean success = shardCollection(sourceColl);
-                    if (success) {
-                        successfullySharded++;
-                        logger.debug("Successfully sharded timeseries collection: {}", nsStr);
-                    } else {
-                        shardingErrors.add("Failed to shard timeseries collection: " + nsStr);
-                    }
+            // For timeseries bucket collections, create config entry for the view collection instead // TOREVIEW
+            if (TimeseriesUtil.isBucketCollection(ns.getCollectionName())) { // TOREVIEW
+                String viewNamespace = TimeseriesUtil.bucketToViewNamespace(ns.getNamespace()); // TOREVIEW
+                logger.debug("Converting bucket collection {} to view collection {} for config entry", ns, viewNamespace); // TOREVIEW
+                 // TOREVIEW
+                // Create a modified collection document for the view collection // TOREVIEW
+                Document viewCollectionDoc = new Document(sourceColl); // TOREVIEW
+                viewCollectionDoc.put("_id", viewNamespace); // TOREVIEW
+                 // TOREVIEW
+                // hack to avoid "Invalid BSON field name _id.x" for compound shard keys // TOREVIEW
+                RawBsonDocument rawDoc = new RawBsonDocument(viewCollectionDoc, documentCodec); // TOREVIEW
+                destColls.replaceOne(new Document("_id", viewNamespace), rawDoc, options); // TOREVIEW
+            } else { // TOREVIEW
+                // hack to avoid "Invalid BSON field name _id.x" for compound shard keys // TOREVIEW
+                RawBsonDocument rawDoc = new RawBsonDocument(sourceColl, documentCodec); // TOREVIEW
+                destColls.replaceOne(new Document("_id", nsStr), rawDoc, options); // TOREVIEW
+            } // TOREVIEW
+        } // TOREVIEW
+ // TOREVIEW
+        logger.debug("shardDestinationCollectionsUsingInsert() complete"); // TOREVIEW
+    } // TOREVIEW
+ // TOREVIEW
+    private void shardDestinationCollectionsUsingShardCommand() { // TOREVIEW
+        logger.debug("shardDestinationCollectionsUsingShardCommand(), non-privileged mode"); // TOREVIEW
+         // TOREVIEW
+        List<String> shardingErrors = new ArrayList<>(); // TOREVIEW
+        int totalCollections = 0; // TOREVIEW
+        int successfullySharded = 0; // TOREVIEW
+ // TOREVIEW
+        for (Document sourceColl : sourceShardClient.getCollectionsMap().values()) { // TOREVIEW
+ // TOREVIEW
+            String nsStr = (String) sourceColl.get("_id"); // TOREVIEW
+            Namespace ns = new Namespace(nsStr); // TOREVIEW
+ // TOREVIEW
+            if (config.filterCheck(ns)) { // TOREVIEW
+                continue; // TOREVIEW
+            } // TOREVIEW
+             // TOREVIEW
+            // Skip bucket collections - they can't be sharded directly // TOREVIEW
+            if (TimeseriesUtil.isBucketCollection(ns.getCollectionName())) { // TOREVIEW
+                continue; // TOREVIEW
+            } // TOREVIEW
+             // TOREVIEW
+            totalCollections++; // TOREVIEW
+             // TOREVIEW
+            try { // TOREVIEW
+                 // TOREVIEW
+                // For timeseries collections, check if they have timeseriesFields // TOREVIEW
+                Document timeseriesFields = (Document) sourceColl.get("timeseriesFields"); // TOREVIEW
+                if (timeseriesFields != null) { // TOREVIEW
+                    // For timeseries collections, the conversion logic is now handled in shardCollection method // TOREVIEW
+                    boolean success = shardCollection(sourceColl); // TOREVIEW
+                    if (success) { // TOREVIEW
+                        successfullySharded++; // TOREVIEW
+                        logger.debug("Successfully sharded timeseries collection: {}", nsStr); // TOREVIEW
+                    } else { // TOREVIEW
+                        shardingErrors.add("Failed to shard timeseries collection: " + nsStr); // TOREVIEW
+                    } // TOREVIEW
                 } else {
                     boolean success = shardCollection(sourceColl);
                     if (success) {
@@ -2673,14 +2673,14 @@ public class ShardConfigSync implements Callable<Integer> {
     private boolean shardCollection(Document sourceColl) {
         String namespace = (String) sourceColl.get("_id");
         
-        // Check if this is a timeseries collection and convert shard key if needed
-        Document originalKey = (Document) sourceColl.get("key");
-        Document shardKey = originalKey;
-        String targetNamespace = namespace;
-        
-        // Check if this collection has timeseriesFields (indicating it's a timeseries collection)
-        Document timeseriesFields = (Document) sourceColl.get("timeseriesFields");
-        if (timeseriesFields != null && originalKey != null && originalKey.containsKey("meta")) {
+        // Check if this is a timeseries collection and convert shard key if needed // TOREVIEW
+        Document originalKey = (Document) sourceColl.get("key"); // TOREVIEW
+        Document shardKey = originalKey; // TOREVIEW
+        String targetNamespace = namespace; // TOREVIEW
+         // TOREVIEW
+        // Check if this collection has timeseriesFields (indicating it's a timeseries collection) // TOREVIEW
+        Document timeseriesFields = (Document) sourceColl.get("timeseriesFields"); // TOREVIEW
+        if (timeseriesFields != null && originalKey != null && originalKey.containsKey("meta")) { // TOREVIEW
             String metaField = timeseriesFields.getString("metaField");
             if (metaField != null) {
                 // Convert meta shard key to the actual meta field name
