@@ -32,7 +32,7 @@ jobs:
             -Dfile=lib/catalogmirror.jar \
             -DgroupId=com.mongodb \
             -DartifactId=catalogmirror \
-            -Dversion=1.0.6 \
+            -Dversion=1.0.8 \
             -Dpackaging=jar
 
       - name: Build with Maven

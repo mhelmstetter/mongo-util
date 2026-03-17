@@ -65,6 +65,9 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 	@Option(names = "--connsByAppNameAndDriver", description = "group connections by application name and driver")
     boolean connsByAppNameAndDriver;
 
+	@Option(names = "--connsByAppNameAndOp", description = "group connections by application name and operation type")
+    boolean connsByAppNameAndOp;
+
 	@Option(names = "--filterAppName", description = "filter by specific application name")
     String filterAppName;
 	
@@ -119,14 +122,16 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 		String ipAddress;
 		String driver;
 		String user;
+		String op;
 		boolean active;
 		Long secsRunning;
 
-		public ConnectionInfo(String appName, String ipAddress, String driver, String user, boolean active, Long secsRunning) {
+		public ConnectionInfo(String appName, String ipAddress, String driver, String user, String op, boolean active, Long secsRunning) {
 			this.appName = appName != null ? appName : "(no appName)";
 			this.ipAddress = ipAddress != null ? ipAddress : "(no IP)";
 			this.driver = driver != null ? driver : "(no driver info)";
 			this.user = user != null ? user : "(no user)";
+			this.op = op != null ? op : "none";
 			this.active = active;
 			this.secsRunning = secsRunning;
 		}
@@ -235,7 +240,10 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 				}
 			}
 
-			connections.add(new ConnectionInfo(appName, ipAddress, driverInfo, user, active, secsRunning));
+			// Extract operation type
+			String op = getStringValue(result, "op");
+
+			connections.add(new ConnectionInfo(appName, ipAddress, driverInfo, user, op, active, secsRunning));
 		}
 
 		return connections;
@@ -251,14 +259,15 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 			.orElse(40));
 
 		String keyHeader = title.contains("Application Name and Driver") ? "Application Name | Driver" :
+		                   title.contains("Application Name and Op") ? "Application Name | Op" :
 		                   title.contains("Application") ? "Application Name" :
 		                   title.contains("IP") ? "IP Address" :
 		                   title.contains("User") ? "User" : "Driver";
 
 		// Print header
-		System.out.printf("%-" + maxKeyLength + "s  %6s  %6s  %8s  %10s  %10s%n",
-			keyHeader, "Total", "Active", "Inactive", "AvgSecs", "MaxSecs");
-		System.out.println("=".repeat(maxKeyLength + 50));
+		System.out.printf("%-" + maxKeyLength + "s  %6s  %6s  %8s  %10s  %10s  %10s%n",
+			keyHeader, "Total", "Active", "Inactive", "TotalSecs", "AvgSecs", "MaxSecs");
+		System.out.println("=".repeat(maxKeyLength + 62));
 
 		// Sort by total count descending
 		data.entrySet().stream()
@@ -270,16 +279,17 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 					key = key.substring(0, maxKeyLength - 3) + "...";
 				}
 				ConnectionStats stats = entry.getValue();
-				System.out.printf("%-" + maxKeyLength + "s  %6d  %6d  %8d  %10.1f  %10d%n",
+				System.out.printf("%-" + maxKeyLength + "s  %6d  %6d  %8d  %10d  %10.1f  %10d%n",
 					key,
 					stats.totalCount,
 					stats.activeCount,
 					stats.inactiveCount,
+					stats.totalSecsRunning,
 					stats.getAverageSecsRunning(),
 					stats.maxSecsRunning);
 			});
 
-		System.out.println("=".repeat(maxKeyLength + 50));
+		System.out.println("=".repeat(maxKeyLength + 62));
 
 		// Calculate totals
 		ConnectionStats totals = new ConnectionStats();
@@ -292,11 +302,12 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 			totals.maxSecsRunning = Math.max(totals.maxSecsRunning, stats.maxSecsRunning);
 		});
 
-		System.out.printf("%-" + maxKeyLength + "s  %6d  %6d  %8d  %10.1f  %10d%n",
+		System.out.printf("%-" + maxKeyLength + "s  %6d  %6d  %8d  %10d  %10.1f  %10d%n",
 			"TOTAL",
 			totals.totalCount,
 			totals.activeCount,
 			totals.inactiveCount,
+			totals.totalSecsRunning,
 			totals.getAverageSecsRunning(),
 			totals.maxSecsRunning);
 	}
@@ -350,6 +361,17 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 			printTable("=== Connection Count by Application Name and Driver ===", appNameDriverStats);
 		}
 
+		if (connsByAppNameAndOp) {
+			// Group by combination of appName and operation type
+			Map<String, ConnectionStats> appNameOpStats = new LinkedHashMap<>();
+			for (ConnectionInfo conn : connections) {
+				String key = conn.appName + " | " + conn.op;
+				appNameOpStats.computeIfAbsent(key, k -> new ConnectionStats())
+					.addConnection(conn);
+			}
+			printTable("=== Connection Count by Application Name and Op ===", appNameOpStats);
+		}
+
 		if (connsByIp) {
 			// Filter by appName if specified
 			List<ConnectionInfo> filtered = connections;
@@ -381,7 +403,7 @@ public class CurrentOpAnalyzer implements Callable<Integer> {
 	
 	
 	private void analyze() throws IOException {
-		if (connsByAppName || connsByIp || connsByUser || connsByDriver || connsByAppNameAndDriver) {
+		if (connsByAppName || connsByIp || connsByUser || connsByDriver || connsByAppNameAndDriver || connsByAppNameAndOp) {
 			// Run once and exit for connection analysis
 			if (shardClient.isMongos()) {
 				Collection<MongoClient> mongoClients = shardClient.getMongosMongoClients();

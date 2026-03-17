@@ -344,6 +344,10 @@ public class MongoStat {
 
                 MongoIterable<String> collectionNames = client.getDatabase(dbName).listCollectionNames();
                 for (String collName : collectionNames) {
+                    // Skip system collections - they often have restricted access and aren't useful for monitoring
+                    if (collName.startsWith("system.")) {
+                        continue;
+                    }
                     String namespace = dbName + "." + collName;
                     collCount++;
 
