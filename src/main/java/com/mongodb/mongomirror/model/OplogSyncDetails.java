@@ -8,6 +8,7 @@ public class OplogSyncDetails {
 
     private Long currentTimestamp;
     private Long latestTimestamp;
+    private Long lastCopiedTimestamp;
     
     public Duration getLag() {
         long currentEpoch = BsonUtils.getEpochFromBsonTimestamp(currentTimestamp);
@@ -32,4 +33,11 @@ public class OplogSyncDetails {
         this.latestTimestamp = latestTimestamp;
     }
 
+    public Long getLastCopiedTimestamp() {
+        return lastCopiedTimestamp;
+    }
+
+    public void setLastCopiedTimestamp(Long lastCopiedTimestamp) {
+        this.lastCopiedTimestamp = lastCopiedTimestamp;
+    }
 }
