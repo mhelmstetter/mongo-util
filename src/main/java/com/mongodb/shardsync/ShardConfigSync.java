@@ -3481,12 +3481,13 @@ public class ShardConfigSync implements Callable<Integer> {
                 buf.order(ByteOrder.LITTLE_ENDIAN);
 
                 // NB: TreeMap is always iterated in sorted key order.
-                for (Long timestamp : lastCopiedTimestampMap.values()) {
+                for (var timestamp : lastCopiedTimestampMap.values()) {
                     buf.putLong(timestamp);
                 }
 
-                // We want a 32-bit hash for brevity. To do that we’ll compute
-                // xxh3 then take the front half of that.
+                // We want a 32-bit hash (rather than 64-bit) for brevity.
+                // To get that we’ll compute xxh3 (64-bit) then take just the
+                // upper half of those bytes.
                 var hash64 = LongHashFunction.xx3().hashBytes(buf.array());
                 var hash32 = (int) (hash64 >>> 32);
 
