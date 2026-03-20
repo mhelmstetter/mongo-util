@@ -3478,16 +3478,16 @@ public class ShardConfigSync implements Callable<Integer> {
                 var buf = ByteBuffer.allocate(lastCopiedTimestampMap.size() * Long.BYTES);
                 buf.order(ByteOrder.LITTLE_ENDIAN);
 
+                // NB: TreeMap is always iterated in sorted key order.
                 for (Long timestamp : lastCopiedTimestampMap.values()) {
-                    buf.putLong(timestamp != null ? timestamp : 0L);
+                    buf.putLong(timestamp);
                 }
 
                 var timestampsBuf = buf.array();
 
                 var hash = LongHashFunction.xx3().hashBytes(timestampsBuf);
-                var hexHash = String.format("%016x", hash);
 
-                logger.debug(String.format("Last-copied timestamps hash: %s", hexHash));
+                logger.debug(String.format("Last-copied timestamps hash: %016x", hash));
             }
         }
     }
