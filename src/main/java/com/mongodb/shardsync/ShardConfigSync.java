@@ -3465,8 +3465,10 @@ public class ShardConfigSync implements Callable<Integer> {
                             status.getStage(), status.getPhase(), st.getLagPretty()));
 
                     if (st.getDetails() != null) {
-                        Long timestamp = st.getDetails().getLastCopiedTimestamp();
-                        lastCopiedTimestampMap.put(mongomirror.getId(), timestamp);
+                        var timestamp = st.getDetails().getLastCopiedTimestamp();
+                        if (timestamp != null) {
+                             lastCopiedTimestampMap.put(mongomirror.getId(), timestamp);
+                        }
                     }
                 } else {
                     logger.debug(String.format("%-15s - %-18s %-22s", mongomirror.getId(), status.getStage(),
@@ -3483,11 +3485,12 @@ public class ShardConfigSync implements Callable<Integer> {
                     buf.putLong(timestamp);
                 }
 
-                var timestampsBuf = buf.array();
+                // We want a 32-bit hash for brevity. To do that we’ll compute
+                // xxh3 then take the front half of that.
+                var hash64 = LongHashFunction.xx3().hashBytes(buf.array());
+                var hash32 = (int) (hash64 >>> 32);
 
-                var hash = LongHashFunction.xx3().hashBytes(timestampsBuf);
-
-                logger.debug(String.format("Last-copied timestamps hash: %016x", hash));
+                logger.debug(String.format("Last-copied timestamps hash: %08x", hash32));
             }
         }
     }
