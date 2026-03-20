@@ -8,6 +8,8 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
@@ -92,6 +94,8 @@ import com.mongodb.util.DatabaseUtil;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
 import com.opencsv.CSVWriter;
+
+import net.openhft.hashing.LongHashFunction;
 
 import picocli.CommandLine.Command;
 
@@ -3433,6 +3437,8 @@ public class ShardConfigSync implements Callable<Integer> {
             } catch (InterruptedException e) {
             }
 
+            var lastCopiedTimestampMap = new TreeMap<String, Long>();
+
             for (MongoMirrorRunner mongomirror : mongomirrors) {
                 MongoMirrorStatus status = mongomirror.checkStatus();
                 if (status == null) {
@@ -3454,13 +3460,34 @@ public class ShardConfigSync implements Callable<Integer> {
 
                 } else if (status.isOplogSync()) {
                     MongoMirrorStatusOplogSync st = (MongoMirrorStatusOplogSync) status;
+
                     logger.debug(String.format("%-15s - %-18s %-22s %s lag from source", mongomirror.getId(),
                             status.getStage(), status.getPhase(), st.getLagPretty()));
+
+                    if (st.getDetails() != null) {
+                        Long timestamp = st.getDetails().getLastCopiedTimestamp();
+                        lastCopiedTimestampMap.put(mongomirror.getId(), timestamp);
+                    }
                 } else {
                     logger.debug(String.format("%-15s - %-18s %-22s", mongomirror.getId(), status.getStage(),
                             status.getPhase()));
                 }
+            }
 
+            if (!lastCopiedTimestampMap.isEmpty()) {
+                var buf = ByteBuffer.allocate(lastCopiedTimestampMap.size() * Long.BYTES);
+                buf.order(ByteOrder.LITTLE_ENDIAN);
+
+                for (Long timestamp : lastCopiedTimestampMap.values()) {
+                    buf.putLong(timestamp != null ? timestamp : 0L);
+                }
+
+                var timestampsBuf = buf.array();
+
+                var hash = LongHashFunction.xx3().hashBytes(timestampsBuf);
+                var hexHash = String.format("%016x", hash);
+
+                logger.debug(String.format("Last-copied timestamps hash: %s", hexHash));
             }
         }
     }
