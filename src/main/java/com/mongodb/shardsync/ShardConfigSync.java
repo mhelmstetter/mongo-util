@@ -8,6 +8,8 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
@@ -92,6 +94,8 @@ import com.mongodb.util.DatabaseUtil;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
 import com.opencsv.CSVWriter;
+
+import net.openhft.hashing.LongHashFunction;
 
 import picocli.CommandLine.Command;
 
@@ -3433,6 +3437,8 @@ public class ShardConfigSync implements Callable<Integer> {
             } catch (InterruptedException e) {
             }
 
+            var lastCopiedTimestampMap = new TreeMap<String, Long>();
+
             for (MongoMirrorRunner mongomirror : mongomirrors) {
                 MongoMirrorStatus status = mongomirror.checkStatus();
                 if (status == null) {
@@ -3454,13 +3460,38 @@ public class ShardConfigSync implements Callable<Integer> {
 
                 } else if (status.isOplogSync()) {
                     MongoMirrorStatusOplogSync st = (MongoMirrorStatusOplogSync) status;
+
                     logger.debug(String.format("%-15s - %-18s %-22s %s lag from source", mongomirror.getId(),
                             status.getStage(), status.getPhase(), st.getLagPretty()));
+
+                    if (st.getDetails() != null) {
+                        var timestamp = st.getDetails().getLastCopiedTimestamp();
+                        if (timestamp != null) {
+                             lastCopiedTimestampMap.put(mongomirror.getId(), timestamp);
+                        }
+                    }
                 } else {
                     logger.debug(String.format("%-15s - %-18s %-22s", mongomirror.getId(), status.getStage(),
                             status.getPhase()));
                 }
+            }
 
+            if (!lastCopiedTimestampMap.isEmpty()) {
+                var buf = ByteBuffer.allocate(lastCopiedTimestampMap.size() * Long.BYTES);
+                buf.order(ByteOrder.LITTLE_ENDIAN);
+
+                // NB: TreeMap is always iterated in sorted key order.
+                for (var timestamp : lastCopiedTimestampMap.values()) {
+                    buf.putLong(timestamp);
+                }
+
+                // We want a 32-bit hash (rather than 64-bit) for brevity.
+                // To get that we’ll compute xxh3 (64-bit) then take just the
+                // upper half of those bytes.
+                var hash64 = LongHashFunction.xx3().hashBytes(buf.array());
+                var hash32 = (int) (hash64 >>> 32);
+
+                logger.debug(String.format("Last-copied timestamps hash: %08x", hash32));
             }
         }
     }
