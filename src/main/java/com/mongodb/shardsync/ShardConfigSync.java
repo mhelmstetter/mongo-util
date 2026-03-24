@@ -3491,10 +3491,9 @@ public class ShardConfigSync implements Callable<Integer> {
                 var hash64 = LongHashFunction.xx3().hashBytes(buf.array());
                 var hash32 = (int) (hash64 >>> 32);
 
-                logger.debug(String.format("Last-copied timestamps hash: %08x", hash32));
-
                 var maxTimestamp = lastCopiedTimestampMap.values().stream().mapToLong(Long::longValue).max().getAsLong();
-                logger.debug(String.format("Max last-copied timestamp: %d/%d", maxTimestamp >>> 32, maxTimestamp & 0xFFFFFFFFL));
+
+                logger.debug(String.format("Last-copied timestamps hash: %08x (max: %d/%d)", hash32, maxTimestamp >>> 32, maxTimestamp & 0xFFFFFFFFL));
             }
         }
     }
