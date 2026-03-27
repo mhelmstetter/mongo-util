@@ -13,10 +13,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v4.7.0
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -32,7 +32,7 @@ jobs:
             -Dfile=lib/catalogmirror.jar \
             -DgroupId=com.mongodb \
             -DartifactId=catalogmirror \
-            -Dversion=1.0.8 \
+            -Dversion=1.0.9 \
             -Dpackaging=jar
 
       - name: Build with Maven
