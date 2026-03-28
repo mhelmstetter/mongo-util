@@ -546,13 +546,13 @@ public class ShardClient {
 				collectionsUuidMap.put(uuid, id);
 			}
 			
-			// For timeseries bucket collections, also add an entry for the view
-			if (TimeseriesUtil.isBucketNamespace(id)) {
-				String viewNamespace = TimeseriesUtil.bucketToViewNamespace(id);
-				// Create a copy of the document with the view namespace as _id
-				Document viewDoc = new Document(c);
-				viewDoc.put("_id", viewNamespace);
-				collectionsMap.put(viewNamespace, viewDoc);
+			// For timeseries bucket collections, also add an entry for the view // TOREVIEW
+			if (TimeseriesUtil.isBucketNamespace(id)) { // TOREVIEW
+				String viewNamespace = TimeseriesUtil.bucketToViewNamespace(id); // TOREVIEW
+				// Create a copy of the document with the view namespace as _id // TOREVIEW
+				Document viewDoc = new Document(c); // TOREVIEW
+				viewDoc.put("_id", viewNamespace); // TOREVIEW
+				collectionsMap.put(viewNamespace, viewDoc); // TOREVIEW
 			} else {
 			}
 		}
@@ -2150,13 +2150,13 @@ public class ShardClient {
 				continue;
 			}
 			
-			// For timeseries bucket collections, calculate split vector for the view collection instead
-			String targetNamespace = nsStr;
-			if (ns.getCollectionName().startsWith("system.buckets.")) {
-				String viewCollectionName = ns.getCollectionName().substring("system.buckets.".length());
-				targetNamespace = ns.getDatabaseName() + "." + viewCollectionName;
-				logger.debug("Converting bucket collection {} to view collection {} for split vector", ns, targetNamespace);
-			}
+			// For timeseries bucket collections, calculate split vector for the view collection instead // TOREVIEW
+			String targetNamespace = nsStr; // TOREVIEW
+			if (ns.getCollectionName().startsWith("system.buckets.")) { // TOREVIEW
+				String viewCollectionName = ns.getCollectionName().substring("system.buckets.".length()); // TOREVIEW
+				targetNamespace = ns.getDatabaseName() + "." + viewCollectionName; // TOREVIEW
+				logger.debug("Converting bucket collection {} to view collection {} for split vector", ns, targetNamespace); // TOREVIEW
+			} // TOREVIEW
 
 			Document splitVectorCmd = new Document("splitVector", targetNamespace);
 			Document keyPattern = (Document)sourceColl.get("key");
