@@ -3102,6 +3102,58 @@ public class ShardConfigSync implements Callable<Integer> {
         cleaner.cleanupOrphans(config.cleanupOrphansSleepMillis);
     }
 
+    public int confirmNoRangeDeletions() {
+        logger.info("🔍 Checking for pending range deletions on source shards");
+        sourceShardClient.populateShardMongoClients();
+
+        Map<String, MongoClient> shardClients = sourceShardClient.getShardMongoClients();
+        int shardsChecked = 0;
+        int shardsWithDeletions = 0;
+        int shardsWithErrors = 0;
+        long totalRangeDeletions = 0;
+        long totalRangeDeletionsForRename = 0;
+
+        for (Map.Entry<String, MongoClient> entry : shardClients.entrySet()) {
+            String shardId = entry.getKey();
+            MongoClient client = entry.getValue();
+            shardsChecked++;
+
+            try {
+                MongoDatabase configDb = client.getDatabase("config");
+                long rangeDeletions = configDb.getCollection("rangeDeletions").countDocuments();
+                long rangeDeletionsForRename = configDb.getCollection("rangeDeletionsForRename").countDocuments();
+
+                totalRangeDeletions += rangeDeletions;
+                totalRangeDeletionsForRename += rangeDeletionsForRename;
+
+                if (rangeDeletions == 0 && rangeDeletionsForRename == 0) {
+                    logger.info("  ✅ {}: rangeDeletions=0, rangeDeletionsForRename=0", shardId);
+                } else {
+                    shardsWithDeletions++;
+                    logger.warn("  ❌ {}: rangeDeletions={}, rangeDeletionsForRename={}",
+                            shardId, rangeDeletions, rangeDeletionsForRename);
+                }
+            } catch (MongoException me) {
+                shardsWithErrors++;
+                logger.error("  ❌ {}: error checking range deletions: {}", shardId, me.getMessage());
+            }
+        }
+
+        if (shardsWithDeletions == 0 && shardsWithErrors == 0) {
+            logger.info("✅ No pending range deletions across {} shard(s)", shardsChecked);
+            return 0;
+        }
+
+        if (shardsWithDeletions > 0) {
+            logger.warn("❌ Pending range deletions on {} of {} shard(s) (total rangeDeletions={}, rangeDeletionsForRename={})",
+                    shardsWithDeletions, shardsChecked, totalRangeDeletions, totalRangeDeletionsForRename);
+        }
+        if (shardsWithErrors > 0) {
+            logger.warn("⚠️  {} shard(s) could not be checked", shardsWithErrors);
+        }
+        return 1;
+    }
+
 
     public void shardToRs() throws ExecuteException, IOException {
 

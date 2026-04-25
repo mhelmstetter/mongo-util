@@ -365,6 +365,8 @@ public class ShardConfigSyncApp implements Callable<Integer> {
             sync.cleanupOrphans();
         } else if (shardingCmd.isCleanupOrphansDest()) {
             sync.cleanupOrphansDest();
+        } else if (shardingCmd.isConfirmNoRangeDeletions()) {
+            exitCode = sync.confirmNoRangeDeletions();
         } else {
             System.out.println("No sharding action specified. Use --help to see available options.");
             return 1;
