@@ -31,12 +31,15 @@ public class ShardingCommand implements Callable<Integer> {
     
     @Option(names = {"--cleanupOrphansSleep"}, description = "Sleep duration between cleanup operations (milliseconds)")
     private String cleanupOrphansSleep;
-    
+
+    @Option(names = {"--confirmNoRangeDeletions"}, description = "Confirm that config.rangeDeletions and config.rangeDeletionsForRename are empty on every source shard")
+    private boolean confirmNoRangeDeletions;
+
     @Override
     public Integer call() throws Exception {
         return parent.executeShardingCommand(this);
     }
-    
+
     // Getters for the parent class to access the fields
     public boolean isFlushRouter() { return flushRouter; }
     public boolean isDisableSourceAutosplit() { return disableSourceAutosplit; }
@@ -45,4 +48,5 @@ public class ShardingCommand implements Callable<Integer> {
     public boolean isCleanupOrphans() { return cleanupOrphans; }
     public boolean isCleanupOrphansDest() { return cleanupOrphansDest; }
     public String getCleanupOrphansSleep() { return cleanupOrphansSleep; }
+    public boolean isConfirmNoRangeDeletions() { return confirmNoRangeDeletions; }
 }
