@@ -82,9 +82,9 @@ public class MongoStatApp implements Callable<Integer> {
         ch.qos.logback.classic.Logger shardClientLogger = loggerContext.getLogger("com.mongodb.shardsync.ShardClient");
         shardClientLogger.setLevel(verbose ? Level.DEBUG : Level.INFO);
 
-        // --cumulative defaults pivot to GB totals unless the user overrode --pivotMetrics
+        // --cumulative defaults pivot to uptime-normalized GB/hr unless user overrode --pivotMetrics
         if (cumulativeMode && "readMB,writMB".equals(pivotMetrics)) {
-            pivotMetrics = "readGB,writGB";
+            pivotMetrics = "readGBh,writGBh";
         }
 
         MongoStatConfiguration config = new MongoStatConfiguration()

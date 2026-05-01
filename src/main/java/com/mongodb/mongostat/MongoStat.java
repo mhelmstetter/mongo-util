@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Stream;
@@ -41,6 +42,7 @@ public class MongoStat {
     private List<ServerStatus> serverStatuses = new ArrayList<ServerStatus>();
     private Map<String, WiredTigerCacheStats> wtCacheStats = new HashMap<>();
     private Map<String, Map<String, CollectionStats>> collectionStats = new HashMap<>();
+    private Map<String, Long> shardUptimeSeconds = new ConcurrentHashMap<>();
     
     private String[] uris;
     private MongoStatConfiguration config = new MongoStatConfiguration();
@@ -236,6 +238,14 @@ public class MongoStat {
                             serverStatuses.add(currentIndex, status);
                         }
                         status.updateServerStatus(serverStatus);
+
+                        // Store uptime for cumulative normalization
+                        if (shardName != null) {
+                            Number uptime = (Number) serverStatus.get("uptime");
+                            if (uptime != null) {
+                                shardUptimeSeconds.put(shardName, uptime.longValue());
+                            }
+                        }
 
                         // Update WT cache stats if enabled
                         if (config.isIncludeWiredTigerStats() && shardName != null) {
@@ -494,7 +504,7 @@ public class MongoStat {
         if (config.isIncludeCacheMb()) header.append(String.format(" %8s", "cacheMB"));
         if (config.isIncludeDirtyMb()) header.append(String.format(" %8s", "dirtyMB"));
         if (config.isCumulativeMode()) {
-            header.append(String.format(" %8s %8s %7s %7s", "readGB", "writGB", "dirty%", "idxDty%"));
+            header.append(String.format(" %8s %8s %7s %7s", "rdGB/hr", "wrGB/hr", "dirty%", "idxDty%"));
         } else {
             header.append(String.format(" %8s %8s %7s %7s", "readMB", "writMB", "dirty%", "idxDty%"));
         }
@@ -737,11 +747,13 @@ public class MongoStat {
         double totalReadVal = 0.0;
         double totalWriteVal = 0.0;
         if (shardCollStats != null && !shardCollStats.isEmpty()) {
+            Long uptime = shardUptimeSeconds.get(shard);
+            double uptimeHours = (uptime != null && uptime > 0) ? uptime / 3600.0 : 0.0;
             for (CollectionStats cs : shardCollStats.values()) {
-                if (config.isCumulativeMode()) {
-                    totalReadVal += cs.getCacheBytesRead() != null ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 : 0.0;
-                    totalWriteVal += cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0;
-                } else {
+                if (config.isCumulativeMode() && uptimeHours > 0) {
+                    totalReadVal += cs.getCacheBytesRead() != null ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 / uptimeHours : 0.0;
+                    totalWriteVal += cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 / uptimeHours : 0.0;
+                } else if (!config.isCumulativeMode()) {
                     totalReadVal += cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
                     totalWriteVal += cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
                 }
@@ -774,12 +786,18 @@ public class MongoStat {
             }
 
             collectionStream.forEach(cs -> {
-                double readVal = config.isCumulativeMode()
-                    ? (cs.getCacheBytesRead() != null ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 : 0.0)
-                    : cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
-                double writeVal = config.isCumulativeMode()
-                    ? (cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0)
-                    : cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+                double readVal, writeVal;
+                if (config.isCumulativeMode()) {
+                    Long uptime = shardUptimeSeconds.get(shard);
+                    double uptimeHours = (uptime != null && uptime > 0) ? uptime / 3600.0 : 0.0;
+                    readVal = (cs.getCacheBytesRead() != null && uptimeHours > 0)
+                        ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 / uptimeHours : 0.0;
+                    writeVal = (cs.getCacheBytesWritten() != null && uptimeHours > 0)
+                        ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 / uptimeHours : 0.0;
+                } else {
+                    readVal = cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
+                    writeVal = cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+                }
                 double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
 
                 if (cacheMB < 0.05 && readVal < 0.05 && writeVal < 0.05) {
@@ -820,10 +838,12 @@ public class MongoStat {
                                 idxCacheMB,
                                 idx.getCacheDirtyBytes() != null ? idx.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
                                 config.isCumulativeMode()
-                                    ? (idx.getCacheBytesRead() != null ? idx.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 : 0.0)
+                                    ? (idx.getCacheBytesRead() != null && shardUptimeSeconds.containsKey(shard) && shardUptimeSeconds.get(shard) > 0
+                                        ? idx.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 / (shardUptimeSeconds.get(shard) / 3600.0) : 0.0)
                                     : idx.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
                                 config.isCumulativeMode()
-                                    ? (idx.getCacheBytesWritten() != null ? idx.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0)
+                                    ? (idx.getCacheBytesWritten() != null && shardUptimeSeconds.containsKey(shard) && shardUptimeSeconds.get(shard) > 0
+                                        ? idx.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 / (shardUptimeSeconds.get(shard) / 3600.0) : 0.0)
                                     : idx.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
                                 idx.getDirtyFillRatio() * 100,
                                 0.0));
@@ -946,6 +966,25 @@ public class MongoStat {
         }
         System.out.println();
 
+        // In cumulative mode, print an uptime row so skewed counters are immediately visible
+        if (config.isCumulativeMode()) {
+            System.out.print(String.format("%-" + namespaceWidth + "s |", "[uptime hours]"));
+            for (String shardName : shardNames) {
+                Long uptimeSecs = shardUptimeSeconds.get(shardName);
+                String uptimeStr = uptimeSecs != null ? String.format("%.1fh", uptimeSecs / 3600.0) : "?";
+                // Center the value in the column
+                int padding = Math.max(0, (shardColumnWidth - uptimeStr.length()) / 2);
+                String centered = " ".repeat(padding) + uptimeStr + " ".repeat(Math.max(0, shardColumnWidth - padding - uptimeStr.length()));
+                System.out.print(" " + centered + " |");
+            }
+            System.out.println();
+            System.out.print("-".repeat(namespaceWidth) + "-+");
+            for (int i = 0; i < shardNames.size(); i++) {
+                System.out.print("-".repeat(shardColumnWidth + 2) + "+");
+            }
+            System.out.println();
+        }
+
         // Print data rows
         for (Map.Entry<String, Map<String, CollectionStats>> entry : sortedNamespaces) {
             String namespace = entry.getKey();
@@ -1039,6 +1078,19 @@ public class MongoStat {
             case "writgb":
             case "writegb":
                 return cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0;
+            case "readgbh": {
+                if (cs.getCacheBytesRead() == null) return 0.0;
+                Long uptime = shardUptimeSeconds.get(cs.getShardName());
+                if (uptime == null || uptime <= 0) return 0.0;
+                return (cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0) / (uptime / 3600.0);
+            }
+            case "writgbh":
+            case "writegbh": {
+                if (cs.getCacheBytesWritten() == null) return 0.0;
+                Long uptime = shardUptimeSeconds.get(cs.getShardName());
+                if (uptime == null || uptime <= 0) return 0.0;
+                return (cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0) / (uptime / 3600.0);
+            }
             default:
                 logger.warn("Unknown pivot metric: {}", metric);
                 return 0.0;
@@ -1069,6 +1121,19 @@ public class MongoStat {
             case "writgb":
             case "writegb":
                 return cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0;
+            case "readgbh": {
+                if (cs.getCacheBytesRead() == null) return 0.0;
+                Long uptime = shardUptimeSeconds.get(cs.getShardName());
+                if (uptime == null || uptime <= 0) return 0.0;
+                return (cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0) / (uptime / 3600.0);
+            }
+            case "writgbh":
+            case "writegbh": {
+                if (cs.getCacheBytesWritten() == null) return 0.0;
+                Long uptime = shardUptimeSeconds.get(cs.getShardName());
+                if (uptime == null || uptime <= 0) return 0.0;
+                return (cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0) / (uptime / 3600.0);
+            }
             case "namespace":
                 return 0.0; // Namespace sorting not applicable for numeric sorting
             default:
