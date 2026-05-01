@@ -851,16 +851,16 @@ public class MongoStat {
             namespaceToShardStats.put(namespace, shardStats);
         }
 
-        // Sort namespaces by imbalance ratio (max/avg of non-zero shards) for the sort metric.
-        // This surfaces collections where one shard is significantly hotter than the others,
-        // rather than just the largest collections overall.
-        // Use --sort flag to select which metric drives the imbalance calculation.
+        // Sort by max²/avg_all_shards: rewards both high absolute activity and imbalance.
+        // avg uses ALL shards (including zeros) so a single hot shard out of 10 gets ratio=10x,
+        // not ratio=1x (which happens when zeros are excluded and count=1).
         final String sortMetric = config.getSortBy() != null ? config.getSortBy() : metrics[0];
+        final int totalShards = shardClients.size();
         List<Map.Entry<String, Map<String, CollectionStats>>> sortedNamespaces = new ArrayList<>(namespaceToShardStats.entrySet());
         sortedNamespaces.sort((e1, e2) -> {
-            double ratio1 = computeImbalanceRatio(e1.getValue(), sortMetric);
-            double ratio2 = computeImbalanceRatio(e2.getValue(), sortMetric);
-            return Double.compare(ratio2, ratio1); // Descending
+            double score1 = computePivotSortScore(e1.getValue(), sortMetric, totalShards);
+            double score2 = computePivotSortScore(e2.getValue(), sortMetric, totalShards);
+            return Double.compare(score2, score1);
         });
 
         // Apply top N limit if specified
@@ -972,8 +972,8 @@ public class MongoStat {
                         double value = getMetricValue(cs, metric);
                         double average = metricAverages.get(metric);
 
-                        boolean hotHigh = average > 0 && value > average * 2.0;
-                        boolean hotLow  = average > 0 && value > average * 1.25;
+                        boolean hotHigh = average > 0 && value > average * 2.0  && value >= 0.5;
+                        boolean hotLow  = average > 0 && value > average * 1.25 && value >= 0.5;
                         String prefix = hotLow ? "*" : "";
                         // Pad first so ANSI codes don't affect column alignment
                         String padded = String.format("%" + width + "s", prefix + String.format("%.0f", value));
@@ -1051,20 +1051,20 @@ public class MongoStat {
         }
     }
 
-    private double computeImbalanceRatio(Map<String, CollectionStats> shardStats, String metric) {
+    private double computePivotSortScore(Map<String, CollectionStats> shardStats, String metric, int totalShards) {
         double sum = 0.0;
         double max = 0.0;
-        int count = 0;
         for (CollectionStats cs : shardStats.values()) {
             double value = getMetricValueForSorting(cs, metric);
             if (value > 0) {
                 sum += value;
                 if (value > max) max = value;
-                count++;
             }
         }
-        if (count == 0 || sum == 0) return 0.0;
-        return max / (sum / count);
+        if (sum == 0 || max == 0) return 0.0;
+        // avg over ALL shards (including zeros): single hot shard out of 10 → ratio=10, not 1
+        double avgAll = sum / totalShards;
+        return max * (max / avgAll); // max² / avg_all = max × imbalance_ratio
     }
 
     /**
