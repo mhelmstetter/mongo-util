@@ -493,7 +493,11 @@ public class MongoStat {
                 "Time", "Shard", "Collection", "ins", "qry", "upd", "del", "dataGB", "idxGB"));
         if (config.isIncludeCacheMb()) header.append(String.format(" %8s", "cacheMB"));
         if (config.isIncludeDirtyMb()) header.append(String.format(" %8s", "dirtyMB"));
-        header.append(String.format(" %8s %8s %7s %7s", "readMB", "writMB", "dirty%", "idxDty%"));
+        if (config.isCumulativeMode()) {
+            header.append(String.format(" %8s %8s %7s %7s", "readGB", "writGB", "dirty%", "idxDty%"));
+        } else {
+            header.append(String.format(" %8s %8s %7s %7s", "readMB", "writMB", "dirty%", "idxDty%"));
+        }
         System.out.println(header.toString());
         lineCount = 0;
     }
@@ -729,13 +733,18 @@ public class MongoStat {
             printDetailedHeader();
         }
 
-        // Calculate shard totals for readMB and writMB by summing collection values
-        double totalReadMB = 0.0;
-        double totalWriteMB = 0.0;
+        // Calculate shard totals for read/write by summing collection values
+        double totalReadVal = 0.0;
+        double totalWriteVal = 0.0;
         if (shardCollStats != null && !shardCollStats.isEmpty()) {
             for (CollectionStats cs : shardCollStats.values()) {
-                totalReadMB += cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
-                totalWriteMB += cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+                if (config.isCumulativeMode()) {
+                    totalReadVal += cs.getCacheBytesRead() != null ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 : 0.0;
+                    totalWriteVal += cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0;
+                } else {
+                    totalReadVal += cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
+                    totalWriteVal += cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+                }
             }
         }
 
@@ -747,7 +756,7 @@ public class MongoStat {
                 0.0, 0.0,
                 wtStats != null ? wtStats.getCurrentCacheBytes() / 1024.0 / 1024.0 : 0.0,
                 wtStats != null ? wtStats.getDirtyBytes() / 1024.0 / 1024.0 : 0.0,
-                totalReadMB, totalWriteMB,
+                totalReadVal, totalWriteVal,
                 wtStats != null ? wtStats.getDirtyFillRatio() * 100 : 0.0,
                 0.0));
         lineCount++;
@@ -765,12 +774,15 @@ public class MongoStat {
             }
 
             collectionStream.forEach(cs -> {
-                double readMB = cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
-                double writeMB = cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+                double readVal = config.isCumulativeMode()
+                    ? (cs.getCacheBytesRead() != null ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 : 0.0)
+                    : cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
+                double writeVal = config.isCumulativeMode()
+                    ? (cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0)
+                    : cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
                 double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
 
-                // Skip collections with no meaningful activity
-                if (cacheMB < 0.05 && readMB < 0.05 && writeMB < 0.05) {
+                if (cacheMB < 0.05 && readVal < 0.05 && writeVal < 0.05) {
                     return;
                 }
 
@@ -781,7 +793,7 @@ public class MongoStat {
                         cs.getIndexSize() != null ? cs.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
                         cacheMB,
                         cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
-                        readMB, writeMB,
+                        readVal, writeVal,
                         cs.getDirtyFillRatio() * 100,
                         cs.getIndexDirtyFillRatio() * 100));
                 lineCount++;
@@ -807,8 +819,12 @@ public class MongoStat {
                                 idx.getIndexSize() != null ? idx.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
                                 idxCacheMB,
                                 idx.getCacheDirtyBytes() != null ? idx.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
-                                idx.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
-                                idx.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
+                                config.isCumulativeMode()
+                                    ? (idx.getCacheBytesRead() != null ? idx.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 : 0.0)
+                                    : idx.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
+                                config.isCumulativeMode()
+                                    ? (idx.getCacheBytesWritten() != null ? idx.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0)
+                                    : idx.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
                                 idx.getDirtyFillRatio() * 100,
                                 0.0));
                         lineCount++;
@@ -1018,6 +1034,11 @@ public class MongoStat {
             case "writmb":
             case "writemb":
                 return cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+            case "readgb":
+                return cs.getCacheBytesRead() != null ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 : 0.0;
+            case "writgb":
+            case "writegb":
+                return cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0;
             default:
                 logger.warn("Unknown pivot metric: {}", metric);
                 return 0.0;
@@ -1043,6 +1064,11 @@ public class MongoStat {
             case "writmb":
             case "writemb":
                 return cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
+            case "readgb":
+                return cs.getCacheBytesRead() != null ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 : 0.0;
+            case "writgb":
+            case "writegb":
+                return cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0;
             case "namespace":
                 return 0.0; // Namespace sorting not applicable for numeric sorting
             default:

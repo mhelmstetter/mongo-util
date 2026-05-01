@@ -68,6 +68,9 @@ public class MongoStatApp implements Callable<Integer> {
     @Option(names = {"--no-color"}, description = "Disable ANSI color highlighting in pivot view")
     private boolean noColor = false;
 
+    @Option(names = {"--cumulative"}, description = "Show cumulative totals since server startup (readGB/writGB) instead of per-interval deltas")
+    private boolean cumulativeMode = false;
+
     @Override
     public Integer call() throws Exception {
         // Set logging level based on verbose flag
@@ -78,6 +81,11 @@ public class MongoStatApp implements Callable<Integer> {
         // Also control ShardClient logging (used for connecting to shards)
         ch.qos.logback.classic.Logger shardClientLogger = loggerContext.getLogger("com.mongodb.shardsync.ShardClient");
         shardClientLogger.setLevel(verbose ? Level.DEBUG : Level.INFO);
+
+        // --cumulative defaults pivot to GB totals unless the user overrode --pivotMetrics
+        if (cumulativeMode && "readMB,writMB".equals(pivotMetrics)) {
+            pivotMetrics = "readGB,writGB";
+        }
 
         MongoStatConfiguration config = new MongoStatConfiguration()
                 .jsonOutput(jsonOutput)
@@ -92,7 +100,8 @@ public class MongoStatApp implements Callable<Integer> {
                 .pivotMetrics(pivotMetrics)
                 .includeCacheMb(includeCacheMb)
                 .includeDirtyMb(includeDirtyMb)
-                .noColor(noColor);
+                .noColor(noColor)
+                .cumulativeMode(cumulativeMode);
 
         // If cache size is manually specified, convert GB to bytes
         if (cacheSizeGB != null) {

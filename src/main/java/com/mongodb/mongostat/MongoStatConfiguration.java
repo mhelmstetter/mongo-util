@@ -16,6 +16,7 @@ public class MongoStatConfiguration {
     private boolean includeCacheMb = false;           // Default false - show cacheMB column
     private boolean includeDirtyMb = false;           // Default false - show dirtyMB column
     private boolean noColor = false;                  // Default false - ANSI color enabled
+    private boolean cumulativeMode = false;           // Default false - show deltas per interval
 
     public MongoStatConfiguration() {
     }
@@ -90,6 +91,11 @@ public class MongoStatConfiguration {
         return this;
     }
 
+    public MongoStatConfiguration cumulativeMode(boolean cumulativeMode) {
+        this.cumulativeMode = cumulativeMode;
+        return this;
+    }
+
     // Getters
     public boolean isJsonOutput() { return jsonOutput; }
     public boolean isIncludeWiredTigerStats() { return includeWiredTigerStats; }
@@ -105,4 +111,5 @@ public class MongoStatConfiguration {
     public boolean isIncludeCacheMb() { return includeCacheMb; }
     public boolean isIncludeDirtyMb() { return includeDirtyMb; }
     public boolean isNoColor() { return noColor; }
+    public boolean isCumulativeMode() { return cumulativeMode; }
 }
