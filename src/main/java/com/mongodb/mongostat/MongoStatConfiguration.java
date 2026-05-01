@@ -12,7 +12,7 @@ public class MongoStatConfiguration {
     private String sortBy = "cacheMB";               // Default sort by cacheMB descending
     private int top = 0;                             // Default 0 = show all rows
     private boolean shardPivot = false;              // Default false - normal vertical display
-    private String pivotMetrics = "cacheMB,dirtyMB"; // Default metrics for pivot view
+    private String pivotMetrics = "readMB,writMB"; // Default metrics for pivot view
     private boolean includeCacheMb = false;           // Default false - show cacheMB column
     private boolean includeDirtyMb = false;           // Default false - show dirtyMB column
 

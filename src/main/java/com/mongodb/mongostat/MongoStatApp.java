@@ -56,8 +56,8 @@ public class MongoStatApp implements Callable<Integer> {
     @Option(names = {"--shardPivot"}, description = "Pivot table view with shards as columns")
     private boolean shardPivot = false;
 
-    @Option(names = {"--pivotMetrics"}, description = "Metrics to show in pivot view (comma-separated: cacheMB,dirtyMB,readMB,writMB)", defaultValue = "cacheMB,dirtyMB")
-    private String pivotMetrics = "cacheMB,dirtyMB";
+    @Option(names = {"--pivotMetrics"}, description = "Metrics to show in pivot view (comma-separated: readMB,writMB,cacheMB,dirtyMB)", defaultValue = "readMB,writMB")
+    private String pivotMetrics = "readMB,writMB";
 
     @Option(names = {"--cache-mb"}, description = "Show cacheMB column (current bytes in WT cache per collection)")
     private boolean includeCacheMb = false;
