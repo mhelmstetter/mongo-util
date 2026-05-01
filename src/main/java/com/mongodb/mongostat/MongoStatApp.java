@@ -59,6 +59,12 @@ public class MongoStatApp implements Callable<Integer> {
     @Option(names = {"--pivotMetrics"}, description = "Metrics to show in pivot view (comma-separated: cacheMB,dirtyMB,readMB,writMB)", defaultValue = "cacheMB,dirtyMB")
     private String pivotMetrics = "cacheMB,dirtyMB";
 
+    @Option(names = {"--cache-mb"}, description = "Show cacheMB column (current bytes in WT cache per collection)")
+    private boolean includeCacheMb = false;
+
+    @Option(names = {"--dirty-mb"}, description = "Show dirtyMB column (dirty bytes in WT cache per collection)")
+    private boolean includeDirtyMb = false;
+
     @Override
     public Integer call() throws Exception {
         // Set logging level based on verbose flag
@@ -80,7 +86,9 @@ public class MongoStatApp implements Callable<Integer> {
                 .sortBy(sortBy)
                 .top(top)
                 .shardPivot(shardPivot)
-                .pivotMetrics(pivotMetrics);
+                .pivotMetrics(pivotMetrics)
+                .includeCacheMb(includeCacheMb)
+                .includeDirtyMb(includeDirtyMb);
 
         // If cache size is manually specified, convert GB to bytes
         if (cacheSizeGB != null) {

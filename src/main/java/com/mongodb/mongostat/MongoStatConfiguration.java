@@ -13,6 +13,8 @@ public class MongoStatConfiguration {
     private int top = 0;                             // Default 0 = show all rows
     private boolean shardPivot = false;              // Default false - normal vertical display
     private String pivotMetrics = "cacheMB,dirtyMB"; // Default metrics for pivot view
+    private boolean includeCacheMb = false;           // Default false - show cacheMB column
+    private boolean includeDirtyMb = false;           // Default false - show dirtyMB column
 
     public MongoStatConfiguration() {
     }
@@ -72,6 +74,16 @@ public class MongoStatConfiguration {
         return this;
     }
 
+    public MongoStatConfiguration includeCacheMb(boolean includeCacheMb) {
+        this.includeCacheMb = includeCacheMb;
+        return this;
+    }
+
+    public MongoStatConfiguration includeDirtyMb(boolean includeDirtyMb) {
+        this.includeDirtyMb = includeDirtyMb;
+        return this;
+    }
+
     // Getters
     public boolean isJsonOutput() { return jsonOutput; }
     public boolean isIncludeWiredTigerStats() { return includeWiredTigerStats; }
@@ -84,4 +96,6 @@ public class MongoStatConfiguration {
     public int getTop() { return top; }
     public boolean isShardPivot() { return shardPivot; }
     public String getPivotMetrics() { return pivotMetrics; }
+    public boolean isIncludeCacheMb() { return includeCacheMb; }
+    public boolean isIncludeDirtyMb() { return includeDirtyMb; }
 }

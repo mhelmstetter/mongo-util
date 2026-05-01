@@ -28,6 +28,7 @@ import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
 import com.mongodb.shardsync.ShardClient;
 
@@ -322,15 +323,99 @@ public class MongoStat {
     }
     
     private void updateCollectionStatsForShard(MongoClient client, String shardName) {
+        if (config.isIncludeIndexDetails()) {
+            updateCollectionStatsForShardViaCollStats(client, shardName);
+        } else {
+            updateCollectionStatsForShardViaInternalAgg(client, shardName);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void updateCollectionStatsForShardViaInternalAgg(MongoClient client, String shardName) {
+        try {
+            Map<String, CollectionStats> shardCollStats = collectionStats.get(shardName);
+            WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
+            Long serverMaxCacheBytes = wtStats != null ? wtStats.getMaxCacheBytes() : null;
+
+            Document statsOptions = new Document("stats",
+                new Document("storageStats",
+                    new Document("verbose", false)
+                        .append("waitForLock", true)
+                        .append("numericOnly", false)));
+
+            List<Document> pipeline = new ArrayList<>();
+            pipeline.add(new Document("$_internalAllCollectionStats", statsOptions));
+
+            Document command = new Document("aggregate", 1)
+                .append("pipeline", pipeline)
+                .append("cursor", new Document());
+
+            logger.debug("Running $_internalAllCollectionStats for shard {}", shardName);
+            MongoDatabase adminDb = client.getDatabase("admin");
+            Document response = adminDb.runCommand(command);
+
+            Document cursor = response.get("cursor", Document.class);
+            if (cursor == null) {
+                throw new IllegalStateException("$_internalAllCollectionStats returned no cursor for shard " + shardName);
+            }
+
+            List<Document> firstBatch = (List<Document>) cursor.get("firstBatch");
+            if (firstBatch != null) {
+                processInternalCollStatsResults(firstBatch, shardCollStats, serverMaxCacheBytes, shardName);
+            }
+
+            Long cursorId = cursor.getLong("id");
+            while (cursorId != null && cursorId != 0) {
+                Document getMore = new Document("getMore", cursorId)
+                    .append("collection", "$cmd.aggregate");
+                Document moreResponse = adminDb.runCommand(getMore);
+                Document moreCursor = moreResponse.get("cursor", Document.class);
+                if (moreCursor == null) break;
+                List<Document> nextBatch = (List<Document>) moreCursor.get("nextBatch");
+                if (nextBatch != null && !nextBatch.isEmpty()) {
+                    processInternalCollStatsResults(nextBatch, shardCollStats, serverMaxCacheBytes, shardName);
+                }
+                cursorId = moreCursor.getLong("id");
+            }
+
+            logger.debug("$_internalAllCollectionStats complete for shard {}: {} collections tracked",
+                shardName, shardCollStats.size());
+        } catch (Exception e) {
+            logger.error("Error updating collection stats via $_internalAllCollectionStats for shard " + shardName, e);
+        }
+    }
+
+    private void processInternalCollStatsResults(List<Document> docs, Map<String, CollectionStats> shardCollStats,
+            Long serverMaxCacheBytes, String shardName) {
+        for (Document doc : docs) {
+            String ns = doc.getString("ns");
+            if (ns == null) continue;
+
+            int dot = ns.indexOf('.');
+            if (dot <= 0) continue;
+
+            String dbName = ns.substring(0, dot);
+            String collName = ns.substring(dot + 1);
+
+            if ("admin".equals(dbName) || "config".equals(dbName) || "local".equals(dbName)) continue;
+            if (collName.startsWith("system.")) continue;
+
+            CollectionStats collStats = shardCollStats.computeIfAbsent(ns,
+                k -> new CollectionStats(ns, shardName));
+            collStats.setServerMaxCacheBytes(serverMaxCacheBytes);
+            collStats.updateFromInternalCollectionStats(doc);
+        }
+    }
+
+    private void updateCollectionStatsForShardViaCollStats(MongoClient client, String shardName) {
         try {
             MongoIterable<String> databaseNames = client.listDatabaseNames();
             Map<String, CollectionStats> shardCollStats = collectionStats.get(shardName);
 
-            // Get server max cache bytes from WiredTiger stats
             WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
             Long serverMaxCacheBytes = wtStats != null ? wtStats.getMaxCacheBytes() : null;
 
-            logger.debug("Starting collection stats update for shard {}, serverMaxCacheBytes: {}", shardName, serverMaxCacheBytes);
+            logger.debug("Starting collStats update for shard {}, serverMaxCacheBytes: {}", shardName, serverMaxCacheBytes);
             int dbCount = 0;
             int collCount = 0;
             int successCount = 0;
@@ -344,7 +429,6 @@ public class MongoStat {
 
                 MongoIterable<String> collectionNames = client.getDatabase(dbName).listCollectionNames();
                 for (String collName : collectionNames) {
-                    // Skip system collections - they often have restricted access and aren't useful for monitoring
                     if (collName.startsWith("system.")) {
                         continue;
                     }
@@ -353,17 +437,11 @@ public class MongoStat {
 
                     CollectionStats collStats = shardCollStats.computeIfAbsent(namespace,
                             k -> new CollectionStats(namespace, shardName));
-
-                    // Set server max cache bytes for dirty% calculation
                     collStats.setServerMaxCacheBytes(serverMaxCacheBytes);
 
                     try {
-                        // Call collStats - indexDetails are included in response by default if supported
-                        // The indexDetails parameter is NOT a command parameter, it's just used by the shell
-                        // to filter the response. We always get the full response.
                         Document collStatsCommand = new Document("collStats", collName);
-                        Document collStatsDoc = client.getDatabase(dbName)
-                                .runCommand(collStatsCommand);
+                        Document collStatsDoc = client.getDatabase(dbName).runCommand(collStatsCommand);
                         collStats.updateFromCollStats(collStatsDoc);
                         successCount++;
                     } catch (Exception e) {
@@ -372,9 +450,8 @@ public class MongoStat {
                     }
                 }
             }
-            logger.debug("Collection stats update complete for shard {}: {} databases, {} collections, {} successful, {} failed",
+            logger.debug("collStats update complete for shard {}: {} databases, {} collections, {} successful, {} failed",
                     shardName, dbCount, collCount, successCount, failCount);
-            logger.debug("Collection stats map for shard {} now contains {} entries", shardName, shardCollStats.size());
         } catch (Exception e) {
             logger.error("Error updating collection stats for shard " + shardName, e);
         }
@@ -411,9 +488,27 @@ public class MongoStat {
 
     private void printDetailedHeader() {
         calculateColumnWidths();
-        System.out.printf("%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8s %8s %8s %8s %8s %8s %7s %7s%n",
-                "Time", "Shard", "Collection", "ins", "qry", "upd", "del", "dataGB", "idxGB", "cacheMB", "dirtyMB", "readMB", "writMB", "dirty%", "idxDty%");
+        StringBuilder header = new StringBuilder();
+        header.append(String.format("%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8s %8s",
+                "Time", "Shard", "Collection", "ins", "qry", "upd", "del", "dataGB", "idxGB"));
+        if (config.isIncludeCacheMb()) header.append(String.format(" %8s", "cacheMB"));
+        if (config.isIncludeDirtyMb()) header.append(String.format(" %8s", "dirtyMB"));
+        header.append(String.format(" %8s %8s %7s %7s", "readMB", "writMB", "dirty%", "idxDty%"));
+        System.out.println(header.toString());
         lineCount = 0;
+    }
+
+    private String formatDetailedLine(String timestamp, String shard, String namespace,
+            Object ins, Object qry, Object upd, Object del,
+            double dataGB, double idxGB, double cacheMB, double dirtyMB,
+            double readMB, double writeMB, double dirtyPct, double idxDtyPct) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.2f %8.2f",
+                timestamp, shard, namespace, ins, qry, upd, del, dataGB, idxGB));
+        if (config.isIncludeCacheMb()) sb.append(String.format(" %8.1f", cacheMB));
+        if (config.isIncludeDirtyMb()) sb.append(String.format(" %8.1f", dirtyMB));
+        sb.append(String.format(" %8.1f %8.1f %6.1f%% %6.1f%%", readMB, writeMB, dirtyPct, idxDtyPct));
+        return sb.toString();
     }
     
     private void printEnhancedHeader() {
@@ -645,8 +740,7 @@ public class MongoStat {
         }
 
         // Print shard summary line
-        String format = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.1f %8.1f %8.1f %8.1f %8.1f %8.1f %6.1f%% %6.1f%%%n";
-        System.out.printf(format,
+        System.out.println(formatDetailedLine(
                 timestamp, shard, "[SHARD TOTAL]",
                 status.getCurrentInserts(), status.getCurrentQueries(),
                 status.getCurrentUpdates(), status.getCurrentDeletes(),
@@ -655,13 +749,12 @@ public class MongoStat {
                 wtStats != null ? wtStats.getDirtyBytes() / 1024.0 / 1024.0 : 0.0,
                 totalReadMB, totalWriteMB,
                 wtStats != null ? wtStats.getDirtyFillRatio() * 100 : 0.0,
-                0.0);  // No index dirty% for shard total line
+                0.0));
         lineCount++;
 
         // Print collection details if available
         if (shardCollStats != null && !shardCollStats.isEmpty()) {
             logger.debug("Processing {} collections for printing", shardCollStats.size());
-            String collFormat = "%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.2f %8.2f %8.1f %8.1f %8.1f %8.1f %6.1f%% %6.1f%%%n";
 
             // Sort collections using configured comparator and apply top limit if specified
             Stream<CollectionStats> collectionStream = shardCollStats.values().stream()
@@ -672,25 +765,25 @@ public class MongoStat {
             }
 
             collectionStream.forEach(cs -> {
-                // Calculate display value
+                double readMB = cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
+                double writeMB = cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
                 double cacheMB = cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
 
-                // Skip collections where display value would be 0.0 (less than 0.05 MB)
-                if (cacheMB < 0.05) {
+                // Skip collections with no meaningful activity
+                if (cacheMB < 0.05 && readMB < 0.05 && writeMB < 0.05) {
                     return;
                 }
 
-                System.out.printf(collFormat,
+                System.out.println(formatDetailedLine(
                         timestamp, shard, cs.getNamespace(),
                         "-", "-", "-", "-",
                         cs.getDataSize() != null ? cs.getDataSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
                         cs.getIndexSize() != null ? cs.getIndexSize() / 1024.0 / 1024.0 / 1024.0 : 0.0,
                         cacheMB,
                         cs.getCacheDirtyBytes() != null ? cs.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
-                        cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
-                        cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
+                        readMB, writeMB,
                         cs.getDirtyFillRatio() * 100,
-                        cs.getIndexDirtyFillRatio() * 100);
+                        cs.getIndexDirtyFillRatio() * 100));
                 lineCount++;
 
                 // If includeIndexDetails is true, print each index as a separate row
@@ -707,7 +800,7 @@ public class MongoStat {
                         if (idxCacheMB < 0.05) {
                             return;
                         }
-                        System.out.printf(collFormat,
+                        System.out.println(formatDetailedLine(
                                 timestamp, shard, "  [idx] " + idx.getIndexName(),
                                 "-", "-", "-", "-",
                                 0.0,
@@ -717,7 +810,7 @@ public class MongoStat {
                                 idx.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
                                 idx.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
                                 idx.getDirtyFillRatio() * 100,
-                                0.0);  // No index dirty% for individual indexes
+                                0.0));
                         lineCount++;
                     });
                 }

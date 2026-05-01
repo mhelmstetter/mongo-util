@@ -46,6 +46,33 @@ public class CollectionStats {
         this.shardName = shardName;
     }
     
+    public void updateFromInternalCollectionStats(Document doc) {
+        previous = new CollectionStats(namespace, shardName);
+        copyCurrentToPrevious(previous);
+
+        Document storageStats = (Document) doc.get("storageStats");
+        if (storageStats == null) return;
+
+        dataSize = getLongValue(storageStats, "size");
+        indexSize = getLongValue(storageStats, "totalIndexSize");
+        totalSize = getLongValue(storageStats, "storageSize");
+        documentCount = getLongValue(storageStats, "count");
+
+        Document wiredTiger = (Document) storageStats.get("wiredTiger");
+        if (wiredTiger != null) {
+            Document cache = (Document) wiredTiger.get("cache");
+            if (cache != null) {
+                cacheCurrentBytes = getLongValue(cache, "bytes currently in the cache");
+                cacheMaxBytes = getLongValue(cache, "maximum bytes configured");
+                cacheDirtyBytes = getLongValue(cache, "tracked dirty bytes in the cache");
+                cachePagesRead = getLongValue(cache, "pages read into cache");
+                cachePagesWritten = getLongValue(cache, "pages written from cache");
+                cacheBytesRead = getLongValue(cache, "bytes read into cache");
+                cacheBytesWritten = getLongValue(cache, "bytes written from cache");
+            }
+        }
+    }
+
     public void updateFromCollStats(Document collStats) {
         // Store previous values for delta calculation
         previous = new CollectionStats(namespace, shardName);
