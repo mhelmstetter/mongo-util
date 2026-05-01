@@ -504,7 +504,7 @@ public class MongoStat {
         if (config.isIncludeCacheMb()) header.append(String.format(" %8s", "cacheMB"));
         if (config.isIncludeDirtyMb()) header.append(String.format(" %8s", "dirtyMB"));
         if (config.isCumulativeMode()) {
-            header.append(String.format(" %8s %8s %7s %7s", "rdGB/hr", "wrGB/hr", "dirty%", "idxDty%"));
+            header.append(String.format(" %8s %8s %7s %7s", "readGB", "writGB", "dirty%", "idxDty%"));
         } else {
             header.append(String.format(" %8s %8s %7s %7s", "readMB", "writMB", "dirty%", "idxDty%"));
         }
@@ -747,13 +747,11 @@ public class MongoStat {
         double totalReadVal = 0.0;
         double totalWriteVal = 0.0;
         if (shardCollStats != null && !shardCollStats.isEmpty()) {
-            Long uptime = shardUptimeSeconds.get(shard);
-            double uptimeHours = (uptime != null && uptime > 0) ? uptime / 3600.0 : 0.0;
             for (CollectionStats cs : shardCollStats.values()) {
-                if (config.isCumulativeMode() && uptimeHours > 0) {
-                    totalReadVal += cs.getCacheBytesRead() != null ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 / uptimeHours : 0.0;
-                    totalWriteVal += cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 / uptimeHours : 0.0;
-                } else if (!config.isCumulativeMode()) {
+                if (config.isCumulativeMode()) {
+                    totalReadVal += cs.getCacheBytesRead() != null ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 : 0.0;
+                    totalWriteVal += cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0;
+                } else {
                     totalReadVal += cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
                     totalWriteVal += cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
                 }
@@ -788,12 +786,8 @@ public class MongoStat {
             collectionStream.forEach(cs -> {
                 double readVal, writeVal;
                 if (config.isCumulativeMode()) {
-                    Long uptime = shardUptimeSeconds.get(shard);
-                    double uptimeHours = (uptime != null && uptime > 0) ? uptime / 3600.0 : 0.0;
-                    readVal = (cs.getCacheBytesRead() != null && uptimeHours > 0)
-                        ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 / uptimeHours : 0.0;
-                    writeVal = (cs.getCacheBytesWritten() != null && uptimeHours > 0)
-                        ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 / uptimeHours : 0.0;
+                    readVal = cs.getCacheBytesRead() != null ? cs.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 : 0.0;
+                    writeVal = cs.getCacheBytesWritten() != null ? cs.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0;
                 } else {
                     readVal = cs.getDelta("cacheBytesRead") / 1024.0 / 1024.0;
                     writeVal = cs.getDelta("cacheBytesWritten") / 1024.0 / 1024.0;
@@ -838,12 +832,10 @@ public class MongoStat {
                                 idxCacheMB,
                                 idx.getCacheDirtyBytes() != null ? idx.getCacheDirtyBytes() / 1024.0 / 1024.0 : 0.0,
                                 config.isCumulativeMode()
-                                    ? (idx.getCacheBytesRead() != null && shardUptimeSeconds.containsKey(shard) && shardUptimeSeconds.get(shard) > 0
-                                        ? idx.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 / (shardUptimeSeconds.get(shard) / 3600.0) : 0.0)
+                                    ? (idx.getCacheBytesRead() != null ? idx.getCacheBytesRead() / 1024.0 / 1024.0 / 1024.0 : 0.0)
                                     : idx.getDelta("cacheBytesRead") / 1024.0 / 1024.0,
                                 config.isCumulativeMode()
-                                    ? (idx.getCacheBytesWritten() != null && shardUptimeSeconds.containsKey(shard) && shardUptimeSeconds.get(shard) > 0
-                                        ? idx.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 / (shardUptimeSeconds.get(shard) / 3600.0) : 0.0)
+                                    ? (idx.getCacheBytesWritten() != null ? idx.getCacheBytesWritten() / 1024.0 / 1024.0 / 1024.0 : 0.0)
                                     : idx.getDelta("cacheBytesWritten") / 1024.0 / 1024.0,
                                 idx.getDirtyFillRatio() * 100,
                                 0.0));
