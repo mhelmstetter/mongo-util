@@ -851,21 +851,16 @@ public class MongoStat {
             namespaceToShardStats.put(namespace, shardStats);
         }
 
-        // Sort namespaces by max value of sort metric across all shards (descending)
-        // Use --sort flag if specified, otherwise use first pivotMetric
+        // Sort namespaces by imbalance ratio (max/avg of non-zero shards) for the sort metric.
+        // This surfaces collections where one shard is significantly hotter than the others,
+        // rather than just the largest collections overall.
+        // Use --sort flag to select which metric drives the imbalance calculation.
         final String sortMetric = config.getSortBy() != null ? config.getSortBy() : metrics[0];
         List<Map.Entry<String, Map<String, CollectionStats>>> sortedNamespaces = new ArrayList<>(namespaceToShardStats.entrySet());
         sortedNamespaces.sort((e1, e2) -> {
-            // Use MAX instead of SUM to find hotspots/outliers
-            double max1 = e1.getValue().values().stream()
-                .mapToDouble(cs -> getMetricValueForSorting(cs, sortMetric))
-                .max()
-                .orElse(0.0);
-            double max2 = e2.getValue().values().stream()
-                .mapToDouble(cs -> getMetricValueForSorting(cs, sortMetric))
-                .max()
-                .orElse(0.0);
-            return Double.compare(max2, max1); // Descending
+            double ratio1 = computeImbalanceRatio(e1.getValue(), sortMetric);
+            double ratio2 = computeImbalanceRatio(e2.getValue(), sortMetric);
+            return Double.compare(ratio2, ratio1); // Descending
         });
 
         // Apply top N limit if specified
@@ -977,12 +972,19 @@ public class MongoStat {
                         double value = getMetricValue(cs, metric);
                         double average = metricAverages.get(metric);
 
-                        // Add "*" prefix if value is > 25% above average
-                        String prefix = (average > 0 && value > average * 1.25) ? "*" : "";
-                        String valueStr = String.format("%.0f", value);
-                        String display = prefix + valueStr;
-
-                        System.out.print(String.format("%" + width + "s", display));
+                        boolean hotHigh = average > 0 && value > average * 2.0;
+                        boolean hotLow  = average > 0 && value > average * 1.25;
+                        String prefix = hotLow ? "*" : "";
+                        // Pad first so ANSI codes don't affect column alignment
+                        String padded = String.format("%" + width + "s", prefix + String.format("%.0f", value));
+                        if (!config.isNoColor() && value > 0) {
+                            if (hotHigh) {
+                                padded = "\033[91m" + padded + "\033[0m"; // bright red
+                            } else if (hotLow) {
+                                padded = "\033[33m" + padded + "\033[0m"; // yellow
+                            }
+                        }
+                        System.out.print(padded);
                         if (j < metrics.length - 1) {
                             System.out.print("  "); // 2 spaces between metrics
                         }
@@ -1047,6 +1049,22 @@ public class MongoStat {
                 logger.warn("Unknown sort metric: {}, defaulting to cacheMB", metric);
                 return cs.getCacheCurrentBytes() != null ? cs.getCacheCurrentBytes() / 1024.0 / 1024.0 : 0.0;
         }
+    }
+
+    private double computeImbalanceRatio(Map<String, CollectionStats> shardStats, String metric) {
+        double sum = 0.0;
+        double max = 0.0;
+        int count = 0;
+        for (CollectionStats cs : shardStats.values()) {
+            double value = getMetricValueForSorting(cs, metric);
+            if (value > 0) {
+                sum += value;
+                if (value > max) max = value;
+                count++;
+            }
+        }
+        if (count == 0 || sum == 0) return 0.0;
+        return max / (sum / count);
     }
 
     /**

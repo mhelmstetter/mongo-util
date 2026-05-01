@@ -15,6 +15,7 @@ public class MongoStatConfiguration {
     private String pivotMetrics = "readMB,writMB"; // Default metrics for pivot view
     private boolean includeCacheMb = false;           // Default false - show cacheMB column
     private boolean includeDirtyMb = false;           // Default false - show dirtyMB column
+    private boolean noColor = false;                  // Default false - ANSI color enabled
 
     public MongoStatConfiguration() {
     }
@@ -84,6 +85,11 @@ public class MongoStatConfiguration {
         return this;
     }
 
+    public MongoStatConfiguration noColor(boolean noColor) {
+        this.noColor = noColor;
+        return this;
+    }
+
     // Getters
     public boolean isJsonOutput() { return jsonOutput; }
     public boolean isIncludeWiredTigerStats() { return includeWiredTigerStats; }
@@ -98,4 +104,5 @@ public class MongoStatConfiguration {
     public String getPivotMetrics() { return pivotMetrics; }
     public boolean isIncludeCacheMb() { return includeCacheMb; }
     public boolean isIncludeDirtyMb() { return includeDirtyMb; }
+    public boolean isNoColor() { return noColor; }
 }
