@@ -5,6 +5,8 @@ package com.mongodb.util;
  */
 public class DatabaseUtil {
 
+    private static final String MDB_INTERNAL_PREFIX = "__mdb_internal";
+
     /**
      * Checks if a database name is a MongoDB system database that should typically be excluded 
      * from user operations like syncing, dropping, or analysis.
@@ -16,10 +18,11 @@ public class DatabaseUtil {
         if (databaseName == null) {
             return false;
         }
-        
+
         return databaseName.equals("admin") || 
                databaseName.equals("config") || 
-               databaseName.equals("local");
+               databaseName.equals("local") ||
+               databaseName.startsWith(MDB_INTERNAL_PREFIX);
     }
     
     /**

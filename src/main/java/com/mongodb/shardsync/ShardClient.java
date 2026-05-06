@@ -87,6 +87,7 @@ import com.mongodb.model.Shard;
 import com.mongodb.model.ShardTimestamp;
 import com.mongodb.model.StandardDatabaseCatalogProvider;
 import com.mongodb.model.User;
+import com.mongodb.util.DatabaseUtil;
 import com.mongodb.util.MaskUtil;
 import com.mongodb.util.bson.BsonUuidUtil;
 
@@ -919,7 +920,7 @@ public class ShardClient {
 		
 		for (Document db : databases) {
 			String dbName = db.getString("name");
-			if (!excludedSystemDbs.contains(dbName)) {
+			if (!DatabaseUtil.isSystemDatabase(dbName)) {
 				filteredDatabases.add(db);
 			}
 		}
