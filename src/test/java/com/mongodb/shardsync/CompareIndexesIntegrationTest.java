@@ -1,12 +1,11 @@
 package com.mongodb.shardsync;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.util.concurrent.TimeUnit;
 
 import org.bson.Document;
 import org.junit.jupiter.api.AfterEach;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -65,7 +64,11 @@ public class CompareIndexesIntegrationTest extends BaseIntegrationTest {
     @AfterEach
     public void tearDown() {
         // Clean up test databases BEFORE closing connections
-        //dropTestDatabase(TEST_DB);
+        try {
+            dropTestDatabase(TEST_DB);
+        } catch (Exception e) {
+            logger.warn("Error dropping test database during cleanup", e);
+        }
         // Then close connections
         super.baseTearDown();
     }
