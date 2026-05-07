@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly TESTPATTERN="${TEST_PATTERN:-*IntegrationTest,!CollModTtlIntegrationTest}"
+readonly TESTPATTERN="${TEST_PATTERN:-*IntegrationTest}"
 
 readonly SRC_CONTAINER="mongo-util-integration-src"
 readonly DST_CONTAINER="mongo-util-integration-dst"
