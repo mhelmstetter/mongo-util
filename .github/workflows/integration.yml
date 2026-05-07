@@ -1,0 +1,50 @@
+name: Java Integration Suite
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/sync-metadata-internal-db.yml
+      - scripts/ci/sync-metadata-internal-db-smoke.sh
+      - pom.xml
+      - lib/catalogmirror.jar
+      - src/main/java/com/mongodb/shardsync/**
+      - src/main/java/com/mongodb/util/DatabaseUtil.java
+      - src/test/java/com/mongodb/shardsync/**
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Python dependency
+        run: python3 -m pip install --quiet pymongo
+
+      - name: Install local catalogmirror dependency
+        run: |
+          mvn -q install:install-file \
+            -Dfile=lib/catalogmirror.jar \
+            -DgroupId=com.mongodb \
+            -DartifactId=catalogmirror \
+            -Dversion=1.0.9 \
+            -Dpackaging=jar
+
+      - name: Run Java integration suite with docker provisioning
+        run: bash scripts/ci/docker-integration.sh
