@@ -1320,7 +1320,7 @@ public class ShardConfigSync implements Callable<Integer> {
                     String dbName = ns.split("\\.")[0];
                     
                     // Skip system databases
-                    if (!ShardClient.excludedSystemDbs.contains(dbName)) {
+                    if (!DatabaseUtil.isSystemDatabase(dbName)) {
                         nonSystemChunkCount++;
                         namespaceCounts.merge(ns, 1, Integer::sum);
                     }
