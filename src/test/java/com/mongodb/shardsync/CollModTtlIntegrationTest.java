@@ -115,13 +115,13 @@ public class CollModTtlIntegrationTest extends BaseIntegrationTest {
         // Verify source index
         Document sourceIndex = getIndexInfo(sourceClient, TEST_DB, TEST_COLLECTION, TTL_INDEX_NAME);
         assertNotNull(sourceIndex, "Source TTL index should exist");
-        assertEquals(SOURCE_TTL, sourceIndex.getInteger("expireAfterSeconds").intValue(), 
+        assertEquals(SOURCE_TTL, ((Number) sourceIndex.get("expireAfterSeconds")).intValue(),
                     "Source TTL should be " + SOURCE_TTL + " seconds");
-        
+
         // Verify destination index
         Document destIndex = getIndexInfo(destClient, TEST_DB, TEST_COLLECTION, TTL_INDEX_NAME);
         assertNotNull(destIndex, "Destination TTL index should exist");
-        assertEquals(DEST_TTL_INITIAL, destIndex.getInteger("expireAfterSeconds").intValue(),
+        assertEquals(DEST_TTL_INITIAL, ((Number) destIndex.get("expireAfterSeconds")).intValue(),
                     "Destination TTL should initially be " + DEST_TTL_INITIAL + " seconds");
         
         logger.info("Initial index verification completed");
@@ -133,7 +133,7 @@ public class CollModTtlIntegrationTest extends BaseIntegrationTest {
         Document destIndex = getIndexInfo(destClient, TEST_DB, TEST_COLLECTION, TTL_INDEX_NAME);
         assertNotNull(destIndex, "Destination TTL index should still exist");
         
-        int actualTtl = destIndex.getInteger("expireAfterSeconds").intValue();
+        int actualTtl = ((Number) destIndex.get("expireAfterSeconds")).intValue();
         assertEquals(EXPECTED_TTL_AFTER_EXTEND, actualTtl,
                     "Destination TTL should be extended to " + EXPECTED_TTL_AFTER_EXTEND + " seconds");
         
@@ -182,7 +182,7 @@ public class CollModTtlIntegrationTest extends BaseIntegrationTest {
         Document destIndex = getIndexInfo(destClient, TEST_DB, TEST_COLLECTION, TTL_INDEX_NAME);
         assertNotNull(destIndex, "Destination TTL index should still exist");
         
-        int actualTtl = destIndex.getInteger("expireAfterSeconds").intValue();
+        int actualTtl = ((Number) destIndex.get("expireAfterSeconds")).intValue();
         assertEquals(SOURCE_TTL, actualTtl,
                     "Destination TTL should match source TTL: " + SOURCE_TTL + " seconds");
         
