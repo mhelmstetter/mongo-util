@@ -157,10 +157,10 @@ public class CollModTtlIntegrationTest extends BaseIntegrationTest {
         if (extendTtl) {
             // Extend TTL to 50 years as per the implementation
             indexMod.put("expireAfterSeconds", EXPECTED_TTL_AFTER_EXTEND);
-            logger.debug("Extending TTL from {} to {}", sourceIndex.getInteger("expireAfterSeconds"), EXPECTED_TTL_AFTER_EXTEND);
+            logger.debug("Extending TTL from {} to {}", ((Number) sourceIndex.get("expireAfterSeconds")).intValue(), EXPECTED_TTL_AFTER_EXTEND);
         } else {
             // Set TTL to match source
-            indexMod.put("expireAfterSeconds", sourceIndex.getInteger("expireAfterSeconds"));
+            indexMod.put("expireAfterSeconds", ((Number) sourceIndex.get("expireAfterSeconds")).intValue());
         }
         
         collMod.append("index", indexMod);
