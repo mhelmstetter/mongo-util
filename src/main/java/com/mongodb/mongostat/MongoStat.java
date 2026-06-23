@@ -45,6 +45,9 @@ public class MongoStat {
     private Map<String, Long> shardUptimeSeconds = new ConcurrentHashMap<>();
     
     private String[] uris;
+    private List<String> explicitShardNames = null;
+    private boolean isMongos = false;
+    private MongoClient catalogClient;
     private MongoStatConfiguration config = new MongoStatConfiguration();
     
     private ExecutorService executor;
@@ -57,6 +60,10 @@ public class MongoStat {
 
     public void setUris(String[] uris) {
         this.uris = uris;
+    }
+
+    public void setExplicitShardNames(List<String> shardNames) {
+        this.explicitShardNames = shardNames;
     }
     
     public void setConfiguration(MongoStatConfiguration config) {
@@ -99,7 +106,6 @@ public class MongoStat {
                     .build();
             MongoClient tempClient = MongoClients.create(mongoClientSettings);
             
-            boolean isMongos = false;
             try {
                 Document isDbGridResponse = tempClient.getDatabase("admin").runCommand(new Document("isdbgrid", 1));
                 Object isDbGrid = isDbGridResponse.get("isdbgrid");
@@ -108,22 +114,41 @@ public class MongoStat {
                 }
             } catch (MongoCommandException mce) {
             }
-            
-            if (isMongos) {
+
+            if (isMongos && explicitShardNames != null && !explicitShardNames.isEmpty()) {
+                catalogClient = tempClient;
+                Map<String, String> resolvedUris = resolveShardUris(tempClient, uri, explicitShardNames);
+                for (Map.Entry<String, String> entry : resolvedUris.entrySet()) {
+                    String shardName = entry.getKey();
+                    String shardUri = entry.getValue();
+                    MongoClient shardMongoClient = MongoClients.create(MongoClientSettings.builder()
+                            .applyConnectionString(new ConnectionString(shardUri))
+                            .build());
+                    mongoClients.add(shardMongoClient);
+                    shardClients.put(shardName, shardMongoClient);
+                    serverStatuses.add(new ServerStatus());
+                    if (config.isIncludeWiredTigerStats()) {
+                        wtCacheStats.put(shardName, new WiredTigerCacheStats(shardName));
+                    }
+                    if (config.isIncludeCollectionStats()) {
+                        collectionStats.put(shardName, new HashMap<>());
+                    }
+                }
+            } else if (isMongos) {
                 shardClient = new ShardClient("mongostat", uri);
                 shardClient.init();
                 shardClient.populateShardMongoClients();
-                
+
                 shardClients = shardClient.getShardMongoClients();
                 for (Map.Entry<String, MongoClient> entry : shardClients.entrySet()) {
                     mongoClients.add(entry.getValue());
                     ServerStatus status = new ServerStatus();
                     serverStatuses.add(status);
-                    
+
                     if (config.isIncludeWiredTigerStats()) {
                         wtCacheStats.put(entry.getKey(), new WiredTigerCacheStats(entry.getKey()));
                     }
-                    
+
                     if (config.isIncludeCollectionStats()) {
                         collectionStats.put(entry.getKey(), new HashMap<>());
                     }
@@ -132,16 +157,17 @@ public class MongoStat {
                 mongoClients.add(tempClient);
                 ServerStatus status = new ServerStatus();
                 serverStatuses.add(status);
-                
+
                 String shardName = "standalone";
                 shardClients.put(shardName, tempClient);
-                
+
                 if (config.isIncludeWiredTigerStats()) {
                     wtCacheStats.put(shardName, new WiredTigerCacheStats(shardName));
                 }
-                
+
                 if (config.isIncludeCollectionStats()) {
-                    collectionStats.put(shardName, new HashMap<>());
+                    logger.warn("Collection stats require a mongos connection. Connect via mongos for per-collection statistics. Disabling collection stats.");
+                    config.includeCollectionStats(false);
                 }
             }
         } else {
@@ -202,7 +228,7 @@ public class MongoStat {
         // Skip printing header when in pivot mode or when shouldOutput is false
         if (shouldOutput && !config.isShardPivot()) {
             if (config.isIncludeWiredTigerStats() || config.isIncludeCollectionStats()) {
-                if (config.isDetailedOutput()) {
+                if (config.isDetailedOutput() && config.isIncludeCollectionStats()) {
                     printDetailedHeader();
                 } else {
                     printEnhancedHeader();
@@ -323,6 +349,62 @@ public class MongoStat {
         }
     }
     
+    public static void listShards(String mongosUri) {
+        try (MongoClient client = MongoClients.create(mongosUri)) {
+            Document result = client.getDatabase("admin").runCommand(new Document("listShards", 1));
+            List<Document> shards = result.getList("shards", Document.class);
+            System.out.printf("%-30s %s%n", "Shard", "Hosts");
+            for (Document shard : shards) {
+                System.out.printf("%-30s %s%n", shard.getString("_id"), shard.getString("host"));
+            }
+        }
+    }
+
+    private Map<String, String> resolveShardUris(MongoClient mongosClient, String mainUri, List<String> shardNames) {
+        Document result = mongosClient.getDatabase("admin").runCommand(new Document("listShards", 1));
+        List<Document> shards = result.getList("shards", Document.class);
+        Map<String, String> resolved = new java.util.LinkedHashMap<>();
+        for (String name : shardNames) {
+            Document match = shards.stream()
+                    .filter(s -> name.equals(s.getString("_id")))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("Shard not found: " + name
+                            + ". Use --shard with no args to list available shards."));
+            resolved.put(name, buildShardUri(mainUri, match.getString("host")));
+        }
+        return resolved;
+    }
+
+    private String buildShardUri(String mainUri, String shardHost) {
+        // shardHost format from listShards: "rsName/host1:port,host2:port,..."
+        ConnectionString cs = new ConnectionString(mainUri);
+        int slash = shardHost.indexOf('/');
+        String rsName = slash >= 0 ? shardHost.substring(0, slash) : null;
+        String hosts = slash >= 0 ? shardHost.substring(slash + 1) : shardHost;
+
+        StringBuilder sb = new StringBuilder("mongodb://");
+        if (cs.getUsername() != null) {
+            try {
+                sb.append(java.net.URLEncoder.encode(cs.getUsername(), "UTF-8"));
+                if (cs.getPassword() != null) {
+                    sb.append(":").append(java.net.URLEncoder.encode(new String(cs.getPassword()), "UTF-8"));
+                }
+                sb.append("@");
+            } catch (java.io.UnsupportedEncodingException e) {
+                throw new IllegalStateException("UTF-8 not supported", e);
+            }
+        }
+        sb.append(hosts).append("/?");
+        if (rsName != null) sb.append("replicaSet=").append(rsName).append("&");
+        if (Boolean.TRUE.equals(cs.getSslEnabled())) sb.append("tls=true&");
+        String authSource = cs.getCredential() != null ? cs.getCredential().getSource() : null;
+        if (authSource != null && !authSource.isEmpty()) sb.append("authSource=").append(authSource).append("&");
+        // trim trailing & or ?
+        String result = sb.toString().replaceAll("[&?]$", "");
+        logger.debug("Resolved shard URI: {}", result.replaceAll(":([^@/]+)@", ":***@"));
+        return result;
+    }
+
     private String getShardNameForClient(MongoClient client) {
         for (Map.Entry<String, MongoClient> entry : shardClients.entrySet()) {
             if (entry.getValue() == client) {
@@ -333,7 +415,7 @@ public class MongoStat {
     }
     
     private void updateCollectionStatsForShard(MongoClient client, String shardName) {
-        if (config.isIncludeIndexDetails()) {
+        if (config.isIncludeIndexDetails() || catalogClient != null) {
             updateCollectionStatsForShardViaCollStats(client, shardName);
         } else {
             updateCollectionStatsForShardViaInternalAgg(client, shardName);
@@ -391,7 +473,7 @@ public class MongoStat {
             logger.debug("$_internalAllCollectionStats complete for shard {}: {} collections tracked",
                 shardName, shardCollStats.size());
         } catch (Exception e) {
-            logger.error("Error updating collection stats via $_internalAllCollectionStats for shard " + shardName, e);
+            throw new IllegalStateException("Failed to collect collection stats via $_internalAllCollectionStats for shard " + shardName, e);
         }
     }
 
@@ -419,7 +501,8 @@ public class MongoStat {
 
     private void updateCollectionStatsForShardViaCollStats(MongoClient client, String shardName) {
         try {
-            MongoIterable<String> databaseNames = client.listDatabaseNames();
+            MongoClient listingClient = catalogClient != null ? catalogClient : client;
+            MongoIterable<String> databaseNames = listingClient.listDatabaseNames();
             Map<String, CollectionStats> shardCollStats = collectionStats.get(shardName);
 
             WiredTigerCacheStats wtStats = wtCacheStats.get(shardName);
@@ -437,7 +520,7 @@ public class MongoStat {
                 }
                 dbCount++;
 
-                MongoIterable<String> collectionNames = client.getDatabase(dbName).listCollectionNames();
+                MongoIterable<String> collectionNames = listingClient.getDatabase(dbName).listCollectionNames();
                 for (String collName : collectionNames) {
                     if (collName.startsWith("system.")) {
                         continue;

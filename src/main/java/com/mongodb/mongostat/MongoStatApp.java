@@ -1,5 +1,7 @@
 package com.mongodb.mongostat;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 import org.slf4j.Logger;
@@ -71,6 +73,9 @@ public class MongoStatApp implements Callable<Integer> {
     @Option(names = {"--cumulative"}, description = "Show cumulative totals since server startup (readGB/writGB) instead of per-interval deltas")
     private boolean cumulativeMode = false;
 
+    @Option(names = {"--shard"}, description = "Shard name(s) to monitor via direct connection (requires main URI to be mongos). Omit names to list available shards.", arity = "0..*")
+    private List<String> shardNames = null;
+
     @Override
     public Integer call() throws Exception {
         // Set logging level based on verbose flag
@@ -110,10 +115,16 @@ public class MongoStatApp implements Callable<Integer> {
             config.manualCacheSizeBytes(cacheSizeBytes);
         }
 
+        if (shardNames != null && shardNames.isEmpty()) {
+            MongoStat.listShards(uri);
+            return 0;
+        }
+
         MongoStat mongoStat = MongoStat.create(uri, config);
+        mongoStat.setExplicitShardNames(shardNames);
         mongoStat.init();
         mongoStat.run();
-        
+
         return 0;
     }
     
