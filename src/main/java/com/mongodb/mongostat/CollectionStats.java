@@ -84,21 +84,15 @@ public class CollectionStats {
         totalSize = getLongValue(collStats, "storageSize");
         documentCount = getLongValue(collStats, "count");
 
-        // WT cache stats from collStats
+        // WT cache stats: present at top level for direct/unsharded connections;
+        // for sharded collections via mongos they appear under shards.<name>.wiredTiger.
         Document wiredTiger = (Document) collStats.get("wiredTiger");
         if (wiredTiger != null) {
-            Document cache = (Document) wiredTiger.get("cache");
-            if (cache != null) {
-                cacheCurrentBytes = getLongValue(cache, "bytes currently in the cache");
-                cacheMaxBytes = getLongValue(cache, "maximum bytes configured");
-                cacheDirtyBytes = getLongValue(cache, "tracked dirty bytes in the cache");
-                cachePageImagesBytes = getLongValue(cache, "bytes belonging to page images in the cache");
-                cacheInternalPagesBytes = getLongValue(cache, "tracked bytes belonging to internal pages in the cache");
-                cacheNonPageImagesBytes = getLongValue(cache, "bytes not belonging to page images in the cache");
-                cachePagesRead = getLongValue(cache, "pages read into cache");
-                cachePagesWritten = getLongValue(cache, "pages written from cache");
-                cacheBytesRead = getLongValue(cache, "bytes read into cache");
-                cacheBytesWritten = getLongValue(cache, "bytes written from cache");
+            readWtCache(wiredTiger);
+        } else {
+            Document shards = (Document) collStats.get("shards");
+            if (shards != null) {
+                aggregateWtCacheFromShards(shards);
             }
         }
 
@@ -118,6 +112,56 @@ public class CollectionStats {
         }
     }
     
+    private void readWtCache(Document wiredTiger) {
+        Document cache = (Document) wiredTiger.get("cache");
+        if (cache == null) return;
+        cacheCurrentBytes = getLongValue(cache, "bytes currently in the cache");
+        cacheMaxBytes = getLongValue(cache, "maximum bytes configured");
+        cacheDirtyBytes = getLongValue(cache, "tracked dirty bytes in the cache");
+        cachePageImagesBytes = getLongValue(cache, "bytes belonging to page images in the cache");
+        cacheInternalPagesBytes = getLongValue(cache, "tracked bytes belonging to internal pages in the cache");
+        cacheNonPageImagesBytes = getLongValue(cache, "bytes not belonging to page images in the cache");
+        cachePagesRead = getLongValue(cache, "pages read into cache");
+        cachePagesWritten = getLongValue(cache, "pages written from cache");
+        cacheBytesRead = getLongValue(cache, "bytes read into cache");
+        cacheBytesWritten = getLongValue(cache, "bytes written from cache");
+    }
+
+    private void aggregateWtCacheFromShards(Document shards) {
+        cacheCurrentBytes = 0L;
+        cacheMaxBytes = null;
+        cacheDirtyBytes = 0L;
+        cachePageImagesBytes = 0L;
+        cacheInternalPagesBytes = 0L;
+        cacheNonPageImagesBytes = 0L;
+        cachePagesRead = 0L;
+        cachePagesWritten = 0L;
+        cacheBytesRead = 0L;
+        cacheBytesWritten = 0L;
+
+        for (String shardKey : shards.keySet()) {
+            Document shardDoc = (Document) shards.get(shardKey);
+            if (shardDoc == null) continue;
+            Document wiredTiger = (Document) shardDoc.get("wiredTiger");
+            if (wiredTiger == null) continue;
+            Document cache = (Document) wiredTiger.get("cache");
+            if (cache == null) continue;
+
+            cacheCurrentBytes += getLongValue(cache, "bytes currently in the cache");
+            if (cacheMaxBytes == null) {
+                cacheMaxBytes = getLongValue(cache, "maximum bytes configured");
+            }
+            cacheDirtyBytes += getLongValue(cache, "tracked dirty bytes in the cache");
+            cachePageImagesBytes += getLongValue(cache, "bytes belonging to page images in the cache");
+            cacheInternalPagesBytes += getLongValue(cache, "tracked bytes belonging to internal pages in the cache");
+            cacheNonPageImagesBytes += getLongValue(cache, "bytes not belonging to page images in the cache");
+            cachePagesRead += getLongValue(cache, "pages read into cache");
+            cachePagesWritten += getLongValue(cache, "pages written from cache");
+            cacheBytesRead += getLongValue(cache, "bytes read into cache");
+            cacheBytesWritten += getLongValue(cache, "bytes written from cache");
+        }
+    }
+
     private void copyCurrentToPrevious(CollectionStats prev) {
         prev.dataSize = this.dataSize;
         prev.indexSize = this.indexSize;
