@@ -533,7 +533,8 @@ public class MongoStat {
             int failCount = 0;
 
             for (String dbName : databaseNames) {
-                if ("admin".equals(dbName) || "config".equals(dbName) || "local".equals(dbName)) {
+                if ("admin".equals(dbName) || "config".equals(dbName) || "local".equals(dbName)
+                        || dbName.startsWith("__")) {
                     continue;
                 }
                 dbCount++;
@@ -551,8 +552,9 @@ public class MongoStat {
                     collStats.setServerMaxCacheBytes(serverMaxCacheBytes);
 
                     try {
+                        MongoClient statsClient = catalogClient != null ? catalogClient : client;
                         Document collStatsCommand = new Document("collStats", collName);
-                        Document collStatsDoc = client.getDatabase(dbName).runCommand(collStatsCommand);
+                        Document collStatsDoc = statsClient.getDatabase(dbName).runCommand(collStatsCommand);
                         collStats.updateFromCollStats(collStatsDoc);
                         successCount++;
                     } catch (Exception e) {

@@ -78,20 +78,28 @@ public class CollectionStats {
         previous = new CollectionStats(namespace, shardName);
         copyCurrentToPrevious(previous);
 
-        // Basic collection stats
-        dataSize = getLongValue(collStats, "size");
-        indexSize = getLongValue(collStats, "totalIndexSize");
-        totalSize = getLongValue(collStats, "storageSize");
-        documentCount = getLongValue(collStats, "count");
+        // When collStats runs via mongos on a sharded collection, per-shard data is
+        // under shards.<shardName>. Use it when available for accurate per-shard stats.
+        Document shards = (Document) collStats.get("shards");
+        Document shardDoc = shards != null ? (Document) shards.get(shardName) : null;
 
-        // WT cache stats: present at top level for direct/unsharded connections;
-        // for sharded collections via mongos they appear under shards.<name>.wiredTiger.
-        Document wiredTiger = (Document) collStats.get("wiredTiger");
-        if (wiredTiger != null) {
-            readWtCache(wiredTiger);
+        if (shardDoc != null) {
+            dataSize = getLongValue(shardDoc, "size");
+            indexSize = getLongValue(shardDoc, "totalIndexSize");
+            totalSize = getLongValue(shardDoc, "storageSize");
+            documentCount = getLongValue(shardDoc, "count");
+            Document wiredTiger = (Document) shardDoc.get("wiredTiger");
+            if (wiredTiger != null) readWtCache(wiredTiger);
         } else {
-            Document shards = (Document) collStats.get("shards");
-            if (shards != null) {
+            // Direct shard connection or unsharded collection via mongos
+            dataSize = getLongValue(collStats, "size");
+            indexSize = getLongValue(collStats, "totalIndexSize");
+            totalSize = getLongValue(collStats, "storageSize");
+            documentCount = getLongValue(collStats, "count");
+            Document wiredTiger = (Document) collStats.get("wiredTiger");
+            if (wiredTiger != null) {
+                readWtCache(wiredTiger);
+            } else if (shards != null) {
                 aggregateWtCacheFromShards(shards);
             }
         }
