@@ -628,6 +628,39 @@ public class MongoStat {
         return sb.toString();
     }
     
+    private String formatWtEvictionRow(String timestamp, String shard, WiredTigerCacheStats wt) {
+        double fillPct = wt.getCacheUtilization() * 100;
+        long appEvict   = wt.getDelta("appThreadsPageEvicted");
+        long modEvict   = wt.getDelta("modifiedPagesEvicted");
+        long cleanEvict = wt.getDelta("unmodifiedPagesEvicted");
+        long hazBlk     = wt.getDelta("hazardPointerBlockedEvictions");
+        long ckptBlk    = wt.getDelta("checkpointBlockedEvictions");
+        long walkPgs    = wt.getDelta("pagesWalkedForEviction");
+        long ckptMs     = wt.getCheckpointMostRecentMs() != null ? wt.getCheckpointMostRecentMs() : 0L;
+        double hsMB     = wt.getHistoryStoreBytes() != null ? wt.getHistoryStoreBytes() / 1024.0 / 1024.0 : 0.0;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s",
+                timestamp, shard, "[WT EVICTION]"));
+        sb.append(String.format("  fill:%4.1f%%  appEvict:%4d  modEvict:%6d  cleanEvict:%6d"
+                + "  hazBlk:%4d  ckptBlk:%4d  walkPgs:%8d  ckptMs:%5d  hsMB:%6.1f",
+                fillPct, appEvict, modEvict, cleanEvict, hazBlk, ckptBlk, walkPgs, ckptMs, hsMB));
+
+        // Diagnostic observations based on WiredTiger eviction thresholds
+        List<String> obs = new ArrayList<>();
+        double dirtyPct = wt.getDirtyFillRatio() * 100;
+        if (dirtyPct >= 20.0) obs.add("DIRTY>=20% app threads evicting");
+        else if (dirtyPct >= 5.0) obs.add("DIRTY>=5% background eviction active");
+        if (appEvict > 0) obs.add("app threads helping evict");
+        if (modEvict > 0 && cleanEvict == 0) obs.add("eviction is all dirty pages");
+        if (hazBlk > 0) obs.add("hazard-ptr blocked eviction");
+        if (ckptBlk > 0) obs.add("checkpoint blocked eviction");
+        if (hsMB > 512) obs.add("large history store (" + String.format("%.0f", hsMB) + "MB)");
+        if (!obs.isEmpty()) sb.append("  | ").append(String.join(", ", obs));
+
+        return sb.toString();
+    }
+
     private void printEnhancedHeader() {
         if (config.isIncludeWiredTigerStats() && config.isIncludeCollectionStats()) {
             System.out.printf(
@@ -903,6 +936,11 @@ public class MongoStat {
                 shardTotalDirtyPct,
                 0.0));
         lineCount++;
+
+        if (config.isWtEviction() && wtStats != null) {
+            System.out.println(formatWtEvictionRow(timestamp, shard, wtStats));
+            lineCount++;
+        }
 
         // Print collection details if available
         if (shardCollStats != null && !shardCollStats.isEmpty()) {

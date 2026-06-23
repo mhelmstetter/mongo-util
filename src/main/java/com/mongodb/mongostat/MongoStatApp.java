@@ -73,6 +73,9 @@ public class MongoStatApp implements Callable<Integer> {
     @Option(names = {"--cumulative"}, description = "Show cumulative totals since server startup (readGB/writGB) instead of per-interval deltas")
     private boolean cumulativeMode = false;
 
+    @Option(names = {"--wt-eviction"}, description = "Show WiredTiger eviction detail row per shard: fill%, app/mod/clean evict, hazard/checkpoint blocked, walk pages, checkpoint ms, history store MB")
+    private boolean wtEviction = false;
+
     @Option(names = {"--shard"}, description = "Shard name(s) to monitor via direct connection (requires main URI to be mongos). Omit names to list available shards.", arity = "0..*")
     private List<String> shardNames = null;
 
@@ -107,7 +110,8 @@ public class MongoStatApp implements Callable<Integer> {
                 .includeCacheMb(includeCacheMb)
                 .includeDirtyMb(includeDirtyMb)
                 .noColor(noColor)
-                .cumulativeMode(cumulativeMode);
+                .cumulativeMode(cumulativeMode)
+                .wtEviction(wtEviction);
 
         // If cache size is manually specified, convert GB to bytes
         if (cacheSizeGB != null) {

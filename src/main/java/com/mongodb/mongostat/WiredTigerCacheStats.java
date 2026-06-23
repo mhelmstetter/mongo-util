@@ -34,7 +34,18 @@ public class WiredTigerCacheStats {
     private Long appThreadsPageReads;
     private Long appThreadsPageWrites;
     private Long appThreadsPageEvicted;
-    
+
+    // Eviction blocking
+    private Long hazardPointerBlockedEvictions;
+    private Long checkpointBlockedEvictions;
+    private Long pagesWalkedForEviction;
+
+    // Checkpoint
+    private Long checkpointMostRecentMs;
+
+    // History store
+    private Long historyStoreBytes;
+
     // Previous values for delta calculation
     private WiredTigerCacheStats previous;
     
@@ -85,6 +96,20 @@ public class WiredTigerCacheStats {
         appThreadsPageReads = getLongValue(cache, "application threads page read from disk to cache count");
         appThreadsPageWrites = getLongValue(cache, "application threads page write from cache to disk count");
         appThreadsPageEvicted = getLongValue(cache, "application threads page evicted due to exceeding the in-memory maximum count");
+
+        // Eviction blocking
+        hazardPointerBlockedEvictions = getLongValue(cache, "hazard pointer blocked page eviction");
+        checkpointBlockedEvictions = getLongValue(cache, "checkpoint blocked page eviction");
+        pagesWalkedForEviction = getLongValue(cache, "pages walked for eviction");
+
+        // History store (also in cache block)
+        historyStoreBytes = getLongValue(cache, "bytes belonging to the history store table in the cache");
+
+        // Checkpoint duration lives under wiredTiger.transaction
+        Document transaction = (Document) wiredTiger.get("transaction");
+        if (transaction != null) {
+            checkpointMostRecentMs = getLongValue(transaction, "transaction checkpoint most recent time (msecs)");
+        }
     }
     
     private void copyCurrentToPrevious(WiredTigerCacheStats prev) {
@@ -107,6 +132,11 @@ public class WiredTigerCacheStats {
         prev.appThreadsPageReads = this.appThreadsPageReads;
         prev.appThreadsPageWrites = this.appThreadsPageWrites;
         prev.appThreadsPageEvicted = this.appThreadsPageEvicted;
+        prev.hazardPointerBlockedEvictions = this.hazardPointerBlockedEvictions;
+        prev.checkpointBlockedEvictions = this.checkpointBlockedEvictions;
+        prev.pagesWalkedForEviction = this.pagesWalkedForEviction;
+        prev.checkpointMostRecentMs = this.checkpointMostRecentMs;
+        prev.historyStoreBytes = this.historyStoreBytes;
     }
     
     private Long getLongValue(Document doc, String key) {
@@ -143,6 +173,9 @@ public class WiredTigerCacheStats {
             case "appThreadsPageReads": return appThreadsPageReads;
             case "appThreadsPageWrites": return appThreadsPageWrites;
             case "appThreadsPageEvicted": return appThreadsPageEvicted;
+            case "hazardPointerBlockedEvictions": return hazardPointerBlockedEvictions;
+            case "checkpointBlockedEvictions": return checkpointBlockedEvictions;
+            case "pagesWalkedForEviction": return pagesWalkedForEviction;
             default: return null;
         }
     }
@@ -189,4 +222,9 @@ public class WiredTigerCacheStats {
     public Long getAppThreadsPageReads() { return appThreadsPageReads; }
     public Long getAppThreadsPageWrites() { return appThreadsPageWrites; }
     public Long getAppThreadsPageEvicted() { return appThreadsPageEvicted; }
+    public Long getHazardPointerBlockedEvictions() { return hazardPointerBlockedEvictions; }
+    public Long getCheckpointBlockedEvictions() { return checkpointBlockedEvictions; }
+    public Long getPagesWalkedForEviction() { return pagesWalkedForEviction; }
+    public Long getCheckpointMostRecentMs() { return checkpointMostRecentMs; }
+    public Long getHistoryStoreBytes() { return historyStoreBytes; }
 }
