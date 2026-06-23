@@ -863,16 +863,42 @@ public class MongoStat {
             }
         }
 
+        // Compute shard-total dirty% from WT stats when available; otherwise derive from
+        // per-collection cache data (Atlas mongos: max bytes configured absent from collStats,
+        // so we use dirty/current-cache as the ratio)
+        double shardTotalDirtyPct;
+        double shardTotalCacheMB;
+        double shardTotalDirtyMB;
+        if (wtStats != null) {
+            shardTotalDirtyPct = wtStats.getDirtyFillRatio() * 100;
+            shardTotalCacheMB = wtStats.getCurrentCacheBytes() / 1024.0 / 1024.0;
+            shardTotalDirtyMB = wtStats.getDirtyBytes() / 1024.0 / 1024.0;
+        } else if (shardCollStats != null && !shardCollStats.isEmpty()) {
+            double totalDirtyBytes = 0;
+            double totalCurrentBytes = 0;
+            for (CollectionStats cs : shardCollStats.values()) {
+                if (cs.getCacheDirtyBytes() != null) totalDirtyBytes += cs.getCacheDirtyBytes();
+                if (cs.getCacheCurrentBytes() != null) totalCurrentBytes += cs.getCacheCurrentBytes();
+            }
+            shardTotalDirtyPct = totalCurrentBytes > 0 ? (totalDirtyBytes / totalCurrentBytes) * 100 : 0.0;
+            shardTotalCacheMB = totalCurrentBytes / 1024.0 / 1024.0;
+            shardTotalDirtyMB = totalDirtyBytes / 1024.0 / 1024.0;
+        } else {
+            shardTotalDirtyPct = 0.0;
+            shardTotalCacheMB = 0.0;
+            shardTotalDirtyMB = 0.0;
+        }
+
         // Print shard summary line
         System.out.println(formatDetailedLine(
                 timestamp, shard, "[SHARD TOTAL]",
                 status.getCurrentInserts(), status.getCurrentQueries(),
                 status.getCurrentUpdates(), status.getCurrentDeletes(),
                 0.0, 0.0,
-                wtStats != null ? wtStats.getCurrentCacheBytes() / 1024.0 / 1024.0 : 0.0,
-                wtStats != null ? wtStats.getDirtyBytes() / 1024.0 / 1024.0 : 0.0,
+                shardTotalCacheMB,
+                shardTotalDirtyMB,
                 totalReadVal, totalWriteVal,
-                wtStats != null ? wtStats.getDirtyFillRatio() * 100 : 0.0,
+                shardTotalDirtyPct,
                 0.0));
         lineCount++;
 

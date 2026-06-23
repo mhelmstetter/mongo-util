@@ -210,25 +210,38 @@ public class CollectionStats {
     }
     
     public double getDirtyFillRatio() {
-        // Calculate dirty bytes as percentage of server's total max cache
-        if (serverMaxCacheBytes == null || serverMaxCacheBytes == 0 || cacheDirtyBytes == null) {
+        if (cacheDirtyBytes == null) {
             return 0.0;
         }
-        return (double) cacheDirtyBytes / serverMaxCacheBytes;
+        // Prefer server-level max cache; fall back to collection's current cache bytes
+        // when max is unavailable (e.g. Atlas mongos doesn't expose max bytes configured)
+        Long denominator = (serverMaxCacheBytes != null && serverMaxCacheBytes > 0)
+                ? serverMaxCacheBytes
+                : (cacheCurrentBytes != null && cacheCurrentBytes > 0 ? cacheCurrentBytes : null);
+        if (denominator == null) {
+            return 0.0;
+        }
+        return (double) cacheDirtyBytes / denominator;
     }
 
     public double getIndexDirtyFillRatio() {
-        // Calculate aggregate index dirty bytes as percentage of server's total max cache
-        if (serverMaxCacheBytes == null || serverMaxCacheBytes == 0) {
-            return 0.0;
-        }
         long totalIndexDirtyBytes = 0L;
         for (IndexStats idx : indexStats.values()) {
             if (idx.getCacheDirtyBytes() != null) {
                 totalIndexDirtyBytes += idx.getCacheDirtyBytes();
             }
         }
-        return (double) totalIndexDirtyBytes / serverMaxCacheBytes;
+        if (totalIndexDirtyBytes == 0) {
+            return 0.0;
+        }
+        // Prefer server-level max cache; fall back to collection's current cache bytes
+        Long denominator = (serverMaxCacheBytes != null && serverMaxCacheBytes > 0)
+                ? serverMaxCacheBytes
+                : (cacheCurrentBytes != null && cacheCurrentBytes > 0 ? cacheCurrentBytes : null);
+        if (denominator == null) {
+            return 0.0;
+        }
+        return (double) totalIndexDirtyBytes / denominator;
     }
 
     public void setServerMaxCacheBytes(Long serverMaxCacheBytes) {
