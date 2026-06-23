@@ -139,6 +139,14 @@ public class MongoStat {
                 shardClient.init();
                 shardClient.populateShardMongoClients();
 
+                // On Atlas, direct shard connections cannot run $_internalAllCollectionStats
+                // because it accesses config.system.sessions which is blocked on direct-to-shard
+                // connections. Use the mongos client for database/collection listing so that
+                // updateCollectionStatsForShardViaCollStats is chosen over the internal agg path.
+                if (config.isIncludeCollectionStats() && shardClient.isAtlas()) {
+                    catalogClient = tempClient;
+                }
+
                 shardClients = shardClient.getShardMongoClients();
                 for (Map.Entry<String, MongoClient> entry : shardClients.entrySet()) {
                     mongoClients.add(entry.getValue());
@@ -437,6 +445,10 @@ public class MongoStat {
 
             List<Document> pipeline = new ArrayList<>();
             pipeline.add(new Document("$_internalAllCollectionStats", statsOptions));
+            pipeline.add(new Document("$match", new Document("$and", java.util.Arrays.asList(
+                new Document("ns", new Document("$not", new Document("$regex", "^(admin|config|local)\\."))),
+                new Document("ns", new Document("$not", new Document("$regex", "\\.system\\.")))
+            ))));
 
             Document command = new Document("aggregate", 1)
                 .append("pipeline", pipeline)
