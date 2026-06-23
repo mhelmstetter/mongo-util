@@ -129,7 +129,7 @@ public class CollectionStats {
 
     private void aggregateWtCacheFromShards(Document shards) {
         cacheCurrentBytes = 0L;
-        cacheMaxBytes = null;
+        cacheMaxBytes = 0L;
         cacheDirtyBytes = 0L;
         cachePageImagesBytes = 0L;
         cacheInternalPagesBytes = 0L;
@@ -148,9 +148,7 @@ public class CollectionStats {
             if (cache == null) continue;
 
             cacheCurrentBytes += getLongValue(cache, "bytes currently in the cache");
-            if (cacheMaxBytes == null) {
-                cacheMaxBytes = getLongValue(cache, "maximum bytes configured");
-            }
+            cacheMaxBytes += getLongValue(cache, "maximum bytes configured");
             cacheDirtyBytes += getLongValue(cache, "tracked dirty bytes in the cache");
             cachePageImagesBytes += getLongValue(cache, "bytes belonging to page images in the cache");
             cacheInternalPagesBytes += getLongValue(cache, "tracked bytes belonging to internal pages in the cache");
@@ -213,11 +211,9 @@ public class CollectionStats {
         if (cacheDirtyBytes == null) {
             return 0.0;
         }
-        // Prefer server-level max cache; fall back to collection's current cache bytes
-        // when max is unavailable (e.g. Atlas mongos doesn't expose max bytes configured)
-        Long denominator = (serverMaxCacheBytes != null && serverMaxCacheBytes > 0)
+        Long denominator = serverMaxCacheBytes != null && serverMaxCacheBytes > 0
                 ? serverMaxCacheBytes
-                : (cacheCurrentBytes != null && cacheCurrentBytes > 0 ? cacheCurrentBytes : null);
+                : (cacheMaxBytes != null && cacheMaxBytes > 0 ? cacheMaxBytes : null);
         if (denominator == null) {
             return 0.0;
         }
@@ -234,10 +230,9 @@ public class CollectionStats {
         if (totalIndexDirtyBytes == 0) {
             return 0.0;
         }
-        // Prefer server-level max cache; fall back to collection's current cache bytes
-        Long denominator = (serverMaxCacheBytes != null && serverMaxCacheBytes > 0)
+        Long denominator = serverMaxCacheBytes != null && serverMaxCacheBytes > 0
                 ? serverMaxCacheBytes
-                : (cacheCurrentBytes != null && cacheCurrentBytes > 0 ? cacheCurrentBytes : null);
+                : (cacheMaxBytes != null && cacheMaxBytes > 0 ? cacheMaxBytes : null);
         if (denominator == null) {
             return 0.0;
         }

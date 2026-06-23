@@ -604,7 +604,7 @@ public class MongoStat {
     private void printDetailedHeader() {
         calculateColumnWidths();
         StringBuilder header = new StringBuilder();
-        header.append(String.format("%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8s %8s",
+        header.append(String.format("%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %9s %9s %9s %9s %8s %8s",
                 "Time", "Shard", "Collection", "ins", "qry", "upd", "del", "dataGB", "idxGB"));
         if (config.isIncludeCacheMb()) header.append(String.format(" %8s", "cacheMB"));
         if (config.isIncludeDirtyMb()) header.append(String.format(" %8s", "dirtyMB"));
@@ -622,7 +622,7 @@ public class MongoStat {
             double dataGB, double idxGB, double cacheMB, double dirtyMB,
             double readMB, double writeMB, double dirtyPct, double idxDtyPct) {
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %6s %6s %6s %6s %8.2f %8.2f",
+        sb.append(String.format("%-8s %-" + maxShardWidth + "s %-" + maxCollectionWidth + "s %9s %9s %9s %9s %8.2f %8.2f",
                 timestamp, shard, namespace, ins, qry, upd, del, dataGB, idxGB));
         if (config.isIncludeCacheMb()) sb.append(String.format(" %8.1f", cacheMB));
         if (config.isIncludeDirtyMb()) sb.append(String.format(" %8.1f", dirtyMB));
@@ -876,11 +876,15 @@ public class MongoStat {
         } else if (shardCollStats != null && !shardCollStats.isEmpty()) {
             double totalDirtyBytes = 0;
             double totalCurrentBytes = 0;
+            Long totalMaxBytes = null;
             for (CollectionStats cs : shardCollStats.values()) {
                 if (cs.getCacheDirtyBytes() != null) totalDirtyBytes += cs.getCacheDirtyBytes();
                 if (cs.getCacheCurrentBytes() != null) totalCurrentBytes += cs.getCacheCurrentBytes();
+                if (totalMaxBytes == null && cs.getCacheMaxBytes() != null && cs.getCacheMaxBytes() > 0)
+                    totalMaxBytes = cs.getCacheMaxBytes();
             }
-            shardTotalDirtyPct = totalCurrentBytes > 0 ? (totalDirtyBytes / totalCurrentBytes) * 100 : 0.0;
+            shardTotalDirtyPct = (totalMaxBytes != null && totalMaxBytes > 0)
+                    ? (totalDirtyBytes / totalMaxBytes) * 100 : 0.0;
             shardTotalCacheMB = totalCurrentBytes / 1024.0 / 1024.0;
             shardTotalDirtyMB = totalDirtyBytes / 1024.0 / 1024.0;
         } else {
