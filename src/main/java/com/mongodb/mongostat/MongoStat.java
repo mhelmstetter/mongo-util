@@ -139,36 +139,32 @@ public class MongoStat {
                         .anyMatch(h -> h.contains("mongodb.net"));
 
                 if (isAtlas) {
-                    logger.info("Atlas cluster detected, using mongos-only mode (direct shard connections not supported)");
-                    mongoClients.add(tempClient);
-                    shardClients.put("mongos", tempClient);
-                    serverStatuses.add(new ServerStatus());
-                    catalogClient = tempClient;
-                    if (config.isIncludeWiredTigerStats()) {
-                        logger.warn("WiredTiger stats are not available via mongos on Atlas, disabling");
-                        config.includeWiredTigerStats(false);
-                    }
+                    // Atlas allows direct shard connections for serverStatus and WiredTiger stats.
+                    // Only $_internalAllCollectionStats fails (it accesses config.system.sessions).
+                    // Set catalogClient so collection listing goes through mongos and collStats is
+                    // used per-shard instead of $_internalAllCollectionStats.
+                    logger.info("Atlas cluster detected: using direct shard connections with mongos routing for collection listing");
                     if (config.isIncludeCollectionStats()) {
-                        collectionStats.put("mongos", new HashMap<>());
+                        catalogClient = tempClient;
                     }
-                } else {
-                    shardClient = new ShardClient("mongostat", uri);
-                    shardClient.init();
-                    shardClient.populateShardMongoClients();
+                }
 
-                    shardClients = shardClient.getShardMongoClients();
-                    for (Map.Entry<String, MongoClient> entry : shardClients.entrySet()) {
-                        mongoClients.add(entry.getValue());
-                        ServerStatus status = new ServerStatus();
-                        serverStatuses.add(status);
+                shardClient = new ShardClient("mongostat", uri);
+                shardClient.init();
+                shardClient.populateShardMongoClients();
 
-                        if (config.isIncludeWiredTigerStats()) {
-                            wtCacheStats.put(entry.getKey(), new WiredTigerCacheStats(entry.getKey()));
-                        }
+                shardClients = shardClient.getShardMongoClients();
+                for (Map.Entry<String, MongoClient> entry : shardClients.entrySet()) {
+                    mongoClients.add(entry.getValue());
+                    ServerStatus status = new ServerStatus();
+                    serverStatuses.add(status);
 
-                        if (config.isIncludeCollectionStats()) {
-                            collectionStats.put(entry.getKey(), new HashMap<>());
-                        }
+                    if (config.isIncludeWiredTigerStats()) {
+                        wtCacheStats.put(entry.getKey(), new WiredTigerCacheStats(entry.getKey()));
+                    }
+
+                    if (config.isIncludeCollectionStats()) {
+                        collectionStats.put(entry.getKey(), new HashMap<>());
                     }
                 }
             } else {
