@@ -13,7 +13,7 @@ mvn install:install-file \
   -Dfile=lib/catalogmirror.jar \
   -DgroupId=com.mongodb \
   -DartifactId=catalogmirror \
-  -Dversion=1.0.6 \
+  -Dversion=1.0.10 \
   -Dpackaging=jar
 ```
 
