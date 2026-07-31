@@ -43,7 +43,7 @@ jobs:
             -Dfile=lib/catalogmirror.jar \
             -DgroupId=com.mongodb \
             -DartifactId=catalogmirror \
-            -Dversion=1.0.9 \
+            -Dversion=1.0.10 \
             -Dpackaging=jar
 
       - name: Run Java integration suite with docker provisioning
