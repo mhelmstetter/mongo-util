@@ -25,7 +25,8 @@ import picocli.CommandLine.ParseResult;
 import picocli.CommandLine.PropertiesDefaultProvider;
 
 @Command(name = "shardSync", 
-         mixinStandardHelpOptions = true, 
+         mixinStandardHelpOptions = true,
+         versionProvider = ManifestVersionProvider.class,
          description = "MongoDB shard synchronization utility",
          defaultValueProvider = PropertiesDefaultProvider.class,
          subcommands = {

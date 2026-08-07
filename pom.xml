@@ -91,6 +91,12 @@
 				<configuration>
 					<!-- Main artifact: core jar without logback configs -->
 					<finalName>mongo-util-core-${project.version}</finalName>
+					<archive>
+						<manifest>
+							<!-- Implementation-Version feeds picocli's version option -->
+							<addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+						</manifest>
+					</archive>
 				</configuration>
 			</plugin>
 			<plugin>
