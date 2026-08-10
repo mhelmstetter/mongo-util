@@ -27,6 +27,20 @@ jobs:
           fi
           ls -lh bin/mongo-util.jar
 
+      - name: Verify JAR manifest version matches tag
+        run: |
+          MANIFEST_VERSION=$(unzip -p bin/mongo-util.jar META-INF/MANIFEST.MF | tr -d '\r' | sed -n 's/^Implementation-Version: //p')
+          if [ -z "$MANIFEST_VERSION" ]; then
+            echo "ERROR: bin/mongo-util.jar manifest has no Implementation-Version entry!"
+            exit 1
+          fi
+          if [ "$MANIFEST_VERSION" != "${{ steps.version.outputs.VERSION }}" ]; then
+            echo "ERROR: committed bin/mongo-util.jar was built for version $MANIFEST_VERSION, but this tag is v${{ steps.version.outputs.VERSION }}."
+            echo "The jar must be rebuilt with 'mvn clean package -DskipTests' AFTER bumping pom.xml, and committed together with the pom.xml bump before tagging."
+            exit 1
+          fi
+          echo "OK: jar manifest version ($MANIFEST_VERSION) matches tag (v${{ steps.version.outputs.VERSION }})"
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
